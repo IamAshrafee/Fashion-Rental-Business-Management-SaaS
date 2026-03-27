@@ -133,7 +133,7 @@ Request custom domain setup.
     "status": "pending_verification",
     "dnsInstructions": {
       "aRecord": { "type": "A", "host": "@", "value": "103.xxx.xxx.xxx" },
-      "cnameRecord": { "type": "CNAME", "host": "@", "value": "closetrent.com.bd" }
+      "cnameRecord": { "type": "CNAME", "host": "@", "value": "closetrent.com" }
     }
   }
 }

@@ -125,11 +125,11 @@ File URLs always include tenant context. No cross-tenant file access.
 Each tenant automatically gets a subdomain:
 
 ```
-<slug>.closetrent.com.bd
+<slug>.closetrent.com
 ```
 
 Configuration:
-- Wildcard DNS: `*.closetrent.com.bd → VPS IP`
+- Wildcard DNS: `*.closetrent.com → VPS IP`
 - Wildcard SSL: via Cloudflare or Let's Encrypt
 - Nginx: catch-all server block forwards to Next.js
 
@@ -140,7 +140,7 @@ Business owners can connect their own domain:
 1. Owner adds domain in settings
 2. System generates instructions:
    - Point A record to our IP, OR
-   - Point CNAME to `closetrent.com.bd`
+   - Point CNAME to `closetrent.com`
 3. Backend verifies DNS resolution
 4. Nginx generates server block for the domain
 5. SSL auto-provisioned via Let's Encrypt
@@ -150,7 +150,7 @@ Business owners can connect their own domain:
 | URL Pattern | Resolves To |
 |---|---|
 | `<slug>.closetrent.com` | Guest Portal for tenant |
-| `<slug>.closetrent.com.bd/owner` | Owner Portal for tenant |
+| `<slug>.closetrent.com/owner` | Owner Portal for tenant |
 | `admin.closetrent.com` | SaaS Admin Portal |
 | `<custom-domain>` | Guest Portal for tenant |
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Admin API is accessed via `admin.closetrent.com.bd/api/v1/admin/`. Requires `UserRole.saas_admin` authentication.
+Admin API is accessed via `admin.closetrent.com/api/v1/admin/`. Requires `UserRole.saas_admin` authentication.
 
 ---
 

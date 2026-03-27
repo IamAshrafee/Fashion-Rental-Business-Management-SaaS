@@ -17,8 +17,7 @@ Consistent terminology across all documentation, code, and UI. If a term is used
 | **Category** | Top-level product classification (e.g., Saree, Sherwani, Gown, Shoes). |
 | **Subcategory** | Second-level classification under a category (e.g., under Saree → Banarasi, Jamdani). |
 | **Event** | An occasion a product is suitable for (e.g., Wedding, Holud, Reception, Birthday). Products can have multiple events. |
-| **Booking** | A customer's reservation to rent one or more products for a specific date range. This is the primary transaction type. |
-| **Order** | A confirmed booking that has been accepted by the business owner and is being processed. |
+| **Booking** | A customer's reservation to rent one or more products for a specific date range. This is the primary transaction entity — a booking IS the order. Status progression tracks the full lifecycle (pending → confirmed → shipped → delivered → returned → inspected → completed). |
 | **Rental Duration** | The number of days a product is rented for. Calculated from pickup/delivery date to return date. |
 | **Rental Price** | The amount charged to the customer for renting a product for the specified duration. |
 | **Security Deposit** | A refundable amount collected before rental to cover potential damage or loss. Returned after successful return. |
@@ -39,6 +38,7 @@ Consistent terminology across all documentation, code, and UI. If a term is used
 | **Guest** | An end customer browsing or shopping in a store. Guests do not need accounts to browse or book. |
 | **Business Owner** | The tenant who manages their store through the Business Owner Portal. |
 | **Staff** | Additional users added by the business owner to help manage the store (e.g., salesperson). |
+| **Manager** | A staff role with elevated permissions — can manage bookings, customers, and products but cannot change store settings or manage other staff. |
 | **SaaS Admin** | Platform-level administrator who manages all tenants, billing, and platform settings. |
 | **Guest Portal** | The customer-facing storefront — product browsing, cart, checkout, booking confirmation. |
 | **Owner Portal** | The business management dashboard — inventory, orders, customers, analytics, settings. |
@@ -53,9 +53,9 @@ Consistent terminology across all documentation, code, and UI. If a term is used
 | Term | Definition |
 |---|---|
 | **Multi-Tenant** | Architecture where a single application instance serves multiple businesses, with data isolation via `tenant_id`. |
-| **Subdomain Routing** | Each tenant gets a subdomain (e.g., `store1.closetrent.com.bd`). The system reads the hostname to determine which tenant's data to load. |
+| **Subdomain Routing** | Each tenant gets a subdomain (e.g., `store1.closetrent.com`). The system reads the hostname to determine which tenant's data to load. |
 | **Custom Domain** | A tenant's own domain (e.g., `rentbysara.com`) pointing to our platform via DNS. |
-| **Wildcard DNS** | DNS configuration where `*.closetrent.com.bd` points to our server, enabling automatic subdomain creation. |
+| **Wildcard DNS** | DNS configuration where `*.closetrent.com` points to our server, enabling automatic subdomain creation. |
 | **MinIO** | Self-hosted, S3-compatible object storage. Used for product images and other file uploads. |
 | **Prisma** | TypeScript ORM used to define database schema, run migrations, and query PostgreSQL. |
 | **NestJS** | Node.js backend framework providing structured, enterprise-ready API architecture. |
@@ -69,10 +69,10 @@ Consistent terminology across all documentation, code, and UI. If a term is used
 
 | Symbol | Meaning |
 |---|---|
-| **৳** | Bangladeshi Taka (BDT) — the primary currency |
-| **bKash** | Mobile financial service — primary digital payment method in Bangladesh |
-| **Nagad** | Mobile financial service — second major digital payment method |
-| **SSLCommerz** | Payment gateway aggregator supporting bKash, Nagad, cards |
+| **Currency** | Tenant-configurable — each tenant sets their own currency (BDT, THB, USD, etc.) |
+| **bKash** | Mobile financial service — BD payment method (available as payment provider adapter) |
+| **Nagad** | Mobile financial service — BD payment method (available as payment provider adapter) |
+| **SSLCommerz** | Payment gateway aggregator supporting bKash, Nagad, cards (available as payment provider adapter) |
 
 ---
 
@@ -85,12 +85,12 @@ Consistent terminology across all documentation, code, and UI. If a term is used
 | **Available** | Product | Currently not booked, can be rented |
 | **Not Available** | Product | Cannot be rented now (upcoming item, or temporarily unavailable). Optional availability date can be set. |
 | **Booked** | Product (date-specific) | Reserved for a specific date range |
-| **Pending** | Booking/Order | Submitted by guest, waiting for owner action |
-| **Confirmed** | Booking/Order | Accepted by owner |
-| **Shipped** | Order | Product dispatched to customer |
-| **Delivered** | Order | Product received by customer |
-| **Returned** | Order | Product returned by customer |
-| **Inspected** | Order | Returned product checked for damage |
-| **Completed** | Order | Rental cycle fully finished, deposit refunded |
-| **Cancelled** | Booking/Order | Cancelled by guest or owner |
-| **Overdue** | Order | Return date passed, product not yet returned |
+| **Pending** | Booking | Submitted by guest, waiting for owner action |
+| **Confirmed** | Booking | Accepted by owner |
+| **Shipped** | Booking | Product dispatched to customer |
+| **Delivered** | Booking | Product received by customer |
+| **Returned** | Booking | Product returned by customer |
+| **Inspected** | Booking | Returned product checked for damage |
+| **Completed** | Booking | Rental cycle fully finished, deposit refunded |
+| **Cancelled** | Booking | Cancelled by guest or owner |
+| **Overdue** | Booking | Return date passed, product not yet returned |

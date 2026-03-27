@@ -130,7 +130,7 @@ Fixed position, bottom-right corner, 56px circular button.
 ### Store Not Found (404)
 ```
 Store not found.
-Check the URL or visit closetrent.com.bd to find your store.
+Check the URL or visit closetrent.com to find your store.
 ```
 
 ### Store Suspended

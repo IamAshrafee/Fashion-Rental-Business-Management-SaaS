@@ -18,7 +18,7 @@ Start with everything on one VPS. Design it so that any service can be detached 
 | Backup | Auto-enabled |
 | OS | Linux (Ubuntu 22.04 LTS recommended) |
 | Cost | $7.59/month |
-| Region | IND (India) — 20-40ms latency to Bangladesh |
+| Region | USA — globally accessible, primary deployment region |
 
 ---
 
@@ -127,7 +127,7 @@ Set memory limits in Docker Compose to prevent any single container from consumi
 ### Responsibilities
 
 1. **SSL termination**: Handle HTTPS via Let's Encrypt certificates
-2. **Subdomain routing**: Route `*.closetrent.com.bd` to frontend
+2. **Subdomain routing**: Route `*.closetrent.com` to frontend
 3. **API routing**: Route `/api/*` requests to backend
 4. **Static files**: Serve MinIO files via proxy with cache headers
 5. **Custom domains**: Dynamic server blocks for tenant custom domains
@@ -138,19 +138,19 @@ Set memory limits in Docker Compose to prevent any single container from consumi
 
 ```
 # Subdomain → Frontend (Guest Portal)
-*.closetrent.com.bd → frontend:3000
+*.closetrent.com → frontend:3000
 
 # API requests → Backend
-*.closetrent.com.bd/api/* → backend:4000
+*.closetrent.com/api/* → backend:4000
 
 # Owner portal
-*.closetrent.com.bd/owner/* → frontend:3000
+*.closetrent.com/owner/* → frontend:3000
 
 # Admin portal
-admin.closetrent.com.bd → frontend:3000
+admin.closetrent.com → frontend:3000
 
 # File storage proxy
-cdn.closetrent.com.bd/* → minio:9000 (with cache headers)
+cdn.closetrent.com/* → minio:9000 (with cache headers)
 
 # Custom domains → Frontend
 <custom-domain> → frontend:3000
@@ -160,8 +160,8 @@ cdn.closetrent.com.bd/* → minio:9000 (with cache headers)
 
 | Domain Type | SSL Method |
 |---|---|
-| `closetrent.com.bd` | Cloudflare (origin certificate) |
-| `*.closetrent.com.bd` | Cloudflare wildcard (free) |
+| `closetrent.com` | Cloudflare (origin certificate) |
+| `*.closetrent.com` | Cloudflare wildcard (free) |
 | Custom domains | Let's Encrypt (auto-provisioned) |
 
 ---
@@ -298,8 +298,8 @@ STORAGE_SECRET_KEY=minioadmin
 STORAGE_BUCKET=closetrent
 
 # Frontend
-NEXT_PUBLIC_API_URL=https://api.closetrent.com.bd
-NEXT_PUBLIC_STORAGE_URL=https://cdn.closetrent.com.bd
+NEXT_PUBLIC_API_URL=https://api.closetrent.com
+NEXT_PUBLIC_STORAGE_URL=https://cdn.closetrent.com
 ```
 
 This ensures any service can be moved to any server by only updating environment variables. Zero code changes.

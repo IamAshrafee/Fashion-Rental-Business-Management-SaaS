@@ -5,7 +5,7 @@
 ### Base URL
 
 ```
-https://{subdomain}.closetrent.com.bd/api/v1
+https://{subdomain}.closetrent.com/api/v1
 ```
 
 Custom domains also work: `https://rentbysara.com/api/v1`

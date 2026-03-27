@@ -37,20 +37,30 @@ app.useGlobalPipes(new ValidationPipe({
 
 ## Validation Rules by Entity
 
-### Phone Number (Bangladesh)
+### Phone Number (Tenant-Configurable)
 
 ```typescript
-@Matches(/^01[3-9]\d{8}$/, { message: 'Invalid BD phone number' })
+// Validation pattern determined by tenant's country setting
+const PHONE_PATTERNS: Record<string, RegExp> = {
+  BD: /^01[3-9]\d{8}$/,           // Bangladesh: 11 digits
+  TH: /^0[689]\d{7,8}$/,          // Thailand: 9-10 digits
+  US: /^\d{10}$/,                  // USA: 10 digits
+  DEFAULT: /^\+?\d{7,15}$/,        // International fallback
+};
+
+@Matches(tenantPhonePattern, { message: 'Invalid phone number for this region' })
 phone: string;
 ```
 
-### Price / Currency
+### Price / Currency (Integer)
 
 ```typescript
-@IsDecimal({ decimal_digits: '0,2' })
+@IsInt()
 @Min(0)
-@Max(9999999.99)
+@Max(99999999)
 amount: number;
+// All amounts stored as integers — no decimals (ADR-04)
+// Rounding: always round UP (Math.ceil)
 ```
 
 ### Slug

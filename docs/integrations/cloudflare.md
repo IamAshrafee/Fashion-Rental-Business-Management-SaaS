@@ -14,7 +14,7 @@ Cloudflare provides DNS management, SSL certificates, and CDN caching for custom
 | DNS for custom domains | Cloudflare DNS API |
 | CDN for static assets | Cloudflare CDN |
 | DDoS protection | Always-on |
-| DNS for `*.closetrent.com.bd` | Wildcard DNS |
+| DNS for `*.closetrent.com` | Wildcard DNS |
 
 ---
 
@@ -27,7 +27,7 @@ Cloudflare provides DNS management, SSL certificates, and CDN caching for custom
 [System generates DNS instructions]
        │
        ├── "Add a CNAME record:"
-       │     rentbyhana.com → custom.closetrent.com.bd
+       │     rentbyhana.com → custom.closetrent.com
        │
        ├── Owner adds CNAME in their domain registrar
        │
@@ -55,8 +55,8 @@ Cloudflare provides DNS management, SSL certificates, and CDN caching for custom
 POST https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records
 {
   "type": "CNAME",
-  "name": "custom.closetrent.com.bd",
-  "content": "server.closetrent.com.bd",
+  "name": "custom.closetrent.com",
+  "content": "server.closetrent.com",
   "proxied": true
 }
 ```
@@ -68,7 +68,7 @@ async function verifyDNS(domain: string): Promise<boolean> {
   const resolver = new dns.Resolver();
   try {
     const records = await resolver.resolveCname(domain);
-    return records.some(r => r.includes('closetrent.com.bd'));
+    return records.some(r => r.includes('closetrent.com'));
   } catch {
     return false;
   }
@@ -91,8 +91,8 @@ async function verifyDNS(domain: string): Promise<boolean> {
 ## Wildcard DNS
 
 ```
-*.closetrent.com.bd → VPS IP (A record)
-closetrent.com.bd   → VPS IP (A record)
+*.closetrent.com → VPS IP (A record)
+closetrent.com   → VPS IP (A record)
 ```
 
 Nginx handles subdomain routing to the correct tenant.

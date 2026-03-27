@@ -54,7 +54,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
-      - NEXT_PUBLIC_API_URL=https://api.closetrent.com.bd
+      - NEXT_PUBLIC_API_URL=https://api.closetrent.com
     restart: always
 
   backend:

@@ -14,7 +14,7 @@ Row-Level Security (RLS) via application-layer enforcement. Every tenant's data 
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
   async use(req, res, next) {
-    const host = req.headers.host; // e.g., hanasboutique.closetrent.com.bd
+    const host = req.headers.host; // e.g., hanasboutique.closetrent.com
     const subdomain = host.split('.')[0];
 
     const tenant = await this.tenantService.findBySubdomainOrDomain(subdomain, host);

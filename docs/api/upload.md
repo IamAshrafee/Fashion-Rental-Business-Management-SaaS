@@ -37,8 +37,8 @@ Upload product variant images.
   "success": true,
   "data": {
     "id": "...",
-    "url": "https://cdn.closetrent.com.bd/...",
-    "thumbnailUrl": "https://cdn.closetrent.com.bd/...",
+    "url": "https://cdn.closetrent.com/...",
+    "thumbnailUrl": "https://cdn.closetrent.com/...",
     "isFeatured": false,
     "sequence": 2,
     "fileSize": 245000

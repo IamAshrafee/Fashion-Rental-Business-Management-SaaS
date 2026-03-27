@@ -47,10 +47,10 @@ http {
 # /etc/nginx/conf.d/storefront.conf
 server {
     listen 443 ssl;
-    server_name *.closetrent.com.bd;
+    server_name *.closetrent.com;
 
-    ssl_certificate /etc/letsencrypt/live/closetrent.com.bd/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/closetrent.com.bd/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/closetrent.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/closetrent.com/privkey.pem;
 
     # Frontend (Next.js)
     location / {
@@ -117,10 +117,10 @@ server {
 # /etc/nginx/conf.d/admin.conf
 server {
     listen 443 ssl;
-    server_name admin.closetrent.com.bd;
+    server_name admin.closetrent.com;
 
-    ssl_certificate /etc/letsencrypt/live/closetrent.com.bd/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/closetrent.com.bd/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/closetrent.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/closetrent.com/privkey.pem;
 
     location / {
         proxy_pass http://frontend:3000;
@@ -136,7 +136,7 @@ server {
 ```nginx
 server {
     listen 80;
-    server_name *.closetrent.com.bd closetrent.com.bd;
+    server_name *.closetrent.com closetrent.com;
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -156,8 +156,8 @@ server {
 # Wildcard certificate via Cloudflare DNS
 certbot certonly --dns-cloudflare \
   --dns-cloudflare-credentials /etc/cloudflare/credentials.ini \
-  -d closetrent.com.bd \
-  -d *.closetrent.com.bd
+  -d closetrent.com \
+  -d *.closetrent.com
 
 # Auto-renewal cron
 0 0 */60 * * certbot renew --quiet && nginx -s reload

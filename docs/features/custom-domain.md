@@ -32,7 +32,7 @@ Option A — A Record (recommended):
 Option B — CNAME Record:
   Type: CNAME
   Host: @
-  Value: closetrent.com.bd
+  Value: closetrent.com
 
 ⚠️ DNS changes can take up to 48 hours to propagate.
 
@@ -117,7 +117,7 @@ SSL: ✅ Valid (expires Dec 2026, auto-renews)
 
 Your store is accessible at:
 • https://rentbysara.com
-• https://hanasboutique.closetrent.com.bd (subdomain still works)
+• https://hanasboutique.closetrent.com (subdomain still works)
 
 [Remove Custom Domain]
 ```

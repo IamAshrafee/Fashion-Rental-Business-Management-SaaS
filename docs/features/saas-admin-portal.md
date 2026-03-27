@@ -8,7 +8,7 @@ The admin portal is the platform-level management interface. Used by us (the Saa
 
 ## Access
 
-- URL: `admin.closetrent.com.bd`
+- URL: `admin.closetrent.com`
 - Authentication: Admin credentials (separate from tenant auth)
 - Role: SaaS Admin (highest privilege level)
 - Must have 2FA (future)

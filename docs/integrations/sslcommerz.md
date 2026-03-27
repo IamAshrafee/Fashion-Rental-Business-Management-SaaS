@@ -90,7 +90,7 @@ SSLCommerz is Bangladesh's leading online payment gateway, supporting cards, mob
   "success_url": "https://{subdomain}/api/v1/payments/sslcommerz/success",
   "fail_url": "https://{subdomain}/api/v1/payments/sslcommerz/fail",
   "cancel_url": "https://{subdomain}/api/v1/payments/sslcommerz/cancel",
-  "ipn_url": "https://api.closetrent.com.bd/payments/sslcommerz/ipn",
+  "ipn_url": "https://api.closetrent.com/payments/sslcommerz/ipn",
   "cus_name": "Fatima Rahman",
   "cus_phone": "01712345678",
   "cus_email": "N/A",

@@ -158,7 +158,7 @@ Phase 12: Deployment & Launch
 | Cart page | Item list, rental details, price breakdown |
 | Checkout page | Customer info form, payment selection, order summary |
 | Customer info | Name, phone, alternative phone, delivery address |
-| Address format | Bangladesh format (area, thana, district) |
+| Address format | Tenant-configurable address fields (per-country templates) |
 | Order creation | Create order from cart with validation |
 | Booking confirmation | Success page with order ID, summary, next steps |
 | Booking conflict handling | Prevent double-booking same dates |

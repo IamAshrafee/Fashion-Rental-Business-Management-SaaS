@@ -15,8 +15,8 @@ For the broader architecture context, see [architecture.md](../architecture.md).
 Every request is resolved to a tenant based on the **Host header**:
 
 ```
-Request: GET https://hanasboutique.closetrent.com.bd/products
-Host header: hanasboutique.closetrent.com.bd
+Request: GET https://hanasboutique.closetrent.com/products
+Host header: hanasboutique.closetrent.com
   → Extract subdomain: "hanasboutique"
   → Look up in tenants table: WHERE subdomain = 'hanasboutique'
   → Found: tenant_id = "abc-123"

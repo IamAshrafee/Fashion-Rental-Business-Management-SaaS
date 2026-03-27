@@ -13,8 +13,8 @@ Every environment variable used across the system. This is the single reference 
 | `NODE_ENV` | Yes | `development` | Environment mode: `development`, `production`, `test` |
 | `APP_PORT` | No | `4000` | Backend API server port |
 | `FRONTEND_PORT` | No | `3000` | Frontend server port |
-| `APP_URL` | Yes | — | Base URL of the platform (e.g., `https://closetrent.com.bd`) |
-| `API_URL` | Yes | — | Backend API URL (e.g., `https://closetrent.com.bd/api`) |
+| `APP_URL` | Yes | — | Base URL of the platform (e.g., `https://closetrent.com`) |
+| `API_URL` | Yes | — | Backend API URL (e.g., `https://closetrent.com/api`) |
 | `CORS_ORIGINS` | Yes | — | Comma-separated allowed origins for CORS |
 
 ### Database (PostgreSQL)
@@ -50,7 +50,7 @@ Every environment variable used across the system. This is the single reference 
 | `STORAGE_BUCKET` | Yes | `closetrent` | Default bucket name |
 | `STORAGE_REGION` | No | `us-east-1` | S3 region (MinIO ignores this but SDK requires it) |
 | `STORAGE_USE_SSL` | No | `false` | Use HTTPS for storage connection |
-| `STORAGE_PUBLIC_URL` | Yes | — | Public-facing URL for stored files (e.g., `https://cdn.closetrent.com.bd`) |
+| `STORAGE_PUBLIC_URL` | Yes | — | Public-facing URL for stored files (e.g., `https://cdn.closetrent.com`) |
 
 ### Authentication
 
@@ -109,8 +109,8 @@ Every environment variable used across the system. This is the single reference 
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `BASE_DOMAIN` | Yes | — | Base domain for tenant subdomains (e.g., `closetrent.com.bd`) |
-| `ADMIN_SUBDOMAIN` | No | `admin` | Subdomain for admin portal (e.g., `admin.closetrent.com.bd`) |
+| `BASE_DOMAIN` | Yes | — | Base domain for tenant subdomains (e.g., `closetrent.com`) |
+| `ADMIN_SUBDOMAIN` | No | `admin` | Subdomain for admin portal (e.g., `admin.closetrent.com`) |
 
 ### Image Processing
 
@@ -167,9 +167,9 @@ BASE_DOMAIN=localhost:3000
 NODE_ENV=production
 APP_PORT=4000
 FRONTEND_PORT=3000
-APP_URL=https://closetrent.com.bd
-API_URL=https://closetrent.com.bd/api
-CORS_ORIGINS=https://*.closetrent.com.bd
+APP_URL=https://closetrent.com
+API_URL=https://closetrent.com/api
+CORS_ORIGINS=https://*.closetrent.com
 
 # Database
 DATABASE_URL=postgresql://closetrent:STRONG_PASSWORD_HERE@postgres:5432/closetrent
@@ -182,7 +182,7 @@ STORAGE_ENDPOINT=http://minio:9000
 STORAGE_ACCESS_KEY=STRONG_KEY_HERE
 STORAGE_SECRET_KEY=STRONG_SECRET_HERE
 STORAGE_BUCKET=closetrent
-STORAGE_PUBLIC_URL=https://cdn.closetrent.com.bd
+STORAGE_PUBLIC_URL=https://cdn.closetrent.com
 
 # Auth
 JWT_SECRET=RANDOM_64_CHAR_STRING_HERE
@@ -192,16 +192,16 @@ JWT_REFRESH_EXPIRY=7d
 BCRYPT_SALT_ROUNDS=12
 
 # Domain
-BASE_DOMAIN=closetrent.com.bd
+BASE_DOMAIN=closetrent.com
 
 # Payment
 SSLCOMMERZ_STORE_ID=your_store_id
 SSLCOMMERZ_STORE_PASSWORD=your_store_password
 SSLCOMMERZ_IS_SANDBOX=false
-SSLCOMMERZ_SUCCESS_URL=https://closetrent.com.bd/api/payment/success
-SSLCOMMERZ_FAIL_URL=https://closetrent.com.bd/api/payment/fail
-SSLCOMMERZ_CANCEL_URL=https://closetrent.com.bd/api/payment/cancel
-SSLCOMMERZ_IPN_URL=https://closetrent.com.bd/api/payment/ipn
+SSLCOMMERZ_SUCCESS_URL=https://closetrent.com/api/payment/success
+SSLCOMMERZ_FAIL_URL=https://closetrent.com/api/payment/fail
+SSLCOMMERZ_CANCEL_URL=https://closetrent.com/api/payment/cancel
+SSLCOMMERZ_IPN_URL=https://closetrent.com/api/payment/ipn
 ```
 
 ---

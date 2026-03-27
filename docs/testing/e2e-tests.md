@@ -27,7 +27,7 @@ Browser-based tests simulating real user workflows. Uses Playwright to automate 
 ```typescript
 test('Guest can book a product', async ({ page }) => {
   // Navigate to storefront
-  await page.goto('https://testboutique.closetrent.com.bd');
+  await page.goto('https://testboutique.closetrent.com');
 
   // Browse products
   await page.click('[data-testid="product-card"]:first-child');
@@ -76,7 +76,7 @@ test('Owner sees new booking on dashboard', async ({ page }) => {
 
 ## Test Environment
 
-- Dedicated test subdomain: `e2etest.closetrent.com.bd`
+- Dedicated test subdomain: `e2etest.closetrent.com`
 - Seeded with test data before each suite
 - Database reset between suites
 

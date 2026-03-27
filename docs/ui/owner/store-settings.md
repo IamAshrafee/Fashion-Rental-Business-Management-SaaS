@@ -139,7 +139,7 @@ Owner:
 ```
 🌐 Custom Domain
 
-Current: hanasboutique.closetrent.com.bd
+Current: hanasboutique.closetrent.com
 
 Custom Domain: [rentbyhana.com          ]
 Status: ✅ Active · SSL Valid

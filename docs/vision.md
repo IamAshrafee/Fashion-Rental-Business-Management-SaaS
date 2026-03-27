@@ -10,7 +10,7 @@ This is not a generic e-commerce platform. This is purpose-built for the **fashi
 
 ## The Problem We Are Solving
 
-A typical fashion rental business in Bangladesh today operates like this:
+A typical fashion rental business today operates like this:
 
 1. Customer DMs on Facebook or Instagram asking about a dress
 2. Owner manually replies with photos and pricing
@@ -46,13 +46,15 @@ The primary device for both business owners and customers is a smartphone. Every
 ### 5. Zero Unnecessary Friction
 Every field, every step, every screen must justify its existence. If removing it does not hurt the business, remove it. No forced account creation. No mandatory fields that are not essential for the booking.
 
-### 6. Bangladesh-Ready
-- Currency: ৳ (BDT)
-- Language: Bengali support
-- Payment: bKash, Nagad, SSLCommerz
-- Courier: Pathao, Steadfast
+### 6. Globally Deployable, Locally Adapted
+- Currency: Tenant-configurable (BDT, THB, USD, etc.)
+- Language: English for v1, multi-language architecture ready
+- Payment: bKash, Nagad, SSLCommerz (extensible via provider adapters)
+- Courier: Pathao, Steadfast (extensible via provider adapters)
 - Trust: Local trust signals (phone number, WhatsApp, store rating)
-- Address: Bangladesh address format (area, thana, district)
+- Address: Tenant-configurable format (per-country templates)
+- Timezone: UTC storage, tenant-specific display
+- Number format: South Asian or international (per-tenant)
 
 ---
 
@@ -77,7 +79,7 @@ Each portal has completely different UX goals:
 
 Each business owner gets their own isolated store:
 
-- **Subdomain**: `hanasboutique.closetrent.com.bd`
+- **Subdomain**: `hanasboutique.closetrent.com`
 - **Custom domain** (future): `hanasboutique.com`
 
 All businesses share the same codebase and database, but their data is completely isolated by `tenant_id`. Customers shop within one business's store. Business owners never see each other's data.

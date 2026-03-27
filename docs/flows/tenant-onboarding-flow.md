@@ -11,27 +11,27 @@ The journey of a new business owner — from discovering ClosetRent to having th
 ```
 [Business Owner Finds ClosetRent]
        │
-       ├── Marketing website (closetrent.com.bd)
+       ├── Marketing website (closetrent.com)
        ├── Social media, word of mouth
        │
        ▼
 [Registration Page]
        │
        ├── Full Name
-       ├── Phone Number (BD format)
+       ├── Phone Number
        ├── Email (optional)
        ├── Password
        ├── Business Name
+       ├── Country (determines locale defaults)
        ├── Subdomain (live availability check)
        │
        ├── POST /auth/register
        │   ├── Create User (role: owner)
        │   ├── Create Tenant
        │   ├── Create TenantUser (user ↔ tenant, role: owner)
-       │   ├── Create StoreSettings (defaults)
+       │   ├── Create StoreSettings (locale defaults from country)
        │   ├── Create Subscription (free plan or trial)
-       │   ├── Seed default categories (Saree, Lehenga, Sherwani, etc.)
-       │   ├── Seed default events (Wedding, Holud, Eid, etc.)
+       │   ├── Seed from starter template (based on country/industry)
        │   └── Return JWT tokens
        │
        ▼
@@ -71,7 +71,7 @@ The journey of a new business owner — from discovering ClosetRent to having th
        ▼
 [Store is Live!]
        │
-       ├── Storefront accessible at: hanasboutique.closetrent.com.bd
+       ├── Storefront accessible at: hanasboutique.closetrent.com
        ├── First product visible to guests
        ├── Owner can share store link on social media
        │
@@ -92,9 +92,9 @@ When a new tenant is created, the following data is auto-seeded:
 
 | Entity | Default Data |
 |---|---|
-| Categories | Saree, Lehenga, Sherwani, Gown, Jewelry, Others |
-| Events | Wedding, Holud, Reception, Eid, Birthday, Anniversary, Party |
-| Store Settings | Default colors (#E91E63, #9C27B0), BDT currency, Bangla date format |
+| Categories | From starter template (admin-managed, country-specific) |
+| Events | From starter template (admin-managed, country-specific) |
+| Store Settings | Default colors, currency/timezone/date format from country selection |
 | Subscription | Free plan (or 14-day trial for Pro) |
 
 ---
