@@ -1,19 +1,24 @@
-import { Injectable, CanActivate, ExecutionContext, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  ExecutionContext,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 /**
- * JWT Authentication Guard (stub).
- * Will be fully implemented in P03 (Auth & Tenant System).
- * For now, allows all requests through.
+ * JWT Authentication Guard.
+ * Extends Passport's AuthGuard('jwt') for real JWT validation.
+ * Respects @Public() decorator to skip auth on marked endpoints.
  */
 @Injectable()
-export class JwtAuthGuard implements CanActivate {
-  private readonly logger = new Logger(JwtAuthGuard.name);
+export class JwtAuthGuard extends AuthGuard('jwt') {
+  constructor(private readonly reflector: Reflector) {
+    super();
+  }
 
-  constructor(private readonly reflector: Reflector) {}
-
-  canActivate(context: ExecutionContext): boolean {
+  canActivate(context: ExecutionContext) {
     // Check if endpoint is marked as @Public()
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -24,8 +29,14 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     }
 
-    // TODO: P03 will implement actual JWT validation
-    this.logger.warn('JwtAuthGuard is a stub — allowing all requests');
-    return true;
+    // Delegate to Passport JWT strategy
+    return super.canActivate(context);
+  }
+
+  handleRequest<T>(err: Error | null, user: T, info: Error | null): T {
+    if (err || !user) {
+      throw err || new UnauthorizedException('Invalid or expired token');
+    }
+    return user;
   }
 }

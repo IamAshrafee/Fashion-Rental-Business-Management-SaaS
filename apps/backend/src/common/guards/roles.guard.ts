@@ -1,17 +1,25 @@
-import { Injectable, CanActivate, ExecutionContext, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
-import { UserRole } from '@closetrent/types';
+import { AuthUser, UserRole } from '@closetrent/types';
 
 /**
- * Role-Based Access Control Guard (stub).
- * Will be fully implemented in P03 (Auth & Tenant System).
- * Checks if the authenticated user has one of the required roles.
+ * Role-Based Access Control Guard.
+ * Checks if the authenticated user has one of the required roles
+ * specified by the @Roles() decorator.
+ *
+ * Role hierarchy (higher can do everything lower can):
+ *   saas_admin > owner > manager > staff
+ *
+ * If no @Roles() decorator is present, access is granted (auth-only check).
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
-  private readonly logger = new Logger(RolesGuard.name);
-
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -20,12 +28,30 @@ export class RolesGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (!requiredRoles) {
+    // No roles required — any authenticated user can access
+    if (!requiredRoles || requiredRoles.length === 0) {
       return true;
     }
 
-    // TODO: P03 will implement actual role checking from req.user
-    this.logger.warn('RolesGuard is a stub — allowing all requests');
+    const request = context.switchToHttp().getRequest();
+    const user: AuthUser | undefined = request.user;
+
+    if (!user) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    // saas_admin has access to everything
+    if (user.role === 'saas_admin') {
+      return true;
+    }
+
+    // Check if user's role is in the required roles
+    if (!requiredRoles.includes(user.role)) {
+      throw new ForbiddenException(
+        `This action requires one of these roles: ${requiredRoles.join(', ')}`,
+      );
+    }
+
     return true;
   }
 }

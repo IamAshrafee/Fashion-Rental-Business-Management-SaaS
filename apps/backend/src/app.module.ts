@@ -1,11 +1,14 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule } from '@nestjs/throttler';
 import configuration from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
 
-// Stub modules — will be fully implemented in future packages
+// Middleware
+import { TenantMiddleware } from './common/middleware/tenant.middleware';
+
+// Application modules
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { ProductModule } from './modules/product/product.module';
@@ -39,7 +42,7 @@ import { AdminModule } from './modules/admin/admin.module';
     // Database
     PrismaModule,
 
-    // Application modules (stubs)
+    // Application modules
     AuthModule,
     TenantModule,
     ProductModule,
@@ -51,4 +54,10 @@ import { AdminModule } from './modules/admin/admin.module';
     AdminModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(TenantMiddleware)
+      .forRoutes('*');
+  }
+}

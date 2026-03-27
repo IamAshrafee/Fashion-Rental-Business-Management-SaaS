@@ -73,6 +73,16 @@ export interface AuthUser {
   phone: string | null;
   role: UserRole;
   tenantId: string | null;
+  sessionId: string;
+}
+
+export interface JwtPayload {
+  sub: string;
+  tenantId: string | null;
+  role: UserRole;
+  sessionId: string;
+  iat?: number;
+  exp?: number;
 }
 
 // --- API Response ---

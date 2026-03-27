@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
+import { TenantService } from './tenant.service';
+import { TenantController } from './tenant.controller';
 
-/**
- * Tenant Module (stub).
- * Will be fully implemented in P03 (Auth & Tenant System).
- * Handles: tenant CRUD, onboarding, subdomain management, subscription status.
- */
-@Module({})
+@Module({
+  controllers: [TenantController],
+  providers: [TenantService],
+  exports: [TenantService],
+})
 export class TenantModule {}
