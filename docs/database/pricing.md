@@ -12,23 +12,23 @@ One per product. Stores the pricing mode and all mode-specific values.
 | `tenant_id` | UUID | No | — | FK → `tenants.id` |
 | `product_id` | UUID | No | — | FK → `products.id` (unique) |
 | `mode` | ENUM | No | — | one_time, per_day, percentage |
-| `rental_price` | DECIMAL(12,2) | Yes | `NULL` | Fixed rental price (one_time) |
+| `rental_price` | INTEGER | Yes | `NULL` | Fixed rental price (one_time) |
 | `included_days` | INT | Yes | `NULL` | Days included in base price (one_time/percentage) |
-| `price_per_day` | DECIMAL(12,2) | Yes | `NULL` | Per day rate (per_day mode) |
+| `price_per_day` | INTEGER | Yes | `NULL` | Per day rate (per_day mode) |
 | `minimum_days` | INT | Yes | `1` | Minimum rental days (per_day mode) |
-| `retail_price` | DECIMAL(12,2) | Yes | `NULL` | Retail/purchase price (percentage mode) |
+| `retail_price` | INTEGER | Yes | `NULL` | Retail/purchase price (percentage mode) |
 | `rental_percentage` | DECIMAL(5,2) | Yes | `NULL` | Percentage of retail (percentage mode) |
-| `calculated_price` | DECIMAL(12,2) | Yes | `NULL` | Auto-calculated: retail × percentage |
-| `price_override` | DECIMAL(12,2) | Yes | `NULL` | Manual override of calculated price |
-| `min_internal_price` | DECIMAL(12,2) | Yes | `NULL` | Internal minimum (staff visible) |
-| `max_discount_price` | DECIMAL(12,2) | Yes | `NULL` | Maximum discount ceiling |
-| `extended_rental_rate` | DECIMAL(12,2) | Yes | `NULL` | Per day rate for extra days |
+| `calculated_price` | INTEGER | Yes | `NULL` | Auto-calculated: retail × percentage |
+| `price_override` | INTEGER | Yes | `NULL` | Manual override of calculated price |
+| `min_internal_price` | INTEGER | Yes | `NULL` | Internal minimum (staff visible) |
+| `max_discount_price` | INTEGER | Yes | `NULL` | Maximum discount ceiling |
+| `extended_rental_rate` | INTEGER | Yes | `NULL` | Per day rate for extra days |
 | `late_fee_type` | ENUM | Yes | `NULL` | fixed, percentage |
-| `late_fee_amount` | DECIMAL(12,2) | Yes | `NULL` | Late fee per day (fixed) |
+| `late_fee_amount` | INTEGER | Yes | `NULL` | Late fee per day (fixed) |
 | `late_fee_percentage` | DECIMAL(5,2) | Yes | `NULL` | Late fee % of retail (percentage) |
-| `max_late_fee` | DECIMAL(12,2) | Yes | `NULL` | Maximum late fee cap |
+| `max_late_fee` | INTEGER | Yes | `NULL` | Maximum late fee cap |
 | `shipping_mode` | ENUM | Yes | `NULL` | free, flat, area_based |
-| `shipping_fee` | DECIMAL(12,2) | Yes | `NULL` | Flat shipping fee |
+| `shipping_fee` | INTEGER | Yes | `NULL` | Flat shipping fee |
 | `created_at` | TIMESTAMP | No | `NOW()` | — |
 | `updated_at` | TIMESTAMP | No | `NOW()` | — |
 
@@ -70,23 +70,23 @@ model ProductPricing {
   tenantId            String        @map("tenant_id")
   productId           String        @unique @map("product_id")
   mode                PricingMode
-  rentalPrice         Decimal?      @map("rental_price") @db.Decimal(12, 2)
+  rentalPrice         Int?      @map("rental_price") @db.Int(12, 2)
   includedDays        Int?          @map("included_days")
-  pricePerDay         Decimal?      @map("price_per_day") @db.Decimal(12, 2)
+  pricePerDay         Int?      @map("price_per_day") @db.Int(12, 2)
   minimumDays         Int?          @default(1) @map("minimum_days")
-  retailPrice         Decimal?      @map("retail_price") @db.Decimal(12, 2)
-  rentalPercentage    Decimal?      @map("rental_percentage") @db.Decimal(5, 2)
-  calculatedPrice     Decimal?      @map("calculated_price") @db.Decimal(12, 2)
-  priceOverride       Decimal?      @map("price_override") @db.Decimal(12, 2)
-  minInternalPrice    Decimal?      @map("min_internal_price") @db.Decimal(12, 2)
-  maxDiscountPrice    Decimal?      @map("max_discount_price") @db.Decimal(12, 2)
-  extendedRentalRate  Decimal?      @map("extended_rental_rate") @db.Decimal(12, 2)
+  retailPrice         Int?      @map("retail_price") @db.Int(12, 2)
+  rentalPercentage    Int?      @map("rental_percentage") @db.Int(5, 2)
+  calculatedPrice     Int?      @map("calculated_price") @db.Int(12, 2)
+  priceOverride       Int?      @map("price_override") @db.Int(12, 2)
+  minInternalPrice    Int?      @map("min_internal_price") @db.Int(12, 2)
+  maxDiscountPrice    Int?      @map("max_discount_price") @db.Int(12, 2)
+  extendedRentalRate  Int?      @map("extended_rental_rate") @db.Int(12, 2)
   lateFeeType         LateFeeType?  @map("late_fee_type")
-  lateFeeAmount       Decimal?      @map("late_fee_amount") @db.Decimal(12, 2)
-  lateFeePercentage   Decimal?      @map("late_fee_percentage") @db.Decimal(5, 2)
-  maxLateFee          Decimal?      @map("max_late_fee") @db.Decimal(12, 2)
+  lateFeeAmount       Int?      @map("late_fee_amount") @db.Int(12, 2)
+  lateFeePercentage   Int?      @map("late_fee_percentage") @db.Int(5, 2)
+  maxLateFee          Int?      @map("max_late_fee") @db.Int(12, 2)
   shippingMode        ShippingMode? @map("shipping_mode")
-  shippingFee         Decimal?      @map("shipping_fee") @db.Decimal(12, 2)
+  shippingFee         Int?      @map("shipping_fee") @db.Int(12, 2)
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
 

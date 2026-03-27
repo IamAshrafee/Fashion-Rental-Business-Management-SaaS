@@ -20,13 +20,13 @@ The central entity. Contains all product metadata. Variants, images, pricing, si
 | `available_from` | DATE | Yes | `NULL` | Future availability date |
 | `unavailable_reason` | VARCHAR(300) | Yes | `NULL` | Internal reason for unavailability |
 | `purchase_date` | DATE | Yes | `NULL` | When item was purchased |
-| `purchase_price` | DECIMAL(12,2) | Yes | `NULL` | Cost to acquire the item |
+| `purchase_price` | INTEGER | Yes | `NULL` | Cost to acquire the item (integer) |
 | `purchase_price_public` | BOOLEAN | No | `false` | Show purchase price to guests |
 | `item_country` | VARCHAR(100) | Yes | `NULL` | Country of origin |
 | `item_country_public` | BOOLEAN | No | `false` | Show country to guests |
 | `target_rentals` | INT | Yes | `NULL` | Manual target rental count |
 | `total_bookings` | INT | No | `0` | Cached booking count |
-| `total_revenue` | DECIMAL(12,2) | No | `0.00` | Cached revenue total |
+| `total_revenue` | INTEGER | No | `0` | Cached revenue total |
 | `search_vector` | TSVECTOR | Yes | — | Full-text search vector |
 | `created_at` | TIMESTAMP | No | `NOW()` | Created timestamp |
 | `updated_at` | TIMESTAMP | No | `NOW()` | Last updated |
@@ -47,10 +47,11 @@ enum ProductStatus {
 | Index | Columns | Type | Purpose |
 |---|---|---|---|
 | `products_tenant_slug_key` | `tenant_id, slug` | UNIQUE | URL uniqueness per tenant |
-| `products_tenant_id_idx` | `tenant_id` | INDEX | Tenant filtering |
 | `products_category_id_idx` | `category_id` | INDEX | Category filtering |
 | `products_status_idx` | `tenant_id, status` | INDEX | Status filtering |
 | `products_search_idx` | `search_vector` | GIN | Full-text search |
+| `products_trgm_idx` | `name` | GIN (gin_trgm_ops) | Fuzzy search |
+| `products_storefront_idx` | `tenant_id, created_at DESC` | PARTIAL (WHERE status='published' AND is_available=true AND deleted_at IS NULL) | Storefront listing |
 | `products_deleted_at_idx` | `deleted_at` | INDEX (where null) | Exclude soft-deleted |
 
 ### Relationships
@@ -87,13 +88,13 @@ model Product {
   availableFrom       DateTime?     @map("available_from") @db.Date
   unavailableReason   String?       @map("unavailable_reason")
   purchaseDate        DateTime?     @map("purchase_date") @db.Date
-  purchasePrice       Decimal?      @map("purchase_price") @db.Decimal(12, 2)
+  purchasePrice       Int?          @map("purchase_price")
   purchasePricePublic Boolean       @default(false) @map("purchase_price_public")
   itemCountry         String?       @map("item_country")
   itemCountryPublic   Boolean       @default(false) @map("item_country_public")
   targetRentals       Int?          @map("target_rentals")
   totalBookings       Int           @default(0) @map("total_bookings")
-  totalRevenue        Decimal       @default(0) @map("total_revenue") @db.Decimal(12, 2)
+  totalRevenue        Int           @default(0) @map("total_revenue")
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
   deletedAt           DateTime?     @map("deleted_at")
@@ -111,7 +112,6 @@ model Product {
   bookingItems        BookingItem[]
 
   @@unique([tenantId, slug])
-  @@index([tenantId])
   @@index([categoryId])
   @@index([tenantId, status])
   @@map("products")

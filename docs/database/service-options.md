@@ -11,12 +11,12 @@ One per product. Stores deposit, cleaning fee, backup size, and try-on settings.
 | `id` | UUID | No | `gen_random_uuid()` | Primary key |
 | `tenant_id` | UUID | No | — | FK → `tenants.id` |
 | `product_id` | UUID | No | — | FK → `products.id` (unique) |
-| `deposit_amount` | DECIMAL(12,2) | Yes | `NULL` | Security deposit |
-| `cleaning_fee` | DECIMAL(12,2) | Yes | `NULL` | Cleaning charge |
+| `deposit_amount` | INTEGER | Yes | `NULL` | Security deposit |
+| `cleaning_fee` | INTEGER | Yes | `NULL` | Cleaning charge |
 | `backup_size_enabled` | BOOLEAN | No | `false` | Backup size feature on/off |
-| `backup_size_fee` | DECIMAL(12,2) | Yes | `NULL` | Extra fee for backup size |
+| `backup_size_fee` | INTEGER | Yes | `NULL` | Extra fee for backup size |
 | `try_on_enabled` | BOOLEAN | No | `false` | Try-before-rent on/off |
-| `try_on_fee` | DECIMAL(12,2) | Yes | `NULL` | Try-on charge |
+| `try_on_fee` | INTEGER | Yes | `NULL` | Try-on charge |
 | `try_on_duration_hours` | INT | Yes | `24` | Try-on duration |
 | `try_on_credit_to_rental` | BOOLEAN | No | `false` | Credit try-on fee to rental |
 | `created_at` | TIMESTAMP | No | `NOW()` | — |
@@ -37,12 +37,12 @@ model ProductServices {
   id                    String   @id @default(uuid())
   tenantId              String   @map("tenant_id")
   productId             String   @unique @map("product_id")
-  depositAmount         Decimal? @map("deposit_amount") @db.Decimal(12, 2)
-  cleaningFee           Decimal? @map("cleaning_fee") @db.Decimal(12, 2)
+  depositAmount         Int? @map("deposit_amount") @db.Int(12, 2)
+  cleaningFee           Int? @map("cleaning_fee") @db.Int(12, 2)
   backupSizeEnabled     Boolean  @default(false) @map("backup_size_enabled")
-  backupSizeFee         Decimal? @map("backup_size_fee") @db.Decimal(12, 2)
+  backupSizeFee         Int? @map("backup_size_fee") @db.Int(12, 2)
   tryOnEnabled          Boolean  @default(false) @map("try_on_enabled")
-  tryOnFee              Decimal? @map("try_on_fee") @db.Decimal(12, 2)
+  tryOnFee              Int? @map("try_on_fee") @db.Int(12, 2)
   tryOnDurationHours    Int?     @default(24) @map("try_on_duration_hours")
   tryOnCreditToRental   Boolean  @default(false) @map("try_on_credit_to_rental")
   createdAt             DateTime @default(now()) @map("created_at")

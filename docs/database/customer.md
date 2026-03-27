@@ -14,14 +14,17 @@ Auto-created at first checkout. Identified by phone number within a tenant.
 | `phone` | VARCHAR(20) | No | — | Primary phone (unique per tenant) |
 | `alt_phone` | VARCHAR(20) | Yes | `NULL` | Alternate phone |
 | `email` | VARCHAR(255) | Yes | `NULL` | Email (optional) |
-| `address` | TEXT | Yes | `NULL` | Last used address |
-| `area` | VARCHAR(100) | Yes | `NULL` | Last used area |
-| `thana` | VARCHAR(100) | Yes | `NULL` | Last used thana |
-| `district` | VARCHAR(100) | Yes | `NULL` | Last used district |
+| `address_line1` | VARCHAR(500) | Yes | `NULL` | Last used address line 1 |
+| `address_line2` | VARCHAR(500) | Yes | `NULL` | Last used address line 2 |
+| `city` | VARCHAR(100) | Yes | `NULL` | Last used city |
+| `state` | VARCHAR(100) | Yes | `NULL` | Last used state/region |
+| `postal_code` | VARCHAR(20) | Yes | `NULL` | Last used postal code |
+| `country` | VARCHAR(2) | Yes | `NULL` | Country code |
+| `address_extra` | JSONB | Yes | `NULL` | Tenant-specific address fields |
 | `notes` | TEXT | Yes | `NULL` | Owner's internal notes |
-| `total_bookings` | INT | No | `0` | Cached: total orders |
-| `total_spent` | DECIMAL(12,2) | No | `0` | Cached: total payments (excl. deposit) |
-| `last_booking_at` | TIMESTAMP | Yes | `NULL` | Last order date |
+| `total_bookings` | INT | No | `0` | Cached: total bookings |
+| `total_spent` | INTEGER | No | `0` | Cached: total payments (excl. deposit) |
+| `last_booking_at` | TIMESTAMP | Yes | `NULL` | Last booking date |
 | `created_at` | TIMESTAMP | No | `NOW()` | First booking date |
 | `updated_at` | TIMESTAMP | No | `NOW()` | Last updated |
 
@@ -30,7 +33,6 @@ Auto-created at first checkout. Identified by phone number within a tenant.
 | Index | Columns | Type | Purpose |
 |---|---|---|---|
 | `customers_tenant_phone_key` | `tenant_id, phone` | UNIQUE | Phone dedup per tenant |
-| `customers_tenant_id_idx` | `tenant_id` | INDEX | Tenant filtering |
 | `customers_name_idx` | `tenant_id, full_name` | INDEX | Name search |
 
 ---
@@ -67,13 +69,16 @@ model Customer {
   phone          String
   altPhone       String?       @map("alt_phone")
   email          String?
-  address        String?
-  area           String?
-  thana          String?
-  district       String?
+  addressLine1   String?       @map("address_line1")
+  addressLine2   String?       @map("address_line2")
+  city           String?
+  state          String?
+  postalCode     String?       @map("postal_code")
+  country        String?
+  addressExtra   Json?         @map("address_extra") @db.JsonB
   notes          String?
   totalBookings  Int           @default(0) @map("total_bookings")
-  totalSpent     Decimal       @default(0) @map("total_spent") @db.Decimal(12, 2)
+  totalSpent     Int           @default(0) @map("total_spent")
   lastBookingAt  DateTime?     @map("last_booking_at")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
@@ -83,7 +88,6 @@ model Customer {
   tags           CustomerTag[]
 
   @@unique([tenantId, phone])
-  @@index([tenantId])
   @@index([tenantId, fullName])
   @@map("customers")
 }

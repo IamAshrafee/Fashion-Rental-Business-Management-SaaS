@@ -76,6 +76,15 @@ One-to-one with tenant. Stores all branding and configuration settings.
 | `tiktok_url` | VARCHAR(500) | Yes | `NULL` | TikTok URL |
 | `youtube_url` | VARCHAR(500) | Yes | `NULL` | YouTube URL |
 | `default_language` | VARCHAR(5) | No | `'en'` | Default storefront language |
+| `timezone` | VARCHAR(50) | No | `'UTC'` | IANA timezone (e.g., Asia/Dhaka) |
+| `country` | VARCHAR(2) | No | `'BD'` | ISO 3166-1 country code |
+| `currency_code` | VARCHAR(3) | No | `'BDT'` | ISO 4217 currency code |
+| `currency_symbol` | VARCHAR(5) | No | `'৳'` | Currency display symbol |
+| `currency_position` | VARCHAR(10) | No | `'before'` | before or after number |
+| `number_format` | VARCHAR(20) | No | `'south_asian'` | south_asian or international |
+| `date_format` | VARCHAR(20) | No | `'DD/MM/YYYY'` | Date display format |
+| `time_format` | VARCHAR(5) | No | `'12h'` | 12h or 24h |
+| `week_start` | VARCHAR(10) | No | `'saturday'` | saturday, sunday, or monday |
 | `sms_enabled` | BOOLEAN | No | `true` | SMS notifications enabled |
 | `bkash_number` | VARCHAR(20) | Yes | `NULL` | bKash payment number |
 | `nagad_number` | VARCHAR(20) | Yes | `NULL` | Nagad payment number |
@@ -86,6 +95,8 @@ One-to-one with tenant. Stores all branding and configuration settings.
 | `courier_api_key` | VARCHAR(255) | Yes | `NULL` | Courier API key (encrypted) |
 | `courier_secret_key` | VARCHAR(255) | Yes | `NULL` | Courier secret (encrypted) |
 | `pickup_address` | TEXT | Yes | `NULL` | Default pickup address for courier |
+| `max_concurrent_sessions` | INT | No | `5` | Max active login sessions per staff user |
+| `buffer_days` | INT | No | `0` | Default gap days between bookings |
 | `created_at` | TIMESTAMP | No | `NOW()` | Created timestamp |
 | `updated_at` | TIMESTAMP | No | `NOW()` | Last updated |
 
@@ -147,6 +158,15 @@ model StoreSettings {
   tiktokUrl           String?  @map("tiktok_url")
   youtubeUrl          String?  @map("youtube_url")
   defaultLanguage     String   @default("en") @map("default_language")
+  timezone            String   @default("UTC")
+  country             String   @default("BD")
+  currencyCode        String   @default("BDT") @map("currency_code")
+  currencySymbol      String   @default("৳") @map("currency_symbol")
+  currencyPosition    String   @default("before") @map("currency_position")
+  numberFormat        String   @default("south_asian") @map("number_format")
+  dateFormat          String   @default("DD/MM/YYYY") @map("date_format")
+  timeFormat          String   @default("12h") @map("time_format")
+  weekStart           String   @default("saturday") @map("week_start")
   smsEnabled          Boolean  @default(true) @map("sms_enabled")
   bkashNumber         String?  @map("bkash_number")
   nagadNumber         String?  @map("nagad_number")
@@ -157,6 +177,8 @@ model StoreSettings {
   courierApiKey       String?  @map("courier_api_key")
   courierSecretKey    String?  @map("courier_secret_key")
   pickupAddress       String?  @map("pickup_address")
+  maxConcurrentSessions Int    @default(5) @map("max_concurrent_sessions")
+  bufferDays          Int      @default(0) @map("buffer_days")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 

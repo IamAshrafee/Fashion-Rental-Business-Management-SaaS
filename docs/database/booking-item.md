@@ -21,21 +21,21 @@ Individual products within a booking. Each item has its own dates, pricing, and 
 | `start_date` | DATE | No | — | Rental start |
 | `end_date` | DATE | No | — | Rental end |
 | `rental_days` | INT | No | — | Calculated duration |
-| `base_rental` | DECIMAL(12,2) | No | — | Base rental price (snapshot) |
+| `base_rental` | INTEGER | No | — | Base rental price (snapshot, integer) |
 | `extended_days` | INT | No | `0` | Extra days beyond base |
-| `extended_cost` | DECIMAL(12,2) | No | `0` | Extended days charge |
-| `deposit_amount` | DECIMAL(12,2) | No | `0` | Security deposit |
+| `extended_cost` | INTEGER | No | `0` | Extended days charge |
+| `deposit_amount` | INTEGER | No | `0` | Security deposit |
 | `deposit_status` | ENUM | No | `'pending'` | Deposit lifecycle status |
-| `deposit_refund_amount` | DECIMAL(12,2) | Yes | `NULL` | Actual refund amount |
+| `deposit_refund_amount` | INTEGER | Yes | `NULL` | Actual refund amount |
 | `deposit_refund_date` | TIMESTAMP | Yes | `NULL` | When refund was processed |
 | `deposit_refund_method` | VARCHAR(50) | Yes | `NULL` | How refund was sent |
-| `cleaning_fee` | DECIMAL(12,2) | No | `0` | Cleaning charge |
+| `cleaning_fee` | INTEGER | No | `0` | Cleaning charge |
 | `backup_size` | VARCHAR(20) | Yes | `NULL` | Backup size selected |
-| `backup_size_fee` | DECIMAL(12,2) | No | `0` | Backup size charge |
-| `try_on_fee` | DECIMAL(12,2) | No | `0` | Try-on charge |
+| `backup_size_fee` | INTEGER | No | `0` | Backup size charge |
+| `try_on_fee` | INTEGER | No | `0` | Try-on charge |
 | `try_on_credited` | BOOLEAN | No | `false` | Try-on credited to rental |
-| `item_total` | DECIMAL(12,2) | No | — | Total for this item |
-| `late_fee` | DECIMAL(12,2) | No | `0` | Accumulated late fee |
+| `item_total` | INTEGER | No | — | Total for this item |
+| `late_fee` | INTEGER | No | `0` | Accumulated late fee |
 | `late_days` | INT | No | `0` | Days returned late |
 | `created_at` | TIMESTAMP | No | `NOW()` | — |
 | `updated_at` | TIMESTAMP | No | `NOW()` | — |
@@ -59,7 +59,6 @@ enum DepositStatus {
 |---|---|---|
 | `booking_items_booking_id_idx` | `booking_id` | INDEX |
 | `booking_items_product_id_idx` | `product_id` | INDEX |
-| `booking_items_tenant_id_idx` | `tenant_id` | INDEX |
 
 ---
 
@@ -76,9 +75,9 @@ Created when owner reports damage on a returned item.
 | `booking_item_id` | UUID | No | — | FK → `booking_items.id` |
 | `damage_level` | ENUM | No | — | none, minor, moderate, severe, destroyed, lost |
 | `description` | TEXT | No | — | Damage description |
-| `estimated_repair_cost` | DECIMAL(12,2) | Yes | `NULL` | Repair estimate |
-| `deduction_amount` | DECIMAL(12,2) | No | `0` | Amount deducted from deposit |
-| `additional_charge` | DECIMAL(12,2) | No | `0` | Amount beyond deposit |
+| `estimated_repair_cost` | INTEGER | Yes | `NULL` | Repair estimate |
+| `deduction_amount` | INTEGER | No | `0` | Amount deducted from deposit |
+| `additional_charge` | INTEGER | No | `0` | Amount beyond deposit |
 | `photos` | TEXT[] | Yes | `NULL` | Array of photo URLs |
 | `reported_by` | UUID | No | — | FK → `users.id` |
 | `created_at` | TIMESTAMP | No | `NOW()` | — |
@@ -123,21 +122,21 @@ model BookingItem {
   startDate           DateTime      @map("start_date") @db.Date
   endDate             DateTime      @map("end_date") @db.Date
   rentalDays          Int           @map("rental_days")
-  baseRental          Decimal       @map("base_rental") @db.Decimal(12, 2)
+  baseRental          Int            @map("base_rental")
   extendedDays        Int           @default(0) @map("extended_days")
-  extendedCost        Decimal       @default(0) @map("extended_cost") @db.Decimal(12, 2)
-  depositAmount       Decimal       @default(0) @map("deposit_amount") @db.Decimal(12, 2)
+  extendedCost        Int            @default(0) @map("extended_cost")
+  depositAmount       Int            @default(0) @map("deposit_amount")
   depositStatus       DepositStatus @default(pending) @map("deposit_status")
-  depositRefundAmount Decimal?      @map("deposit_refund_amount") @db.Decimal(12, 2)
+  depositRefundAmount Int?           @map("deposit_refund_amount")
   depositRefundDate   DateTime?     @map("deposit_refund_date")
   depositRefundMethod String?       @map("deposit_refund_method")
-  cleaningFee         Decimal       @default(0) @map("cleaning_fee") @db.Decimal(12, 2)
+  cleaningFee         Int            @default(0) @map("cleaning_fee")
   backupSize          String?       @map("backup_size")
-  backupSizeFee       Decimal       @default(0) @map("backup_size_fee") @db.Decimal(12, 2)
-  tryOnFee            Decimal       @default(0) @map("try_on_fee") @db.Decimal(12, 2)
+  backupSizeFee       Int            @default(0) @map("backup_size_fee")
+  tryOnFee            Int            @default(0) @map("try_on_fee")
   tryOnCredited       Boolean       @default(false) @map("try_on_credited")
-  itemTotal           Decimal       @map("item_total") @db.Decimal(12, 2)
-  lateFee             Decimal       @default(0) @map("late_fee") @db.Decimal(12, 2)
+  itemTotal           Int            @map("item_total")
+  lateFee             Int            @default(0) @map("late_fee")
   lateDays            Int           @default(0) @map("late_days")
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
@@ -148,7 +147,6 @@ model BookingItem {
 
   @@index([bookingId])
   @@index([productId])
-  @@index([tenantId])
   @@map("booking_items")
 }
 
@@ -158,9 +156,9 @@ model DamageReport {
   bookingItemId       String      @unique @map("booking_item_id")
   damageLevel         DamageLevel @map("damage_level")
   description         String
-  estimatedRepairCost Decimal?    @map("estimated_repair_cost") @db.Decimal(12, 2)
-  deductionAmount     Decimal     @default(0) @map("deduction_amount") @db.Decimal(12, 2)
-  additionalCharge    Decimal     @default(0) @map("additional_charge") @db.Decimal(12, 2)
+  estimatedRepairCost Int?          @map("estimated_repair_cost")
+  deductionAmount     Int            @default(0) @map("deduction_amount")
+  additionalCharge    Int            @default(0) @map("additional_charge")
   photos              String[]
   reportedBy          String      @map("reported_by")
   createdAt           DateTime    @default(now()) @map("created_at")

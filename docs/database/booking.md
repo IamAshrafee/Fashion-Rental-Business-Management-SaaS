@@ -15,19 +15,22 @@ The primary transaction entity. Created when a guest completes checkout.
 | `status` | ENUM | No | `'pending'` | Booking lifecycle status |
 | `payment_method` | ENUM | No | — | cod, bkash, nagad, sslcommerz |
 | `payment_status` | ENUM | No | `'unpaid'` | unpaid, partial, paid |
-| `subtotal` | DECIMAL(12,2) | No | — | Sum of item rental costs |
-| `total_fees` | DECIMAL(12,2) | No | `0` | Sum of cleaning + backup + try-on fees |
-| `shipping_fee` | DECIMAL(12,2) | No | `0` | Delivery charge |
-| `total_deposit` | DECIMAL(12,2) | No | `0` | Sum of item deposits |
-| `grand_total` | DECIMAL(12,2) | No | — | subtotal + fees + shipping + deposit |
-| `total_paid` | DECIMAL(12,2) | No | `0` | Amount paid so far |
+| `subtotal` | INTEGER | No | — | Sum of item rental costs (integer, no decimals) |
+| `total_fees` | INTEGER | No | `0` | Sum of cleaning + backup + try-on fees |
+| `shipping_fee` | INTEGER | No | `0` | Delivery charge |
+| `total_deposit` | INTEGER | No | `0` | Sum of item deposits |
+| `grand_total` | INTEGER | No | — | subtotal + fees + shipping + deposit |
+| `total_paid` | INTEGER | No | `0` | Amount paid so far |
 | `delivery_name` | VARCHAR(200) | No | — | Customer name at checkout |
 | `delivery_phone` | VARCHAR(20) | No | — | Customer phone |
 | `delivery_alt_phone` | VARCHAR(20) | Yes | `NULL` | Alternate phone |
-| `delivery_address` | TEXT | No | — | Full delivery address |
-| `delivery_area` | VARCHAR(100) | No | — | Area name |
-| `delivery_thana` | VARCHAR(100) | Yes | `NULL` | Thana |
-| `delivery_district` | VARCHAR(100) | No | — | District |
+| `delivery_address_line1` | VARCHAR(500) | No | — | Address line 1 |
+| `delivery_address_line2` | VARCHAR(500) | Yes | `NULL` | Address line 2 |
+| `delivery_city` | VARCHAR(100) | No | — | City |
+| `delivery_state` | VARCHAR(100) | Yes | `NULL` | State/province/region |
+| `delivery_postal_code` | VARCHAR(20) | Yes | `NULL` | Postal/zip code |
+| `delivery_country` | VARCHAR(2) | No | — | ISO 3166-1 country code |
+| `delivery_extra` | JSONB | Yes | `NULL` | Tenant-specific address fields (e.g., thana, district) |
 | `customer_notes` | TEXT | Yes | `NULL` | Special instructions |
 | `internal_notes` | TEXT | Yes | `NULL` | Owner's internal notes |
 | `tracking_number` | VARCHAR(100) | Yes | `NULL` | Courier tracking ID |
@@ -39,6 +42,7 @@ The primary transaction entity. Created when a guest completes checkout.
 | `delivered_at` | TIMESTAMP | Yes | `NULL` | When delivered |
 | `returned_at` | TIMESTAMP | Yes | `NULL` | When returned |
 | `completed_at` | TIMESTAMP | Yes | `NULL` | When fully completed |
+| `deleted_at` | TIMESTAMP | Yes | `NULL` | Soft delete timestamp |
 | `created_at` | TIMESTAMP | No | `NOW()` | Order placed time |
 | `updated_at` | TIMESTAMP | No | `NOW()` | Last updated |
 
@@ -81,10 +85,10 @@ enum CancelledBy {
 | Index | Columns | Type | Purpose |
 |---|---|---|---|
 | `bookings_tenant_number_key` | `tenant_id, booking_number` | UNIQUE | Number uniqueness |
-| `bookings_tenant_id_idx` | `tenant_id` | INDEX | Tenant filtering |
-| `bookings_customer_id_idx` | `customer_id` | INDEX | Customer history |
 | `bookings_status_idx` | `tenant_id, status` | INDEX | Status filtering |
-| `bookings_created_at_idx` | `tenant_id, created_at` | INDEX | Date sorting |
+| `bookings_created_at_idx` | `tenant_id, created_at DESC` | INDEX | Date sorting |
+| `bookings_customer_id_idx` | `customer_id` | INDEX | Customer history |
+| `bookings_active_idx` | `tenant_id, created_at DESC` | PARTIAL (WHERE deleted_at IS NULL) | Active bookings |
 
 ---
 
@@ -120,9 +124,12 @@ enum BlockType {
 
 | Index | Columns | Type | Purpose |
 |---|---|---|---|
-| `date_blocks_product_dates_idx` | `product_id, start_date, end_date` | INDEX | Overlap checking |
+| `date_blocks_product_dates_idx` | `product_id, start_date, end_date` | INDEX | Basic overlap checking |
 | `date_blocks_booking_id_idx` | `booking_id` | INDEX | Link to booking |
-| `date_blocks_tenant_id_idx` | `tenant_id` | INDEX | Tenant filtering |
+| `date_blocks_overlap_gist` | `product_id, daterange(start_date, end_date)` | GiST | Efficient overlap queries |
+| `no_overlapping_blocks` | `product_id, daterange(start_date, end_date)` | EXCLUDE (GiST) | Prevent concurrent double-booking |
+
+> **Critical**: The `EXCLUDE` constraint requires `CREATE EXTENSION btree_gist;` and is defined via raw SQL migration (not Prisma schema).
 
 ---
 
@@ -137,19 +144,22 @@ model Booking {
   status             BookingStatus  @default(pending)
   paymentMethod      PaymentMethod  @map("payment_method")
   paymentStatus      PaymentStatus  @default(unpaid) @map("payment_status")
-  subtotal           Decimal        @db.Decimal(12, 2)
-  totalFees          Decimal        @default(0) @map("total_fees") @db.Decimal(12, 2)
-  shippingFee        Decimal        @default(0) @map("shipping_fee") @db.Decimal(12, 2)
-  totalDeposit       Decimal        @default(0) @map("total_deposit") @db.Decimal(12, 2)
-  grandTotal         Decimal        @map("grand_total") @db.Decimal(12, 2)
-  totalPaid          Decimal        @default(0) @map("total_paid") @db.Decimal(12, 2)
+  subtotal           Int
+  totalFees          Int            @default(0) @map("total_fees")
+  shippingFee        Int            @default(0) @map("shipping_fee")
+  totalDeposit       Int            @default(0) @map("total_deposit")
+  grandTotal         Int            @map("grand_total")
+  totalPaid          Int            @default(0) @map("total_paid")
   deliveryName       String         @map("delivery_name")
   deliveryPhone      String         @map("delivery_phone")
   deliveryAltPhone   String?        @map("delivery_alt_phone")
-  deliveryAddress    String         @map("delivery_address")
-  deliveryArea       String         @map("delivery_area")
-  deliveryThana      String?        @map("delivery_thana")
-  deliveryDistrict   String         @map("delivery_district")
+  deliveryAddressLine1 String       @map("delivery_address_line1")
+  deliveryAddressLine2 String?      @map("delivery_address_line2")
+  deliveryCity       String         @map("delivery_city")
+  deliveryState      String?        @map("delivery_state")
+  deliveryPostalCode String?        @map("delivery_postal_code")
+  deliveryCountry    String         @map("delivery_country")
+  deliveryExtra      Json?          @map("delivery_extra") @db.JsonB
   customerNotes      String?        @map("customer_notes")
   internalNotes      String?        @map("internal_notes")
   trackingNumber     String?        @map("tracking_number")
@@ -161,6 +171,7 @@ model Booking {
   deliveredAt        DateTime?      @map("delivered_at")
   returnedAt         DateTime?      @map("returned_at")
   completedAt        DateTime?      @map("completed_at")
+  deletedAt          DateTime?      @map("deleted_at")
   createdAt          DateTime       @default(now()) @map("created_at")
   updatedAt          DateTime       @updatedAt @map("updated_at")
 
@@ -171,10 +182,9 @@ model Booking {
   dateBlocks         DateBlock[]
 
   @@unique([tenantId, bookingNumber])
-  @@index([tenantId])
-  @@index([customerId])
   @@index([tenantId, status])
-  @@index([tenantId, createdAt])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([customerId])
   @@map("bookings")
 }
 

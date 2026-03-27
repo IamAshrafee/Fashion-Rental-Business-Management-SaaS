@@ -11,14 +11,14 @@ Records every payment transaction for a booking.
 | `id` | UUID | No | `gen_random_uuid()` | Primary key |
 | `tenant_id` | UUID | No | — | FK → `tenants.id` |
 | `booking_id` | UUID | No | — | FK → `bookings.id` |
-| `amount` | DECIMAL(12,2) | No | — | Payment amount |
+| `amount` | INTEGER | No | — | Payment amount |
 | `method` | ENUM | No | — | cod, bkash, nagad, sslcommerz |
 | `status` | ENUM | No | `'pending'` | pending, verified, failed, refunded |
 | `transaction_id` | VARCHAR(255) | Yes | `NULL` | External reference ID |
 | `provider_response` | JSONB | Yes | `NULL` | Raw gateway response |
 | `verified_at` | TIMESTAMP | Yes | `NULL` | When verified |
 | `refunded_at` | TIMESTAMP | Yes | `NULL` | When refunded |
-| `refund_amount` | DECIMAL(12,2) | Yes | `NULL` | Refund amount |
+| `refund_amount` | INTEGER | Yes | `NULL` | Refund amount |
 | `notes` | TEXT | Yes | `NULL` | Payment notes |
 | `recorded_by` | UUID | Yes | `NULL` | FK → `users.id` (who recorded) |
 | `created_at` | TIMESTAMP | No | `NOW()` | — |
@@ -52,14 +52,14 @@ model Payment {
   id               String            @id @default(uuid())
   tenantId         String            @map("tenant_id")
   bookingId        String            @map("booking_id")
-  amount           Decimal           @db.Decimal(12, 2)
+  amount           Int           @db.Int(12, 2)
   method           PaymentMethod
   status           TransactionStatus @default(pending)
   transactionId    String?           @map("transaction_id")
   providerResponse Json?             @map("provider_response")
   verifiedAt       DateTime?         @map("verified_at")
   refundedAt       DateTime?         @map("refunded_at")
-  refundAmount     Decimal?          @map("refund_amount") @db.Decimal(12, 2)
+  refundAmount     Int?          @map("refund_amount") @db.Int(12, 2)
   notes            String?
   recordedBy       String?           @map("recorded_by")
   createdAt        DateTime          @default(now()) @map("created_at")
