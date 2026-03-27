@@ -157,9 +157,9 @@ Estimated Total:      ৳25,000
 When guest clicks "Proceed to Checkout":
 
 1. **Re-check availability** for all items:
-   - Call backend: `POST /api/cart/validate` with cart items
+   - Call backend: `POST /api/v1/bookings/validate` with cart items
    - Backend checks: are all date ranges still available?
-   - If any item is no longer available → show warning and offer to remove it
+   - If any item is unavailable → **block checkout**, show which item(s) have conflicts, prompt to remove or change dates
 
 2. **Re-check pricing**:
    - Prices in localStorage may be outdated if owner changed them

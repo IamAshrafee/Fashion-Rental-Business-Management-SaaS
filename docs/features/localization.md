@@ -2,7 +2,9 @@
 
 ## Overview
 
-The platform must feel native to Bangladeshi users. This covers language, currency, date/time formatting, and culturally appropriate UX.
+ClosetRent is a **global SaaS platform**. All localization settings are **tenant-configurable** — nothing is hardcoded to a specific country or currency. The system adapts to each tenant's market.
+
+> **See also**: [localization-strategy.md](../localization-strategy.md) for detailed technical implementation (timezone handling, currency formatting, address config).
 
 ---
 
@@ -10,144 +12,118 @@ The platform must feel native to Bangladeshi users. This covers language, curren
 
 ### Phase 1: English Default
 
-The system launches in English. Product names, descriptions, and all owner-generated content are in whatever language the owner writes (typically Bengali or English).
+The system launches in English. Product names, descriptions, and all owner-generated content are in whatever language the owner writes.
 
-System UI elements (buttons, labels, navigation) are in English.
+System UI elements (buttons, labels, navigation) are in English only.
 
-### Phase 2: Bengali (Bangla) UI
+### Future: Multi-Language UI
 
-Full Bengali translation of all system UI elements:
+Architecture supports adding language packs per tenant:
+- Translation files: `locales/en.json`, `locales/bn.json`, `locales/th.json`, etc.
+- Tenant configures their storefront's default language
+- Guest can switch language (preference stored in localStorage)
+- Owner portal: English only for v1
 
-| English | Bengali |
-|---|---|
-| Book Now | এখনই বুক করুন |
-| Add to Cart | কার্টে যোগ করুন |
-| Search | অনুসন্ধান |
-| Filter | ফিল্টার |
-| Price | মূল্য |
-| Available | পাওয়া যাচ্ছে |
-| Booked | বুক হয়ে গেছে |
-| Size | সাইজ |
-| Color | রঙ |
-| Checkout | চেকআউট |
-| Confirm Booking | বুকিং নিশ্চিত করুন |
-
-### Language Switch
-
-- Toggle in the storefront header or footer
-- Guest preference stored in localStorage
-- Default language configurable per tenant (owner sets default)
-
-### Implementation
-
-Use `next-intl` or `next-i18n` for internationalization:
-- Translation files: `locales/en.json`, `locales/bn.json`
-- Dynamic loading based on user preference
-- Owner portal: English only (v1) — Bengali option in future.
+**Preparation for v1:**
+- Use translation keys in components, not hardcoded strings
+- Store all user-facing strings as constants
 
 ---
 
 ## Currency
 
-### Format
+### Tenant-Configurable
 
-| Rule | Example |
-|---|---|
-| Symbol | ৳ (Bengali Taka sign) |
-| Position | Before the number: ৳7,500 |
-| Thousands separator | Comma: ৳12,500 |
-| Decimal | Only if needed: ৳7,500.50 (avoid for round numbers) |
-| No paisa for round | ৳7,500 not ৳7,500.00 |
+Each tenant sets their currency in store settings:
 
-### Formatting Function
+| Setting | Example (BD) | Example (Thailand) |
+|---|---|---|
+| Currency code | BDT | THB |
+| Symbol | ৳ | ฿ |
+| Symbol position | Before: ৳7,500 | Before: ฿7,500 |
+| Number format | South Asian (1,00,000) | International (100,000) |
 
-```typescript
-function formatPrice(amount: number): string {
-  return `৳${amount.toLocaleString('en-IN')}`;
-}
-// "en-IN" locale uses the South Asian numbering system
-// 100000 → "1,00,000" (lakh system — familiar to BD users)
-```
+### Rules
 
-**Note**: Bangladesh uses the South Asian numbering system:
-- 1,000 (one thousand)
-- 10,000 (ten thousand)
-- 1,00,000 (one lakh)
-- 10,00,000 (ten lakh)
+- All prices stored as **integers** (no decimals)
+- Rounding: **always round UP** (Math.ceil)
+- Currency code stored with booking snapshot (if tenant changes currency later, historical bookings keep original)
+- No currency conversion — each tenant operates in their configured currency
 
 ---
 
 ## Date & Time
 
-### Date Format
+### Tenant-Configurable Format
 
-Primary format: `DD MMMM, YYYY` (e.g., "27 March, 2026")
-
-Alternative (compact): `DD/MM/YYYY` (e.g., "27/03/2026")
-
-**Never use MM/DD/YYYY** — this is American format and will confuse Bangladeshi users.
-
-### Time Format
-
-12-hour format with AM/PM: `10:30 AM`
+| Setting | Options |
+|---|---|
+| Date format | `DD/MM/YYYY`, `MM/DD/YYYY`, `YYYY-MM-DD` |
+| Time format | 12-hour (AM/PM) or 24-hour |
+| Week start | Saturday, Sunday, or Monday |
 
 ### Timezone
 
-All timestamps stored in UTC. Displayed in **BST (Bangladesh Standard Time, UTC+6)**.
-
-### Calendar
-
-Week starts on **Saturday** (Bangladeshi convention) or **Sunday** — configurable.
+- All timestamps stored as **UTC** in database
+- Booking dates stored as **DATE** (no timezone — calendar dates)
+- Displayed in **tenant's configured timezone** (IANA format, e.g., `Asia/Dhaka`)
+- Each tenant sets their timezone in store settings
 
 ---
 
-## Phone Number Format
+## Phone Number
 
-| Rule | Detail |
-|---|---|
-| Country code | +880 (stored) |
-| Display format | 01X-XXXX-XXXX |
-| Validation | Must be 11 digits starting with 01 |
-| Input mask | Auto-format as user types |
-| Click-to-call | `tel:+8801712345678` |
+### Tenant-Configurable Validation
+
+Each tenant's country determines phone validation:
+
+| Country | Code | Format | Validation |
+|---|---|---|---|
+| Bangladesh | +880 | 01X-XXXX-XXXX | 11 digits, starts with 01 |
+| Thailand | +66 | 0X-XXXX-XXXX | 9-10 digits |
+| USA | +1 | (XXX) XXX-XXXX | 10 digits |
+| Default | Any | International | 7-15 digits |
+
+- Country code auto-filled from tenant's country setting
+- Display format adapts to country
+- Click-to-call: `tel:+{countryCode}{number}`
 
 ---
 
 ## Address Format
 
-Bangladesh-specific address structure:
+### Tenant-Configurable Fields
 
-```
-[Detailed Address]     → House 12, Road 5, Block C
-[Area]                 → Dhanmondi
-[Thana]                → Dhanmondi (optional)
-[District]             → Dhaka
-```
+Each tenant configures their address form in store settings. SaaS admin provides country-specific templates:
 
-Districts dropdown: All 64 districts of Bangladesh.
+| Country | Fields |
+|---|---|
+| Bangladesh | Address, Area, Thana, District, Division |
+| Thailand | Address, Sub-district, District, Province, Postal Code |
+| International | Address Line 1, Address Line 2, City, State, Postal Code, Country |
+
+Tenants can customize field labels, required/optional status, and add dropdown options (e.g., list of districts).
 
 ---
 
-## Cultural UX Considerations
+## Cultural UX — Tenant-Driven
 
-| Consideration | Implementation |
+Instead of hardcoding cultural elements, these are tenant-configurable:
+
+| Feature | How |
 |---|---|
-| Trust signals | Show phone number prominently, WhatsApp button, real photos |
-| Payment trust | bKash/Nagad logos at checkout, COD prominently available |
-| Social proof | "Booked X times this month" badges |
-| Family context | Event categories include: Wedding, Holud, Walima, Eid, Puja |
-| Conservative display | Product images should be tasteful, no inappropriate content |
-| Seasonal awareness | Highlight relevant categories during wedding season, Eid |
+| Trust signals | Tenant adds phone, WhatsApp, social links in settings |
+| Payment logos | Shown based on tenant's enabled payment methods |
+| Event categories | Tenant creates their own event types (Wedding, Eid, Prom, etc.) |
+| Social proof badges | System-generated from real data ("Booked X times") |
 
 ---
 
 ## Business Rules Summary
 
-1. English is the default system language (v1)
-2. Bengali UI translations planned for Phase 2
-3. Currency always displayed as ৳ with South Asian number formatting
-4. Date format: DD MMMM, YYYY (never MM/DD/YYYY)
-5. Phone numbers: 11-digit BD format with +880 stored
-6. Timezone: BST (UTC+6) for all user-facing times
-7. Address uses BD format (area, thana, district)
-8. Cultural UX adapted for Bangladeshi market
+1. English is the system language for v1. Multi-language architecture ready.
+2. Currency, date format, number format — all **per-tenant configurable**
+3. Phone validation based on **tenant's country** setting
+4. Address format uses **tenant-configurable fields** (templates per country)
+5. Timezone: **UTC storage**, display in **tenant timezone**
+6. No cultural assumptions hardcoded — tenants configure their own market

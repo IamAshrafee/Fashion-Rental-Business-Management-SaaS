@@ -44,18 +44,22 @@ Phase 12: Deployment & Launch
 
 | Task | Details |
 |---|---|
-| Initialize Next.js project | App Router, TypeScript, Tailwind CSS, ShadCN/ui |
+| Initialize Next.js project | App Router, TypeScript, Tailwind CSS |
+| Set up ShadCN/ui | Owner portal and admin portal components |
 | Initialize NestJS project | TypeScript, class-validator, Swagger |
+| Set up monorepo | npm workspaces, `packages/types` for shared TypeScript types |
 | Set up Prisma | Schema, initial migration, seed script |
 | Set up PostgreSQL | Docker container, database creation, connection |
 | Set up Redis | Docker container, connection |
 | Set up MinIO | Docker container, bucket creation, connection |
+| Set up BullMQ | Job queues for background processing |
 | Docker Compose | All services orchestrated, internal network |
 | Nginx config | Reverse proxy, SSL (self-signed for dev) |
 | Environment config | `.env` files, `@nestjs/config` validation |
-| Auth system | JWT authentication, refresh tokens, session in Redis |
+| Auth system | JWT (15 min) + refresh token (7 day, httpOnly), session tracking |
 | Tenant middleware | Host header parsing, tenant context injection |
-| Role system | Guest, Owner, Staff, Admin roles with guards |
+| Role system | Guest, Owner, Manager, Staff, Admin roles with guards |
+| Event system | NestJS EventEmitter2 setup |
 | Base API structure | Error handling, response format, validation pipe |
 | Base UI structure | Layout components, design tokens, fonts |
 
@@ -148,6 +152,7 @@ Phase 12: Deployment & Launch
 | Task | Details |
 |---|---|
 | Availability engine | Real-time date-range availability checking |
+| Buffer days | Configurable gap between bookings (per-tenant + per-product override) |
 | Date blocking | Booked dates auto-blocked for other customers |
 | Cart system | Add to cart, update, remove, session-based |
 | Cart page | Item list, rental details, price breakdown |
@@ -187,6 +192,7 @@ Phase 12: Deployment & Launch
 | Damage reporting | Mark items as damaged, calculate compensation |
 | Product list view | Search, filter, status overview for all products |
 | Quick actions | Mark as shipped, confirm return, refund deposit |
+| Session management | View/revoke staff sessions, configure concurrent limits |
 
 ### Exit Criteria
 - Owner can manage complete order lifecycle
@@ -329,7 +335,7 @@ Phase 12: Deployment & Launch
 | Rate limiting | All public endpoints rate-limited |
 | Performance optimization | Query optimization, caching review, image optimization |
 | Error handling review | All error cases covered with proper messages |
-| Localization | Bengali language support for guest portal |
+| Localization | Multi-language support preparation (i18n keys) |
 | Accessibility | Keyboard navigation, screen reader basics |
 | Browser testing | Chrome, Safari, Firefox on mobile and desktop |
 | Load testing | Simulate concurrent users, identify bottlenecks |

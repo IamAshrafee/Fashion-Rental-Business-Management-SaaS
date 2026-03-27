@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-ClosetRent is a **multi-tenant SaaS platform** with a clear separation between three portals, a shared API backend, and isolated data per tenant.
+ClosetRent is a **multi-tenant SaaS platform** deployed as a **monorepo** with a clear separation between three portals, a shared API backend, and isolated data per tenant. The platform is **globally deployable** — each tenant configures their own timezone, currency, and locale.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -71,7 +71,7 @@ Request comes in
 
 **Resolution priority:**
 1. Custom domain match (e.g., `rentbysara.com`)
-2. Subdomain match (e.g., `hanasboutique.closetrent.com.bd`)
+2. Subdomain match (e.g., `hanasboutique.closetrent.com`)
 
 If no tenant is found → return 404 "Store not found"
 
@@ -149,9 +149,9 @@ Business owners can connect their own domain:
 
 | URL Pattern | Resolves To |
 |---|---|
-| `<slug>.closetrent.com.bd` | Guest Portal for tenant |
+| `<slug>.closetrent.com` | Guest Portal for tenant |
 | `<slug>.closetrent.com.bd/owner` | Owner Portal for tenant |
-| `admin.closetrent.com.bd` | SaaS Admin Portal |
+| `admin.closetrent.com` | SaaS Admin Portal |
 | `<custom-domain>` | Guest Portal for tenant |
 
 ---
@@ -190,6 +190,17 @@ src/
 ├── config/               # Environment config, validation
 ├── prisma/               # Prisma schema, migrations, seed
 └── main.ts               # App bootstrap
+```
+
+**Monorepo structure:**
+```
+closetrent/
+├── frontend/          # Next.js app
+├── backend/           # NestJS app
+├── packages/
+│   └── types/         # Shared TypeScript types (@closetrent/types)
+├── docker-compose.yml
+└── package.json       # npm workspaces root
 ```
 
 ### Request Lifecycle
@@ -262,7 +273,7 @@ On every page load:
 1. Read hostname (client-side or server-side)
 2. Call backend `/api/tenant/info` with hostname
 3. Receive: logo, brand colors, business name, contact info, social links
-4. Apply branding to storefront
+4. Apply branding (colors, logo) and locale (timezone, currency, date format) to storefront
 5. Cache tenant info in memory/local storage
 
 ---
@@ -373,10 +384,11 @@ Owner                   Frontend              Backend              MinIO      Da
 
 See `docs/security/` for detailed specs. Key principles:
 
-1. **Authentication**: JWT-based with refresh tokens. Session stored in Redis.
+1. **Authentication**: JWT-based with refresh tokens (15 min access / 7 day refresh). Sessions DB-backed with device tracking.
 2. **Tenant Isolation**: Every request passes through `TenantGuard`. No query executes without `tenant_id`.
-3. **Role-Based Access**: Guest, Owner, Staff, Admin — each has defined permissions.
+3. **Role-Based Access**: Guest, Owner, Manager, Staff, Admin — each has defined permissions.
 4. **Input Validation**: All inputs validated via class-validator DTOs in NestJS.
-5. **File Upload Security**: Image type validation, size limits, virus scan (future).
+5. **File Upload Security**: Image type validation, size limits, magic byte verification.
 6. **HTTPS Only**: All traffic encrypted. HTTP → HTTPS redirect via Nginx.
 7. **Rate Limiting**: Per-IP and per-tenant rate limits to prevent abuse.
+8. **Session Management**: Active session tracking, revocation, login history.

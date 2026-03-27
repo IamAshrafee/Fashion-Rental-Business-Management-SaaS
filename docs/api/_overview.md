@@ -25,12 +25,13 @@ JWT payload:
   "sub": "user-uuid",
   "tenantId": "tenant-uuid",
   "role": "owner",
+  "sessionId": "session-uuid",
   "iat": 1711519200,
-  "exp": 1711605600
+  "exp": 1711520100
 }
 ```
 
-Access token TTL: 24 hours. Refresh token TTL: 30 days.
+Access token TTL: **15 minutes** (stateless). Refresh token TTL: **7 days** (httpOnly cookie, DB-backed). See [session-management.md](../features/session-management.md).
 
 ### Tenant Resolution
 
@@ -116,9 +117,9 @@ All list endpoints support:
 | Product | [product.md](./product.md) | Mixed | Product CRUD |
 | Category | [category.md](./category.md) | Mixed | Category management |
 | Inventory | [inventory.md](./inventory.md) | Mixed | Availability checking |
-| Booking | [booking.md](./booking.md) | Mixed | Booking creation and management |
-| Cart | [cart.md](./cart.md) | No | Cart validation |
+| Booking | [booking.md](./booking.md) | Mixed | Booking creation and management (unified entity — no separate orders) |
 | Customer | [customer.md](./customer.md) | Yes | Customer management |
+| Session | [../features/session-management.md](../features/session-management.md) | Yes | Active sessions, login history, revocation |
 | Payment | [payment.md](./payment.md) | Mixed | Payment processing |
 | Search | [search.md](./search.md) | No | Search and filter |
 | Upload | [upload.md](./upload.md) | Yes | File uploads |

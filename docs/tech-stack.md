@@ -10,20 +10,25 @@ Every technology decision documented with rationale. No technology is chosen "be
 |---|---|---|
 | Frontend Framework | Next.js (React) | SSR, routing, UI rendering |
 | Frontend Styling | Tailwind CSS | Utility-first CSS framework |
-| UI Components (Owner) | ShadCN/ui | Pre-built, accessible dashboard components |
+| UI Components (Owner/Admin) | ShadCN/ui | Pre-built, accessible dashboard components |
 | UI Components (Guest) | Custom + Tailwind | Fully custom design for storefront |
+| Server State Management | TanStack Query | Caching, refetching, loading states for API data |
+| Form Management | React Hook Form | Multi-step wizards, validation, performance |
 | Backend Framework | NestJS | Structured API server |
 | Runtime | Node.js | JavaScript/TypeScript runtime |
 | Language | TypeScript | Type safety across frontend and backend |
 | Database | PostgreSQL | Relational data storage |
 | ORM | Prisma | Schema definition, migrations, queries |
-| Cache | Redis | Session storage, data caching |
+| Search | PostgreSQL pg_trgm | Trigram-based fuzzy search |
+| Cache | Redis | Session storage, data caching, job queues |
+| Job Queue | BullMQ | Background jobs with retry, scheduling, monitoring |
+| Event System | EventEmitter2 | Decoupled side-effects (NestJS module) |
 | Object Storage | MinIO | Self-hosted S3-compatible file storage |
 | Reverse Proxy | Nginx | SSL, routing, static serving |
 | Containerization | Docker + Docker Compose | Service isolation, deployment |
-| Process Manager | PM2 | Node.js process management (if not Docker) |
-| DNS / CDN | Cloudflare (Free) | DNS management, basic caching, DDoS protection |
+| DNS / CDN | Cloudflare (Free) | DNS management, CDN for images, DDoS protection |
 | SSL | Let's Encrypt | Free SSL certificates |
+| Monorepo | npm workspaces | Shared types between frontend and backend |
 
 ---
 
@@ -32,7 +37,7 @@ Every technology decision documented with rationale. No technology is chosen "be
 ### Next.js (v14+, App Router)
 
 **Why Next.js:**
-- **SSR for SEO**: Product pages must be indexable. When someone searches "Wedding dress rental in Dhaka", our product pages must appear in results. Next.js SSR makes this possible.
+- **SSR for SEO**: Product pages must be indexable. When someone searches for rental items, our product pages must appear in results. Next.js SSR makes this possible.
 - **App Router**: The latest routing paradigm with React Server Components — better performance and simpler data fetching.
 - **Same-language full stack**: TypeScript everywhere. Shared types between frontend and backend.
 - **Route-based code splitting**: Only loads JavaScript needed for the current page.
@@ -167,7 +172,7 @@ Every technology decision documented with rationale. No technology is chosen "be
 - Compress and resize using Sharp (Node.js)
 - Convert to WebP for optimal file size
 - Store original + optimized versions
-- Serve via Nginx with cache headers
+- Serve via Nginx + Cloudflare CDN with cache headers
 
 ---
 
@@ -226,7 +231,7 @@ Every technology decision documented with rationale. No technology is chosen "be
 | MongoDB | Data is relational. MongoDB would be a mistake for bookings + availability. |
 | GraphQL | REST is simpler and sufficient. GraphQL adds complexity without proportional benefit for this product. |
 | Microservices | Overkill for v1. Monolith with clean module separation first. Microservices later if needed. |
-| RabbitMQ / Kafka | Not needed until we have background jobs that require message queuing. |
+| RabbitMQ / Kafka | BullMQ + Redis is sufficient for our job queue needs. |
 | Kubernetes | Massive overkill. Docker Compose is sufficient for single-VPS deployment. |
 | Firebase | Vendor lock-in. Does not align with self-hosted strategy. |
 | tRPC | Ties frontend and backend too tightly. We want separate deployability. |
