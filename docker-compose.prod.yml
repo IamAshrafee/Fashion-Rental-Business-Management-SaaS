@@ -1,0 +1,53 @@
+version: '3.8'
+
+# Production overrides — adds Nginx, frontend, backend containers
+# No DB/Redis/MinIO ports exposed externally
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - closetrent-network
+    mem_limit: 128m
+    mem_reservation: 32m
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - NODE_ENV=production
+    networks:
+      - closetrent-network
+    mem_limit: 512m
+    mem_reservation: 256m
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - closetrent-network
+    mem_limit: 512m
+    mem_reservation: 256m

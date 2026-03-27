@@ -46,6 +46,9 @@ prisma/*.db-journal
 
 # Docker
 docker-compose.override.yml
+pgdata/
+redisdata/
+miniodata/
 
 # MinIO local data
 minio_data/

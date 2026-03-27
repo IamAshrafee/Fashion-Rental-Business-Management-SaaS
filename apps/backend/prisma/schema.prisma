@@ -1,0 +1,23 @@
+// This is a minimal Prisma schema for P01 scaffolding.
+// P02 will replace this with the full database schema.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Minimal placeholder model — P02 will define the complete schema.
+// This exists solely so that `prisma generate` can produce a valid client.
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  subdomain String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tenants")
+}

@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-closetrent_dev}
+      POSTGRES_USER: ${DATABASE_USER:-closetrent}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-dev_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - closetrent-network
+    mem_limit: 1536m
+    mem_reservation: 512m
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DATABASE_USER:-closetrent} -d ${DATABASE_NAME:-closetrent_dev}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    networks:
+      - closetrent-network
+    mem_limit: 256m
+    mem_reservation: 64m
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-minioadmin}
+    volumes:
+      - miniodata:/data
+    networks:
+      - closetrent-network
+    mem_limit: 512m
+    mem_reservation: 128m
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+
+networks:
+  closetrent-network:
+    driver: bridge

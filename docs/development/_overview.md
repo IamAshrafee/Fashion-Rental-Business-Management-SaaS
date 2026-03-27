@@ -222,7 +222,7 @@ Each package file lives in `docs/development/` and follows this structure:
 
 | File | Package | Status |
 |---|---|---|
-| [P01-project-scaffolding.md](./P01-project-scaffolding.md) | Project Scaffolding & DevOps | ⬜ |
+| [P01-project-scaffolding.md](./P01-project-scaffolding.md) | Project Scaffolding & DevOps | ✅ |
 | [P02-database-schema.md](./P02-database-schema.md) | Database Schema & Prisma | ⬜ |
 | [P03-auth-tenant.md](./P03-auth-tenant.md) | Auth & Tenant System | ⬜ |
 | [P04-product-management.md](./P04-product-management.md) | Product Management (Backend) | ⬜ |
