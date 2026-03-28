@@ -1,40 +1,73 @@
-import axios from 'axios';
-
 /**
- * Centralized Axios instance for all backend API calls.
- * All API communication should go through this client.
+ * Centralized Axios Instance — ClosetRent Frontend
  *
  * Features:
  * - Base URL from environment
- * - Automatic JSON content-type
- * - Interceptors for auth tokens and error handling (to be added in P03)
+ * - Request interceptor: attach JWT from memory + tenant header
+ * - Response interceptor: auto-refresh on 401, global error toast
  */
+
+import axios from 'axios';
+import { getAccessToken, refreshAccessToken, clearAccessToken } from './auth';
+
 const apiClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
   timeout: 15000,
+  withCredentials: true, // Send httpOnly cookies for refresh
 });
 
-// Request interceptor — attach auth token (will be implemented in P03)
+// ----------------------------------------------------------------
+// Request Interceptor — attach JWT + tenant header
+// ----------------------------------------------------------------
+
 apiClient.interceptors.request.use(
   (config) => {
-    // TODO: P03 will add JWT token from auth context
+    // Attach in-memory JWT if available
+    const token = getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  },
+  (error) => Promise.reject(error),
 );
 
-// Response interceptor — handle common errors
+// ----------------------------------------------------------------
+// Response Interceptor — auto-refresh on 401
+// ----------------------------------------------------------------
+
 apiClient.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error) => {
-    // TODO: P03 will handle 401 → redirect to login, token refresh
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    // If 401 and we haven't already retried, try to refresh
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      // Don't try to refresh on auth endpoints themselves
+      !originalRequest.url?.includes('/auth/refresh') &&
+      !originalRequest.url?.includes('/auth/login')
+    ) {
+      originalRequest._retry = true;
+
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return apiClient(originalRequest);
+      }
+
+      // Refresh failed — clear state, redirect to login
+      clearAccessToken();
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+
     return Promise.reject(error);
   },
 );
