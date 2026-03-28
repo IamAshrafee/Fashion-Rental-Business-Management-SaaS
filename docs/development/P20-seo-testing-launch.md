@@ -6,6 +6,7 @@
 | **Estimated Time** | 4–5 hours |
 | **Requires** | P18, P14, P19 (all user-facing pages complete) |
 | **Unlocks** | None (final package) |
+| **Agent Skills** | `nextjs-best-practices`, `vercel-react-best-practices` · Optional: `postgresql-database-engineering` |
 
 ---
 

@@ -213,6 +213,7 @@ Each package file lives in `docs/development/` and follows this structure:
 ```markdown
 # Package Title
 ## REQUIRES (input dependencies)
+## AGENT SKILLS (which .agents/skills/ to read before starting)
 ## SCOPE (what to build)
 ## REFERENCE DOCS (which /docs/ files to read)
 ## DELIVERABLES (what the agent must produce)  
@@ -332,3 +333,65 @@ Every existing documentation file is assigned to exactly one package:
 | `event-system.md` | Event-driven patterns |
 | `localization-strategy.md` | Locale handling |
 | `frontend-architecture.md` | Frontend patterns |
+
+---
+
+## Agent Skills Reference
+
+> **MANDATORY**: Before starting any work package, agents **MUST** read the SKILL.md files listed for that package. Skills are located in `.agents/skills/<skill-name>/SKILL.md`.
+
+### Installed Skills (16 total)
+
+| Skill | Description | Applies To |
+|---|---|---|
+| `brainstorming` | Explore requirements before building | **All packages** — use before any creative work |
+| `nestjs-best-practices` | Architecture, DI, security, error handling patterns | P03–P10, P19 (all backend) |
+| `nestjs-expert` | Deep NestJS troubleshooting and patterns | P03–P10, P19 (all backend) |
+| `typescript-expert` | Type-level programming, strict mode, monorepo | **All packages** |
+| `nodejs-best-practices` | Framework selection, async patterns, security | P03–P10, P19 (all backend) |
+| `postgresql-best-practices` | Schema design, query optimization, indexing | P02, P07, P08, P09 |
+| `postgresql-database-engineering` | Advanced PG features, MVCC, replication | P02, P20 |
+| `postgresql-table-design` | Table design patterns, constraints, data types | P02 |
+| `prisma-database-setup` | Prisma configuration and client setup | P02, P03 |
+| `prisma-postgres` | Prisma Postgres provisioning and management | P02 |
+| `redis-best-practices` | Caching, sessions, data structures | P10, P07 |
+| `redis-development` | Redis Query Engine, performance optimization | P10 |
+| `nextjs-best-practices` | App Router, Server Components, data fetching | P11–P20 (all frontend) |
+| `nextjs-app-router-patterns` | Streaming, parallel routes, advanced SSR | P11–P20 (all frontend) |
+| `vercel-react-best-practices` | React performance, bundle optimization | P11–P20 (all frontend) |
+| `minio` | S3-compatible object storage API | P10 (file uploads) |
+
+### Per-Package Skill Matrix
+
+| Package | Required Skills | Optional Skills |
+|---|---|---|
+| **P01** | `typescript-expert` | — |
+| **P02** | `postgresql-best-practices`, `postgresql-table-design`, `prisma-database-setup` | `postgresql-database-engineering`, `prisma-postgres` |
+| **P03** | `nestjs-best-practices`, `nestjs-expert`, `nodejs-best-practices` | `prisma-database-setup` |
+| **P04** | `nestjs-best-practices`, `nestjs-expert`, `typescript-expert` | `postgresql-best-practices` |
+| **P05** | `nestjs-best-practices`, `nestjs-expert` | — |
+| **P06** | `nestjs-best-practices`, `nestjs-expert`, `typescript-expert` | — |
+| **P07** | `nestjs-best-practices`, `nestjs-expert`, `postgresql-best-practices` | `redis-best-practices` |
+| **P08** | `nestjs-best-practices`, `nestjs-expert`, `postgresql-best-practices` | — |
+| **P09** | `nestjs-best-practices`, `nestjs-expert` | — |
+| **P10** | `nestjs-best-practices`, `redis-best-practices`, `redis-development` | `minio` |
+| **P11** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | `typescript-expert` |
+| **P12** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | — |
+| **P13** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
+| **P14** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
+| **P15** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
+| **P16** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
+| **P17** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | — |
+| **P18** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | — |
+| **P19** | `nestjs-best-practices`, `nextjs-best-practices`, `vercel-react-best-practices` | `typescript-expert` |
+| **P20** | `nextjs-best-practices`, `vercel-react-best-practices` | `postgresql-database-engineering` |
+
+### Skill Usage Rules
+
+1. **Always read SKILL.md first** — each skill file contains when-to-apply triggers and priority rules
+2. **`brainstorming` is mandatory** before any creative/architectural work — it explores intent and requirements before implementation
+3. **Backend packages** (P03–P10, P19) must always reference `nestjs-best-practices` — it contains 40 rules across 10 categories
+4. **Frontend packages** (P11–P20) must always reference `nextjs-best-practices` and `vercel-react-best-practices`
+5. **Database-heavy packages** (P02, P07, P08) must reference `postgresql-best-practices` for query optimization
+6. **Some skills have detailed rule files** — `nestjs-best-practices` has an `AGENTS.md` with 5,900+ lines of detailed rules. Read the sections relevant to your package
+

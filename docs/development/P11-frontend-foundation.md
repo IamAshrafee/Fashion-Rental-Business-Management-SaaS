@@ -6,6 +6,7 @@
 | **Estimated Time** | 4–5 hours |
 | **Requires** | P01 (project scaffolding — Next.js app exists) |
 | **Unlocks** | P12, P17, P19 |
+| **Agent Skills** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` · Optional: `typescript-expert` |
 
 ---
 

@@ -6,6 +6,7 @@
 | **Estimated Time** | 3–4 hours |
 | **Requires** | P03 (auth, guards, tenant middleware) |
 | **Unlocks** | None directly (consumed by P07–P09 via events) |
+| **Agent Skills** | `nestjs-best-practices`, `redis-best-practices`, `redis-development` · Optional: `minio` |
 
 ---
 

@@ -6,6 +6,7 @@
 | **Estimated Time** | 5–6 hours |
 | **Requires** | P04 (products, pricing), P05 (customers) |
 | **Unlocks** | P08, P09, P14, P18 |
+| **Agent Skills** | `nestjs-best-practices`, `nestjs-expert`, `postgresql-best-practices` · Optional: `redis-best-practices` |
 
 ---
 

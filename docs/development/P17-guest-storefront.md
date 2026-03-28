@@ -6,6 +6,7 @@
 | **Estimated Time** | 4–5 hours |
 | **Requires** | P11 (frontend foundation), P04 (product APIs) |
 | **Unlocks** | P18 |
+| **Agent Skills** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` |
 
 ---
 

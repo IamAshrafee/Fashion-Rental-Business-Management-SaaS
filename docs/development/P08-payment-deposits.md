@@ -6,6 +6,7 @@
 | **Estimated Time** | 3–4 hours |
 | **Requires** | P07 (booking engine) |
 | **Unlocks** | P14, P18 |
+| **Agent Skills** | `nestjs-best-practices`, `nestjs-expert`, `postgresql-best-practices` |
 
 ---
 

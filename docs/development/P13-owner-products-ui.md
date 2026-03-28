@@ -6,6 +6,7 @@
 | **Estimated Time** | 4–5 hours |
 | **Requires** | P12 (owner layout), P04 (product APIs) |
 | **Unlocks** | None directly (can be used independently) |
+| **Agent Skills** | `nextjs-best-practices`, `vercel-react-best-practices` |
 
 ---
 

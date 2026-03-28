@@ -6,6 +6,7 @@
 | **Estimated Time** | 4–5 hours |
 | **Requires** | P17 (storefront), P07 (booking APIs), P08 (payment APIs) |
 | **Unlocks** | P20 |
+| **Agent Skills** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` |
 
 ---
 

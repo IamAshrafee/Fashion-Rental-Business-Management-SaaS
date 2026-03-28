@@ -5,6 +5,81 @@
       "source": "obra/superpowers",
       "sourceType": "github",
       "computedHash": "f483c304fcde060211ffae00f49bb728536e7e7613c99db45b5b924d9fc17243"
+    },
+    "minio": {
+      "source": "vm0-ai/vm0-skills",
+      "sourceType": "github",
+      "computedHash": "12921dcb22e2467cda3631e2d19831fc74c99b09b3e009aec36d7f26bca87bc4"
+    },
+    "nestjs-best-practices": {
+      "source": "kadajett/agent-nestjs-skills",
+      "sourceType": "github",
+      "computedHash": "68658903272e1015f3ec5084c7d0988216a47f42f675ed819a675250fc6a23cd"
+    },
+    "nestjs-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "fab608860b6cf2a96919c2f579666908183b5d6fe9b7507097048dde1f970f13"
+    },
+    "nextjs-app-router-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "04c1df896cc2c9ef824d618b95d21686c5b8e24e5cb32b3d6fe9d97d4b661536"
+    },
+    "nextjs-best-practices": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "f57b0625e5e9e64dc9f3d7333c81e73f445fd9c65fe7cd0fd99a779a2e78dffd"
+    },
+    "nodejs-best-practices": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "9f8d3f268624c4757f4039617942d3e8ddcf420b9295cb943bea3bf9feb37e9d"
+    },
+    "postgresql-best-practices": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "computedHash": "d32a9114bc974c965308108be7a41d9da4cddd037d5941b96611cce63064f7ea"
+    },
+    "postgresql-database-engineering": {
+      "source": "manutej/luxor-claude-marketplace",
+      "sourceType": "github",
+      "computedHash": "6039063ea5257f77ff0797f08074d3ec40da34ca8f412d8af5b194b9b6db0e89"
+    },
+    "postgresql-table-design": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "d7d040ee506a300c08a64b9ef6de9aa677b6d7251e33c3c87e0608f821a9506d"
+    },
+    "prisma-database-setup": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "computedHash": "72e2360923e949261a15ca1dbcfac5662ec5e851f6045ffb13163a55a083bcea"
+    },
+    "prisma-postgres": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "computedHash": "072f06690854c4db5dfc0e812105d83dadf2dfcbe2949a2e8af84d9174a018ea"
+    },
+    "redis-best-practices": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "computedHash": "7d5b0f93221b2b0f1f1c35352d06990a9d18226aa95f546b161b10a4fdaabf6b"
+    },
+    "redis-development": {
+      "source": "redis/agent-skills",
+      "sourceType": "github",
+      "computedHash": "993ad240385d830a9717796a4b76e835ed737bfc9d3e10a4528e00bacd58cbf8"
+    },
+    "typescript-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "6a90334060f03a9885eaafe683f14f3b0015c83085e10a511626bc4f4388aa47"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "computedHash": "9fb08ab39585f6f770d0c1c735f83e619aba2089d7ad50ba2a305eff715e08b9"
     }
   }
 }
