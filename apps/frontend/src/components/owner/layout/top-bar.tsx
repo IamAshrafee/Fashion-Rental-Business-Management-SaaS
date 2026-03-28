@@ -16,8 +16,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Bell, LogOut, User, Settings } from 'lucide-react';
+import { LogOut, User, Settings } from 'lucide-react';
 import { OwnerSidebar } from './sidebar';
+import { OwnerBreadcrumbs } from './breadcrumbs';
+import { TopBarNotifications } from './notifications';
 
 export function TopBar() {
   const { user, logout } = useAuth();
@@ -36,13 +38,16 @@ export function TopBar() {
       {/* Mobile sidebar trigger */}
       <OwnerSidebar />
 
+      {/* Breadcrumbs (Desktop) */}
+      <div className="ml-2 hidden md:block">
+        <OwnerBreadcrumbs />
+      </div>
+
       {/* Spacer */}
       <div className="flex-1" />
 
       {/* Notifications */}
-      <Button variant="ghost" size="icon" className="relative">
-        <Bell className="h-5 w-5" />
-      </Button>
+      <TopBarNotifications />
 
       {/* Profile dropdown */}
       <DropdownMenu>

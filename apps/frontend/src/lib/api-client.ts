@@ -8,7 +8,7 @@
  */
 
 import axios from 'axios';
-import { getAccessToken, refreshAccessToken, clearAccessToken } from './auth';
+import { getAccessToken, refreshAccessToken, clearAccessToken, getTenantId } from './auth';
 
 const apiClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1',
@@ -29,6 +29,11 @@ apiClient.interceptors.request.use(
     const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    const tid = getTenantId();
+    if (tid) {
+      config.headers['x-tenant-id'] = tid;
     }
 
     return config;

@@ -19,6 +19,7 @@ import type { AuthTokens, AuthUserInfo } from '@/types';
 
 let accessToken: string | null = null;
 let tokenExpiresAt: number = 0;
+let tenantId: string | null = null;
 
 export function getAccessToken(): string | null {
   if (!accessToken) return null;
@@ -27,15 +28,34 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
-export function setAccessToken(token: string, expiresIn: number): void {
+export function getTenantId(): string | null {
+  if (tenantId) return tenantId;
+  if (typeof window !== 'undefined') {
+    tenantId = localStorage.getItem('closetrent_tenant_id');
+    return tenantId;
+  }
+  return null;
+}
+
+export function setAccessToken(token: string, expiresIn: number, tid: string | null = null): void {
   accessToken = token;
   // expiresIn is in seconds, convert to ms
   tokenExpiresAt = Date.now() + expiresIn * 1000;
+  if (tid) {
+    tenantId = tid;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('closetrent_tenant_id', tid);
+    }
+  }
 }
 
 export function clearAccessToken(): void {
   accessToken = null;
   tokenExpiresAt = 0;
+  tenantId = null;
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('closetrent_tenant_id');
+  }
 }
 
 // ----------------------------------------------------------------
@@ -60,7 +80,8 @@ export async function refreshAccessToken(): Promise<string | null> {
       }>('/auth/refresh', {}, { withCredentials: true });
 
       if (response.data.success) {
-        const { accessToken: newToken, expiresIn } = response.data.data;
+        const { accessToken: newToken, expiresIn, user } = response.data.data as AuthTokens & { user?: { tenantId?: string } };
+        // We might not get the user obj on refresh depending on backend, but if we do, use its tenantId
         setAccessToken(newToken, expiresIn);
         return newToken;
       }
@@ -89,18 +110,23 @@ export async function loginWithCredentials(
     success: boolean;
     data: {
       user: AuthUserInfo;
+      tenants: Array<{ id: string; subdomain: string; businessName: string; role: string }>;
       accessToken: string;
       expiresIn: number;
     };
   }>(
     '/auth/login',
-    { emailOrPhone, password, tenantSlug },
+    { identifier: emailOrPhone, password, tenantSlug },
     { withCredentials: true },
   );
 
-  const { user, accessToken: token, expiresIn } = response.data.data;
-  setAccessToken(token, expiresIn);
-  return user;
+  const { user, tenants, accessToken: token, expiresIn } = response.data.data;
+  const primaryTenantId = tenants?.[0]?.id || null;
+  
+  setAccessToken(token, expiresIn, primaryTenantId);
+  
+  // Attach the tenantId to the user object we return so the auth provider has it
+  return { ...user, tenantId: primaryTenantId };
 }
 
 export async function logout(): Promise<void> {

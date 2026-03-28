@@ -5,7 +5,7 @@
  * Uses shadcn Sheet on mobile, fixed sidebar on desktop.
  */
 
-import { useState } from 'react';
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -59,7 +59,7 @@ function SidebarContent({
           <Button
             variant="ghost"
             size="icon"
-            className="ml-auto h-7 w-7"
+            className="ml-auto h-7 w-7 md:hidden lg:hidden"
             onClick={onToggle}
           >
             <ChevronLeft
@@ -116,21 +116,15 @@ function SidebarContent({
 }
 
 export function OwnerSidebar() {
-  const [collapsed, setCollapsed] = useState(false);
-
   return (
     <>
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          'hidden border-r bg-card transition-all duration-300 lg:fixed lg:inset-y-0 lg:z-30 lg:flex lg:flex-col',
-          collapsed ? 'lg:w-16' : 'lg:w-64',
+          'hidden border-r bg-card transition-all duration-300 lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:flex-col lg:w-64'
         )}
       >
-        <SidebarContent
-          collapsed={collapsed}
-          onToggle={() => setCollapsed(!collapsed)}
-        />
+        <SidebarContent collapsed={false} />
       </aside>
 
       {/* Mobile sidebar (Sheet) */}
