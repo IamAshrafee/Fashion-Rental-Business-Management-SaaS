@@ -235,8 +235,8 @@ Each package file lives in `docs/development/` and follows this structure:
 | [P10-notifications-jobs.md](./P10-notifications-jobs.md) | Notifications & Background Jobs | ⬜ |
 | [P11-frontend-foundation.md](./P11-frontend-foundation.md) | Frontend Scaffolding & Design System | ✅ |
 | [P12-owner-layout-dashboard.md](./P12-owner-layout-dashboard.md) | Owner Portal — Layout & Dashboard | ✅ |
-| [P13-owner-products-ui.md](./P13-owner-products-ui.md) | Owner Portal — Product Management UI | ⬜ |
-| [P14-owner-bookings-ui.md](./P14-owner-bookings-ui.md) | Owner Portal — Booking & Order UI | ⬜ |
+| [P13-owner-products-ui.md](./P13-owner-products-ui.md) | Owner Portal — Product Management UI | ✅ |
+| [P14-owner-bookings-ui.md](./P14-owner-bookings-ui.md) | Owner Portal — Booking & Order UI | ✅ |
 | [P15-owner-customers-analytics.md](./P15-owner-customers-analytics.md) | Owner Portal — Customers & Analytics | ✅ |
 | [P16-owner-settings-ui.md](./P16-owner-settings-ui.md) | Owner Portal — Settings & Staff UI | ⬜ |
 | [P17-guest-storefront.md](./P17-guest-storefront.md) | Guest Portal — Storefront & Browse | ⬜ |
