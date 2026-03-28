@@ -20,6 +20,7 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { StaffModule } from './modules/staff/staff.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     AdminModule,
     StaffModule,
     FulfillmentModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule implements NestModule {
