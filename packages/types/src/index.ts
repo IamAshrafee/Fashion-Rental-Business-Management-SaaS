@@ -131,3 +131,71 @@ export interface DateRange {
   startDate: string;
   endDate: string;
 }
+
+// --- Admin & Platform Models ---
+
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  slug: string;
+  priceMonthly: number;
+  priceAnnual: number | null;
+  maxProducts: number | null;
+  maxStaff: number;
+  customDomain: boolean;
+  smsEnabled: boolean;
+  analyticsFull: boolean;
+  removeBranding: boolean;
+  isActive: boolean;
+  displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlatformStats {
+  tenants: {
+    total: number;
+    active: number;
+    newThisMonth: number;
+  };
+  mrr: number;
+  gmv: number;
+  churnRate: number;
+  totalProducts: number;
+  totalOrders: number;
+}
+
+export interface AdminTenantSummary {
+  id: string;
+  businessName: string;
+  subdomain: string;
+  plan: string;
+  status: TenantStatus;
+  productCount: number;
+  orderCount: number;
+  totalRevenue: number;
+  ownerName: string;
+  ownerPhone: string;
+  createdAt: string;
+}
+
+export interface AdminTenantDetails {
+  id: string;
+  businessName: string;
+  subdomain: string;
+  customDomain: string | null;
+  status: TenantStatus;
+  plan: SubscriptionPlan | null;
+  owner: {
+    id: string;
+    fullName: string;
+    email: string | null;
+    phone: string | null;
+  };
+  storeSettings: any; // We can type this later if needed
+  _count: {
+    products: number;
+    bookings: number;
+    customers: number;
+  };
+}

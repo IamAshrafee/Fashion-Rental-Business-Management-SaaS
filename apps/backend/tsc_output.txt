@@ -1,0 +1,19 @@
+src/modules/admin/admin.service.ts(250,19): error TS2339: Property 'name' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(251,19): error TS2339: Property 'slug' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(252,27): error TS2339: Property 'priceMonthly' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(253,26): error TS2339: Property 'priceAnnual' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(254,26): error TS2339: Property 'maxProducts' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(255,23): error TS2339: Property 'maxStaff' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(256,27): error TS2339: Property 'customDomain' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(257,25): error TS2339: Property 'smsEnabled' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(258,28): error TS2339: Property 'analyticsFull' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(259,29): error TS2339: Property 'removeBranding' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(260,23): error TS2339: Property 'isActive' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/admin.service.ts(261,27): error TS2339: Property 'displayOrder' does not exist on type 'UpdatePlanDto'.
+src/modules/admin/dto/create-plan.dto.ts(6,3): error TS2564: Property 'name' has no initializer and is not definitely assigned in the constructor.
+src/modules/admin/dto/create-plan.dto.ts(10,3): error TS2564: Property 'slug' has no initializer and is not definitely assigned in the constructor.
+src/modules/admin/dto/create-plan.dto.ts(14,3): error TS2564: Property 'priceMonthly' has no initializer and is not definitely assigned in the constructor.
+src/modules/admin/dto/update-plan.dto.ts(1,29): error TS2307: Cannot find module '@nestjs/mapped-types' or its corresponding type declarations.
+src/modules/admin/dto/update-tenant-plan.dto.ts(7,3): error TS2564: Property 'planId' has no initializer and is not definitely assigned in the constructor.
+src/modules/admin/dto/update-tenant-plan.dto.ts(11,3): error TS2564: Property 'billingCycle' has no initializer and is not definitely assigned in the constructor.
+src/modules/admin/dto/update-tenant-status.dto.ts(7,3): error TS2564: Property 'status' has no initializer and is not definitely assigned in the constructor.

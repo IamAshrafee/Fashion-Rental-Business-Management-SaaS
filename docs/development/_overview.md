@@ -241,7 +241,7 @@ Each package file lives in `docs/development/` and follows this structure:
 | [P16-owner-settings-ui.md](./P16-owner-settings-ui.md) | Owner Portal — Settings & Staff UI | ⬜ |
 | [P17-guest-storefront.md](./P17-guest-storefront.md) | Guest Portal — Storefront & Browse | ⬜ |
 | [P18-guest-checkout.md](./P18-guest-checkout.md) | Guest Portal — Booking & Checkout | ⬜ |
-| [P19-admin-portal.md](./P19-admin-portal.md) | SaaS Admin Portal | ⬜ |
+| [P19-admin-portal.md](./P19-admin-portal.md) | SaaS Admin Portal | ✅ |
 | [P20-seo-testing-launch.md](./P20-seo-testing-launch.md) | SEO, Testing & Launch Prep | ⬜ |
 
 ---
