@@ -6,7 +6,7 @@
 | **Estimated Time** | 4–5 hours |
 | **Requires** | P11 (frontend foundation), P03 (auth — super_admin role) |
 | **Unlocks** | P20 |
-| **Agent Skills** | `nestjs-best-practices`, `nextjs-best-practices`, `vercel-react-best-practices` · Optional: `typescript-expert` |
+| **Agent Skills** | `nestjs-best-practices`, `nextjs-best-practices`, `vercel-react-best-practices`, `shadcn`, `tailwind-css-patterns` · Optional: `typescript-expert` |
 
 ---
 

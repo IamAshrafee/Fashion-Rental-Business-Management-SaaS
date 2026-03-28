@@ -6,7 +6,7 @@
 | **Estimated Time** | 3–4 hours |
 | **Requires** | P11 (frontend foundation), P06 (store settings API) |
 | **Unlocks** | P13, P14, P15, P16 |
-| **Agent Skills** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` |
+| **Agent Skills** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices`, `tailwindcss-advanced-layouts` · Optional: `shadcn`, `tailwind-css-patterns`, `tailwindcss-mobile-first` |
 
 ---
 

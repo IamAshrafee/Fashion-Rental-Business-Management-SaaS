@@ -340,7 +340,7 @@ Every existing documentation file is assigned to exactly one package:
 
 > **MANDATORY**: Before starting any work package, agents **MUST** read the SKILL.md files listed for that package. Skills are located in `.agents/skills/<skill-name>/SKILL.md`.
 
-### Installed Skills (16 total)
+### Installed Skills (22 total)
 
 | Skill | Description | Applies To |
 |---|---|---|
@@ -360,6 +360,12 @@ Every existing documentation file is assigned to exactly one package:
 | `nextjs-app-router-patterns` | Streaming, parallel routes, advanced SSR | P11–P20 (all frontend) |
 | `vercel-react-best-practices` | React performance, bundle optimization | P11–P20 (all frontend) |
 | `minio` | S3-compatible object storage API | P10 (file uploads) |
+| `shadcn` | CLI & component management for shadcn/ui | P11–P20 (all frontend) |
+| `shadcn-ui` | shadcn/ui component integration and customization | P11–P20 (all frontend) |
+| `tailwind-design-system` | Scalable design systems with Tailwind CSS | P11–P20 (all frontend) |
+| `tailwind-css-patterns` | Tailwind utility styles and patterns | P11–P20 (all frontend) |
+| `tailwindcss-advanced-layouts` | Advanced layouts using Grid and Flexbox | P11–P20 (all frontend) |
+| `tailwindcss-mobile-first` | Mobile-first responsive design best practices | P11–P20 (all frontend) |
 
 ### Per-Package Skill Matrix
 
@@ -375,16 +381,16 @@ Every existing documentation file is assigned to exactly one package:
 | **P08** | `nestjs-best-practices`, `nestjs-expert`, `postgresql-best-practices` | — |
 | **P09** | `nestjs-best-practices`, `nestjs-expert` | — |
 | **P10** | `nestjs-best-practices`, `redis-best-practices`, `redis-development` | `minio` |
-| **P11** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | `typescript-expert` |
-| **P12** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | — |
-| **P13** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
-| **P14** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
-| **P15** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
-| **P16** | `nextjs-best-practices`, `vercel-react-best-practices` | — |
-| **P17** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | — |
-| **P18** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices` | — |
-| **P19** | `nestjs-best-practices`, `nextjs-best-practices`, `vercel-react-best-practices` | `typescript-expert` |
-| **P20** | `nextjs-best-practices`, `vercel-react-best-practices` | `postgresql-database-engineering` |
+| **P11** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices`, `shadcn`, `shadcn-ui`, `tailwind-design-system` | `typescript-expert`, `tailwind-css-patterns` |
+| **P12** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices`, `tailwindcss-advanced-layouts` | `shadcn`, `tailwind-css-patterns`, `tailwindcss-mobile-first` |
+| **P13** | `nextjs-best-practices`, `vercel-react-best-practices`, `shadcn`, `tailwind-css-patterns` | `tailwindcss-mobile-first` |
+| **P14** | `nextjs-best-practices`, `vercel-react-best-practices`, `shadcn`, `tailwind-css-patterns` | `tailwindcss-advanced-layouts` |
+| **P15** | `nextjs-best-practices`, `vercel-react-best-practices`, `shadcn`, `tailwind-css-patterns` | `tailwindcss-advanced-layouts` |
+| **P16** | `nextjs-best-practices`, `vercel-react-best-practices`, `shadcn`, `tailwind-css-patterns` | `tailwindcss-mobile-first` |
+| **P17** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices`, `tailwindcss-mobile-first` | `tailwind-css-patterns`, `tailwindcss-advanced-layouts` |
+| **P18** | `nextjs-best-practices`, `nextjs-app-router-patterns`, `vercel-react-best-practices`, `tailwind-css-patterns` | `shadcn`, `tailwindcss-mobile-first` |
+| **P19** | `nestjs-best-practices`, `nextjs-best-practices`, `vercel-react-best-practices`, `shadcn`, `tailwind-css-patterns` | `typescript-expert` |
+| **P20** | `nextjs-best-practices`, `vercel-react-best-practices` | `postgresql-database-engineering`, `tailwind-css-patterns` |
 
 ### Skill Usage Rules
 
