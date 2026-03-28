@@ -223,11 +223,11 @@ Each package file lives in `docs/development/` and follows this structure:
 | File | Package | Status |
 |---|---|---|
 | [P01-project-scaffolding.md](./P01-project-scaffolding.md) | Project Scaffolding & DevOps | ✅ |
-| [P02-database-schema.md](./P02-database-schema.md) | Database Schema & Prisma | ⬜ |
+| [P02-database-schema.md](./P02-database-schema.md) | Database Schema & Prisma | ✅ |
 | [P03-auth-tenant.md](./P03-auth-tenant.md) | Auth & Tenant System | ✅ |
 | [P04-product-management.md](./P04-product-management.md) | Product Management (Backend) | ✅ |
 | [P05-customer-management.md](./P05-customer-management.md) | Customer Management (Backend) | ✅ |
-| [P06-store-settings-staff.md](./P06-store-settings-staff.md) | Store Settings & Staff Management | ⬜ |
+| [P06-store-settings-staff.md](./P06-store-settings-staff.md) | Store Settings & Staff Management | ✅ |
 | [P07-booking-engine.md](./P07-booking-engine.md) | Booking & Availability Engine | ⬜ |
 | [P08-payment-deposits.md](./P08-payment-deposits.md) | Payment & Deposit System | ⬜ |
 | [P09-order-fulfillment.md](./P09-order-fulfillment.md) | Order Fulfillment & Logistics | ⬜ |
