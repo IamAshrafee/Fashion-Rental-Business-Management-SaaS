@@ -26,7 +26,7 @@ import { UpdatePlanDto } from './dto/update-plan.dto';
  * Bypasses regular tenant resolution to manage SaaS platform state.
  * Protected by saas_admin role requirement.
  */
-@Controller('api/v1/admin')
+@Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('saas_admin')
 export class AdminController {

@@ -41,17 +41,15 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly smsService: SmsService,
-  ) {}
-
-  onModuleInit() {
+  ) {
     const connection = getRedisConnection(this.config);
 
-    // ── Queues ──────────────────────────────────────────────────────────────
+    // ── Queues (Available immediately for Bull Board) ─────────────────────────
     this.notificationsQueue = new Queue(QUEUE_NOTIFICATIONS, {
       connection,
       defaultJobOptions: {
         attempts: 3,
-        backoff: { type: 'exponential', delay: 30_000 }, // 30s, 2min, 10min
+        backoff: { type: 'exponential', delay: 30_000 },
         removeOnComplete: { count: 500 },
         removeOnFail: { count: 100 },
       },
@@ -61,7 +59,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       connection,
       defaultJobOptions: {
         attempts: 2,
-        backoff: { type: 'fixed', delay: 300_000 }, // 5 min
+        backoff: { type: 'fixed', delay: 300_000 },
         removeOnComplete: { count: 200 },
         removeOnFail: { count: 50 },
       },
@@ -75,6 +73,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         removeOnFail: { count: 20 },
       },
     });
+  }
+
+  onModuleInit() {
+    const connection = getRedisConnection(this.config);
 
     // ── Workers ─────────────────────────────────────────────────────────────
     this.notificationsWorker = new Worker(

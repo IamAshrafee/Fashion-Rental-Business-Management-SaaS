@@ -10,6 +10,7 @@ import { JobsService } from './modules/jobs/jobs.service';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -25,6 +26,9 @@ async function bootstrap(): Promise<void> {
     origin: corsOrigins.split(',').map((origin) => origin.trim()),
     credentials: true,
   });
+
+  // Cookie parser
+  app.use(cookieParser());
 
   // Global pipes
   app.useGlobalPipes(

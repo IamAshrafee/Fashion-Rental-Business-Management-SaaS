@@ -28,12 +28,11 @@ import type { NavItem } from '@/types';
 
 const NAV_ITEMS: NavItem[] = [
   { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { title: 'Products', href: '/products', icon: Package },
-  { title: 'Bookings', href: '/bookings', icon: CalendarCheck },
-  { title: 'Customers', href: '/customers', icon: Users },
-  { title: 'Fulfillment', href: '/fulfillment', icon: Truck },
-  { title: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { title: 'Settings', href: '/settings', icon: Settings },
+  { title: 'Products', href: '/dashboard/products', icon: Package },
+  { title: 'Bookings', href: '/dashboard/bookings', icon: CalendarCheck },
+  { title: 'Customers', href: '/dashboard/customers', icon: Users },
+  { title: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
+  { title: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
 function SidebarContent({

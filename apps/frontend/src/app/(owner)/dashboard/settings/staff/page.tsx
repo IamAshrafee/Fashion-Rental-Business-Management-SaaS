@@ -24,12 +24,11 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { useStaffList, useInviteStaff, useUpdateStaff, useRemoveStaff } from '../hooks/use-settings';
-import { UserPlus, ShieldAlert, Trash2, Edit2, CheckCircle2 } from 'lucide-react';
+import { useStaffList, useInviteStaff, useRemoveStaff } from '../hooks/use-settings';
+import { UserPlus, Trash2, Edit2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { useTenant } from '@/hooks/use-tenant';
-
 const inviteSchema = z.object({
   fullName: z.string().min(2, 'Name is required'),
   email: z.string().email().optional().or(z.literal('')),
@@ -41,7 +40,7 @@ const inviteSchema = z.object({
 type InviteValues = z.infer<typeof inviteSchema>;
 
 export default function StaffSettingsPage() {
-  const { tenant } = useTenant();
+  useTenant(); // used for future tenant-scoped branding
   const { data: response, isLoading } = useStaffList({ limit: 50 });
   const inviteStaff = useInviteStaff();
   const removeStaff = useRemoveStaff();

@@ -21,6 +21,7 @@ import {
   loginWithCredentials,
   logout as logoutFn,
   clearAccessToken,
+  setTenantIdLocal,
 } from '@/lib/auth';
 import apiClient from '@/lib/api-client';
 
@@ -59,11 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }>('/auth/me');
 
         if (!cancelled) {
+          const fetchedUser = response.data.data as any;
+          const extractedTid = fetchedUser.currentTenant?.id || fetchedUser.tenantId || null;
+          setTenantIdLocal(extractedTid);
           setState({
-            user: response.data.data,
+            user: fetchedUser,
             isAuthenticated: true,
             isLoading: false,
-            tenantId: response.data.data.tenantId,
+            tenantId: extractedTid,
           });
         }
       } catch {
@@ -109,11 +113,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         success: boolean;
         data: AuthUserInfo;
       }>('/auth/me');
+      const fetchedUser = response.data.data as any;
+      const extractedTid = fetchedUser.currentTenant?.id || fetchedUser.tenantId || null;
+      setTenantIdLocal(extractedTid);
+      
       setState((s) => ({
         ...s,
-        user: response.data.data,
+        user: fetchedUser,
         isAuthenticated: true,
-        tenantId: response.data.data.tenantId,
+        tenantId: extractedTid,
       }));
     } catch {
       clearAccessToken();

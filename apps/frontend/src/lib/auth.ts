@@ -42,9 +42,17 @@ export function setAccessToken(token: string, expiresIn: number, tid: string | n
   // expiresIn is in seconds, convert to ms
   tokenExpiresAt = Date.now() + expiresIn * 1000;
   if (tid) {
-    tenantId = tid;
-    if (typeof window !== 'undefined') {
+    setTenantIdLocal(tid);
+  }
+}
+
+export function setTenantIdLocal(tid: string | null): void {
+  tenantId = tid;
+  if (typeof window !== 'undefined') {
+    if (tid) {
       localStorage.setItem('closetrent_tenant_id', tid);
+    } else {
+      localStorage.removeItem('closetrent_tenant_id');
     }
   }
 }
@@ -55,6 +63,9 @@ export function clearAccessToken(): void {
   tenantId = null;
   if (typeof window !== 'undefined') {
     localStorage.removeItem('closetrent_tenant_id');
+    // Clear middleware marker cookies
+    document.cookie = 'closetrent_session=; Max-Age=0; path=/';
+    document.cookie = 'closetrent_role=; Max-Age=0; path=/';
   }
 }
 
@@ -80,9 +91,13 @@ export async function refreshAccessToken(): Promise<string | null> {
       }>('/auth/refresh', {}, { withCredentials: true });
 
       if (response.data.success) {
-        const { accessToken: newToken, expiresIn, user } = response.data.data as AuthTokens & { user?: { tenantId?: string } };
-        // We might not get the user obj on refresh depending on backend, but if we do, use its tenantId
+        const { accessToken: newToken, expiresIn = 900 } = response.data.data as AuthTokens & { user?: { tenantId?: string } };
         setAccessToken(newToken, expiresIn);
+        // Extend marker cookie so middleware stays in sync (7 days)
+        if (typeof document !== 'undefined') {
+          const REFRESH_MAX_AGE = 7 * 24 * 60 * 60;
+          document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
+        }
         return newToken;
       }
       return null;
@@ -120,11 +135,19 @@ export async function loginWithCredentials(
     { withCredentials: true },
   );
 
-  const { user, tenants, accessToken: token, expiresIn } = response.data.data;
+  const { user, tenants, accessToken: token, expiresIn = 900 } = response.data.data;
   const primaryTenantId = tenants?.[0]?.id || null;
-  
+
   setAccessToken(token, expiresIn, primaryTenantId);
-  
+
+  // Write non-httpOnly marker cookies so middleware can do server-side routing
+  // NOTE: These match the refresh token lifespan (7 days), NOT the short-lived access token.
+  if (typeof document !== 'undefined') {
+    const REFRESH_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
+    document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
+    document.cookie = `closetrent_role=${user.role}; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
+  }
+
   // Attach the tenantId to the user object we return so the auth provider has it
   return { ...user, tenantId: primaryTenantId };
 }

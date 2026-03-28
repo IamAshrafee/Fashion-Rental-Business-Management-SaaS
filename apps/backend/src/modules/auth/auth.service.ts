@@ -301,18 +301,27 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    // Find the session by hashed refresh token
-    const refreshTokenHash = await this.hashToken(refreshToken);
+    // 1. Extract sessionId from payload
+    if (!payload.sessionId) {
+      throw new UnauthorizedException('Invalid token format: missing sessionId');
+    }
 
-    const session = await this.prisma.session.findFirst({
+    // 2. Lookup session by explicit ID
+    const session = await this.prisma.session.findUnique({
       where: {
-        userId: payload.sub,
-        refreshTokenHash,
+        id: payload.sessionId,
       },
     });
 
-    if (!session) {
+    if (!session || session.userId !== payload.sub) {
       throw new UnauthorizedException('Session not found or revoked');
+    }
+
+    // 3. Verify the token against the securely stored hash
+    const isTokenValid = await bcrypt.compare(refreshToken, session.refreshTokenHash);
+    if (!isTokenValid) {
+      // Token rotation mismatch — this token is invalid for this session
+      throw new UnauthorizedException('Invalid session token');
     }
 
     // Check if session has expired

@@ -36,7 +36,12 @@ export class TenantGuard implements CanActivate {
     const tenant = request.tenant;
 
     // No tenant on request — might be admin route or pre-tenant route
-    if (!tenant) return true;
+    if (!tenant) {
+      if (user && user.role !== 'saas_admin' && user.tenantId) {
+        throw new ForbiddenException('Store context is required for this action');
+      }
+      return true;
+    }
 
     // No user — JwtAuthGuard should have caught this, but be safe
     if (!user) return true;

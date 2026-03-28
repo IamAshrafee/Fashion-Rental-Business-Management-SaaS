@@ -16,3 +16,4 @@ export { Pagination } from './pagination';
 export { DataTable } from './data-table';
 export { ImageUploader } from './image-uploader';
 export { AdminGuard } from './admin-guard';
+export { OwnerGuard } from './owner-guard';

@@ -23,6 +23,15 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T> {
           return data;
         }
 
+        // If it's a paginated response native structure from services
+        if (data && typeof data === 'object' && 'data' in data && 'meta' in data) {
+          return {
+            success: true,
+            data: data.data,
+            meta: data.meta,
+          };
+        }
+
         return {
           success: true,
           data,

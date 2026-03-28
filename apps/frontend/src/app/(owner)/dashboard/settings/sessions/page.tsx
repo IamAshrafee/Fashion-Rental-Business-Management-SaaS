@@ -80,7 +80,7 @@ export default function SessionsSettingsPage() {
                     <h4 className="font-medium text-gray-900">
                       {session.browser || 'Unknown Client'} / {session.os || 'Unknown OS'}
                     </h4>
-                    {session.isCurrentSession && <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">Current Device</Badge>}
+                    {session.isCurrent && <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">Current Device</Badge>}
                     {!isMe && <Badge variant="outline">{session.userId.slice(-6)} (Staff)</Badge>}
                   </div>
                   <div className="text-sm text-muted-foreground mt-0.5 space-x-2">
@@ -88,12 +88,12 @@ export default function SessionsSettingsPage() {
                     {session.location && <span>• {session.location}</span>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    Last activity {formatDistanceToNow(new Date(session.lastActive), { addSuffix: true })}
+                    Last activity {formatDistanceToNow(new Date(session.lastActiveAt || Date.now()), { addSuffix: true })}
                   </div>
                 </div>
               </div>
 
-              {!session.isCurrentSession && (
+              {!session.isCurrent && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>

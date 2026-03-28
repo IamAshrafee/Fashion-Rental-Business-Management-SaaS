@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   DndContext,
   closestCenter,

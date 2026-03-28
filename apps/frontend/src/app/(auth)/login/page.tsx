@@ -15,10 +15,20 @@ import {
 } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { loginWithCredentials } from '@/lib/auth';
+
+/** Determine the portal URL based on authenticated user role and redirect param */
+function getPostLoginRedirect(role: string | undefined, fromPath: string | null): string {
+  if (role === 'saas_admin') return '/admin';
+  if (fromPath && fromPath.startsWith('/') && !fromPath.startsWith('/login')) {
+    return fromPath;
+  }
+  return '/dashboard'; // owner | manager | staff | unknown
+}
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { refreshUser } = useAuth();
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -32,9 +42,13 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      await login({ emailOrPhone, password });
+      // Call login directly so we get the user object back with their role
+      const user = await loginWithCredentials(emailOrPhone, password);
+      // Sync the auth context with the new session
+      await refreshUser();
       toast.success('Welcome back!');
-      router.push('/dashboard');
+      const fromPath = new URLSearchParams(window.location.search).get('from');
+      router.push(getPostLoginRedirect(user.role, fromPath));
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { error?: { message?: string } } } })
@@ -56,9 +70,9 @@ export default function LoginPage() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="emailOrPhone">Email or Phone</Label>
+            <Label htmlFor="login-email">Email or Phone</Label>
             <Input
-              id="emailOrPhone"
+              id="login-email"
               type="text"
               placeholder="you@example.com or 01XXXXXXXXX"
               value={emailOrPhone}
@@ -68,9 +82,9 @@ export default function LoginPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="login-password">Password</Label>
             <Input
-              id="password"
+              id="login-password"
               type="password"
               placeholder="••••••••"
               value={password}

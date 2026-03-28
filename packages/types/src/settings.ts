@@ -166,8 +166,8 @@ export interface Session {
   os?: string;
   ipAddress?: string;
   location?: string;
-  lastActive: string;
-  isCurrentSession: boolean;
+  lastActiveAt: string;
+  isCurrent: boolean;
 }
 
 export interface LoginEvent {
