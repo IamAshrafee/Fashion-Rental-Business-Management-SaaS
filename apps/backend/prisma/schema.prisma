@@ -1012,3 +1012,18 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@map("audit_logs")
 }
+
+model FailedJob {
+  id        String   @id @default(uuid())
+  queue     String
+  jobName   String   @map("job_name")
+  payload   Json
+  error     String
+  failedAt  DateTime @map("failed_at")
+  retriedAt DateTime? @map("retried_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([queue])
+  @@index([failedAt])
+  @@map("failed_jobs")
+}

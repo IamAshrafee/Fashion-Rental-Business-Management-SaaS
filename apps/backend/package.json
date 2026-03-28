@@ -15,6 +15,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@bull-board/api": "^6.20.6",
+    "@bull-board/express": "^6.20.6",
     "@closetrent/types": "*",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/bull": "^10.0.0",

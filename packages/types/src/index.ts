@@ -204,3 +204,4 @@ export interface AdminTenantDetails {
 export * from './analytics';
 export * from './customer';
 export * from './settings';
+export * from './events';

@@ -99,7 +99,7 @@ export class AnalyticsService {
     });
 
     const totalCustomersThisPeriod = activeCustomerIds.length;
-    let newCustomers = 0;
+    const newCustomers = 0;
     
     // We can count how many of these active customers were created in this period
     const allStoreCustomers = await this.prisma.customer.findMany({
