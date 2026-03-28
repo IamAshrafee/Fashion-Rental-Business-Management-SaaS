@@ -19,6 +19,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { StaffModule } from './modules/staff/staff.module';
+import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { StaffModule } from './modules/staff/staff.module';
     NotificationModule,
     AdminModule,
     StaffModule,
+    FulfillmentModule,
   ],
 })
 export class AppModule implements NestModule {
