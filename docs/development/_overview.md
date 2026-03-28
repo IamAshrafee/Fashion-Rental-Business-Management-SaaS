@@ -238,7 +238,7 @@ Each package file lives in `docs/development/` and follows this structure:
 | [P13-owner-products-ui.md](./P13-owner-products-ui.md) | Owner Portal — Product Management UI | ✅ |
 | [P14-owner-bookings-ui.md](./P14-owner-bookings-ui.md) | Owner Portal — Booking & Order UI | ✅ |
 | [P15-owner-customers-analytics.md](./P15-owner-customers-analytics.md) | Owner Portal — Customers & Analytics | ✅ |
-| [P16-owner-settings-ui.md](./P16-owner-settings-ui.md) | Owner Portal — Settings & Staff UI | ⬜ |
+| [P16-owner-settings-ui.md](./P16-owner-settings-ui.md) | Owner Portal — Settings & Staff UI | ✅ |
 | [P17-guest-storefront.md](./P17-guest-storefront.md) | Guest Portal — Storefront & Browse | ⬜ |
 | [P18-guest-checkout.md](./P18-guest-checkout.md) | Guest Portal — Booking & Checkout | ⬜ |
 | [P19-admin-portal.md](./P19-admin-portal.md) | SaaS Admin Portal | ✅ |
