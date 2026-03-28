@@ -231,7 +231,7 @@ Each package file lives in `docs/development/` and follows this structure:
 | [P06-store-settings-staff.md](./P06-store-settings-staff.md) | Store Settings & Staff Management | ✅ |
 | [P07-booking-engine.md](./P07-booking-engine.md) | Booking & Availability Engine | ✅ |
 | [P08-payment-deposits.md](./P08-payment-deposits.md) | Payment & Deposit System | ✅ |
-| [P09-order-fulfillment.md](./P09-order-fulfillment.md) | Order Fulfillment & Logistics | ⬜ |
+| [P09-order-fulfillment.md](./P09-order-fulfillment.md) | Order Fulfillment & Logistics | ✅ |
 | [P10-notifications-jobs.md](./P10-notifications-jobs.md) | Notifications & Background Jobs | ⬜ |
 | [P11-frontend-foundation.md](./P11-frontend-foundation.md) | Frontend Scaffolding & Design System | ⬜ |
 | [P12-owner-layout-dashboard.md](./P12-owner-layout-dashboard.md) | Owner Portal — Layout & Dashboard | ⬜ |
