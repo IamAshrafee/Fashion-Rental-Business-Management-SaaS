@@ -19,18 +19,12 @@ import {
 } from '@/components/ui/select';
 import { Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-// Simplified color list for prototype
-const COLORS = [
-  { id: 'white', name: 'White', hex: '#FFFFFF' },
-  { id: 'black', name: 'Black', hex: '#000000' },
-  { id: 'red', name: 'Red', hex: '#E53935' },
-  { id: 'blue', name: 'Blue', hex: '#1E88E5' },
-  { id: 'gold', name: 'Gold', hex: '#FFD700' },
-];
+import { useColors } from '../../../hooks/use-product-apis';
 
 export function VariantsStep() {
   const { control, watch, setValue } = useFormContext<ProductFormValues>();
+  const { data: colors, isLoading: isLoadingColors } = useColors();
+  const COLORS = colors || [];
   
   const { fields, append, remove } = useFieldArray({
     control,
@@ -103,15 +97,15 @@ export function VariantsStep() {
                         value={field.value}
                       >
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select dominant color" />
+                          <SelectTrigger disabled={isLoadingColors}>
+                            <SelectValue placeholder={isLoadingColors ? 'Loading colors...' : 'Select dominant color'} />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
-                          {COLORS.map(c => (
+                        <SelectContent className="max-h-[300px]">
+                          {COLORS.map((c: any) => (
                             <SelectItem key={c.id} value={c.id}>
                               <div className="flex items-center gap-2">
-                                <div className="h-3 w-3 rounded-full border border-border" style={{ backgroundColor: c.hex }} />
+                                <div className="h-3 w-3 rounded-full border border-border" style={{ backgroundColor: c.hex || '#E5E7EB' }} />
                                 {c.name}
                               </div>
                             </SelectItem>
@@ -139,12 +133,12 @@ export function VariantsStep() {
                         }}
                       >
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Add another color..." />
+                          <SelectTrigger disabled={isLoadingColors}>
+                            <SelectValue placeholder={isLoadingColors ? 'Loading colors...' : 'Add another color...'} />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
-                          {COLORS.map(c => (
+                        <SelectContent className="max-h-[300px]">
+                          {COLORS.map((c: any) => (
                             <SelectItem key={c.id} value={c.id}>
                               {c.name}
                             </SelectItem>
@@ -159,7 +153,7 @@ export function VariantsStep() {
                           if (!colorObj) return null;
                           return (
                             <span key={colorId} className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-0.5 text-xs font-semibold text-secondary-foreground">
-                              <div className="h-2 w-2 rounded-full border border-border" style={{ backgroundColor: colorObj.hex }} />
+                              <div className="h-2 w-2 rounded-full border border-border" style={{ backgroundColor: colorObj.hex || '#E5E7EB' }} />
                               {colorObj.name}
                               {colorId !== mainColorId && (
                                 <button

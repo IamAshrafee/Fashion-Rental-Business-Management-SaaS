@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { FormProvider } from 'react-hook-form';
 import { useProductForm } from '../../hooks/use-product-form';
+import { useSubmitProduct } from '../../hooks/use-submit-product';
 import { WizardLayout, WIZARD_STEPS } from './wizard-layout';
 
 // Steps imports (mocked for now)
@@ -19,6 +20,7 @@ import { Loader2 } from 'lucide-react';
 export function ProductFormWizard() {
   const { form, isLoaded, clearDraft } = useProductForm();
   const [currentStep, setCurrentStep] = useState(0);
+  const { mutate: submitProduct, isPending: isSubmitting } = useSubmitProduct(clearDraft);
 
   if (!isLoaded) {
     return (
@@ -86,9 +88,7 @@ export function ProductFormWizard() {
   };
 
   const onSubmit = async (data: unknown) => {
-    console.log('Final Submit Data', data);
-    // TODO: Connect to actual backend API via useCreateProduct
-    // clearDraft();
+    submitProduct(data as any);
   };
 
   const renderStep = () => {
@@ -107,7 +107,18 @@ export function ProductFormWizard() {
 
   return (
     <FormProvider {...form}>
-      <form onSubmit={(e) => e.preventDefault()}>
+      <form onSubmit={(e) => e.preventDefault()} className="relative">
+        {isSubmitting && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm rounded-lg">
+            <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-xl shadow-xl border">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              <div className="text-center">
+                <p className="font-semibold text-lg">Processing Product</p>
+                <p className="text-sm text-muted-foreground">Please wait while we upload images...</p>
+              </div>
+            </div>
+          </div>
+        )}
         <WizardLayout
           currentStep={currentStep}
           totalSteps={WIZARD_STEPS.length}

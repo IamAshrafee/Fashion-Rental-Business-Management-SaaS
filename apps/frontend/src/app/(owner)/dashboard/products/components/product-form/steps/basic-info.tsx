@@ -19,9 +19,19 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2 } from 'lucide-react';
+import { useCategories, useEvents } from '../../../hooks/use-product-apis';
 
 export function BasicInfoStep() {
-  const { control } = useFormContext<ProductFormValues>();
+  const { control, watch } = useFormContext<ProductFormValues>();
+  const categoryId = watch('categoryId');
+  
+  const { data: categories, isLoading: isLoadingCats } = useCategories();
+  const { data: events, isLoading: isLoadingEvents } = useEvents();
+
+  const currentCategory = categories?.find((c) => c.id === categoryId);
+  const subcategories = currentCategory?.subcategories || [];
 
   return (
     <div className="space-y-6">
@@ -64,17 +74,16 @@ export function BasicInfoStep() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Category *</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
+                  <SelectTrigger disabled={isLoadingCats}>
+                    <SelectValue placeholder={isLoadingCats ? "Loading..." : "Select a category"} />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {/* TODO: Load from categories API later */}
-                  <SelectItem value="cat-1">Saree</SelectItem>
-                  <SelectItem value="cat-2">Gown</SelectItem>
-                  <SelectItem value="cat-3">Sherwani</SelectItem>
+                  {categories?.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <FormMessage />
@@ -88,17 +97,73 @@ export function BasicInfoStep() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Subcategory</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger disabled={!categoryId || subcategories.length === 0}>
                     <SelectValue placeholder="Select a subcategory" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="sub-1">Banarasi</SelectItem>
-                  <SelectItem value="sub-2">Georgette</SelectItem>
+                  {subcategories.map((sub) => (
+                    <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={control}
+          name="events"
+          render={() => (
+            <FormItem className="col-span-2">
+              <div className="mb-4">
+                <FormLabel className="text-base">Suitable Events</FormLabel>
+                <FormDescription>
+                  Select all events this product is suitable for.
+                </FormDescription>
+              </div>
+              {isLoadingEvents ? (
+                <div className="flex px-3 py-2 border rounded-md"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" /> Loading events...</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+                  {events?.map((event) => (
+                    <FormField
+                      key={event.id}
+                      control={control}
+                      name="events"
+                      render={({ field }) => {
+                        return (
+                          <FormItem
+                            key={event.id}
+                            className="flex flex-row items-center space-x-3 space-y-0"
+                          >
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value?.includes(event.id)}
+                                onCheckedChange={(checked) => {
+                                  return checked
+                                    ? field.onChange([...field.value, event.id])
+                                    : field.onChange(
+                                        field.value?.filter(
+                                          (value: string) => value !== event.id
+                                        )
+                                      )
+                                }}
+                              />
+                            </FormControl>
+                            <FormLabel className="font-normal cursor-pointer leading-none m-0">
+                              {event.name}
+                            </FormLabel>
+                          </FormItem>
+                        )
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
               <FormMessage />
             </FormItem>
           )}

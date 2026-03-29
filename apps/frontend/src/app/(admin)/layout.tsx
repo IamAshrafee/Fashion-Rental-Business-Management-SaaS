@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AdminGuard } from '@/components/shared';
+import { AdminLogoutButton } from './components/admin-logout-button';
 
 export const metadata: Metadata = {
   title: 'Admin Portal - ClosetRent',
@@ -43,6 +44,9 @@ export default function AdminLayout({
             Subscription Plans
           </Link>
         </nav>
+        <div className="p-4 border-t border-gray-100">
+          <AdminLogoutButton />
+        </div>
       </aside>
         <main className="ml-64 flex-1 p-8">
           {children}
