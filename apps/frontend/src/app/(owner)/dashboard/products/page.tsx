@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/shared';
 import { Button } from '@/components/ui/button';
-import { Plus, Trash2, FolderTree, Loader2 } from 'lucide-react';
+import { Plus, Trash2, FolderTree, CalendarDays, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { ProductsDataTable, type ProductRow } from './components/product-list/data-table';
 import { productApi, type ProductListQuery } from '@/lib/api/products';
@@ -43,6 +43,12 @@ export default function ProductsPage() {
             <Link href="/dashboard/products/categories">
               <FolderTree className="h-4 w-4 mr-2" />
               Categories
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/dashboard/products/events">
+              <CalendarDays className="h-4 w-4 mr-2" />
+              Events
             </Link>
           </Button>
           <Button variant="outline" asChild>

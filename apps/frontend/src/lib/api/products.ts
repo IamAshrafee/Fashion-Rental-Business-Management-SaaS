@@ -16,10 +16,38 @@ export interface Event {
   slug: string;
 }
 
+export interface OwnerEvent {
+  id: string;
+  name: string;
+  slug: string;
+  displayOrder: number;
+  isActive: boolean;
+  _count: { products: number };
+}
+
 export interface Color {
   id: string;
   name: string;
   hex: string | null;
+}
+
+export interface OwnerSubcategory {
+  id: string;
+  name: string;
+  slug: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+export interface OwnerCategory {
+  id: string;
+  name: string;
+  slug: string;
+  icon: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  subcategories: OwnerSubcategory[];
+  _count: { products: number };
 }
 
 export interface ProductListItem {
@@ -146,8 +174,8 @@ export const productApi = {
     return data;
   },
 
-  getOwnerCategories: async (): Promise<Category[]> => {
-    const { data } = await apiClient.get<ApiResponse<Category[]>>('/owner/categories');
+  getOwnerCategories: async (): Promise<OwnerCategory[]> => {
+    const { data } = await apiClient.get<ApiResponse<OwnerCategory[]>>('/owner/categories');
     return data.data;
   },
 
@@ -185,5 +213,58 @@ export const productApi = {
       },
     });
     return data.data;
+  },
+
+  // ─── Category CRUD ──────────────────────────────────────────────────────────
+
+  createCategory: async (payload: { name: string; icon?: string; displayOrder?: number }): Promise<OwnerCategory> => {
+    const { data } = await apiClient.post<ApiResponse<OwnerCategory>>('/owner/categories', payload);
+    return data.data;
+  },
+
+  updateCategory: async (id: string, payload: { name?: string; icon?: string; displayOrder?: number; isActive?: boolean }): Promise<OwnerCategory> => {
+    const { data } = await apiClient.patch<ApiResponse<OwnerCategory>>(`/owner/categories/${id}`, payload);
+    return data.data;
+  },
+
+  deleteCategory: async (id: string): Promise<void> => {
+    await apiClient.delete(`/owner/categories/${id}`);
+  },
+
+  // ─── Subcategory CRUD ───────────────────────────────────────────────────────
+
+  createSubcategory: async (categoryId: string, payload: { name: string; displayOrder?: number }): Promise<OwnerSubcategory> => {
+    const { data } = await apiClient.post<ApiResponse<OwnerSubcategory>>(`/owner/categories/${categoryId}/subcategories`, payload);
+    return data.data;
+  },
+
+  updateSubcategory: async (id: string, payload: { name?: string; displayOrder?: number; isActive?: boolean }): Promise<OwnerSubcategory> => {
+    const { data } = await apiClient.patch<ApiResponse<OwnerSubcategory>>(`/owner/subcategories/${id}`, payload);
+    return data.data;
+  },
+
+  deleteSubcategory: async (id: string): Promise<void> => {
+    await apiClient.delete(`/owner/subcategories/${id}`);
+  },
+
+  // ─── Event CRUD ─────────────────────────────────────────────────────────────
+
+  getOwnerEventsManage: async (): Promise<OwnerEvent[]> => {
+    const { data } = await apiClient.get<ApiResponse<OwnerEvent[]>>('/owner/events');
+    return data.data;
+  },
+
+  createEvent: async (payload: { name: string; displayOrder?: number }): Promise<OwnerEvent> => {
+    const { data } = await apiClient.post<ApiResponse<OwnerEvent>>('/owner/events', payload);
+    return data.data;
+  },
+
+  updateEvent: async (id: string, payload: { name?: string; displayOrder?: number; isActive?: boolean }): Promise<OwnerEvent> => {
+    const { data } = await apiClient.patch<ApiResponse<OwnerEvent>>(`/owner/events/${id}`, payload);
+    return data.data;
+  },
+
+  deleteEvent: async (id: string): Promise<void> => {
+    await apiClient.delete(`/owner/events/${id}`);
   },
 };

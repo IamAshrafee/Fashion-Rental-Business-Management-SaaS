@@ -5,9 +5,9 @@ import { PageHeader } from '@/components/shared';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { CategoryManager } from '../components/category-manager';
+import { EventManager } from '../components/event-manager';
 
-export default function CategoriesPage() {
+export default function EventsPage() {
   const [addTrigger, setAddTrigger] = useState(false);
   const handleAddHandled = useCallback(() => setAddTrigger(false), []);
 
@@ -22,18 +22,18 @@ export default function CategoriesPage() {
             </Link>
           </Button>
           <PageHeader
-            title="Categories"
-            description="Manage product categories and subcategories"
+            title="Events"
+            description="Manage event types for product categorization"
           />
         </div>
         <Button onClick={() => setAddTrigger(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Category
+          Add Event
         </Button>
       </div>
 
       <div className="bg-card text-card-foreground">
-        <CategoryManager
+        <EventManager
           onAddClick={addTrigger}
           onAddHandled={handleAddHandled}
         />
