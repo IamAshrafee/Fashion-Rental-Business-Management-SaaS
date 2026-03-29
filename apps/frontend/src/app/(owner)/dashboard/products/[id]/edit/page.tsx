@@ -21,8 +21,8 @@ export default function EditProductPage() {
           </Link>
         </Button>
         <PageHeader
-          title={`Edit Product`}
-          description={`Updating listing ${id}`}
+          title="Edit Product"
+          description="Update listing details, pricing, and media"
         />
       </div>
 

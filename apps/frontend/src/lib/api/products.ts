@@ -215,6 +215,43 @@ export const productApi = {
     return data.data;
   },
 
+  /**
+   * PATCH /api/v1/owner/products/:id  (update product)
+   */
+  updateProduct: async (id: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(`/owner/products/${id}`, payload);
+    return data.data;
+  },
+
+  /**
+   * PATCH /api/v1/owner/products/:productId/variants/:variantId
+   */
+  updateVariant: async (
+    productId: string,
+    variantId: string,
+    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[] },
+  ): Promise<Record<string, unknown>> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
+      `/owner/products/${productId}/variants/${variantId}`,
+      payload,
+    );
+    return data.data;
+  },
+
+  /**
+   * DELETE /api/v1/owner/products/:productId/variants/:variantId
+   */
+  deleteVariant: async (productId: string, variantId: string): Promise<void> => {
+    await apiClient.delete(`/owner/products/${productId}/variants/${variantId}`);
+  },
+
+  /**
+   * DELETE /api/v1/owner/upload/product-image/:imageId
+   */
+  deleteImage: async (imageId: string): Promise<void> => {
+    await apiClient.delete(`/owner/upload/product-image/${imageId}`);
+  },
+
   // ─── Category CRUD ──────────────────────────────────────────────────────────
 
   createCategory: async (payload: { name: string; icon?: string; displayOrder?: number }): Promise<OwnerCategory> => {

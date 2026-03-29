@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { FormProvider, useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { productFormSchema, ProductFormValues } from './schema';
+import { FormProvider } from 'react-hook-form';
+import { useEditProduct } from '../../hooks/use-edit-product';
+import { useUpdateProduct } from '../../hooks/use-update-product';
 import { TabbedEditLayout } from './tabbed-edit-layout';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 
 // Steps imports
@@ -18,44 +18,29 @@ import { ServicesStep } from './steps/services';
 import { DetailsFAQStep } from './steps/details-faq';
 
 interface Props {
-  initialData?: Partial<ProductFormValues>;
   productId: string;
 }
 
-export function EditProductForm({ initialData, productId }: Props) {
-  const [isSaving, setIsSaving] = useState(false);
-
-  const form = useForm<ProductFormValues>({
-    resolver: zodResolver(productFormSchema),
-    defaultValues: initialData || {
-      // Provide some fallback if needed
-      status: 'draft',
-      pricingMode: 'one_time',
-      sizeMode: 'standard',
-    },
-    mode: 'onChange',
-  });
-
-  const onSubmit = useCallback(async (data: ProductFormValues) => {
-    setIsSaving(true);
-    try {
-      // Simulate API call
-      console.log('Update Data', productId, data);
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      toast.success('Product updated successfully!');
-    } catch (error) {
-      console.error(error);
-      toast.error('Failed to update product');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [productId]);
+export function EditProductForm({ productId }: Props) {
+  const { form, rawProduct, isLoading, isError, error } = useEditProduct(productId);
+  const { mutate: updateProduct, isPending: isSaving } = useUpdateProduct(productId, rawProduct);
 
   const handleSave = () => {
-    form.handleSubmit(onSubmit, (errors) => {
-      console.log('Validation Errors', errors);
-      toast.error('Please fix validation errors before saving.');
-    })();
+    form.handleSubmit(
+      (data) => {
+        updateProduct(data);
+      },
+      (errors) => {
+        console.log('Validation Errors', errors);
+        // Find the first error message to show
+        const firstError = Object.values(errors)[0];
+        const message = Array.isArray(firstError)
+          ? (firstError[0] as any)?.message || 'Validation error'
+          : (firstError as any)?.message || 'Validation error';
+        
+        toast.error(`Please fix errors: ${message}`);
+      },
+    )();
   };
 
   const renderTabContent = (activeTab: string) => {
@@ -71,9 +56,44 @@ export function EditProductForm({ initialData, productId }: Props) {
     }
   };
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
+          <p className="text-sm text-muted-foreground">Loading product data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (isError || !rawProduct) {
+    return (
+      <Alert variant="destructive" className="m-6">
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>
+          Failed to load product. {(error as Error)?.message || 'Please try again.'}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   return (
     <FormProvider {...form}>
       <form onSubmit={(e) => e.preventDefault()} className="relative">
+        {isSaving && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm rounded-lg">
+            <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-xl shadow-xl border">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              <div className="text-center">
+                <p className="font-semibold text-lg">Saving Changes</p>
+                <p className="text-sm text-muted-foreground">Please wait while we update the product...</p>
+              </div>
+            </div>
+          </div>
+        )}
         <TabbedEditLayout onSave={handleSave} isSaving={isSaving}>
           {renderTabContent}
         </TabbedEditLayout>

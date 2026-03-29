@@ -254,6 +254,51 @@ export class ProductService {
         await this.replaceSize(tx, tenantId, productId, dto.size);
       }
 
+      // Replace FAQs if provided (bulk replace strategy)
+      if (dto.faqs !== undefined) {
+        await tx.productFaq.deleteMany({ where: { productId } });
+        if (dto.faqs.length) {
+          await tx.productFaq.createMany({
+            data: dto.faqs.map((faq, i) => ({
+              tenantId,
+              productId,
+              question: faq.question,
+              answer: faq.answer,
+              sequence: i,
+            })),
+          });
+        }
+      }
+
+      // Replace detail headers + entries if provided (bulk replace strategy)
+      if (dto.details !== undefined) {
+        // Delete existing headers (entries cascade via DB)
+        await tx.productDetailHeader.deleteMany({ where: { productId } });
+        if (dto.details.length) {
+          for (let i = 0; i < dto.details.length; i++) {
+            const detail = dto.details[i];
+            const header = await tx.productDetailHeader.create({
+              data: {
+                tenantId,
+                productId,
+                headerName: detail.headerName,
+                sequence: detail.sequence ?? i,
+              },
+            });
+            if (detail.entries?.length) {
+              await tx.productDetailEntry.createMany({
+                data: detail.entries.map((entry, j) => ({
+                  headerId: header.id,
+                  key: entry.key,
+                  value: entry.value,
+                  sequence: j,
+                })),
+              });
+            }
+          }
+        }
+      }
+
       // Emit update event
       this.eventEmitter.emit('product.updated', {
         tenantId,
