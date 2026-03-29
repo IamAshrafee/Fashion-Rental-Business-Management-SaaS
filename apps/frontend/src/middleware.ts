@@ -40,9 +40,14 @@ export function middleware(request: NextRequest) {
   const userRole = roleCookie?.value;
 
   // ── 1. Redirect authenticated users away from auth pages ──────────
+  // But allow through if there's a ?from= param — the user may need to
+  // re-authenticate and the login page will redirect them back.
   if (isAuthenticated && AUTH_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
-    const redirect = userRole === 'saas_admin' ? '/admin' : '/dashboard';
-    return NextResponse.redirect(new URL(redirect, request.url));
+    const fromParam = request.nextUrl.searchParams.get('from');
+    if (!fromParam) {
+      const redirect = userRole === 'saas_admin' ? '/admin' : '/dashboard';
+      return NextResponse.redirect(new URL(redirect, request.url));
+    }
   }
 
   // ── 2. Protect owner portal (/dashboard/*) ────────────────────────

@@ -32,11 +32,24 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ArrowUpDown, Maximize2, Search, CheckCircle, Package, MoreHorizontal } from 'lucide-react';
-import { Booking, BookingStatus } from '../types';
+import { BookingStatus } from '../types';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+// Flexible row type that works with both API responses and legacy types
+interface BookingRow {
+  id: string;
+  bookingNumber?: string;
+  orderNumber?: string;
+  status: string;
+  paymentStatus?: string;
+  grandTotal: number;
+  createdAt: string;
+  customer: { id?: string; name?: string; fullName?: string; phone: string; email?: string };
+  items: Array<Record<string, unknown>>;
+}
 
 // Status badge mapping based on UI spec
 export function BookingStatusBadge({ status }: { status: BookingStatus }) {
@@ -62,26 +75,28 @@ export function BookingStatusBadge({ status }: { status: BookingStatus }) {
   );
 }
 
-export const columns: ColumnDef<Booking>[] = [
+export const columns: ColumnDef<BookingRow>[] = [
   {
-    accessorKey: 'orderNumber',
+    id: 'bookingNumber',
+    accessorFn: (row) => row.bookingNumber || row.orderNumber || '',
     header: 'Booking #',
     cell: ({ row }) => {
       const b = row.original;
+      const displayNumber = b.bookingNumber || b.orderNumber || b.id;
       return (
         <Link href={`/dashboard/bookings/${b.id}`} className="font-medium hover:underline flex items-center gap-1">
-          {b.orderNumber}
+          {displayNumber}
         </Link>
       );
     },
   },
   {
-    accessorFn: (row) => row.customer.name,
+    accessorFn: (row) => row.customer.fullName || row.customer.name || '',
     id: 'customer',
     header: 'Customer',
     cell: ({ row }) => (
       <div className="flex flex-col">
-        <span className="font-medium">{row.original.customer.name}</span>
+        <span className="font-medium">{row.original.customer.fullName || row.original.customer.name}</span>
         <span className="text-xs text-muted-foreground">{row.original.customer.phone}</span>
       </div>
     ),
@@ -96,7 +111,7 @@ export const columns: ColumnDef<Booking>[] = [
   {
     accessorKey: 'status',
     header: 'Status',
-    cell: ({ row }) => <BookingStatusBadge status={row.original.status} />,
+    cell: ({ row }) => <BookingStatusBadge status={row.original.status as BookingStatus} />,
   },
   {
     accessorKey: 'grandTotal',
@@ -172,7 +187,7 @@ export const columns: ColumnDef<Booking>[] = [
   },
 ];
 
-export function BookingsDataTable({ data }: { data: Booking[] }) {
+export function BookingsDataTable({ data }: { data: BookingRow[] }) {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});

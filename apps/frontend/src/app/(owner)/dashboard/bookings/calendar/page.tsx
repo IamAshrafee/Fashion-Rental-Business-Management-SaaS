@@ -1,15 +1,22 @@
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/shared';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ListFilter } from 'lucide-react';
+import { ChevronLeft, ListFilter, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { BookingCalendar } from './components/booking-calendar';
-import { MOCK_BOOKINGS } from '../mocks';
-
-export const metadata = {
-  title: 'Booking Calendar | ClosetRent',
-};
+import { bookingApi } from '@/lib/api/bookings';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function CalendarPage() {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['bookings', 'calendar'],
+    queryFn: () => bookingApi.list({ limit: 100 }),
+  });
+
+  const bookings = data?.data ?? [];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -33,7 +40,19 @@ export default function CalendarPage() {
       </div>
 
       <div className="bg-card border rounded-md p-6 min-h-[600px]">
-        <BookingCalendar bookings={MOCK_BOOKINGS} />
+        {isLoading ? (
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
+          </div>
+        ) : isError ? (
+          <Alert variant="destructive">
+            <AlertDescription>
+              Failed to load calendar data. {(error as Error)?.message || 'Please try again.'}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <BookingCalendar bookings={bookings} />
+        )}
       </div>
     </div>
   );

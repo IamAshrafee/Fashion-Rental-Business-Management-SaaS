@@ -1,43 +1,36 @@
 'use client';
 
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/shared';
 import { Button } from '@/components/ui/button';
-import { Plus, Trash2, FolderTree } from 'lucide-react';
+import { Plus, Trash2, FolderTree, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { ProductsDataTable, ProductRow } from './components/product-list/data-table';
-
-// Temporary mock data for the prototype
-const MOCK_DATA: ProductRow[] = [
-  {
-    id: 'prod_1',
-    name: 'Royal Banarasi Silk Saree',
-    categoryId: 'Saree',
-    status: 'published',
-    price: 3500,
-    targetRentals: 10,
-    totalOrders: 15,
-  },
-  {
-    id: 'prod_2',
-    name: 'Georgette Lehenga Choli',
-    categoryId: 'Lehenga',
-    status: 'draft',
-    price: 4500,
-    targetRentals: 8,
-    totalOrders: 0,
-  },
-  {
-    id: 'prod_3',
-    name: 'Premium Velvet Sherwani',
-    categoryId: 'Sherwani',
-    status: 'published',
-    price: 5500,
-    targetRentals: 20,
-    totalOrders: 42,
-  },
-];
+import { ProductsDataTable, type ProductRow } from './components/product-list/data-table';
+import { productApi, type ProductListQuery } from '@/lib/api/products';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function ProductsPage() {
+  const [query] = useState<ProductListQuery>({ page: 1, limit: 50 });
+
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['products', 'list', query],
+    queryFn: () => productApi.list(query),
+  });
+
+  // Map API response to the shape the data table expects
+  const products: ProductRow[] = (data?.data ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    categoryId: p.category?.name ?? 'Uncategorized',
+    status: p.status as 'published' | 'draft' | 'archived',
+    price: p.rentalPrice,
+    targetRentals: p.targetRentals,
+    totalOrders: p._count?.bookingItems ?? p.totalBookings ?? 0,
+    thumbnailUrl: p.variants?.[0]?.images?.find(i => i.isFeatured)?.url
+      ?? p.variants?.[0]?.images?.[0]?.url,
+  }));
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -67,9 +60,21 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      <div className="bg-card text-card-foreground">
-        <ProductsDataTable data={MOCK_DATA} />
-      </div>
+      {isLoading ? (
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
+        </div>
+      ) : isError ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Failed to load products. {(error as Error)?.message || 'Please try again.'}
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <div className="bg-card text-card-foreground">
+          <ProductsDataTable data={products} />
+        </div>
+      )}
     </div>
   );
 }

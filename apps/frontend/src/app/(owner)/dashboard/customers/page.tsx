@@ -68,7 +68,7 @@ export default function CustomersPage() {
         </Select>
       </div>
 
-      <div className="bg-white rounded-md border shadow-sm">
+      <div className="bg-card rounded-md border shadow-sm">
         <CustomerDataTable 
             data={data?.data || []} 
             isLoading={isLoading} 

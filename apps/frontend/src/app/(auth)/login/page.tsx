@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -28,10 +28,18 @@ function getPostLoginRedirect(role: string | undefined, fromPath: string | null)
 
 export default function LoginPage() {
   const router = useRouter();
-  const { refreshUser } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user, refreshUser } = useAuth();
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // If user is already authenticated (e.g. arrived via ?from= redirect),
+  // send them to the intended destination instead of showing the login form.
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+    const fromPath = new URLSearchParams(window.location.search).get('from');
+    router.replace(getPostLoginRedirect(user?.role, fromPath));
+  }, [authLoading, isAuthenticated, user, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,6 +65,14 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false);
     }
+  }
+  // Don't flash the login form while checking auth or auto-redirecting
+  if (authLoading || isAuthenticated) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary/50" />
+      </div>
+    );
   }
 
   return (

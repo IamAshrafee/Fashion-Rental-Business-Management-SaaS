@@ -19,13 +19,21 @@ This project is built by **AI agent teams** using **Antigravity IDE**. Each agen
 
 ## Workflow Index
 
+### 🔨 Development
 | Command | When To Use | What It Does |
 |---|---|---|
 | `/develop P{XX}` | Starting work on a package | Full end-to-end: read docs → plan → implement → verify → commit |
 | `/verify P{XX}` | After a package is built | Runs acceptance criteria + output contract checks |
 | `/commit` | After any meaningful change | Stages + commits with conventional commit format |
 | `/package-status` | Before starting new work | Shows progress: ✅ done, 🟡 ready, 🔴 blocked |
-| `/search-potential-bugs-for-future` | After any phase or periodically | Scans for common bug patterns |
+
+### 🔍 Quality & Safety
+| Command | When To Use | What It Does |
+|---|---|---|
+| `/deep-audit {module}` | Before releasing a module | Reads real code, traces user flows, finds real bugs in a specific module |
+| `/mock-hunt` | Before any release | Finds all mock data, dead buttons, placeholder content, TODO debt |
+| `/api-sync` | After adding new endpoints | Verifies frontend API clients match backend controllers |
+| `/search-potential-bugs-for-future` | Periodically | Scans for common bug patterns (missing tenantId, auth guards, etc.) |
 
 ---
 

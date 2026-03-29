@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Booking } from '../../types';
+import type { BookingListItem } from '@/lib/api/bookings';
 import {
   format,
   startOfMonth,
@@ -18,8 +18,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
-export function BookingCalendar({ bookings }: { bookings: Booking[] }) {
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 3, 1)); // Defaulting to Apr 2026 matching mocks
+export function BookingCalendar({ bookings }: { bookings: BookingListItem[] }) {
+  const [currentDate, setCurrentDate] = useState(new Date());
 
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(monthStart);
@@ -110,7 +110,7 @@ export function BookingCalendar({ bookings }: { bookings: Booking[] }) {
                       "text-[10px] px-1.5 py-0.5 rounded border truncate cursor-pointer transition-colors hover:opacity-80",
                       getStatusColor(event.status)
                     )}>
-                      {event.orderNumber} - {event.customer.name.split(' ')[0]}
+                      {(event.bookingNumber || event.id).slice(-8)} - {(event.customer.fullName || '').split(' ')[0]}
                     </div>
                   </Link>
                 ))}

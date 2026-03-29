@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -12,77 +14,78 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2 } from 'lucide-react';
+import { bookingApi } from '@/lib/api/bookings';
 
 interface ShipOrderModalProps {
-  isOpen: boolean;
+  bookingId: string;
+  open: boolean;
   onOpenChange: (open: boolean) => void;
-  orderId: string;
-  orderNumber: string;
+  onSuccess?: () => void;
 }
 
-export function ShipOrderModal({ isOpen, onOpenChange, orderId: _orderId, orderNumber }: ShipOrderModalProps) {
-  const [courier, setCourier] = useState('pathao');
-  const [createParcel, setCreateParcel] = useState(true);
+export function ShipOrderModal({ bookingId, open, onOpenChange, onSuccess }: ShipOrderModalProps) {
+  const [courier, setCourier] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => bookingApi.ship(bookingId, {
+      courierProvider: courier.trim() || undefined,
+      trackingNumber: trackingNumber.trim() || undefined,
+    }),
+    onSuccess: () => {
+      toast.success('Order shipped! Customer will be notified.');
+      onOpenChange(false);
+      onSuccess?.();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to ship order');
+    },
+  });
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Ship Order {orderNumber}</DialogTitle>
+          <DialogTitle>Ship Order</DialogTitle>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="courier" className="text-right">
-              Courier
-            </Label>
-            <div className="col-span-3">
-              <Select value={courier} onValueChange={setCourier}>
-                <SelectTrigger id="courier">
-                  <SelectValue placeholder="Select courier" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pathao">Pathao</SelectItem>
-                  <SelectItem value="steadfast">Steadfast</SelectItem>
-                  <SelectItem value="manual">Manual / Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="courier">Courier Provider</Label>
+            <Select value={courier} onValueChange={setCourier}>
+              <SelectTrigger id="courier">
+                <SelectValue placeholder="Select a courier" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pathao">Pathao</SelectItem>
+                <SelectItem value="steadfast">Steadfast</SelectItem>
+                <SelectItem value="sa_paribahan">SA Paribahan</SelectItem>
+                <SelectItem value="sundarban">Sundarban</SelectItem>
+                <SelectItem value="manual">Hand Delivery / Other</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="tracking" className="text-right">
-              Tracking
-            </Label>
+          <div className="space-y-2">
+            <Label htmlFor="tracking">Tracking Number (Optional)</Label>
             <Input
               id="tracking"
-              placeholder={createParcel ? 'Auto-generated' : 'Enter tracking ID'}
-              disabled={createParcel && courier !== 'manual'}
-              className="col-span-3"
+              placeholder="e.g. PTH-123456"
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
             />
           </div>
-
-          {courier !== 'manual' && (
-            <div className="flex items-center space-x-2 mt-2 ml-[88px]">
-              <Checkbox 
-                id="create-parcel" 
-                checked={createParcel} 
-                onCheckedChange={(c) => setCreateParcel(c as boolean)} 
-              />
-              <label
-                htmlFor="create-parcel"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
-                Create parcel via {courier === 'pathao' ? 'Pathao' : 'Steadfast'} API
-              </label>
-            </div>
-          )}
         </div>
         
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit">Ship & Notify Customer</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>
+            Cancel
+          </Button>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Ship & Notify Customer
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

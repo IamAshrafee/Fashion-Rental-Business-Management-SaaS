@@ -178,4 +178,87 @@ export const bookingApi = {
   ship: async (id: string, payload: { courierProvider?: string; trackingNumber?: string }): Promise<void> => {
     await apiClient.patch(`/owner/bookings/${id}/ship`, payload);
   },
+
+  /**
+   * PATCH /api/v1/owner/bookings/:id/deliver
+   */
+  deliver: async (id: string): Promise<void> => {
+    await apiClient.patch(`/owner/bookings/${id}/deliver`);
+  },
+
+  /**
+   * PATCH /api/v1/owner/bookings/:id/return
+   */
+  markReturned: async (id: string): Promise<void> => {
+    await apiClient.patch(`/owner/bookings/${id}/return`);
+  },
+
+  /**
+   * PATCH /api/v1/owner/bookings/:id/inspect
+   */
+  inspect: async (id: string): Promise<void> => {
+    await apiClient.patch(`/owner/bookings/${id}/inspect`);
+  },
+
+  /**
+   * PATCH /api/v1/owner/bookings/:id/complete
+   */
+  complete: async (id: string): Promise<void> => {
+    await apiClient.patch(`/owner/bookings/${id}/complete`);
+  },
+
+  /**
+   * POST /api/v1/owner/bookings/:id/notes
+   */
+  addNote: async (id: string, note: string): Promise<void> => {
+    await apiClient.post(`/owner/bookings/${id}/notes`, { note });
+  },
+
+  /**
+   * POST /api/v1/owner/bookings/:id/items/:itemId/damage
+   */
+  reportDamage: async (id: string, itemId: string, payload: {
+    damageLevel: string;
+    description: string;
+    estimatedRepairCost?: number;
+  }): Promise<void> => {
+    await apiClient.post(`/owner/bookings/${id}/items/${itemId}/damage`, payload);
+  },
+
+  /**
+   * POST /api/v1/owner/bookings/:id/payments
+   */
+  recordPayment: async (id: string, payload: {
+    amount: number;
+    method: string;
+    transactionId?: string;
+    notes?: string;
+  }): Promise<void> => {
+    await apiClient.post(`/owner/bookings/${id}/payments`, payload);
+  },
+
+  /**
+   * GET /api/v1/owner/bookings/:id/payments
+   */
+  getPayments: async (id: string): Promise<Array<{
+    id: string;
+    amount: number;
+    method: string;
+    status: string;
+    transactionId?: string;
+    notes?: string;
+    createdAt: string;
+  }>> => {
+    const { data } = await apiClient.get<ApiResponse<Array<{
+      id: string;
+      amount: number;
+      method: string;
+      status: string;
+      transactionId?: string;
+      notes?: string;
+      createdAt: string;
+    }>>>(`/owner/bookings/${id}/payments`);
+    if (!data.success) throw new Error(data.message || 'Failed to load payments');
+    return data.data;
+  },
 };

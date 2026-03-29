@@ -69,10 +69,9 @@ export default function StaffSettingsPage() {
 
   const generatePassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    let pass = '';
-    for (let i = 0; i < 10; i++) {
-      pass += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    const array = new Uint32Array(10);
+    crypto.getRandomValues(array);
+    const pass = Array.from(array, (n) => chars.charAt(n % chars.length)).join('');
     form.setValue('password', pass);
   };
 
@@ -196,14 +195,14 @@ export default function StaffSettingsPage() {
         {staff.map((member) => (
           <div key={member.id} className="p-4 border rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0">
                 {member.fullName.charAt(0).toUpperCase()}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="font-medium text-gray-900">{member.fullName}</h4>
+                  <h4 className="font-medium">{member.fullName}</h4>
                   {member.role === 'owner' && <Badge variant="default" className="bg-amber-500 hover:bg-amber-600">Owner</Badge>}
-                  {member.role === 'manager' && <Badge variant="outline" className="text-indigo-600 border-indigo-200 bg-indigo-50">Manager</Badge>}
+                  {member.role === 'manager' && <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">Manager</Badge>}
                   {member.role === 'staff' && <Badge variant="secondary">Staff</Badge>}
                   {!member.isActive && <Badge variant="destructive">Inactive</Badge>}
                 </div>
