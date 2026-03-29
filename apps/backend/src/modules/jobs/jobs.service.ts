@@ -202,56 +202,59 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Find delivered bookings past their return date and mark them overdue.
-   * Runs hourly.
+   * Runs hourly. Iterates per-tenant for proper data isolation.
    */
   private async checkOverdueBookings(): Promise<void> {
     const now = new Date();
+    const tenants = await this.getActiveTenants();
+    let totalUpdated = 0;
 
-    // Find all delivered bookings where the latest item endDate < now
-    const overdueBookings = await this.prisma.booking.findMany({
-      where: {
-        status: 'delivered',
-        deletedAt: null,
-        items: {
-          every: {
-            endDate: { lt: now },
+    for (const tenant of tenants) {
+      const overdueBookings = await this.prisma.booking.findMany({
+        where: {
+          tenantId: tenant.id,
+          status: 'delivered',
+          deletedAt: null,
+          items: {
+            every: {
+              endDate: { lt: now },
+            },
           },
         },
-      },
-      include: {
-        items: { select: { endDate: true } },
-        tenant: { select: { id: true } },
-      },
-    });
-
-    for (const booking of overdueBookings) {
-      const latestEndDate = booking.items.reduce<Date | null>((max, item) => {
-        return !max || item.endDate > max ? item.endDate : max;
-      }, null);
-
-      const lateDays = latestEndDate
-        ? Math.ceil((now.getTime() - latestEndDate.getTime()) / (1000 * 60 * 60 * 24))
-        : 1;
-
-      // Update status in DB
-      await this.prisma.booking.update({
-        where: { id: booking.id },
-        data: { status: 'overdue' },
+        include: {
+          items: { select: { endDate: true } },
+        },
       });
 
-      // Queue in-app notification + SMS via the notifications queue
-      await this.notificationsQueue.add('notification.create', {
-        tenantId: booking.tenantId,
-        type: 'booking_overdue',
-        title: `OVERDUE: ${booking.bookingNumber} not returned`,
-        message: `${lateDays} day(s) late. Please follow up immediately.`,
-        data: { bookingId: booking.id, bookingNumber: booking.bookingNumber, lateDays },
-      });
+      for (const booking of overdueBookings) {
+        const latestEndDate = booking.items.reduce<Date | null>((max, item) => {
+          return !max || item.endDate > max ? item.endDate : max;
+        }, null);
 
-      this.logger.log(`Marked booking ${booking.bookingNumber} as overdue (${lateDays} days)`);
+        const lateDays = latestEndDate
+          ? Math.ceil((now.getTime() - latestEndDate.getTime()) / (1000 * 60 * 60 * 24))
+          : 1;
+
+        await this.prisma.booking.update({
+          where: { id: booking.id },
+          data: { status: 'overdue' },
+        });
+
+        await this.notificationsQueue.add('notification.create', {
+          tenantId: tenant.id,
+          type: 'booking_overdue',
+          title: `OVERDUE: ${booking.bookingNumber} not returned`,
+          message: `${lateDays} day(s) late. Please follow up immediately.`,
+          data: { bookingId: booking.id, bookingNumber: booking.bookingNumber, lateDays },
+        });
+
+        this.logger.log(`Marked booking ${booking.bookingNumber} as overdue (${lateDays} days)`);
+      }
+
+      totalUpdated += overdueBookings.length;
     }
 
-    this.logger.log(`Overdue check complete: ${overdueBookings.length} booking(s) updated`);
+    this.logger.log(`Overdue check complete: ${totalUpdated} booking(s) updated`);
   }
 
   /**
@@ -269,33 +272,37 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const tomorrowEnd = new Date(tomorrow);
     tomorrowEnd.setHours(23, 59, 59, 999);
 
-    // Find all delivered bookings with items due tomorrow
-    const reminders = await this.prisma.booking.findMany({
-      where: {
-        status: 'delivered',
-        deletedAt: null,
-        items: {
-          some: {
-            endDate: { gte: tomorrowStart, lte: tomorrowEnd },
+    const tenants = await this.getActiveTenants();
+
+    for (const tenant of tenants) {
+      const reminders = await this.prisma.booking.findMany({
+        where: {
+          tenantId: tenant.id,
+          status: 'delivered',
+          deletedAt: null,
+          items: {
+            some: {
+              endDate: { gte: tomorrowStart, lte: tomorrowEnd },
+            },
           },
         },
-      },
-      include: {
-        customer: { select: { phone: true, fullName: true } },
-        items: { select: { endDate: true } },
-      },
-    });
-
-    for (const booking of reminders) {
-      const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'tomorrow';
-
-      await this.notificationsQueue.add('sms.send', {
-        to: booking.customer.phone,
-        template: 'return_reminder',
-        data: { returnDate, storeName: 'ClosetRent' },
+        include: {
+          customer: { select: { phone: true, fullName: true } },
+          items: { select: { endDate: true } },
+        },
       });
 
-      this.logger.log(`Return reminder queued for booking ${booking.bookingNumber}`);
+      for (const booking of reminders) {
+        const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'tomorrow';
+
+        await this.notificationsQueue.add('sms.send', {
+          to: booking.customer.phone,
+          template: 'return_reminder',
+          data: { returnDate, storeName: 'ClosetRent' },
+        });
+
+        this.logger.log(`Return reminder queued for booking ${booking.bookingNumber}`);
+      }
     }
   }
 
@@ -306,22 +313,28 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   private async autoExpirePendingBookings(): Promise<void> {
     const cutoff = new Date();
     cutoff.setHours(cutoff.getHours() - 48);
+    const tenants = await this.getActiveTenants();
+    let totalExpired = 0;
 
-    const expiredCount = await this.prisma.booking.updateMany({
-      where: {
-        status: 'pending',
-        createdAt: { lt: cutoff },
-        deletedAt: null,
-      },
-      data: {
-        status: 'cancelled',
-        cancellationReason: 'Auto-expired: pending for more than 48 hours',
-        cancelledBy: 'owner',
-      },
-    });
+    for (const tenant of tenants) {
+      const expiredCount = await this.prisma.booking.updateMany({
+        where: {
+          tenantId: tenant.id,
+          status: 'pending',
+          createdAt: { lt: cutoff },
+          deletedAt: null,
+        },
+        data: {
+          status: 'cancelled',
+          cancellationReason: 'Auto-expired: pending for more than 48 hours',
+          cancelledBy: 'owner',
+        },
+      });
+      totalExpired += expiredCount.count;
+    }
 
-    if (expiredCount.count > 0) {
-      this.logger.log(`Auto-expired ${expiredCount.count} pending booking(s)`);
+    if (totalExpired > 0) {
+      this.logger.log(`Auto-expired ${totalExpired} pending booking(s)`);
     }
   }
 
@@ -393,22 +406,29 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   private async autoDeleteExpiredTrash(): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 90);
+    const tenants = await this.getActiveTenants();
+    let totalProducts = 0, totalBookings = 0, totalCustomers = 0;
 
-    const [products, bookings, customers] = await Promise.all([
-      this.prisma.product.deleteMany({
-        where: { deletedAt: { lt: cutoff } },
-      }),
-      this.prisma.booking.deleteMany({
-        where: { deletedAt: { lt: cutoff } },
-      }),
-      this.prisma.customer.deleteMany({
-        where: { deletedAt: { lt: cutoff } },
-      }),
-    ]);
+    for (const tenant of tenants) {
+      const [products, bookings, customers] = await Promise.all([
+        this.prisma.product.deleteMany({
+          where: { tenantId: tenant.id, deletedAt: { lt: cutoff } },
+        }),
+        this.prisma.booking.deleteMany({
+          where: { tenantId: tenant.id, deletedAt: { lt: cutoff } },
+        }),
+        this.prisma.customer.deleteMany({
+          where: { tenantId: tenant.id, deletedAt: { lt: cutoff } },
+        }),
+      ]);
+      totalProducts += products.count;
+      totalBookings += bookings.count;
+      totalCustomers += customers.count;
+    }
 
     this.logger.log(
-      `Trash cleanup: ${products.count} products, ${bookings.count} bookings, ` +
-        `${customers.count} customers permanently deleted`,
+      `Trash cleanup: ${totalProducts} products, ${totalBookings} bookings, ` +
+        `${totalCustomers} customers permanently deleted`,
     );
   }
 
@@ -440,5 +460,20 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         this.logger.error('Failed to persist dead letter job', (dbErr as Error).message);
       }
     }
+  }
+
+  // ==========================================================================
+  // HELPERS
+  // ==========================================================================
+
+  /**
+   * Get all active tenants. Used by scheduler jobs to iterate per-tenant
+   * and satisfy tenant isolation middleware.
+   */
+  private async getActiveTenants(): Promise<{ id: string }[]> {
+    return this.prisma.tenant.findMany({
+      where: { status: 'active' },
+      select: { id: true },
+    });
   }
 }
