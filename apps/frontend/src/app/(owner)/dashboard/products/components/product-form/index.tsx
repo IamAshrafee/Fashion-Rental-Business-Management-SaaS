@@ -15,10 +15,11 @@ import { SizeStep } from './steps/size';
 import { ServicesStep } from './steps/services';
 import { DetailsFAQStep } from './steps/details-faq';
 import { ReviewStep } from './steps/review';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export function ProductFormWizard() {
-  const { form, isLoaded, clearDraft } = useProductForm();
+  const { form, isLoaded, clearDraft, hasDraft } = useProductForm();
   const [currentStep, setCurrentStep] = useState(0);
   const { mutate: submitProduct, isPending: isSubmitting } = useSubmitProduct(clearDraft);
 
@@ -43,8 +44,25 @@ export function ProductFormWizard() {
         fieldsToValidate = ['variants'];
         break;
       case 2: // Images
-        fieldsToValidate = ['variants']; // we validate the images inside variants
-        break;
+        // Validate that each variant has at least one image (manual check — schema can't enforce this across steps)
+        {
+          const variants = form.getValues('variants');
+          let hasImageError = false;
+          variants.forEach((v, i) => {
+            if (!v.images || v.images.length === 0) {
+              form.setError(`variants.${i}.images` as any, {
+                type: 'manual',
+                message: 'At least one image is required per variant',
+              });
+              hasImageError = true;
+            }
+          });
+          if (hasImageError) return;
+          // Images are valid — advance directly (skip schema trigger since ImageUploader
+          // doesn't produce all schema fields like `sequence`, which is computed on submit)
+          setCurrentStep(s => s + 1);
+          return;
+        }
       case 3: // Pricing
         fieldsToValidate = [
           'pricingMode', 'rentalPrice', 'includedDays', 'pricePerDay',
@@ -100,7 +118,7 @@ export function ProductFormWizard() {
       case 4: return <SizeStep />;
       case 5: return <ServicesStep />;
       case 6: return <DetailsFAQStep />;
-      case 7: return <ReviewStep />;
+      case 7: return <ReviewStep onGoToStep={(step) => setCurrentStep(step)} />;
       default: return null;
     }
   };
@@ -117,6 +135,24 @@ export function ProductFormWizard() {
                 <p className="text-sm text-muted-foreground">Please wait while we upload images...</p>
               </div>
             </div>
+          </div>
+        )}
+        {hasDraft && currentStep === 0 && (
+          <div className="mb-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm text-amber-800">You have a saved draft. Want to start fresh?</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-amber-700 border-amber-300 hover:bg-amber-100"
+              onClick={() => {
+                clearDraft();
+                setCurrentStep(0);
+              }}
+            >
+              <RotateCcw className="mr-2 h-3.5 w-3.5" />
+              Clear Draft & Start Fresh
+            </Button>
           </div>
         )}
         <WizardLayout

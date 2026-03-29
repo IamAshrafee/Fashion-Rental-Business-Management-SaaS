@@ -198,16 +198,16 @@ export default function ProductDetailPage() {
               <div className="grid sm:grid-cols-3 gap-x-8 gap-y-4 text-sm">
                 <div>
                   <div className="text-muted-foreground mb-1">Rental Price</div>
-                  <div className="font-medium text-base">৳{product.rentalPrice.toLocaleString()}</div>
+                  <div className="font-medium text-base">৳{(product.rentalPrice ?? 0).toLocaleString()}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground mb-1">Security Deposit</div>
-                  <div className="font-medium text-base">৳{product.securityDeposit.toLocaleString()}</div>
+                  <div className="font-medium text-base">৳{(product.securityDeposit ?? 0).toLocaleString()}</div>
                 </div>
                 {product.cleaningFeeEnabled && (
                   <div>
                     <div className="text-muted-foreground mb-1">Cleaning Fee</div>
-                    <div className="font-medium text-base">৳{product.cleaningFee.toLocaleString()}</div>
+                    <div className="font-medium text-base">৳{(product.cleaningFee ?? 0).toLocaleString()}</div>
                   </div>
                 )}
               </div>

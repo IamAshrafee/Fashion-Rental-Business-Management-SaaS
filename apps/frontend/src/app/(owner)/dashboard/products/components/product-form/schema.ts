@@ -36,11 +36,11 @@ export const productFormSchema = z.object({
               id: z.string().default(() => Math.random().toString(36).substring(7)), // temp ID or DB ID
               url: z.string(),
               isFeatured: z.boolean().default(false),
-              sequence: z.number().int(),
+              sequence: z.number().int().optional(),
               file: z.any().optional(), // The actual File object before upload
             })
           )
-          .min(1, 'At least one image is required'),
+          .default([]),
       })
     )
     .min(1, 'At least one variant is required'),

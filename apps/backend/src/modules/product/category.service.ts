@@ -97,7 +97,7 @@ export class CategoryService {
   }
 
   async updateCategory(tenantId: string, categoryId: string, dto: UpdateCategoryDto) {
-    const category = await this.findCategoryOrFail(tenantId, categoryId);
+    await this.findCategoryOrFail(tenantId, categoryId);
 
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) {
@@ -108,10 +108,12 @@ export class CategoryService {
     if (dto.displayOrder !== undefined) data.displayOrder = dto.displayOrder;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
-    return this.prisma.category.update({
-      where: { id: categoryId },
+    await this.prisma.category.updateMany({
+      where: { id: categoryId, tenantId },
       data,
     });
+
+    return this.prisma.category.findFirst({ where: { id: categoryId, tenantId } });
   }
 
   async deleteCategory(tenantId: string, categoryId: string) {
@@ -130,8 +132,8 @@ export class CategoryService {
 
     // Delete subcategories first, then category
     await this.prisma.$transaction([
-      this.prisma.subcategory.deleteMany({ where: { categoryId } }),
-      this.prisma.category.delete({ where: { id: categoryId } }),
+      this.prisma.subcategory.deleteMany({ where: { categoryId, tenantId } }),
+      this.prisma.category.deleteMany({ where: { id: categoryId, tenantId } }),
     ]);
 
     return { message: 'Category deleted' };
@@ -171,10 +173,12 @@ export class CategoryService {
     if (dto.displayOrder !== undefined) data.displayOrder = dto.displayOrder;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
-    return this.prisma.subcategory.update({
-      where: { id: subcategoryId },
+    await this.prisma.subcategory.updateMany({
+      where: { id: subcategoryId, tenantId },
       data,
     });
+
+    return this.prisma.subcategory.findFirst({ where: { id: subcategoryId, tenantId } });
   }
 
   async deleteSubcategory(tenantId: string, subcategoryId: string) {
@@ -192,7 +196,7 @@ export class CategoryService {
       );
     }
 
-    await this.prisma.subcategory.delete({ where: { id: subcategoryId } });
+    await this.prisma.subcategory.deleteMany({ where: { id: subcategoryId, tenantId } });
     return { message: 'Subcategory deleted' };
   }
 
@@ -254,10 +258,12 @@ export class CategoryService {
     if (dto.displayOrder !== undefined) data.displayOrder = dto.displayOrder;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
-    return this.prisma.event.update({
-      where: { id: eventId },
+    await this.prisma.event.updateMany({
+      where: { id: eventId, tenantId },
       data,
     });
+
+    return this.prisma.event.findFirst({ where: { id: eventId, tenantId } });
   }
 
   async deleteEvent(tenantId: string, eventId: string) {
@@ -267,9 +273,12 @@ export class CategoryService {
     if (!event) throw new NotFoundException('Event not found');
 
     // Remove product-event associations then delete
+    // Join through event to scope by tenant
     await this.prisma.$transaction([
-      this.prisma.productEvent.deleteMany({ where: { eventId } }),
-      this.prisma.event.delete({ where: { id: eventId } }),
+      this.prisma.productEvent.deleteMany({
+        where: { event: { id: eventId, tenantId } },
+      }),
+      this.prisma.event.deleteMany({ where: { id: eventId, tenantId } }),
     ]);
 
     return { message: 'Event deleted' };

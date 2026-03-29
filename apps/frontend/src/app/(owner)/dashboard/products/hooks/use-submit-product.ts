@@ -43,7 +43,11 @@ export function useSubmitProduct(clearDraft: () => void) {
         },
         size: {
           mode: data.sizeMode,
-          measurements: data.measurements,
+          measurements: data.measurements?.map((m) => ({
+            label: m.label,
+            value: String(m.value),
+            unit: m.unit,
+          })),
           sizeChartUrl: data.sizeChartUrl,
         },
         services: {
