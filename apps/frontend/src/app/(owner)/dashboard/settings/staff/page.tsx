@@ -24,11 +24,14 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { useStaffList, useInviteStaff, useRemoveStaff } from '../hooks/use-settings';
+import { Switch } from '@/components/ui/switch';
+import { useStaffList, useInviteStaff, useRemoveStaff, useUpdateStaff } from '../hooks/use-settings';
 import { UserPlus, Trash2, Edit2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { useTenant } from '@/hooks/use-tenant';
+import type { Staff } from '@closetrent/types';
+
 const inviteSchema = z.object({
   fullName: z.string().min(2, 'Name is required'),
   email: z.string().email().optional().or(z.literal('')),
@@ -39,6 +42,13 @@ const inviteSchema = z.object({
 
 type InviteValues = z.infer<typeof inviteSchema>;
 
+const editSchema = z.object({
+  role: z.enum(['manager', 'staff']),
+  isActive: z.boolean(),
+});
+
+type EditValues = z.infer<typeof editSchema>;
+
 export default function StaffSettingsPage() {
   useTenant(); // used for future tenant-scoped branding
   const { data: response, isLoading } = useStaffList({ limit: 50 });
@@ -46,6 +56,7 @@ export default function StaffSettingsPage() {
   const removeStaff = useRemoveStaff();
   
   const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<Staff | null>(null);
 
   const form = useForm<InviteValues>({
     resolver: zodResolver(inviteSchema),
@@ -58,12 +69,41 @@ export default function StaffSettingsPage() {
     },
   });
 
+  const editForm = useForm<EditValues>({
+    resolver: zodResolver(editSchema),
+    defaultValues: {
+      role: 'staff',
+      isActive: true,
+    },
+  });
+
+  // We call the hook at component level with the editing member's ID
+  const updateStaff = useUpdateStaff(editingMember?.id || '');
+
   const onSubmit = (data: InviteValues) => {
     inviteStaff.mutate(data, {
       onSuccess: () => {
         setIsInviteOpen(false);
         form.reset();
       }
+    });
+  };
+
+  const onEditSubmit = (data: EditValues) => {
+    if (!editingMember) return;
+    updateStaff.mutate(data, {
+      onSuccess: () => {
+        setEditingMember(null);
+        editForm.reset();
+      },
+    });
+  };
+
+  const openEditDialog = (member: Staff) => {
+    setEditingMember(member);
+    editForm.reset({
+      role: member.role as 'manager' | 'staff',
+      isActive: member.isActive,
     });
   };
 
@@ -191,6 +231,72 @@ export default function StaffSettingsPage() {
       </div>
       <Separator />
 
+      {/* ── Edit Staff Dialog ── */}
+      <Dialog open={!!editingMember} onOpenChange={(open) => { if (!open) setEditingMember(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Staff Member</DialogTitle>
+            <DialogDescription>
+              Update {editingMember?.fullName}&apos;s role and access status.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-6 pt-4">
+              <FormField
+                control={editForm.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Role</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="manager">Manager (Full operational access)</SelectItem>
+                        <SelectItem value="staff">Staff (Orders & viewing products only)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="isActive"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-sm font-medium">Active Status</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Inactive members cannot log in or access the store.
+                      </p>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setEditingMember(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={updateStaff.isPending}>
+                  {updateStaff.isPending ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
       <div className="space-y-4">
         {staff.map((member) => (
           <div key={member.id} className="p-4 border rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -220,7 +326,13 @@ export default function StaffSettingsPage() {
             </div>
 
             <div className="flex border rounded-md shadow-sm overflow-hidden">
-              <Button variant="ghost" size="sm" className="rounded-none border-r" disabled={member.role === 'owner'}>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="rounded-none border-r" 
+                disabled={member.role === 'owner'}
+                onClick={() => openEditDialog(member)}
+              >
                 <Edit2 className="w-4 h-4 mr-2"/> Edit
               </Button>
               <Button 

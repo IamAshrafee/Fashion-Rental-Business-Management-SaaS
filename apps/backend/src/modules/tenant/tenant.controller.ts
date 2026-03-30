@@ -196,4 +196,18 @@ export class TenantController {
   async getSubscription(@CurrentTenant() tenant: TenantContext) {
     return this.subscriptionService.getCurrentSubscription(tenant.id);
   }
+
+  /**
+   * GET /api/v1/tenant/resource-usage
+   * Get current resource usage (products, staff) vs plan limits.
+   */
+  @Get('resource-usage')
+  @Roles('owner')
+  async getResourceUsage(@CurrentTenant() tenant: TenantContext) {
+    const [products, staff] = await Promise.all([
+      this.subscriptionService.checkPlanLimit(tenant.id, 'products'),
+      this.subscriptionService.checkPlanLimit(tenant.id, 'staff'),
+    ]);
+    return { products, staff };
+  }
 }

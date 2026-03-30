@@ -44,6 +44,8 @@ export class SubscriptionService {
             id: true,
             name: true,
             slug: true,
+            priceMonthly: true,
+            priceAnnual: true,
             maxProducts: true,
             maxStaff: true,
             customDomain: true,

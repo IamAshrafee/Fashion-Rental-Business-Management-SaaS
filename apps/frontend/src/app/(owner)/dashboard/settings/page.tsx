@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useStoreSettings, useUpdateStoreSettings } from './hooks/use-settings';
-import { Facebook, Instagram, Twitter, Youtube } from 'lucide-react';
+import { Facebook, Instagram, Music2, Youtube } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 const businessInfoSchema = z.object({
@@ -40,8 +40,23 @@ export default function SettingsPage() {
   const { data: response, isLoading } = useStoreSettings();
   const updateSettings = useUpdateStoreSettings();
 
+  const settingsData = response?.data;
+
   const form = useForm<BusinessInfoValues>({
     resolver: zodResolver(businessInfoSchema),
+    values: settingsData ? {
+      businessName: settingsData.businessName || '',
+      tagline: settingsData.tagline || '',
+      about: settingsData.about || '',
+      phone: settingsData.phone || '',
+      email: settingsData.email || '',
+      address: settingsData.address || '',
+      whatsapp: settingsData.whatsapp || '',
+      facebookUrl: settingsData.facebookUrl || '',
+      instagramUrl: settingsData.instagramUrl || '',
+      tiktokUrl: settingsData.tiktokUrl || '',
+      youtubeUrl: settingsData.youtubeUrl || '',
+    } : undefined,
     defaultValues: {
       businessName: '',
       tagline: '',
@@ -56,25 +71,6 @@ export default function SettingsPage() {
       youtubeUrl: '',
     },
   });
-
-  useEffect(() => {
-    if (response?.data) {
-      const d = response.data;
-      form.reset({
-        businessName: d.businessName || '',
-        tagline: d.tagline || '',
-        about: d.about || '',
-        phone: d.phone || '',
-        email: d.email || '',
-        address: d.address || '',
-        whatsapp: d.whatsapp || '',
-        facebookUrl: d.facebookUrl || '',
-        instagramUrl: d.instagramUrl || '',
-        tiktokUrl: d.tiktokUrl || '',
-        youtubeUrl: d.youtubeUrl || '',
-      });
-    }
-  }, [response?.data, form]);
 
   const onSubmit = (data: BusinessInfoValues) => {
     // Convert empty strings back to empty/undefined to satisfy urls
@@ -248,7 +244,7 @@ export default function SettingsPage() {
                 name="tiktokUrl"
                 render={({ field }) => (
                   <FormItem className="flex items-center gap-4">
-                    <FormLabel className="w-10 flex justify-center text-muted-foreground"><Twitter className="w-5 h-5"/></FormLabel>
+                    <FormLabel className="w-10 flex justify-center text-muted-foreground"><Music2 className="w-5 h-5"/></FormLabel>
                     <div className="flex-1">
                       <FormControl>
                         <Input placeholder="https://tiktok.com/@..." {...field} />

@@ -62,5 +62,20 @@ export const settingsApi = {
   getSubscription: async () => {
     const { data } = await apiClient.get<ApiResponse<any>>('/tenant/subscription');
     return data;
-  }
+  },
+
+  getResourceUsage: async () => {
+    const { data } = await apiClient.get<ApiResponse<any>>('/tenant/resource-usage');
+    return data;
+  },
+
+  // Branding — Logo Upload
+  uploadLogo: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await apiClient.post<ApiResponse<{ logoUrl: string }>>('/owner/upload/logo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
 };

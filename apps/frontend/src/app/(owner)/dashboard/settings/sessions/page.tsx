@@ -64,7 +64,7 @@ export default function SessionsSettingsPage() {
       </div>
       <Separator />
 
-      <h4 className="text-sm font-semibold text-gray-900 border-b pb-2">Active Sessions Across Store</h4>
+      <h4 className="text-sm font-semibold text-foreground border-b pb-2">Active Sessions Across Store</h4>
 
       <div className="space-y-4">
         {allSessions.map((session) => {
@@ -77,7 +77,7 @@ export default function SessionsSettingsPage() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h4 className="font-medium text-gray-900">
+                    <h4 className="font-medium text-foreground">
                       {session.browser || 'Unknown Client'} / {session.os || 'Unknown OS'}
                     </h4>
                     {session.isCurrent && <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">Current Device</Badge>}

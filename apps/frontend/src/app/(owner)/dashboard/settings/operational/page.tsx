@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -31,25 +31,21 @@ export default function OperationalSettingsPage() {
   const { data: response, isLoading } = useStoreSettings();
   const updateOperational = useUpdateOperationalSettings();
 
+  const settingsData = response?.data;
+
   const form = useForm<OperationalValues>({
     resolver: zodResolver(operationalSchema),
+    values: settingsData ? {
+      maxConcurrentSessions: settingsData.maxConcurrentSessions ?? 5,
+      bufferDays: settingsData.bufferDays ?? 3,
+      smsEnabled: settingsData.smsEnabled ?? false,
+    } : undefined,
     defaultValues: {
       maxConcurrentSessions: 5,
       bufferDays: 3,
       smsEnabled: false,
     },
   });
-
-  useEffect(() => {
-    if (response?.data) {
-      const d = response.data;
-      form.reset({
-        maxConcurrentSessions: d.maxConcurrentSessions ?? 5,
-        bufferDays: d.bufferDays ?? 3,
-        smsEnabled: d.smsEnabled ?? false,
-      });
-    }
-  }, [response?.data, form]);
 
   const onSubmit = (data: OperationalValues) => {
     updateOperational.mutate(data);
@@ -73,7 +69,7 @@ export default function OperationalSettingsPage() {
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           
           <div className="space-y-4">
-            <h4 className="text-md font-semibold text-gray-900 border-b pb-2">Booking Logistics</h4>
+            <h4 className="text-md font-semibold text-foreground border-b pb-2">Booking Logistics</h4>
             <div className="grid grid-cols-1 pt-4">
               <FormField
                 control={form.control}
@@ -95,7 +91,7 @@ export default function OperationalSettingsPage() {
           </div>
 
           <div className="space-y-4 pt-4">
-            <h4 className="text-md font-semibold text-gray-900 border-b pb-2">Auth & Sessions</h4>
+            <h4 className="text-md font-semibold text-foreground border-b pb-2">Auth & Sessions</h4>
             <div className="grid grid-cols-1 pt-4">
               <FormField
                 control={form.control}
@@ -117,7 +113,7 @@ export default function OperationalSettingsPage() {
           </div>
 
           <div className="space-y-4 pt-4">
-            <h4 className="text-md font-semibold text-gray-900 border-b pb-2">Notification Webhooks</h4>
+            <h4 className="text-md font-semibold text-foreground border-b pb-2">Notification Webhooks</h4>
             <div className="grid grid-cols-1 pt-4">
               <FormField
                 control={form.control}
@@ -125,7 +121,7 @@ export default function OperationalSettingsPage() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                     <div className="space-y-0.5">
-                      <FormLabel className="text-base text-gray-900">Enable SMS Triggers</FormLabel>
+                      <FormLabel className="text-base text-foreground">Enable SMS Triggers</FormLabel>
                       <FormDescription>
                         Triggers Outbound SMS pings for booking confirmations and overdues. Active Subscriptions may be billed per limit.
                       </FormDescription>

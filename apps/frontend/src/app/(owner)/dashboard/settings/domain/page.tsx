@@ -61,7 +61,7 @@ export default function DomainSettingsPage() {
     return <div className="animate-pulse h-64 bg-muted rounded-md" />;
   }
 
-  const currentCustomDomain = response?.data?.tenantId ? tenant?.customDomain : null;
+  const currentCustomDomain = tenant?.customDomain ?? null;
   const subdomainUrl = `${tenant?.subdomain}.closetrent.com`;
 
   return (
@@ -79,7 +79,7 @@ export default function DomainSettingsPage() {
       <div className="space-y-4">
         <div className="p-4 bg-muted/30 border rounded-lg flex items-center justify-between">
           <div className="space-y-1">
-            <h4 className="text-sm font-medium text-gray-900">ClosetRent Subdomain</h4>
+            <h4 className="text-sm font-medium text-foreground">ClosetRent Subdomain</h4>
             <p className="text-xs text-muted-foreground">Always active and secure.</p>
           </div>
           <div className="font-mono text-sm px-3 py-1 bg-white border shadow-sm rounded-md text-gray-700">
@@ -122,7 +122,7 @@ export default function DomainSettingsPage() {
           </div>
         ) : (
           <div className="pt-4">
-            <h4 className="text-md font-semibold text-gray-900 mb-4">Connect a Custom Domain</h4>
+            <h4 className="text-md font-semibold text-foreground mb-4">Connect a Custom Domain</h4>
             
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

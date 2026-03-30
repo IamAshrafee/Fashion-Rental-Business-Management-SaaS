@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useSubscription } from '../hooks/use-settings';
+import { useSubscription, useResourceUsage } from '../hooks/use-settings';
 import { Separator } from '@/components/ui/separator';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress';
 
 export default function SubscriptionSettingsPage() {
   const { data: response, isLoading } = useSubscription();
+  const { data: usageResponse } = useResourceUsage();
 
   if (isLoading) {
     return <div className="animate-pulse h-64 bg-muted rounded-md" />;
@@ -17,6 +18,7 @@ export default function SubscriptionSettingsPage() {
 
   const subscription = response?.data;
   const currentPlan = subscription?.plan;
+  const usage = usageResponse?.data;
 
   if (!currentPlan) {
     return (
@@ -28,14 +30,31 @@ export default function SubscriptionSettingsPage() {
         <Separator />
         <Card className="border-dashed shadow-none bg-muted/30">
           <CardContent className="pt-6 flex flex-col items-center justify-center p-12 text-center">
-            <h4 className="text-lg font-semibold text-gray-900 mb-2">No Active Subscription</h4>
+            <h4 className="text-lg font-semibold text-foreground mb-2">No Active Subscription</h4>
             <p className="text-sm text-muted-foreground mb-6">You are currently running without a synced plan feature set.</p>
-            <Button>View Pricing Plans</Button>
+            <p className="text-xs text-muted-foreground">Contact your administrator to set up a subscription plan.</p>
           </CardContent>
         </Card>
       </div>
     );
   }
+
+  // Parse priceMonthly (Prisma Decimal comes as string)
+  const priceMonthly = currentPlan.priceMonthly ? Number(currentPlan.priceMonthly) : 0;
+  const priceAnnual = currentPlan.priceAnnual ? Number(currentPlan.priceAnnual) : null;
+
+  // Compute resource usage percentages
+  const productUsage = usage?.products;
+  const staffUsage = usage?.staff;
+  const productPercent = productUsage && productUsage.limit ? Math.round((productUsage.current / productUsage.limit) * 100) : 0;
+  const staffPercent = staffUsage && staffUsage.limit ? Math.round((staffUsage.current / staffUsage.limit) * 100) : 0;
+
+  // Computed status display
+  const computed = subscription?.computed;
+  const statusLabel = computed?.status?.replace('_', ' ').toUpperCase() || subscription?.status?.toUpperCase();
+  const statusColor = computed?.isActive
+    ? computed?.isInGracePeriod ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+    : 'bg-red-100 text-red-700';
 
   return (
     <div className="space-y-6">
@@ -45,16 +64,21 @@ export default function SubscriptionSettingsPage() {
       </div>
       <Separator />
 
-      <Card className="border-indigo-100 shadow-sm">
-        <CardHeader className="bg-indigo-50/50 pb-4 border-b">
-          <CardTitle className="flex justify-between items-center text-xl text-indigo-900">
+      <Card className="border-indigo-100 dark:border-indigo-900/30 shadow-sm">
+        <CardHeader className="bg-indigo-50/50 dark:bg-indigo-950/20 pb-4 border-b">
+          <CardTitle className="flex justify-between items-center text-xl text-foreground">
             {currentPlan.name} Plan
-            <span className="text-sm px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full font-medium">
-              {subscription.status.toUpperCase()}
+            <span className={`text-sm px-3 py-1 rounded-full font-medium ${statusColor}`}>
+              {statusLabel}
             </span>
           </CardTitle>
-          <CardDescription className="text-indigo-900/70">
-            {currentPlan.priceMonthly === 0 ? 'Free tier' : `৳${currentPlan.priceMonthly} / month`}
+          <CardDescription>
+            {priceMonthly === 0 ? 'Free tier' : `৳${priceMonthly.toLocaleString()} / month`}
+            {priceAnnual !== null && priceMonthly > 0 && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                (৳{priceAnnual.toLocaleString()} / year)
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6 space-y-6">
@@ -85,29 +109,61 @@ export default function SubscriptionSettingsPage() {
               <span className={!currentPlan.removeBranding ? 'text-muted-foreground' : ''}>Remove &quot;Powered by ClosetRent&quot;</span>
             </div>
           </div>
+
+          {/* Computed status details */}
+          {computed && (
+            <div className="text-xs text-muted-foreground border-t pt-3 space-y-1">
+              {computed.isInTrial && computed.daysRemaining > 0 && (
+                <p className="text-amber-600">Trial period — {computed.daysRemaining} days remaining</p>
+              )}
+              {computed.isInGracePeriod && (
+                <p className="text-amber-600">⚠️ Grace period active — please renew to avoid service interruption</p>
+              )}
+              {computed.isExpired && (
+                <p className="text-red-600">⚠️ Subscription expired — some features may be restricted</p>
+              )}
+              {computed.daysRemaining > 0 && !computed.isInTrial && (
+                <p>{computed.daysRemaining} days until renewal</p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <div className="pt-4">
-        <h4 className="text-sm font-semibold mb-4 text-gray-900">Resource Usage</h4>
+        <h4 className="text-sm font-semibold mb-4 text-foreground">Resource Usage</h4>
         <div className="space-y-6">
         
           <div className="space-y-2 relative">
             <div className="flex justify-between text-sm">
-              <span className="font-medium text-gray-700">Products</span>
-              <span className="text-muted-foreground">n/a / {currentPlan.maxProducts || 'Unlimited'}</span>
+              <span className="font-medium text-foreground">Products</span>
+              <span className="text-muted-foreground">
+                {productUsage ? `${productUsage.current}` : '—'} / {currentPlan.maxProducts || 'Unlimited'}
+              </span>
             </div>
-            <Progress value={0} className="h-2 w-full" />
-            <p className="text-xs text-muted-foreground">Product counts will populate when active items are evaluated.</p>
+            <Progress
+              value={currentPlan.maxProducts ? productPercent : 0}
+              className="h-2 w-full"
+            />
+            {productUsage && currentPlan.maxProducts && productPercent >= 80 && (
+              <p className="text-xs text-amber-600">You&apos;re approaching your product limit.</p>
+            )}
           </div>
           
           <div className="space-y-2 relative">
             <div className="flex justify-between text-sm">
-              <span className="font-medium text-gray-700">Staff Members</span>
-              <span className="text-muted-foreground">n/a / {currentPlan.maxStaff}</span>
+              <span className="font-medium text-foreground">Staff Members</span>
+              <span className="text-muted-foreground">
+                {staffUsage ? `${staffUsage.current}` : '—'} / {currentPlan.maxStaff}
+              </span>
             </div>
-            <Progress value={0} className="h-2 w-full" />
-            <p className="text-xs text-muted-foreground">Max limit counts owners, managers and regular staff.</p>
+            <Progress
+              value={currentPlan.maxStaff ? staffPercent : 0}
+              className="h-2 w-full"
+            />
+            {staffUsage && currentPlan.maxStaff && staffPercent >= 80 && (
+              <p className="text-xs text-amber-600">You&apos;re approaching your staff limit.</p>
+            )}
           </div>
           
         </div>
@@ -116,6 +172,7 @@ export default function SubscriptionSettingsPage() {
       <div className="flex gap-4 pt-6 border-t mt-8">
         <Button disabled>Upgrade Plan</Button>
         <Button variant="outline" disabled>View Invoices</Button>
+        <p className="text-xs text-muted-foreground self-center ml-2">Plan upgrades and billing portal coming soon.</p>
       </div>
     </div>
   );

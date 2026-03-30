@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -33,8 +33,17 @@ export default function PaymentSettingsPage() {
   const { data: response, isLoading } = useStoreSettings();
   const updatePayment = useUpdatePaymentSettings();
 
+  const settingsData = response?.data;
+
   const form = useForm<PaymentValues>({
     resolver: zodResolver(paymentSchema),
+    values: settingsData ? {
+      bkashNumber: settingsData.bkashNumber || '',
+      nagadNumber: settingsData.nagadNumber || '',
+      sslcommerzStoreId: settingsData.sslcommerzStoreId || '',
+      sslcommerzStorePass: settingsData.sslcommerzStorePass || '',
+      sslcommerzSandbox: settingsData.sslcommerzSandbox ?? true,
+    } : undefined,
     defaultValues: {
       bkashNumber: '',
       nagadNumber: '',
@@ -43,19 +52,6 @@ export default function PaymentSettingsPage() {
       sslcommerzSandbox: true,
     },
   });
-
-  useEffect(() => {
-    if (response?.data) {
-      const d = response.data;
-      form.reset({
-        bkashNumber: d.bkashNumber || '',
-        nagadNumber: d.nagadNumber || '',
-        sslcommerzStoreId: d.sslcommerzStoreId || '',
-        sslcommerzStorePass: d.sslcommerzStorePass || '',
-        sslcommerzSandbox: d.sslcommerzSandbox ?? true,
-      });
-    }
-  }, [response?.data, form]);
 
   const onSubmit = (data: PaymentValues) => {
     updatePayment.mutate(data);
@@ -79,7 +75,7 @@ export default function PaymentSettingsPage() {
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           
           <div className="space-y-4">
-            <h4 className="text-md font-semibold text-gray-900 border-b pb-2">Manual Payments (Mobile Banking)</h4>
+            <h4 className="text-md font-semibold text-foreground border-b pb-2">Manual Payments (Mobile Banking)</h4>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
               <FormField
@@ -119,7 +115,7 @@ export default function PaymentSettingsPage() {
           </div>
 
           <div className="space-y-4 pt-4">
-            <h4 className="text-md font-semibold text-gray-900 border-b pb-2">Online Payments (SSLCommerz)</h4>
+            <h4 className="text-md font-semibold text-foreground border-b pb-2">Online Payments (SSLCommerz)</h4>
             
             <div className="grid grid-cols-1 gap-6 pt-4">
               <FormField

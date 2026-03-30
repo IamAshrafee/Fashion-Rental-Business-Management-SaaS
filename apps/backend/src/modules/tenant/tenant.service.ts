@@ -165,7 +165,9 @@ export class TenantService {
   // =========================================================================
 
   /**
-   * Get full store settings (owner-facing, includes sensitive fields).
+   * Get full store settings (owner-facing).
+   * Returns a flat object with tenant + settings fields merged at root.
+   * Excludes raw secrets — sensitive credentials are never sent to the browser.
    */
   async getStoreSettings(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({
@@ -177,7 +179,48 @@ export class TenantService {
         customDomain: true,
         logoUrl: true,
         faviconUrl: true,
-        storeSettings: true,
+        storeSettings: {
+          select: {
+            id: true,
+            tenantId: true,
+            primaryColor: true,
+            secondaryColor: true,
+            tagline: true,
+            about: true,
+            phone: true,
+            whatsapp: true,
+            email: true,
+            address: true,
+            facebookUrl: true,
+            instagramUrl: true,
+            tiktokUrl: true,
+            youtubeUrl: true,
+            defaultLanguage: true,
+            timezone: true,
+            country: true,
+            currencyCode: true,
+            currencySymbol: true,
+            currencyPosition: true,
+            numberFormat: true,
+            dateFormat: true,
+            timeFormat: true,
+            weekStart: true,
+            smsEnabled: true,
+            bkashNumber: true,
+            nagadNumber: true,
+            sslcommerzStoreId: true,
+            // sslcommerzStorePass: EXCLUDED — secret
+            sslcommerzSandbox: true,
+            defaultCourier: true,
+            // courierApiKey: EXCLUDED — secret
+            // courierSecretKey: EXCLUDED — secret
+            pickupAddress: true,
+            maxConcurrentSessions: true,
+            bufferDays: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
       },
     });
 
@@ -185,9 +228,11 @@ export class TenantService {
       throw new NotFoundException('Tenant not found');
     }
 
+    // Flatten: spread storeSettings fields at root level
+    const { storeSettings, ...tenantFields } = tenant;
     return {
-      ...tenant,
-      settings: tenant.storeSettings,
+      ...tenantFields,
+      ...storeSettings,
     };
   }
 

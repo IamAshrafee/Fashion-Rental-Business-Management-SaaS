@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -37,39 +37,23 @@ export default function LocaleSettingsPage() {
   const { data: response, isLoading } = useStoreSettings();
   const updateLocale = useUpdateLocaleSettings();
 
+  const settingsData = response?.data;
+
   const form = useForm<LocaleValues>({
     resolver: zodResolver(localeSchema),
-    defaultValues: {
-      defaultLanguage: 'en',
-      timezone: 'UTC',
-      country: 'BD',
-      currencyCode: 'BDT',
-      currencySymbol: '৳',
-      currencyPosition: 'before',
-      numberFormat: 'south_asian',
-      dateFormat: 'DD/MM/YYYY',
-      timeFormat: '12h',
-      weekStart: 'saturday',
+    values: {
+      defaultLanguage: settingsData?.defaultLanguage || 'en',
+      timezone: settingsData?.timezone || 'UTC',
+      country: settingsData?.country || 'BD',
+      currencyCode: settingsData?.currencyCode || 'BDT',
+      currencySymbol: settingsData?.currencySymbol || '৳',
+      currencyPosition: settingsData?.currencyPosition || 'before',
+      numberFormat: settingsData?.numberFormat || 'south_asian',
+      dateFormat: settingsData?.dateFormat || 'DD/MM/YYYY',
+      timeFormat: settingsData?.timeFormat || '12h',
+      weekStart: settingsData?.weekStart || 'saturday',
     },
   });
-
-  useEffect(() => {
-    if (response?.data) {
-      const d = response.data;
-      form.reset({
-        defaultLanguage: d.defaultLanguage || 'en',
-        timezone: d.timezone || 'UTC',
-        country: d.country || 'BD',
-        currencyCode: d.currencyCode || 'BDT',
-        currencySymbol: d.currencySymbol || '৳',
-        currencyPosition: d.currencyPosition || 'before',
-        numberFormat: d.numberFormat || 'south_asian',
-        dateFormat: d.dateFormat || 'DD/MM/YYYY',
-        timeFormat: d.timeFormat || '12h',
-        weekStart: d.weekStart || 'saturday',
-      });
-    }
-  }, [response?.data, form]);
 
   const onSubmit = (data: LocaleValues) => {
     updateLocale.mutate(data);

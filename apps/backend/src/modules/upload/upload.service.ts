@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ServiceUnavailableException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -18,8 +19,9 @@ interface UploadResult {
 }
 
 @Injectable()
-export class UploadService {
+export class UploadService implements OnModuleInit {
   private readonly logger = new Logger(UploadService.name);
+  private bucketReady = false;
   private readonly minioClient: Minio.Client;
   private readonly bucket: string;
   private readonly publicUrl: string;
@@ -72,6 +74,16 @@ export class UploadService {
     this.imageQuality = imageConfig?.quality || 80;
     this.thumbnailWidth = imageConfig?.thumbnailWidth || 400;
     this.fullWidth = imageConfig?.maxWidth || 1200;
+  }
+
+  /**
+   * Called once when the module initializes.
+   * Ensures bucket exists and has public read policy.
+   */
+  async onModuleInit(): Promise<void> {
+    if (this.minioClient) {
+      await this.ensureBucket();
+    }
   }
 
   /**
@@ -253,8 +265,11 @@ export class UploadService {
 
     const logoUrl = `${this.publicUrl}/${key}`;
 
-    // Note: StoreSettings model will be created in P05 (Storefront).
-    // For now, return the URL for the frontend to persist.
+    // Persist the logo URL on the Tenant record
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { logoUrl },
+    });
 
     return { logoUrl };
   }
@@ -310,14 +325,45 @@ export class UploadService {
   }
 
   private async ensureBucket(): Promise<void> {
+    if (this.bucketReady) return;
+
     try {
       const exists = await this.minioClient.bucketExists(this.bucket);
       if (!exists) {
         await this.minioClient.makeBucket(this.bucket);
         this.logger.log(`Created bucket: ${this.bucket}`);
       }
+
+      // Ensure bucket has a public read policy so images are accessible via browser
+      await this.ensurePublicReadPolicy();
+      this.bucketReady = true;
     } catch (err) {
       this.logger.warn(`Bucket check failed: ${err}`);
+    }
+  }
+
+  /**
+   * Set a public read-only policy on the bucket.
+   * Without this, MinIO returns 403 for all direct image URLs.
+   */
+  private async ensurePublicReadPolicy(): Promise<void> {
+    try {
+      const policy = {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: { AWS: ['*'] },
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${this.bucket}/*`],
+          },
+        ],
+      };
+
+      await this.minioClient.setBucketPolicy(this.bucket, JSON.stringify(policy));
+      this.logger.log(`Public read policy set on bucket: ${this.bucket}`);
+    } catch (err) {
+      this.logger.warn(`Failed to set bucket policy: ${err}`);
     }
   }
 

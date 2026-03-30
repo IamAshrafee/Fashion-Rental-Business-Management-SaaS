@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -32,8 +32,16 @@ export default function CourierSettingsPage() {
   const { data: response, isLoading } = useStoreSettings();
   const updateCourier = useUpdateCourierSettings();
 
+  const settingsData = response?.data;
+
   const form = useForm<CourierValues>({
     resolver: zodResolver(courierSchema),
+    values: settingsData ? {
+      defaultCourier: settingsData.defaultCourier || 'pathao',
+      courierApiKey: settingsData.courierApiKey || '',
+      courierSecretKey: settingsData.courierSecretKey || '',
+      pickupAddress: settingsData.pickupAddress || '',
+    } : undefined,
     defaultValues: {
       defaultCourier: '',
       courierApiKey: '',
@@ -41,18 +49,6 @@ export default function CourierSettingsPage() {
       pickupAddress: '',
     },
   });
-
-  useEffect(() => {
-    if (response?.data) {
-      const d = response.data;
-      form.reset({
-        defaultCourier: d.defaultCourier || 'pathao',
-        courierApiKey: d.courierApiKey || '',
-        courierSecretKey: d.courierSecretKey || '',
-        pickupAddress: d.pickupAddress || '',
-      });
-    }
-  }, [response?.data, form]);
 
   const onSubmit = (data: CourierValues) => {
     updateCourier.mutate(data);

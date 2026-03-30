@@ -110,13 +110,21 @@ export const useManageCustomDomain = () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       toast.success('Domain configured successfully');
     },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || 'Failed to configure domain');
+    },
   });
 
   const verifyDomain = useMutation({
     mutationFn: () => settingsApi.verifyCustomDomain(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
-      toast.success('Domain verified');
+      toast.success('Domain verified successfully');
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || 'DNS verification failed. Please check your records and try again later.');
     },
   });
 
@@ -125,6 +133,10 @@ export const useManageCustomDomain = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       toast.success('Custom domain removed');
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || 'Failed to remove domain');
     },
   });
 
@@ -135,6 +147,30 @@ export const useSubscription = () => {
   return useQuery({
     queryKey: ['subscription'],
     queryFn: settingsApi.getSubscription,
+  });
+};
+
+export const useResourceUsage = () => {
+  return useQuery({
+    queryKey: ['resource-usage'],
+    queryFn: settingsApi.getResourceUsage,
+  });
+};
+
+export const useUploadLogo = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => settingsApi.uploadLogo(file),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      queryClient.invalidateQueries({ queryKey: ['tenant'] });
+      toast.success('Logo uploaded successfully');
+      return response;
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || 'Failed to upload logo');
+    },
   });
 };
 
