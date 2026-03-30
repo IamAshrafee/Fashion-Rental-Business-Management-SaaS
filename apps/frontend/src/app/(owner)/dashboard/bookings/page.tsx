@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { PageHeader } from '@/components/shared';
 import { Button } from '@/components/ui/button';
-import { Plus, Calendar as CalendarIcon, Download, Loader2 } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { BookingsDataTable } from './components/bookings-table';
 import { bookingApi, type BookingListQuery } from '@/lib/api/bookings';
@@ -20,6 +19,25 @@ export default function BookingsPage() {
   });
 
   const bookings = data?.data ?? [];
+  const meta = (data as { meta?: { total?: number; totalPages?: number } })?.meta;
+
+  // Server-side status filter — when tab changes, update the query to re-fetch
+  const handleStatusChange = (status: string) => {
+    setQuery((prev) => ({
+      ...prev,
+      status: status === 'all' ? undefined : status,
+      page: 1, // reset to first page
+    }));
+  };
+
+  // Server-side search — debounced via the table component
+  const handleSearchChange = (search: string) => {
+    setQuery((prev) => ({
+      ...prev,
+      search: search || undefined,
+      page: 1,
+    }));
+  };
 
   return (
     <div className="space-y-6">
@@ -34,10 +52,6 @@ export default function BookingsPage() {
               <CalendarIcon className="h-4 w-4 mr-2" />
               Calendar
             </Link>
-          </Button>
-          <Button variant="outline" onClick={() => toast.info('Export coming soon')}>
-            <Download className="h-4 w-4 mr-2" />
-            Export
           </Button>
           <Button asChild>
             <Link href="/dashboard/bookings/new">
@@ -60,7 +74,13 @@ export default function BookingsPage() {
         </Alert>
       ) : (
         <div className="bg-card text-card-foreground">
-          <BookingsDataTable data={bookings} />
+          <BookingsDataTable
+            data={bookings}
+            activeStatus={query.status || 'all'}
+            onStatusChange={handleStatusChange}
+            searchValue={query.search || ''}
+            onSearchChange={handleSearchChange}
+          />
         </div>
       )}
     </div>

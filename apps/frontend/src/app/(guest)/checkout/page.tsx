@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useCart } from '@/hooks/use-cart';
 import { useLocale } from '@/hooks/use-locale';
-import { lookupCustomer, createBooking } from '@/lib/api/guest-booking';
+import { lookupCustomer, createBooking, type CheckoutCustomerPayload } from '@/lib/api/guest-booking';
 import { ArrowLeft, CheckCircle2, Loader2, MapPin, CreditCard, UserCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -53,15 +53,12 @@ export default function GuestCheckoutPage() {
       const data = await lookupCustomer(formData.phone);
       setLookingUp(false);
       
-      if (data && data.name) {
+      if (data && data.fullName) {
         setReturningCustomer(true);
         setFormData(prev => ({
           ...prev,
-          name: data.name || prev.name,
+          name: data.fullName || prev.name,
           email: data.email || prev.email,
-          address: data.address || prev.address,
-          area: data.area || prev.area,
-          district: data.district || prev.district
         }));
       }
     }
@@ -90,18 +87,28 @@ export default function GuestCheckoutPage() {
     try {
       // Structure payload matching backend expectations defined in guest-booking API
       const response = await createBooking({
-        customer: formData,
+        customer: {
+          fullName: formData.name,
+          phone: formData.phone,
+          email: formData.email || undefined,
+        },
+        delivery: {
+          address: formData.address,
+          area: formData.area || undefined,
+          district: formData.district || undefined,
+        },
         items: items.map(i => ({
           productId: i.productId,
-          variantId: i.variantId || undefined,
+          variantId: i.variantId || '',
           startDate: i.startDate,
           endDate: i.endDate,
           tryOn: i.serviceMap?.tryOn || false,
-          backupSize: i.serviceMap?.backupSize || null
+          backupSize: i.serviceMap?.backupSize || undefined,
         })),
         paymentMethod,
-        transactionId: ['bkash', 'nagad'].includes(paymentMethod) ? transactionId : undefined,
-        notes: formData.notes
+        bkashTransactionId: paymentMethod === 'bkash' ? transactionId : undefined,
+        nagadTransactionId: paymentMethod === 'nagad' ? transactionId : undefined,
+        customerNotes: formData.notes || undefined,
       });
       
       clearCart();

@@ -1,54 +1,82 @@
 import apiClient from '@/lib/api-client';
 import { ApiResponse } from '@closetrent/types';
 
+// ─── Cart Validation ─────────────────────────────────────────────────────────
+
 export interface CartValidationRequest {
   items: Array<{
     productId: string;
-    variantId?: string;
+    variantId: string;
     startDate: string;
     endDate: string;
-    services: {
-      tryOn: boolean;
-      backupSize?: string | null;
-    };
+    selectedSize?: string;
+    backupSize?: string;
+    tryOn?: boolean;
   }>;
 }
 
 export interface CartValidationResponse {
-  isValid: boolean;
-  messages: string[];
-  updatedTotals: {
-    rentalDelta: number;
-    depositDelta: number;
-    feesDelta: number;
+  valid: boolean;
+  items: Array<{
+    productId: string;
+    available: boolean;
+    rentalDays: number;
+    rentalPrice: number;
+    deposit: number;
+    cleaningFee: number;
+    extendedDays: number;
+    extendedCost: number;
+    backupSizeFee: number;
+    tryOnFee: number;
+    itemTotal: number;
+    shippingFee: number;
+    errors?: string[];
+  }>;
+  summary: {
+    subtotal: number;
+    totalFees: number;
+    totalDeposit: number;
+    shippingFee: number;
     grandTotal: number;
   };
 }
 
+// ─── Checkout ────────────────────────────────────────────────────────────────
+
 export interface CheckoutCustomerPayload {
-  name: string;
+  fullName: string;
   phone: string;
   altPhone?: string;
   email?: string;
+}
+
+export interface CheckoutDeliveryPayload {
   address: string;
-  area: string;
+  area?: string;
   thana?: string;
-  district: string;
+  district?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
 }
 
 export interface CheckoutPayload {
   customer: CheckoutCustomerPayload;
+  delivery: CheckoutDeliveryPayload;
   items: Array<{
     productId: string;
-    variantId?: string;
+    variantId: string;
     startDate: string;
     endDate: string;
-    tryOn: boolean;
-    backupSize?: string | null;
+    selectedSize?: string;
+    backupSize?: string;
+    tryOn?: boolean;
   }>;
   paymentMethod: 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
-  transactionId?: string;
-  notes?: string;
+  bkashTransactionId?: string;
+  nagadTransactionId?: string;
+  customerNotes?: string;
 }
 
 export interface BookingResponse {
@@ -61,6 +89,8 @@ export interface BookingResponse {
 /**
  * Validates the full cart at checkout time.
  * Verifies availability and recalculates prices centrally to prevent tampering.
+ *
+ * POST /api/v1/bookings/validate
  */
 export async function validateCart(payload: CartValidationRequest): Promise<CartValidationResponse> {
   const response = await apiClient.post<ApiResponse<CartValidationResponse>>('/bookings/validate', payload);
@@ -72,6 +102,8 @@ export async function validateCart(payload: CartValidationRequest): Promise<Cart
 
 /**
  * Looks up existing customer details based on phone number to auto-fill checkout fields.
+ *
+ * GET /api/v1/customers/lookup?phone=...
  */
 export async function lookupCustomer(phone: string): Promise<Partial<CheckoutCustomerPayload> | null> {
   try {
@@ -85,6 +117,13 @@ export async function lookupCustomer(phone: string): Promise<Partial<CheckoutCus
 
 /**
  * Finalizes the order submission to the server.
+ * The payload shape matches the backend's CreateBookingDto exactly:
+ * - customer: { fullName, phone, altPhone?, email? }
+ * - delivery: { address, area?, thana?, district?, city?, ... }
+ * - items: [{ productId, variantId, startDate, endDate, tryOn?, backupSize? }]
+ * - paymentMethod: 'cod' | 'bkash' | 'nagad' | 'sslcommerz'
+ *
+ * POST /api/v1/bookings
  */
 export async function createBooking(payload: CheckoutPayload): Promise<BookingResponse> {
   const response = await apiClient.post<ApiResponse<BookingResponse>>('/bookings', payload);
@@ -96,9 +135,11 @@ export async function createBooking(payload: CheckoutPayload): Promise<BookingRe
 
 /**
  * Public route to discover tracking status of any booking utilizing the booking ID and customer phone check.
+ *
+ * GET /api/v1/bookings/track?number=...&phone=...
  */
-export async function trackBooking(bookingNumber: string, phone: string): Promise<any> {
-  const response = await apiClient.get<ApiResponse<any>>(`/bookings/track?number=${encodeURIComponent(bookingNumber)}&phone=${encodeURIComponent(phone)}`);
+export async function trackBooking(bookingNumber: string, phone: string): Promise<unknown> {
+  const response = await apiClient.get<ApiResponse<unknown>>(`/bookings/track?number=${encodeURIComponent(bookingNumber)}&phone=${encodeURIComponent(phone)}`);
   if (!response.data.success) {
     throw new Error(response.data.message || 'Failed to fetch tracking details');
   }

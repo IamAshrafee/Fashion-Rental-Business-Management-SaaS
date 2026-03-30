@@ -176,8 +176,10 @@ export const columns: ColumnDef<BookingRow>[] = [
               </Link>
             </DropdownMenuItem>
             {booking.status === 'confirmed' && (
-              <DropdownMenuItem>
-                <Package className="mr-2 h-4 w-4" /> Ship Order
+              <DropdownMenuItem asChild>
+                <Link href={`/dashboard/bookings/${booking.id}?action=ship`}>
+                  <Package className="mr-2 h-4 w-4" /> Ship Order
+                </Link>
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -187,21 +189,41 @@ export const columns: ColumnDef<BookingRow>[] = [
   },
 ];
 
-export function BookingsDataTable({ data }: { data: BookingRow[] }) {
+interface BookingsDataTableProps {
+  data: BookingRow[];
+  activeStatus: string;
+  onStatusChange: (status: string) => void;
+  searchValue: string;
+  onSearchChange: (search: string) => void;
+}
+
+export function BookingsDataTable({
+  data,
+  activeStatus,
+  onStatusChange,
+  searchValue,
+  onSearchChange,
+}: BookingsDataTableProps) {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   
-  // Custom status filter
-  const [activeTab, setActiveTab] = React.useState<string>('all');
+  // Debounced search — waits 400ms after user stops typing
+  const searchTimeoutRef = React.useRef<ReturnType<typeof setTimeout>>();
+  const [localSearch, setLocalSearch] = React.useState(searchValue);
 
-  const filteredData = React.useMemo(() => {
-    if (activeTab === 'all') return data;
-    return data.filter(b => b.status === activeTab);
-  }, [data, activeTab]);
+  const handleSearchInput = (value: string) => {
+    setLocalSearch(value);
+    clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      onSearchChange(value);
+    }, 400);
+  };
+
+  // Data is already filtered server-side, no need for client-side filtering
 
   const table = useReactTable({
-    data: filteredData,
+    data,
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -217,8 +239,9 @@ export function BookingsDataTable({ data }: { data: BookingRow[] }) {
     },
   });
 
-  // Calculate totals for tabs
-  const getCount = (status: BookingStatus | 'all') => {
+  // Tab counts are approximate from the current dataset
+  // (in the future, fetch counts from a separate server endpoint)
+  const getCount = (status: string) => {
     if (status === 'all') return data.length;
     return data.filter(d => d.status === status).length;
   };
@@ -242,9 +265,9 @@ export function BookingsDataTable({ data }: { data: BookingRow[] }) {
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search order # or customer..."
-            value={(table.getColumn('customer')?.getFilterValue() as string) ?? ''}
-            onChange={(event) => table.getColumn('customer')?.setFilterValue(event.target.value)}
+            placeholder="Search booking # or customer..."
+            value={localSearch}
+            onChange={(event) => handleSearchInput(event.target.value)}
             className="pl-8 bg-background"
           />
         </div>
@@ -252,21 +275,24 @@ export function BookingsDataTable({ data }: { data: BookingRow[] }) {
 
       {/* Status Tabs */}
       <Tabs 
-        value={activeTab} 
-        onValueChange={setActiveTab}
+        value={activeStatus} 
+        onValueChange={onStatusChange}
         className="w-full"
       >
         <div className="overflow-x-auto pb-2 -mx-2 px-2 scrollbar-none">
           <TabsList className="bg-transparent space-x-2 h-10 w-max p-0 border-b min-w-full justify-start rounded-none">
             {TABS.map(tab => {
-              const count = getCount(tab.value as BookingStatus | 'all');
+              const count = getCount(tab.value);
               return (
                 <TabsTrigger 
                   key={tab.value} 
                   value={tab.value}
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none data-[state=active]:bg-transparent px-4 font-medium"
                 >
-                  {tab.label} <span className="ml-2 text-xs text-muted-foreground">({count})</span>
+                  {tab.label}
+                  {activeStatus === tab.value || tab.value === 'all' ? (
+                    <span className="ml-2 text-xs text-muted-foreground">({count})</span>
+                  ) : null}
                 </TabsTrigger>
               )
             })}
@@ -342,7 +368,7 @@ export function BookingsDataTable({ data }: { data: BookingRow[] }) {
       {/* Pagination */}
       <div className="flex items-center justify-end space-x-2 py-4">
         <div className="flex-1 text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {filteredData.length} records.
+          Showing {table.getRowModel().rows.length} of {data.length} records.
         </div>
         <div className="space-x-2">
           <Button

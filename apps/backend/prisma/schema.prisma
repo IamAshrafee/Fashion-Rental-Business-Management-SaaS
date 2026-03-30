@@ -817,6 +817,7 @@ model Booking {
   courierProvider      String?       @map("courier_provider")
   cancellationReason   String?       @map("cancellation_reason")
   cancelledBy          CancelledBy?  @map("cancelled_by")
+  cancelledAt          DateTime?     @map("cancelled_at")
   confirmedAt          DateTime?     @map("confirmed_at")
   shippedAt            DateTime?     @map("shipped_at")
   deliveredAt          DateTime?     @map("delivered_at")

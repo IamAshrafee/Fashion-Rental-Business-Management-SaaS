@@ -302,6 +302,45 @@ export class UploadService implements OnModuleInit {
     return { bannerUrl };
   }
 
+  /**
+   * Upload damage report photos (up to 4 images).
+   * Returns an array of public URLs for storage in DamageReport.photos.
+   */
+  async uploadDamagePhotos(
+    tenantId: string,
+    bookingItemId: string,
+    files: Express.Multer.File[],
+  ): Promise<{ urls: string[] }> {
+    this.ensureMinioAvailable();
+
+    if (files.length > 4) {
+      throw new BadRequestException('Maximum 4 damage photos allowed');
+    }
+
+    await this.ensureBucket();
+    const urls: string[] = [];
+
+    for (const file of files) {
+      this.validateFile(file);
+
+      const hash = uuidv4().slice(0, 8);
+      const key = `tenant-${tenantId}/damage/${bookingItemId}/dmg_${hash}.webp`;
+
+      const buffer = await sharp(file.buffer)
+        .resize(1200, null, { withoutEnlargement: true })
+        .webp({ quality: this.imageQuality })
+        .toBuffer();
+
+      await this.minioClient.putObject(this.bucket, key, buffer, buffer.length, {
+        'Content-Type': 'image/webp',
+      });
+
+      urls.push(`${this.publicUrl}/${key}`);
+    }
+
+    return { urls };
+  }
+
   // =========================================================================
   // PRIVATE HELPERS
   // =========================================================================

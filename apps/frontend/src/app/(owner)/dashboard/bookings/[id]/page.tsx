@@ -2,9 +2,8 @@
 
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, FileText, Download, Loader2 } from 'lucide-react';
+import { ChevronLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { BookingStatusBadge } from '../components/bookings-table';
 import { OrderActions } from './components/order-actions';
@@ -78,32 +77,32 @@ export default function BookingDetailPage() {
     addTimelineEvent('cancelled', booking.updatedAt, booking.cancellationReason || undefined);
   }
 
-  // ── Map items to the BookingItem shape ──────────────────────────────────
+  // ── Map items — types are now aligned with backend, minimal mapping needed ──
   const mappedItems: BookingItem[] = booking.items.map((item) => ({
     id: item.id,
     bookingId: booking.id,
     productId: item.productId,
     productName: item.productName,
     variantName: item.variantName || item.colorName || '',
-    sizeName: item.sizeInfo || '',
-    imageUrl: item.featuredImageUrl,
+    sizeInfo: item.sizeInfo || null,
+    featuredImageUrl: item.featuredImageUrl,
     startDate: item.startDate,
     endDate: item.endDate,
-    days: item.rentalDays,
-    rentalPrice: item.baseRental + item.extendedCost,
+    rentalDays: item.rentalDays,
+    baseRental: item.baseRental,
+    extendedCost: item.extendedCost,
     cleaningFee: item.cleaningFee,
     backupSizeFee: item.backupSizeFee,
     depositAmount: item.depositAmount,
     lateFee: item.lateFee,
     itemTotal: item.itemTotal,
-    status: 'pending' as const, // BookingItem-level status isn't tracked in DB; use booking status
     depositStatus: (item.depositStatus || 'pending') as BookingItem['depositStatus'],
     damageReport: item.damageReport ? {
       id: item.damageReport.id,
       bookingItemId: item.id,
       damageLevel: item.damageReport.damageLevel as DamageLevel,
       description: item.damageReport.description,
-      estimatedRepairCost: item.damageReport.estimatedRepairCost ?? 0,
+      estimatedRepairCost: item.damageReport.estimatedRepairCost ?? null,
       deductionAmount: item.damageReport.deductionAmount,
       additionalCharge: item.damageReport.additionalCharge,
       photos: item.damageReport.photos,
@@ -117,11 +116,11 @@ export default function BookingDetailPage() {
     id: p.id,
     bookingId: booking.id,
     amount: p.amount,
-    method: p.method as Payment['method'],
-    status: (p.status || 'pending') as Payment['status'],
-    transactionId: p.transactionId || undefined,
-    recordedBy: p.recordedBy || undefined,
-    notes: p.notes || undefined,
+    method: p.method,
+    status: p.status || 'pending',
+    transactionId: p.transactionId,
+    recordedBy: p.recordedBy,
+    notes: p.notes,
     createdAt: p.createdAt,
   }));
 
@@ -146,15 +145,14 @@ export default function BookingDetailPage() {
   // ── Build the Booking object for PriceBreakdown ────────────────────────
   const bookingForBreakdown: Booking = {
     id: booking.id,
-    orderNumber: displayNumber,
+    bookingNumber: displayNumber,
     createdAt: booking.createdAt,
     customer: {
       id: booking.customer.id,
-      name: customerName,
+      fullName: customerName,
       phone: booking.customer.phone,
-      address: fullAddress,
       email: booking.customer.email || undefined,
-      totalOrders: booking.customer.totalBookings ?? 0,
+      totalBookings: booking.customer.totalBookings ?? 0,
     },
     items: mappedItems,
     payments: mappedPayments,
@@ -163,19 +161,17 @@ export default function BookingDetailPage() {
     paymentStatus: (booking.paymentStatus || 'unpaid') as Booking['paymentStatus'],
     paymentMethod: booking.paymentMethod || '',
     subtotal: booking.subtotal,
-    cleaningFeeTotal: booking.items.reduce((s, i) => s + i.cleaningFee, 0),
-    backupSizeFeeTotal: booking.items.reduce((s, i) => s + i.backupSizeFee, 0),
+    totalFees: booking.totalFees,
     shippingFee: booking.shippingFee,
-    depositTotal: booking.totalDeposit,
-    lateFeeTotal: booking.items.reduce((s, i) => s + i.lateFee, 0),
-    discount: 0,
+    totalDeposit: booking.totalDeposit,
     grandTotal: booking.grandTotal,
-    amountPaid: booking.totalPaid,
+    totalPaid: booking.totalPaid,
     balance: booking.grandTotal - booking.totalPaid,
     notes: booking.customerNotes || booking.internalNotes || undefined,
-    courierName: booking.courierProvider || undefined,
+    courierProvider: booking.courierProvider || undefined,
     trackingNumber: booking.trackingNumber || undefined,
   };
+
 
   return (
     <div className="space-y-6">
@@ -200,14 +196,7 @@ export default function BookingDetailPage() {
         </div>
         
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => toast.info('Invoice generation coming soon')}>
-            <FileText className="h-4 w-4 mr-2" />
-            Invoice
-          </Button>
-          <Button variant="outline" onClick={() => toast.info('Export coming soon')}>
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
+          {/* Invoice & Export will be added once PDF generation is implemented */}
         </div>
       </div>
 

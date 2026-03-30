@@ -423,6 +423,9 @@ export const bookingApi = {
     damageLevel: string;
     description: string;
     estimatedRepairCost?: number;
+    deductionAmount: number;
+    additionalCharge: number;
+    photos?: string[];
   }): Promise<void> => {
     await apiClient.post(`/owner/bookings/${id}/items/${itemId}/damage`, payload);
   },
@@ -462,5 +465,55 @@ export const bookingApi = {
     }>>>(`/owner/bookings/${id}/payments`);
     if (!data.success) throw new Error(data.message || 'Failed to load payments');
     return data.data;
+  },
+
+  // ── Deposit Management ──────────────────────────────────────────────────
+
+  /**
+   * PATCH /api/v1/owner/booking-items/:itemId/deposit/collect
+   * Marks a booking item's deposit as collected.
+   */
+  collectDeposit: async (itemId: string): Promise<void> => {
+    await apiClient.patch(`/owner/booking-items/${itemId}/deposit/collect`);
+  },
+
+  /**
+   * PATCH /api/v1/owner/booking-items/:itemId/deposit/refund
+   * Processes a deposit refund (full or partial).
+   */
+  refundDeposit: async (itemId: string, payload: {
+    refundAmount: number;
+    refundMethod: string;
+    notes?: string;
+  }): Promise<void> => {
+    await apiClient.patch(`/owner/booking-items/${itemId}/deposit/refund`, payload);
+  },
+
+  /**
+   * PATCH /api/v1/owner/booking-items/:itemId/deposit/forfeit
+   * Forfeits a deposit entirely (damage or loss).
+   */
+  forfeitDeposit: async (itemId: string, payload: {
+    reason: string;
+  }): Promise<void> => {
+    await apiClient.patch(`/owner/booking-items/${itemId}/deposit/forfeit`, payload);
+  },
+
+  /**
+   * POST /api/v1/owner/upload/damage-photos
+   * Uploads up to 4 damage photos to MinIO and returns their public URLs.
+   */
+  uploadDamagePhotos: async (bookingItemId: string, files: File[]): Promise<string[]> => {
+    const formData = new FormData();
+    formData.append('bookingItemId', bookingItemId);
+    files.forEach((file) => formData.append('files', file));
+
+    const { data } = await apiClient.post<ApiResponse<{ urls: string[] }>>(
+      '/owner/upload/damage-photos',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    if (!data.success) throw new Error(data.message || 'Failed to upload damage photos');
+    return data.data.urls;
   },
 };

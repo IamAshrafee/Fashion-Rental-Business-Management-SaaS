@@ -49,9 +49,9 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                 <TableCell className="w-[30%]">
                   <div className="flex items-start gap-4">
                     <div className="h-16 w-16 bg-muted rounded-md overflow-hidden shrink-0 border">
-                      {item.imageUrl ? (
+                      {item.featuredImageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.imageUrl} alt={item.productName} className="object-cover h-full w-full" />
+                        <img src={item.featuredImageUrl} alt={item.productName} className="object-cover h-full w-full" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground bg-muted">No IMG</div>
                       )}
@@ -59,7 +59,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                     <div>
                       <div className="font-semibold">{item.productName}</div>
                       <div className="text-sm text-muted-foreground mt-0.5">
-                        {item.variantName}{item.sizeName ? ` • ${item.sizeName}` : ''}
+                        {item.variantName}{item.sizeInfo ? ` • ${item.sizeInfo}` : ''}
                       </div>
                     </div>
                   </div>
@@ -76,14 +76,14 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                   <div className="font-medium">
                     {format(parseISO(item.endDate), 'MMM d, yyyy')}
                   </div>
-                  <Badge variant="outline" className="mt-2 font-normal shadow-none">{item.days} Days</Badge>
+                  <Badge variant="outline" className="mt-2 font-normal shadow-none">{item.rentalDays} Days</Badge>
                 </TableCell>
 
                 {/* PRICING CELL */}
                 <TableCell className="text-sm">
                   <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
                     <span className="text-muted-foreground">Rental:</span>
-                    <span className="text-right">৳{item.rentalPrice.toLocaleString()}</span>
+                    <span className="text-right">৳{(item.baseRental + item.extendedCost).toLocaleString()}</span>
                     
                     {item.cleaningFee > 0 && (
                       <>
@@ -187,6 +187,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
           itemId={damageModal.item.id}
           productName={damageModal.item.productName}
           variantName={damageModal.item.variantName}
+          depositAmount={damageModal.item.depositAmount}
         />
       )}
     </>

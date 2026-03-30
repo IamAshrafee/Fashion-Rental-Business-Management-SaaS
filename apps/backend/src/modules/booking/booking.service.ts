@@ -287,7 +287,7 @@ export class BookingService {
    * 5. Emit booking.created event
    */
   async createBooking(tenantId: string, dto: CreateBookingDto) {
-    // Step 1: Find or create customer
+    // Step 1: Find or create customer (outside transaction — idempotent)
     const customer = await this.customerService.findOrCreateByPhone(
       tenantId,
       dto.customer.phone,
@@ -303,27 +303,29 @@ export class BookingService {
       },
     );
 
-    // Step 2: Validate all items and calculate prices
-    const validatedItems: CartItemResult[] = [];
-    for (const item of dto.items) {
-      const result = await this.validateSingleItem(tenantId, item);
-      if (!result.available) {
-        throw new ConflictException(
-          `Product "${result.productName}" is not available for the selected dates: ${item.startDate} – ${item.endDate}`,
-        );
-      }
-      validatedItems.push(result);
-    }
-
-    const summary = this.computeSummary(validatedItems);
-
-    // Step 3 + 4: Atomic transaction
+    // Steps 2-4: Validate + create atomically inside a single transaction
+    // This prevents double-booking: the availability check and DateBlock creation
+    // are serialized via the transaction, so concurrent requests cannot both pass.
     const booking = await this.prisma.$transaction(async (tx) => {
-      // Generate booking number inside transaction (atomic increment)
+      // Step 2: Validate all items INSIDE the transaction
+      const validatedItems: CartItemResult[] = [];
+      for (const item of dto.items) {
+        const result = await this.validateSingleItemTx(tx, tenantId, item);
+        if (!result.available) {
+          throw new ConflictException(
+            `Product "${result.productName}" is not available for the selected dates: ${item.startDate} – ${item.endDate}`,
+          );
+        }
+        validatedItems.push(result);
+      }
+
+      const summary = this.computeSummary(validatedItems);
+
+      // Step 3: Generate booking number (with row-level locking)
       const year = new Date().getFullYear();
       const bookingNumber = await this.generateBookingNumber(tx, tenantId, year);
 
-      // Store settings for shipping fee
+      // Store settings for buffer days
       const storeSettings = await tx.storeSettings.findUnique({
         where: { tenantId },
         select: { bufferDays: true },
@@ -341,7 +343,7 @@ export class BookingService {
         }
       }
 
-      // Create booking
+      // Step 4: Create booking
       const newBooking = await tx.booking.create({
         data: {
           tenantId,
@@ -445,6 +447,11 @@ export class BookingService {
           },
         },
       });
+    }, {
+      // Serializable isolation prevents phantom reads — if two bookings
+      // try to check the same DateBlock range concurrently, one will retry.
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      timeout: 15000,
     });
 
     if (!booking) throw new UnprocessableEntityException('Failed to create booking');
@@ -732,7 +739,7 @@ export class BookingService {
     }
 
     const updated = await this.prisma.booking.update({
-      where: { id: bookingId },
+      where: { id: bookingId, tenantId },
       data: updateData,
     });
 
@@ -788,16 +795,17 @@ export class BookingService {
     await this.prisma.$transaction(async (tx) => {
       // Update booking
       await tx.booking.update({
-        where: { id: bookingId },
+        where: { id: bookingId, tenantId },
         data: {
           status: 'cancelled',
           cancellationReason: dto.reason,
           cancelledBy,
+          cancelledAt: new Date(),
         },
       });
 
       // Release date blocks
-      await tx.dateBlock.deleteMany({ where: { bookingId } });
+      await tx.dateBlock.deleteMany({ where: { bookingId, tenantId } });
     });
 
     this.eventEmitter.emit('booking.cancelled', {
@@ -826,7 +834,7 @@ export class BookingService {
       : note;
 
     await this.prisma.booking.update({
-      where: { id: bookingId },
+      where: { id: bookingId, tenantId },
       data: { internalNotes: updatedNotes },
     });
 
@@ -1029,15 +1037,30 @@ export class BookingService {
 
   /**
    * Validates a single cart item: checks availability + calculates prices.
+   * Used by validateCart (pre-checkout preview — no locking needed).
    */
   private async validateSingleItem(
+    tenantId: string,
+    item: CartItemDto,
+  ): Promise<CartItemResult> {
+    return this.validateSingleItemTx(this.prisma, tenantId, item);
+  }
+
+  /**
+   * Validates a single cart item within a transaction client.
+   * When called inside a Serializable transaction, concurrent reads on
+   * the same DateBlock rows will cause one transaction to abort and retry,
+   * preventing double-booking.
+   */
+  private async validateSingleItemTx(
+    tx: Prisma.TransactionClient | PrismaService,
     tenantId: string,
     item: CartItemDto,
   ): Promise<CartItemResult> {
     const errors: string[] = [];
 
     // Load product with pricing and services
-    const product = await this.prisma.product.findFirst({
+    const product = await tx.product.findFirst({
       where: { id: item.productId, tenantId, deletedAt: null },
       include: {
         pricing: true,
@@ -1096,7 +1119,7 @@ export class BookingService {
     // Check availability (if dates are valid)
     let isAvailable = errors.length === 0;
     if (isAvailable) {
-      const conflict = await this.prisma.dateBlock.findFirst({
+      const conflict = await tx.dateBlock.findFirst({
         where: {
           tenantId,
           productId: item.productId,
@@ -1216,25 +1239,28 @@ export class BookingService {
     tenantId: string,
     year: number,
   ): Promise<string> {
-    // Find the highest sequence number for this tenant/year
-    const latest = await tx.booking.findFirst({
-      where: {
-        tenantId,
-        bookingNumber: { startsWith: `#ORD-${year}-` },
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { bookingNumber: true },
-    });
+    // Use FOR UPDATE to prevent concurrent reads from generating the same number.
+    // This row-level lock ensures only one transaction reads the latest booking at a time.
+    const prefix = `#ORD-${year}-`;
+    const result = await tx.$queryRaw<Array<{ booking_number: string | null }>>(
+      Prisma.sql`SELECT booking_number FROM bookings
+        WHERE tenant_id = ${tenantId}
+          AND booking_number LIKE ${prefix + '%'}
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE`,
+    );
 
     let sequence = 1;
-    if (latest?.bookingNumber) {
-      const parts = latest.bookingNumber.split('-');
+    const latestNumber = result[0]?.booking_number;
+    if (latestNumber) {
+      const parts = latestNumber.split('-');
       const lastSeq = parseInt(parts[parts.length - 1], 10);
       if (!isNaN(lastSeq)) sequence = lastSeq + 1;
     }
 
     const padded = String(sequence).padStart(4, '0');
-    return `#ORD-${year}-${padded}`;
+    return `${prefix}${padded}`;
   }
 
   /**

@@ -98,4 +98,16 @@ export class UploadController {
   ) {
     return this.uploadService.uploadBanner(tenant.id, file);
   }
+
+  @Post('damage-photos')
+  @Roles('owner', 'manager', 'staff')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FilesInterceptor('files', 4))
+  async uploadDamagePhotos(
+    @CurrentTenant() tenant: TenantContext,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('bookingItemId') bookingItemId: string,
+  ) {
+    return this.uploadService.uploadDamagePhotos(tenant.id, bookingItemId, files);
+  }
 }

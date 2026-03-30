@@ -1,3 +1,11 @@
+/**
+ * Bookings Module — Shared Types
+ *
+ * These types are aligned with the backend Prisma schema and API response shapes.
+ * BookingDetailResponse from '@/lib/api/bookings' is the canonical source for the
+ * detail page. These local types serve the components that need a narrower interface.
+ */
+
 export type BookingStatus = 
   | 'pending'
   | 'confirmed'
@@ -31,21 +39,12 @@ export type DamageLevel =
   | 'destroyed'
   | 'lost';
 
-export interface Customer {
-  id: string;
-  name: string;
-  phone: string;
-  address: string;
-  email?: string;
-  totalOrders: number;
-}
-
 export interface DamageReport {
   id: string;
   bookingItemId: string;
   damageLevel: DamageLevel;
   description: string;
-  estimatedRepairCost: number;
+  estimatedRepairCost: number | null;
   deductionAmount: number;
   additionalCharge: number;
   photos: string[];
@@ -53,27 +52,31 @@ export interface DamageReport {
   createdAt: string;
 }
 
+/**
+ * BookingItem — aligned with BookingDetailItem from the API response.
+ * Field names now match the backend (rentalDays, sizeInfo, featuredImageUrl, etc.).
+ */
 export interface BookingItem {
   id: string;
   bookingId: string;
   productId: string;
   productName: string;
   variantName: string;
-  sizeName: string;
-  imageUrl?: string;
+  sizeInfo: string | null;
+  featuredImageUrl: string;
   
   startDate: string;
   endDate: string;
-  days: number;
-  
-  rentalPrice: number;
+  rentalDays: number;
+
+  baseRental: number;
+  extendedCost: number;
   cleaningFee: number;
   backupSizeFee: number;
   depositAmount: number;
   lateFee: number;
   itemTotal: number;
 
-  status: 'pending' | 'collected' | 'returned' | 'inspected';
   depositStatus: DepositStatus;
   
   damageReport?: DamageReport;
@@ -83,11 +86,11 @@ export interface Payment {
   id: string;
   bookingId: string;
   amount: number;
-  method: 'COD' | 'bKash' | 'Nagad' | 'card' | 'bank_transfer' | 'cash';
-  status: 'pending' | 'verified' | 'failed';
-  transactionId?: string;
-  recordedBy?: string;
-  notes?: string;
+  method: string;
+  status: string;
+  transactionId?: string | null;
+  recordedBy?: string | null;
+  notes?: string | null;
   createdAt: string;
 }
 
@@ -99,12 +102,23 @@ export interface BookingTimelineEvent {
   note?: string;
 }
 
+/**
+ * Booking — used by PriceBreakdown and other composite views.
+ * Fields are aligned with BookingDetailResponse from the API.
+ */
 export interface Booking {
   id: string;
-  orderNumber: string;
+  bookingNumber: string;
   createdAt: string;
   
-  customer: Customer;
+  customer: {
+    id: string;
+    fullName: string;
+    phone: string;
+    email?: string | null;
+    totalBookings: number;
+  };
+
   items: BookingItem[];
   payments: Payment[];
   timeline: BookingTimelineEvent[];
@@ -115,18 +129,14 @@ export interface Booking {
   
   // Pricing Totals
   subtotal: number;
-  cleaningFeeTotal: number;
-  backupSizeFeeTotal: number;
+  totalFees: number;
   shippingFee: number;
-  depositTotal: number;
-  lateFeeTotal: number;
-  discount: number;
+  totalDeposit: number;
   grandTotal: number;
-  
-  amountPaid: number;
+  totalPaid: number;
   balance: number;
 
   notes?: string;
-  courierName?: string;
+  courierProvider?: string;
   trackingNumber?: string;
 }
