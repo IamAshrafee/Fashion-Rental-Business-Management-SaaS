@@ -276,6 +276,10 @@ export interface BookingListQuery {
   search?: string;
   dateFrom?: string;
   dateTo?: string;
+  /** Filter by item rental dates — items ending on or after this date */
+  itemDateFrom?: string;
+  /** Filter by item rental dates — items starting on or before this date */
+  itemDateTo?: string;
   paymentStatus?: string;
   customerId?: string;
   order?: 'asc' | 'desc';

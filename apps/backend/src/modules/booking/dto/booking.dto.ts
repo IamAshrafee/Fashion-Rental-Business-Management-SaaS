@@ -304,6 +304,16 @@ export class BookingQueryDto {
   @IsDateString()
   dateTo?: string;
 
+  /** Filter bookings where any item's rental period overlaps with this start date */
+  @IsOptional()
+  @IsDateString()
+  itemDateFrom?: string;
+
+  /** Filter bookings where any item's rental period overlaps with this end date */
+  @IsOptional()
+  @IsDateString()
+  itemDateTo?: string;
+
   @IsOptional()
   @IsString()
   @IsIn(['unpaid', 'partial', 'paid'])

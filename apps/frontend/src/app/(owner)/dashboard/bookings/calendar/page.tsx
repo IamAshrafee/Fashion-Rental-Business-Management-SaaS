@@ -14,24 +14,25 @@ import { startOfMonth, endOfMonth, subMonths, addMonths, format } from 'date-fns
 export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Compute date range for the visible month (including ±1 month for overlap)
+  // Compute date range for the visible month (±1 month for overlap into adjacent weeks)
   const dateRange = useMemo(() => {
     const from = startOfMonth(subMonths(currentDate, 1));
     const to = endOfMonth(addMonths(currentDate, 1));
     return {
-      dateFrom: format(from, 'yyyy-MM-dd'),
-      dateTo: format(to, 'yyyy-MM-dd'),
+      itemDateFrom: format(from, 'yyyy-MM-dd'),
+      itemDateTo: format(to, 'yyyy-MM-dd'),
     };
   }, [currentDate]);
 
-  // Fetch bookings filtered by the visible date range
-  const { data, isLoading, isError, error } = useQuery({
+  // Fetch bookings whose item rental dates overlap with the visible range
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['bookings', 'calendar', dateRange],
     queryFn: () => bookingApi.list({
       limit: 200,
-      dateFrom: dateRange.dateFrom,
-      dateTo: dateRange.dateTo,
+      itemDateFrom: dateRange.itemDateFrom,
+      itemDateTo: dateRange.itemDateTo,
     }),
+    placeholderData: (prev) => prev,
   });
 
   const bookings = data?.data ?? [];
@@ -53,8 +54,8 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <div className="bg-card border rounded-md p-6 min-h-[600px]">
-        {isLoading ? (
+      <div className="bg-card border rounded-md p-4 sm:p-6 min-h-[600px]">
+        {isLoading && !data ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
           </div>
@@ -69,6 +70,7 @@ export default function CalendarPage() {
             bookings={bookings}
             currentDate={currentDate}
             onDateChange={setCurrentDate}
+            isFetching={isFetching}
           />
         )}
       </div>

@@ -523,6 +523,20 @@ export class BookingService {
       ];
     }
 
+    // Calendar filter: find bookings where any item's rental period overlaps [itemDateFrom, itemDateTo]
+    if (query.itemDateFrom || query.itemDateTo) {
+      const itemFilter: Prisma.BookingItemWhereInput = {};
+      if (query.itemDateFrom) {
+        // Item must end on or after the range start
+        itemFilter.endDate = { gte: new Date(query.itemDateFrom) };
+      }
+      if (query.itemDateTo) {
+        // Item must start on or before the range end
+        itemFilter.startDate = { lte: new Date(query.itemDateTo) };
+      }
+      where.items = { some: itemFilter };
+    }
+
     const [bookings, total] = await Promise.all([
       this.prisma.booking.findMany({
         where,
