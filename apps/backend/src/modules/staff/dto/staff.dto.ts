@@ -11,7 +11,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 // =========================================================================
 // INVITE STAFF (POST /staff)
@@ -29,6 +29,7 @@ export class InviteStaffDto {
   phone!: string;
 
   @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsEmail()
   @MaxLength(255)
   email?: string;

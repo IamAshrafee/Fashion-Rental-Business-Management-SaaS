@@ -7,7 +7,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 // --- Create Customer DTO ---
 export class CreateCustomerDto {
@@ -26,6 +26,7 @@ export class CreateCustomerDto {
   altPhone?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsEmail()
   email?: string;
 
@@ -62,7 +63,7 @@ export class CreateCustomerDto {
 export class UpdateCustomerDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(200) fullName?: string;
   @IsOptional() @IsString() altPhone?: string;
-  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @Transform(({ value }) => value || undefined) @IsEmail() email?: string;
   @IsOptional() @IsString() addressLine1?: string;
   @IsOptional() @IsString() addressLine2?: string;
   @IsOptional() @IsString() city?: string;

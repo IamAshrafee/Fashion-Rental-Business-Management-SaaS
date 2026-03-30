@@ -6,6 +6,7 @@ import {
   MaxLength,
   Matches,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class RegisterDto {
   @IsString()
@@ -14,6 +15,7 @@ export class RegisterDto {
   fullName!: string;
 
   @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsEmail()
   email?: string;
 
