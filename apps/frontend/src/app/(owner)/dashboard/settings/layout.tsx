@@ -48,6 +48,10 @@ const settingsNavItems = [
     title: 'Sessions',
     href: '/dashboard/settings/sessions',
   },
+  {
+    title: 'Activity Log',
+    href: '/dashboard/settings/activity-log',
+  },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

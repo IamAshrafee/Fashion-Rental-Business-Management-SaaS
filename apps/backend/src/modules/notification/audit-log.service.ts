@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { IsOptional, IsString, IsInt, Min, IsDateString } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface RecordAuditInput {
@@ -14,15 +16,40 @@ export interface RecordAuditInput {
   userAgent?: string;
 }
 
-export interface AuditLogQueryDto {
+export class AuditLogQueryDto {
+  @IsOptional()
+  @IsString()
   entityType?: string;
+
+  @IsOptional()
+  @IsString()
   entityId?: string;
+
+  @IsOptional()
+  @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsDateString()
   dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
   dateTo?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => parseInt(value, 10))
+  @IsInt()
+  @Min(1)
   page?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => parseInt(value, 10))
+  @IsInt()
+  @Min(1)
   limit?: number;
 }
+
 
 @Injectable()
 export class AuditLogService {

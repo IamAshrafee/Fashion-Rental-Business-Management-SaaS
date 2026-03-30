@@ -12,9 +12,12 @@ export type NotificationType =
   | 'booking_overdue'
   | 'booking_returned'
   | 'booking_completed'
+  | 'booking_inspected'
   | 'payment_received'
   | 'return_reminder'
   | 'deposit_refunded'
+  | 'deposit_forfeited'
+  | 'damage_reported'
   | 'subscription_expiring'
   | 'tenant_suspended';
 
@@ -144,18 +147,25 @@ export class NotificationService {
   }
 
   /**
-   * Clean notifications older than 30 days.
-   * Called by cleanup CRON job.
+   * Clean notifications older than 30 days for a specific tenant.
+   * Called by cleanup CRON job per-tenant for proper data isolation.
+   * If no tenantId is provided, cleans across all tenants (legacy fallback).
    */
-  async cleanOldNotifications(): Promise<number> {
+  async cleanOldNotifications(tenantId?: string): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 30);
 
-    const result = await this.prisma.notification.deleteMany({
-      where: { createdAt: { lt: cutoff } },
-    });
+    const where: Prisma.NotificationWhereInput = {
+      createdAt: { lt: cutoff },
+      ...(tenantId ? { tenantId } : {}),
+    };
 
-    this.logger.log(`Cleaned ${result.count} notifications older than 30 days`);
+    const result = await this.prisma.notification.deleteMany({ where });
+
+    this.logger.log(
+      `Cleaned ${result.count} notifications older than 30 days` +
+        (tenantId ? ` for tenant ${tenantId}` : ' (all tenants)'),
+    );
     return result.count;
   }
 }

@@ -52,6 +52,7 @@ export interface BookingReturnReminderEvent {
 export interface PaymentReceivedEvent {
   tenantId: string;
   bookingId: string;
+  paymentId: string;
   bookingNumber: string;
   amount: number;
   method: string;
@@ -61,14 +62,16 @@ export interface DepositRefundedEvent {
   tenantId: string;
   bookingId: string;
   bookingItemId: string;
-  amount: number;
-  method: string;
+  refundAmount: number;
+  depositAmount: number;
+  refundMethod: string;
 }
 
 export interface DepositForfeitedEvent {
   tenantId: string;
   bookingId: string;
   bookingItemId: string;
+  depositAmount: number;
   reason: string;
 }
 

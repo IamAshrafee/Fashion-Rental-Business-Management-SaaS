@@ -183,9 +183,15 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     this.logger.debug(`Processing cleanup job: ${job.name}`);
 
     switch (job.name) {
-      case 'notification.cleanOld':
-        await this.notificationService.cleanOldNotifications();
+      case 'notification.cleanOld': {
+        const tenants = await this.getActiveTenants();
+        let totalCleaned = 0;
+        for (const tenant of tenants) {
+          totalCleaned += await this.notificationService.cleanOldNotifications(tenant.id);
+        }
+        this.logger.log(`Total notifications cleaned: ${totalCleaned}`);
         break;
+      }
 
       case 'trash.autoDeleteExpired':
         await this.autoDeleteExpiredTrash();
@@ -264,18 +270,41 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
    */
   private async sendReturnReminders(): Promise<void> {
     const now = new Date();
+
+    // Tomorrow range (for return_reminder)
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
-
     const tomorrowStart = new Date(tomorrow);
     tomorrowStart.setHours(0, 0, 0, 0);
     const tomorrowEnd = new Date(tomorrow);
     tomorrowEnd.setHours(23, 59, 59, 999);
 
+    // Today range (for return_due_today — #11)
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+
     const tenants = await this.getActiveTenants();
 
     for (const tenant of tenants) {
-      const reminders = await this.prisma.booking.findMany({
+      // Fetch store info for real business name and smsEnabled check (#5)
+      const [settings, tenantInfo] = await Promise.all([
+        this.prisma.storeSettings.findUnique({
+          where: { tenantId: tenant.id },
+          select: { smsEnabled: true, phone: true },
+        }),
+        this.prisma.tenant.findUnique({
+          where: { id: tenant.id },
+          select: { businessName: true },
+        }),
+      ]);
+
+      if (!settings?.smsEnabled || !tenantInfo) continue;
+      const storeName = tenantInfo.businessName;
+
+      // --- Return reminders (due tomorrow) ---
+      const tomorrowReminders = await this.prisma.booking.findMany({
         where: {
           tenantId: tenant.id,
           status: 'delivered',
@@ -292,19 +321,50 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      for (const booking of reminders) {
+      for (const booking of tomorrowReminders) {
         const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'tomorrow';
 
         await this.notificationsQueue.add('sms.send', {
           to: booking.customer.phone,
           template: 'return_reminder',
-          data: { returnDate, storeName: 'ClosetRent' },
+          data: { returnDate, storeName },
         });
 
         this.logger.log(`Return reminder queued for booking ${booking.bookingNumber}`);
       }
+
+      // --- Due today reminders (#11) ---
+      const todayReminders = await this.prisma.booking.findMany({
+        where: {
+          tenantId: tenant.id,
+          status: 'delivered',
+          deletedAt: null,
+          items: {
+            some: {
+              endDate: { gte: todayStart, lte: todayEnd },
+            },
+          },
+        },
+        include: {
+          customer: { select: { phone: true, fullName: true } },
+          items: { select: { endDate: true } },
+        },
+      });
+
+      for (const booking of todayReminders) {
+        const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'today';
+
+        await this.notificationsQueue.add('sms.send', {
+          to: booking.customer.phone,
+          template: 'return_due_today',
+          data: { returnDate, storeName },
+        });
+
+        this.logger.log(`Due-today reminder queued for booking ${booking.bookingNumber}`);
+      }
     }
   }
+
 
   /**
    * Cancel pending bookings that are older than 48 hours.

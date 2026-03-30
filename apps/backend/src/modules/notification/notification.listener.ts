@@ -9,6 +9,8 @@ import type {
   BookingCancelledEvent,
   BookingOverdueEvent,
   PaymentReceivedEvent,
+  DepositRefundedEvent,
+  DepositForfeitedEvent,
   TenantSuspendedEvent,
   TenantSubscriptionExpiringEvent,
 } from '@closetrent/types';
@@ -61,6 +63,14 @@ export class NotificationListener {
           bookingNumber: event.bookingNumber,
           customerName: booking.customer.fullName,
           totalAmount: event.grandTotal,
+        });
+      }
+
+      // SMS to customer — booking placement confirmation (#9)
+      if (store.smsEnabled && booking.customer.phone) {
+        await this.smsService.send(booking.customer.phone, 'booking_placed', {
+          bookingNumber: event.bookingNumber,
+          storeName: store.storeName,
         });
       }
     } catch (err) {
@@ -207,6 +217,82 @@ export class NotificationListener {
   }
 
   // --------------------------------------------------------------------------
+  // BOOKING LIFECYCLE — DELIVERED / RETURNED / INSPECTED
+  // --------------------------------------------------------------------------
+
+  @OnEvent('booking.delivered')
+  async handleBookingDelivered(event: BookingStatusEvent) {
+    try {
+      const [booking, store] = await this.getBookingAndStore(event);
+      if (!booking || !store) return;
+
+      await this.notificationService.create({
+        tenantId: event.tenantId,
+        type: 'booking_delivered',
+        title: `Order ${event.bookingNumber} delivered`,
+        message: `Delivered to ${booking.customer.fullName}`,
+        data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
+      });
+    } catch (err) {
+      this.logger.error(`handleBookingDelivered failed: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent('booking.returned')
+  async handleBookingReturned(event: BookingStatusEvent) {
+    try {
+      const [booking, store] = await this.getBookingAndStore(event);
+      if (!booking || !store) return;
+
+      await this.notificationService.create({
+        tenantId: event.tenantId,
+        type: 'booking_returned',
+        title: `Booking ${event.bookingNumber} returned`,
+        message: `${booking.customer.fullName} returned the rental items`,
+        data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
+      });
+    } catch (err) {
+      this.logger.error(`handleBookingReturned failed: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent('booking.inspected')
+  async handleBookingInspected(event: BookingStatusEvent) {
+    try {
+      await this.notificationService.create({
+        tenantId: event.tenantId,
+        type: 'booking_inspected',
+        title: `Inspection completed for ${event.bookingNumber}`,
+        message: 'Items inspected. You can now complete the order.',
+        data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
+      });
+    } catch (err) {
+      this.logger.error(`handleBookingInspected failed: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent('booking.damage_reported')
+  async handleDamageReported(event: { tenantId: string; bookingId: string; itemId: string; damageLevel: string }) {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: event.bookingId },
+        select: { bookingNumber: true },
+      });
+      if (!booking) return;
+
+      await this.notificationService.create({
+        tenantId: event.tenantId,
+        type: 'damage_reported',
+        title: `Damage reported on ${booking.bookingNumber}`,
+        message: `Damage level: ${event.damageLevel}`,
+        data: { bookingId: event.bookingId, itemId: event.itemId, damageLevel: event.damageLevel },
+      });
+    } catch (err) {
+      this.logger.error(`handleDamageReported failed: ${(err as Error).message}`);
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // PAYMENT EVENTS
   // --------------------------------------------------------------------------
 
@@ -222,6 +308,52 @@ export class NotificationListener {
       });
     } catch (err) {
       this.logger.error(`handlePaymentReceived failed: ${(err as Error).message}`);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // DEPOSIT EVENTS
+  // --------------------------------------------------------------------------
+
+  @OnEvent('deposit.refunded')
+  async handleDepositRefunded(event: DepositRefundedEvent) {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: event.bookingId },
+        select: { bookingNumber: true, tenantId: true },
+      });
+      if (!booking) return;
+
+      await this.notificationService.create({
+        tenantId: event.tenantId,
+        type: 'deposit_refunded',
+        title: `Deposit of ৳${event.refundAmount} refunded`,
+        message: `For booking ${booking.bookingNumber} via ${event.refundMethod}`,
+        data: { bookingId: event.bookingId, amount: event.refundAmount },
+      });
+    } catch (err) {
+      this.logger.error(`handleDepositRefunded failed: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent('deposit.forfeited')
+  async handleDepositForfeited(event: DepositForfeitedEvent) {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: event.bookingId },
+        select: { bookingNumber: true },
+      });
+      if (!booking) return;
+
+      await this.notificationService.create({
+        tenantId: event.tenantId,
+        type: 'deposit_forfeited',
+        title: `Deposit forfeited on ${booking.bookingNumber}`,
+        message: `Reason: ${event.reason}`,
+        data: { bookingId: event.bookingId, reason: event.reason },
+      });
+    } catch (err) {
+      this.logger.error(`handleDepositForfeited failed: ${(err as Error).message}`);
     }
   }
 
