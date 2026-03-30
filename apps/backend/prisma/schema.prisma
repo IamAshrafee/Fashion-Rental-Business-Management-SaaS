@@ -182,12 +182,13 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  ownedTenants  Tenant[]
-  tenantUsers   TenantUser[]
-  auditLogs     AuditLog[]
-  sessions      Session[]
-  loginHistory  LoginHistory[]
-  damageReports DamageReport[]
+  ownedTenants     Tenant[]
+  tenantUsers      TenantUser[]
+  auditLogs        AuditLog[]
+  sessions         Session[]
+  loginHistory     LoginHistory[]
+  damageReports    DamageReport[]
+  deletedProducts  Product[]     @relation("ProductDeletedBy")
 
   @@index([phone])
   @@map("users")
@@ -436,8 +437,10 @@ model Product {
   createdAt           DateTime              @default(now()) @map("created_at")
   updatedAt           DateTime              @updatedAt @map("updated_at")
   deletedAt           DateTime?             @map("deleted_at")
+  deletedByUserId     String?               @map("deleted_by_user_id")
 
   tenant        Tenant               @relation(fields: [tenantId], references: [id])
+  deletedBy     User?                @relation("ProductDeletedBy", fields: [deletedByUserId], references: [id])
   category      Category             @relation(fields: [categoryId], references: [id])
   subcategory   Subcategory?         @relation(fields: [subcategoryId], references: [id])
   variants      ProductVariant[]
@@ -841,7 +844,7 @@ model BookingItem {
   id                  String        @id @default(uuid())
   tenantId            String        @map("tenant_id")
   bookingId           String        @map("booking_id")
-  productId           String        @map("product_id")
+  productId           String?       @map("product_id")
   variantId           String        @map("variant_id")
   productName         String        @map("product_name")
   variantName         String?       @map("variant_name")
@@ -871,7 +874,7 @@ model BookingItem {
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
   booking      Booking       @relation(fields: [bookingId], references: [id])
-  product      Product       @relation(fields: [productId], references: [id])
+  product      Product?      @relation(fields: [productId], references: [id])
   damageReport DamageReport?
 
   @@index([bookingId])

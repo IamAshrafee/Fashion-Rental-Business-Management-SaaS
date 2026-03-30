@@ -922,7 +922,7 @@ export class BookingService {
 
       if (lateDays <= 0) continue;
 
-      const pricing = item.product.pricing;
+      const pricing = item.product?.pricing;
       let lateFee = 0;
 
       if (pricing?.lateFeeType === 'fixed' && pricing.lateFeeAmount) {
@@ -1251,11 +1251,12 @@ export class BookingService {
       select: { productId: true, baseRental: true, extendedCost: true },
     });
 
-    // Update product stats
+    // Update product stats (skip items where product was permanently deleted)
+    const itemsWithProduct = items.filter((item) => item.productId !== null);
     await Promise.all(
-      items.map((item) =>
+      itemsWithProduct.map((item) =>
         this.prisma.product.update({
-          where: { id: item.productId },
+          where: { id: item.productId! },
           data: {
             totalBookings: { increment: 1 },
             totalRevenue: { increment: item.baseRental + item.extendedCost },

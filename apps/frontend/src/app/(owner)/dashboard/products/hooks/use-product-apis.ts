@@ -170,3 +170,68 @@ export function useEventMutations() {
 
   return { createEvent, updateEvent, deleteEvent };
 }
+
+// ─── Product Trash Mutations ───────────────────────────────────────────────────
+
+/**
+ * Move a product to trash (soft delete).
+ * Blocked by the backend if there are active or future bookings.
+ */
+export function useSoftDeleteProduct() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => productApi.softDelete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['products', 'trash'] });
+      toast.success('Product moved to trash');
+    },
+    onError: (err: any) => {
+      const message =
+        err.response?.data?.message || 'Failed to move product to trash';
+      toast.error(message);
+    },
+  });
+}
+
+/**
+ * Restore a product from trash (sets back to draft).
+ */
+export function useRestoreProduct() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => productApi.restore(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products', 'trash'] });
+      queryClient.invalidateQueries({ queryKey: ['products', 'list'] });
+      toast.success('Product restored to Draft — review and publish when ready');
+    },
+    onError: (err: any) => {
+      const message = err.response?.data?.message || 'Failed to restore product';
+      toast.error(message);
+    },
+  });
+}
+
+/**
+ * Permanently delete a product from trash. Irreversible.
+ * Blocked by the backend if there are still active bookings.
+ */
+export function usePermanentDeleteProduct() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => productApi.permanentDelete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products', 'trash'] });
+      toast.success('Product permanently deleted');
+    },
+    onError: (err: any) => {
+      const message =
+        err.response?.data?.message || 'Failed to permanently delete product';
+      toast.error(message);
+    },
+  });
+}

@@ -150,10 +150,10 @@ export const productApi = {
   },
 
   /**
-   * PATCH /api/v1/owner/products/:id/restore
+   * POST /api/v1/owner/products/:id/restore
    */
   restore: async (id: string): Promise<void> => {
-    await apiClient.patch(`/owner/products/${id}/restore`);
+    await apiClient.post(`/owner/products/${id}/restore`);
   },
 
   /**

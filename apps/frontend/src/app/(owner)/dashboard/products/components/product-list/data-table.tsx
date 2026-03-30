@@ -13,7 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { ArrowUpDown, MoreHorizontal, Settings, Image as ImageIcon } from 'lucide-react';
+import { ArrowUpDown, MoreHorizontal, Settings, Image as ImageIcon, Loader2, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,11 +31,22 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
-  DropdownMenuSeparator
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { ProductStatus } from '@closetrent/types';
+import { useSoftDeleteProduct } from '../../hooks/use-product-apis';
 
 export type ProductRow = {
   id: string;
@@ -48,7 +59,88 @@ export type ProductRow = {
   thumbnailUrl?: string;
 };
 
-// --- Columns Definition ---
+// ─── Actions Cell ─────────────────────────────────────────────────────────────
+
+function ProductActions({ product }: { product: ProductRow }) {
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const softDelete = useSoftDeleteProduct();
+
+  const handleMoveToTrash = () => {
+    softDelete.mutate(product.id, {
+      onSettled: () => setConfirmOpen(false),
+    });
+  };
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="h-8 w-8 p-0">
+            <span className="sr-only">Open menu</span>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+          <DropdownMenuItem asChild>
+            <Link href={`/dashboard/products/${product.id}`}>View Details</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href={`/dashboard/products/${product.id}/edit`}>Edit Product</Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive focus:bg-destructive/10"
+            onClick={() => setConfirmOpen(true)}
+            disabled={softDelete.isPending}
+          >
+            {softDelete.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-2" />
+            )}
+            Move to Trash
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Confirmation dialog */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move to Trash?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>&ldquo;{product.name}&rdquo;</strong> will be archived and removed from your
+              catalog. You can restore it anytime from the{' '}
+              <span className="font-medium text-foreground">Trash</span> page.
+              <br /><br />
+              <span className="text-amber-600 dark:text-amber-400 font-medium">
+                ⚠ This will fail if the product has active or upcoming bookings.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={softDelete.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleMoveToTrash}
+              disabled={softDelete.isPending}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              {softDelete.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Moving…</>
+              ) : (
+                <><Trash2 className="h-4 w-4 mr-2" />Move to Trash</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+// ─── Columns ──────────────────────────────────────────────────────────────────
+
 export const columns: ColumnDef<ProductRow>[] = [
   {
     accessorKey: 'thumbnailUrl',
@@ -69,18 +161,16 @@ export const columns: ColumnDef<ProductRow>[] = [
   },
   {
     accessorKey: 'name',
-    header: ({ column }) => {
-      return (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="-ml-4 font-semibold"
-        >
-          Product Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      );
-    },
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        className="-ml-4 font-semibold"
+      >
+        Product Name
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
     cell: ({ row }) => (
       <div className="font-medium">
         <Link href={`/dashboard/products/${row.original.id}`} className="hover:underline">
@@ -103,7 +193,7 @@ export const columns: ColumnDef<ProductRow>[] = [
     header: 'Status',
     cell: ({ row }) => {
       const status = row.getValue('status') as ProductStatus;
-      const map: Record<ProductStatus, JSX.Element> = {
+      const map: Record<ProductStatus, React.ReactElement> = {
         draft: <Badge variant="secondary">Draft</Badge>,
         published: <Badge variant="default" className="bg-green-600 hover:bg-green-700">Published</Badge>,
         archived: <Badge variant="destructive">Archived</Badge>,
@@ -138,37 +228,11 @@ export const columns: ColumnDef<ProductRow>[] = [
   {
     id: 'actions',
     enableHiding: false,
-    cell: ({ row }) => {
-      const product = row.original;
-
-      return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 w-8 p-0">
-              <span className="sr-only">Open menu</span>
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem asChild>
-              <Link href={`/dashboard/products/${product.id}`}>View Details</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href={`/dashboard/products/${product.id}/edit`}>Edit Product</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">
-              Move to Trash
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      );
-    },
+    cell: ({ row }) => <ProductActions product={row.original} />,
   },
 ];
 
-// --- DataTable Component ---
+// ─── DataTable Component ──────────────────────────────────────────────────────
 
 export function ProductsDataTable({ data }: { data: ProductRow[] }) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -187,12 +251,7 @@ export function ProductsDataTable({ data }: { data: ProductRow[] }) {
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
-    state: {
-      sorting,
-      columnFilters,
-      columnVisibility,
-      rowSelection,
-    },
+    state: { sorting, columnFilters, columnVisibility, rowSelection },
   });
 
   return (
@@ -201,12 +260,9 @@ export function ProductsDataTable({ data }: { data: ProductRow[] }) {
         <Input
           placeholder="Filter products by name..."
           value={(table.getColumn('name')?.getFilterValue() as string) ?? ''}
-          onChange={(event) =>
-            table.getColumn('name')?.setFilterValue(event.target.value)
-          }
+          onChange={(event) => table.getColumn('name')?.setFilterValue(event.target.value)}
           className="max-w-sm"
         />
-        {/* We can add complex filters here for Category / Status */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="ml-auto">
@@ -218,25 +274,23 @@ export function ProductsDataTable({ data }: { data: ProductRow[] }) {
             {table
               .getAllColumns()
               .filter((column) => column.getCanHide())
-              .map((column) => {
-                return (
-                  <DropdownMenuItem
-                    key={column.id}
-                    className="capitalize"
-                    onClick={() => column.toggleVisibility(!column.getIsVisible())}
-                  >
-                    <div className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={column.getIsVisible()}
-                        className="mr-2"
-                        readOnly
-                      />
-                      {column.id.replace(/([A-Z])/g, ' $1').trim()}
-                    </div>
-                  </DropdownMenuItem>
-                );
-              })}
+              .map((column) => (
+                <DropdownMenuItem
+                  key={column.id}
+                  className="capitalize"
+                  onClick={() => column.toggleVisibility(!column.getIsVisible())}
+                >
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={column.getIsVisible()}
+                      className="mr-2"
+                      readOnly
+                    />
+                    {column.id.replace(/([A-Z])/g, ' $1').trim()}
+                  </div>
+                </DropdownMenuItem>
+              ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -245,44 +299,30 @@ export function ProductsDataTable({ data }: { data: ProductRow[] }) {
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  return (
-                    <TableHead key={header.id} className="first:pl-4">
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  );
-                })}
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id} className="first:pl-4">
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                ))}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && 'selected'}
-                >
+                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id} className="first:pl-4 py-3">
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center"
-                >
+                <TableCell colSpan={columns.length} className="h-24 text-center">
                   No products found.
                 </TableCell>
               </TableRow>

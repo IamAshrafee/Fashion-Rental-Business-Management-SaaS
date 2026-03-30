@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -332,52 +333,131 @@ export class ProductService {
   // SOFT DELETE / RESTORE / PERMANENT DELETE
   // =========================================================================
 
-  async softDelete(tenantId: string, productId: string) {
-    await this.findProductOrFail(tenantId, productId);
+  /**
+   * Soft-delete a product: marks it as deleted + archived.
+   * Guards: will refuse if there are any active or future-scheduled bookings.
+   */
+  async softDelete(tenantId: string, productId: string, deletedByUserId?: string) {
+    // First check if it's already in trash (gives a better error than "not found")
+    const existing = await this.prisma.product.findFirst({
+      where: { id: productId, tenantId },
+    });
+    if (!existing) throw new NotFoundException('Product not found');
+    if (existing.deletedAt !== null) {
+      throw new BadRequestException('Product is already in trash');
+    }
+
+    // --- Business Rule: block deletion if there are active bookings ---
+    const [activeBookings, futureBookings] = await Promise.all([
+      // Active bookings: currently in-flight
+      this.prisma.bookingItem.count({
+        where: {
+          productId,
+          tenantId,
+          booking: {
+            status: { in: ['pending', 'confirmed', 'shipped', 'delivered', 'overdue'] },
+          },
+        },
+      }),
+      // Future bookings: scheduled but not yet started (and not cancelled/completed)
+      this.prisma.bookingItem.count({
+        where: {
+          productId,
+          tenantId,
+          startDate: { gt: new Date() },
+          booking: {
+            status: { notIn: ['cancelled', 'completed', 'returned', 'inspected'] },
+          },
+        },
+      }),
+    ]);
+
+    if (activeBookings > 0 || futureBookings > 0) {
+      const parts: string[] = [];
+      if (activeBookings > 0) parts.push(`${activeBookings} active booking(s)`);
+      if (futureBookings > 0) parts.push(`${futureBookings} future booking(s)`);
+      throw new UnprocessableEntityException(
+        `Cannot move to trash: this product has ${parts.join(' and ')}. ` +
+        `Resolve or cancel all associated bookings before deleting.`,
+      );
+    }
 
     const updated = await this.prisma.product.update({
       where: { id: productId },
-      data: { deletedAt: new Date(), status: 'archived' },
+      data: {
+        deletedAt: new Date(),
+        status: 'archived',
+        ...(deletedByUserId ? { deletedByUserId } : {}),
+      },
     });
 
     this.eventEmitter.emit('product.deleted', { tenantId, productId });
     return updated;
   }
 
+  /**
+   * Restore a product from trash. Resets to draft so owner can review before re-publishing.
+   */
   async restore(tenantId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId, deletedAt: { not: null } },
     });
     if (!product) throw new NotFoundException('Product not found in trash');
 
-    return this.prisma.product.update({
+    const restored = await this.prisma.product.update({
       where: { id: productId },
-      data: { deletedAt: null, status: 'draft' },
+      data: { deletedAt: null, status: 'draft', deletedByUserId: null },
     });
+
+    this.eventEmitter.emit('product.restored', { tenantId, productId });
+    return restored;
   }
 
+  /**
+   * Permanently delete a product from trash.
+   * Guards: will refuse if there are any active bookings still referencing it.
+   */
   async permanentDelete(tenantId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId, deletedAt: { not: null } },
     });
     if (!product) throw new NotFoundException('Product not found in trash');
 
-    // Check for active bookings
+    // Check for active bookings — including overdue (item still not returned)
     const activeBookings = await this.prisma.bookingItem.count({
       where: {
         productId,
+        tenantId,
         booking: {
-          status: { in: ['pending', 'confirmed', 'shipped', 'delivered'] },
+          status: { in: ['pending', 'confirmed', 'shipped', 'delivered', 'overdue'] },
         },
       },
     });
     if (activeBookings > 0) {
       throw new UnprocessableEntityException(
-        `Cannot permanently delete: product has ${activeBookings} active booking(s)`,
+        `Cannot permanently delete: product has ${activeBookings} active booking(s). ` +
+        `These must be resolved first.`,
       );
     }
 
-    await this.prisma.product.delete({ where: { id: productId } });
+    // Use a transaction to clean up all non-cascaded FK references
+    await this.prisma.$transaction(async (tx) => {
+      // Nullify product reference on booking items (preserves booking history)
+      await tx.bookingItem.updateMany({
+        where: { productId },
+        data: { productId: null },
+      });
+
+      // Delete date blocks (scheduling data, meaningless without the product)
+      await tx.dateBlock.deleteMany({ where: { productId } });
+
+      // Delete reviews (no value once product is permanently gone)
+      await tx.review.deleteMany({ where: { productId } });
+
+      // Now delete the product (variants, pricing, services, etc. cascade automatically)
+      await tx.product.delete({ where: { id: productId } });
+    });
+
     return { message: 'Product permanently deleted' };
   }
 
@@ -493,7 +573,7 @@ export class ProductService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: query.status === 'trash' ? { deletedAt: 'desc' } : { createdAt: 'desc' },
         include: {
           category: { select: { id: true, name: true, slug: true } },
           pricing: {
@@ -518,6 +598,8 @@ export class ProductService {
               },
             },
           },
+          // Include who deleted the product (for trash view)
+          deletedBy: { select: { id: true, fullName: true } },
           _count: { select: { variants: true, bookingItems: true } },
         },
       }),
@@ -546,9 +628,14 @@ export class ProductService {
 
   private async findProductOrFail(tenantId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
-      where: { id: productId, tenantId, deletedAt: null },
+      where: { id: productId, tenantId },
     });
     if (!product) throw new NotFoundException('Product not found');
+    if (product.deletedAt !== null) {
+      throw new BadRequestException(
+        'This product is in the trash. Restore it before making changes.',
+      );
+    }
     return product;
   }
 

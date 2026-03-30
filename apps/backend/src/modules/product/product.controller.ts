@@ -37,7 +37,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
-import { TenantContext } from '@closetrent/types';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { TenantContext, AuthUser } from '@closetrent/types';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // =========================================================================
@@ -120,6 +121,16 @@ export class ProductOwnerController {
     return this.productService.listOwner(tenant.id, query);
   }
 
+  // ⚠️ IMPORTANT: 'trash' must be BEFORE ':id' — otherwise NestJS treats 'trash' as an id param
+  @Get('trash')
+  @Roles('owner', 'manager')
+  async listTrash(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: ProductQueryDto,
+  ) {
+    return this.productService.listOwner(tenant.id, { ...query, status: 'trash' });
+  }
+
   @Post()
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.CREATED)
@@ -130,6 +141,15 @@ export class ProductOwnerController {
     return this.productService.create(tenant.id, dto);
   }
 
+  @Get(':id')
+  @Roles('owner', 'manager', 'staff')
+  async getProduct(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+  ) {
+    return this.productService.getById(tenant.id, id);
+  }
+
   @Patch(':id')
   @Roles('owner', 'manager')
   async updateProduct(
@@ -138,15 +158,6 @@ export class ProductOwnerController {
     @Body() dto: UpdateProductDto,
   ) {
     return this.productService.update(tenant.id, id, dto);
-  }
-
-  @Get(':id')
-  @Roles('owner', 'manager', 'staff')
-  async getProduct(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
-    return this.productService.getById(tenant.id, id);
   }
 
   @Patch(':id/status')
@@ -164,9 +175,10 @@ export class ProductOwnerController {
   @HttpCode(HttpStatus.OK)
   async deleteProduct(
     @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
-    return this.productService.softDelete(tenant.id, id);
+    return this.productService.softDelete(tenant.id, id, user.id);
   }
 
   @Post(':id/restore')
@@ -176,6 +188,16 @@ export class ProductOwnerController {
     @Param('id') id: string,
   ) {
     return this.productService.restore(tenant.id, id);
+  }
+
+  @Delete(':id/permanent')
+  @Roles('owner')
+  @HttpCode(HttpStatus.OK)
+  async permanentDeleteProduct(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+  ) {
+    return this.productService.permanentDelete(tenant.id, id);
   }
 
   // --- Variants ---
@@ -290,19 +312,32 @@ export class ProductOwnerController {
   @Patch(':productId/faqs/:faqId')
   @Roles('owner', 'manager')
   async updateFaq(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
     @Param('faqId') faqId: string,
     @Body() dto: UpdateFaqDto,
   ) {
-    return this.prisma.productFaq.update({
-      where: { id: faqId },
-      data: dto,
+    // Verify the FAQ belongs to this tenant's product before updating
+    const faq = await this.prisma.productFaq.findFirst({
+      where: { id: faqId, productId, tenantId: tenant.id },
     });
+    if (!faq) throw new Error('FAQ not found');
+    return this.prisma.productFaq.update({ where: { id: faqId }, data: dto });
   }
 
   @Delete(':productId/faqs/:faqId')
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.OK)
-  async deleteFaq(@Param('faqId') faqId: string) {
+  async deleteFaq(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
+    @Param('faqId') faqId: string,
+  ) {
+    // Verify the FAQ belongs to this tenant's product before deleting
+    const faq = await this.prisma.productFaq.findFirst({
+      where: { id: faqId, productId, tenantId: tenant.id },
+    });
+    if (!faq) throw new Error('FAQ not found');
     await this.prisma.productFaq.delete({ where: { id: faqId } });
     return { message: 'FAQ deleted' };
   }
@@ -346,19 +381,32 @@ export class ProductOwnerController {
   @Patch(':productId/details/:headerId')
   @Roles('owner', 'manager')
   async updateDetailHeader(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
     @Param('headerId') headerId: string,
     @Body() dto: UpdateDetailHeaderDto,
   ) {
-    return this.prisma.productDetailHeader.update({
-      where: { id: headerId },
-      data: dto,
+    // Verify ownership before update
+    const header = await this.prisma.productDetailHeader.findFirst({
+      where: { id: headerId, productId, tenantId: tenant.id },
     });
+    if (!header) throw new Error('Detail header not found');
+    return this.prisma.productDetailHeader.update({ where: { id: headerId }, data: dto });
   }
 
   @Delete(':productId/details/:headerId')
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.OK)
-  async deleteDetailHeader(@Param('headerId') headerId: string) {
+  async deleteDetailHeader(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
+    @Param('headerId') headerId: string,
+  ) {
+    // Verify ownership before delete
+    const header = await this.prisma.productDetailHeader.findFirst({
+      where: { id: headerId, productId, tenantId: tenant.id },
+    });
+    if (!header) throw new Error('Detail header not found');
     await this.prisma.productDetailHeader.delete({ where: { id: headerId } });
     return { message: 'Detail header deleted' };
   }
