@@ -3,13 +3,10 @@
 import * as React from 'react';
 import {
   ColumnDef,
-  ColumnFiltersState,
   SortingState,
   VisibilityState,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
@@ -31,14 +28,43 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ArrowUpDown, Maximize2, Search, CheckCircle, Package, MoreHorizontal } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  ArrowUpDown,
+  Maximize2,
+  Search,
+  CheckCircle,
+  Package,
+  MoreHorizontal,
+  CalendarDays,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Loader2,
+} from 'lucide-react';
 import { BookingStatus } from '../types';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { PaginationMeta } from '@closetrent/types';
 
-// Flexible row type that works with both API responses and legacy types
+// ─── Row Type ─────────────────────────────────────────────────────────────────
+
 interface BookingRow {
   id: string;
   bookingNumber?: string;
@@ -51,7 +77,8 @@ interface BookingRow {
   items: Array<Record<string, unknown>>;
 }
 
-// Status badge mapping based on UI spec
+// ─── Status Badge ─────────────────────────────────────────────────────────────
+
 export function BookingStatusBadge({ status }: { status: BookingStatus }) {
   let label = status.charAt(0).toUpperCase() + status.slice(1);
   let colorClass = '';
@@ -75,6 +102,8 @@ export function BookingStatusBadge({ status }: { status: BookingStatus }) {
   );
 }
 
+// ─── Columns ──────────────────────────────────────────────────────────────────
+
 export const columns: ColumnDef<BookingRow>[] = [
   {
     id: 'bookingNumber',
@@ -84,7 +113,11 @@ export const columns: ColumnDef<BookingRow>[] = [
       const b = row.original;
       const displayNumber = b.bookingNumber || b.orderNumber || b.id;
       return (
-        <Link href={`/dashboard/bookings/${b.id}`} className="font-medium hover:underline flex items-center gap-1">
+        <Link
+          href={`/dashboard/bookings/${b.id}`}
+          className="font-medium hover:underline flex items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
           {displayNumber}
         </Link>
       );
@@ -161,53 +194,105 @@ export const columns: ColumnDef<BookingRow>[] = [
     cell: ({ row }) => {
       const booking = row.original;
       return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 w-8 p-0">
-              <span className="sr-only">Open menu</span>
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem asChild>
-              <Link href={`/dashboard/bookings/${booking.id}`}>
-                <Maximize2 className="mr-2 h-4 w-4" /> View Detail
-              </Link>
-            </DropdownMenuItem>
-            {booking.status === 'confirmed' && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">Open menu</span>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
               <DropdownMenuItem asChild>
-                <Link href={`/dashboard/bookings/${booking.id}?action=ship`}>
-                  <Package className="mr-2 h-4 w-4" /> Ship Order
+                <Link href={`/dashboard/bookings/${booking.id}`}>
+                  <Maximize2 className="mr-2 h-4 w-4" /> View Detail
                 </Link>
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {booking.status === 'confirmed' && (
+                <DropdownMenuItem asChild>
+                  <Link href={`/dashboard/bookings/${booking.id}?action=ship`}>
+                    <Package className="mr-2 h-4 w-4" /> Ship Order
+                  </Link>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       );
     },
   },
 ];
 
+// ─── Status Tabs ──────────────────────────────────────────────────────────────
+
+const TABS: Array<{ value: string, label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'shipped', label: 'Shipped' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'returned', label: 'Returned' },
+  { value: 'inspected', label: 'Inspected' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface BookingsDataTableProps {
   data: BookingRow[];
+  meta?: PaginationMeta;
   activeStatus: string;
   onStatusChange: (status: string) => void;
   searchValue: string;
   onSearchChange: (search: string) => void;
+  currentPage: number;
+  onPageChange: (page: number) => void;
+  dateFrom?: string;
+  dateTo?: string;
+  onDateRangeChange: (dateFrom?: string, dateTo?: string) => void;
+  paymentStatus?: string;
+  onPaymentStatusChange: (paymentStatus?: string) => void;
+  isFetching?: boolean;
 }
 
 export function BookingsDataTable({
   data,
+  meta,
   activeStatus,
   onStatusChange,
   searchValue,
   onSearchChange,
+  currentPage,
+  onPageChange,
+  dateFrom,
+  dateTo,
+  onDateRangeChange,
+  paymentStatus,
+  onPaymentStatusChange,
+  isFetching,
 }: BookingsDataTableProps) {
+  const router = useRouter();
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   
+  // Responsive column visibility — hide Items and Date on mobile
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+
+  React.useEffect(() => {
+    const mql = window.matchMedia('(max-width: 768px)');
+    const updateVisibility = (e: MediaQueryListEvent | MediaQueryList) => {
+      setColumnVisibility({
+        items: !e.matches,
+        createdAt: !e.matches,
+      });
+    };
+    updateVisibility(mql);
+    mql.addEventListener('change', updateVisibility);
+    return () => mql.removeEventListener('change', updateVisibility);
+  }, []);
+
   // Debounced search — waits 400ms after user stops typing
   const searchTimeoutRef = React.useRef<ReturnType<typeof setTimeout>>();
   const [localSearch, setLocalSearch] = React.useState(searchValue);
@@ -220,56 +305,137 @@ export function BookingsDataTable({
     }, 400);
   };
 
-  // Data is already filtered server-side, no need for client-side filtering
+  // Date range local state
+  const [localDateFrom, setLocalDateFrom] = React.useState(dateFrom || '');
+  const [localDateTo, setLocalDateTo] = React.useState(dateTo || '');
+
+  const handleApplyDateRange = () => {
+    onDateRangeChange(localDateFrom || undefined, localDateTo || undefined);
+  };
+
+  const handleClearDateRange = () => {
+    setLocalDateFrom('');
+    setLocalDateTo('');
+    onDateRangeChange(undefined, undefined);
+  };
+
+  const hasDateFilter = !!(dateFrom || dateTo);
 
   const table = useReactTable({
     data,
     columns,
     onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
+    manualPagination: true,
+    pageCount: meta?.totalPages ?? -1,
     state: {
       sorting,
-      columnFilters,
       columnVisibility,
+      pagination: {
+        pageIndex: currentPage - 1,
+        pageSize: meta?.limit ?? 20,
+      },
     },
   });
 
-  // Tab counts are approximate from the current dataset
-  // (in the future, fetch counts from a separate server endpoint)
-  const getCount = (status: string) => {
-    if (status === 'all') return data.length;
-    return data.filter(d => d.status === status).length;
-  };
+  // Derive active tab label for empty state
+  const activeTabLabel = TABS.find(t => t.value === activeStatus)?.label?.toLowerCase() ?? '';
 
-  const TABS: Array<{ value: string, label: string }> = [
-    { value: 'all', label: 'All' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'confirmed', label: 'Confirmed' },
-    { value: 'shipped', label: 'Shipped' },
-    { value: 'delivered', label: 'Delivered' },
-    { value: 'overdue', label: 'Overdue' },
-    { value: 'returned', label: 'Returned' },
-    { value: 'inspected', label: 'Inspected' },
-    { value: 'completed', label: 'Completed' },
-  ];
+  // Pagination helpers
+  const totalPages = meta?.totalPages ?? 1;
+  const total = meta?.total ?? data.length;
+  const canPrevious = currentPage > 1;
+  const canNext = currentPage < totalPages;
 
   return (
     <div className="w-full space-y-4">
       {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search booking # or customer..."
+            placeholder="Search booking #, customer name, phone..."
             value={localSearch}
             onChange={(event) => handleSearchInput(event.target.value)}
             className="pl-8 bg-background"
           />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Payment Status Filter */}
+          <Select
+            value={paymentStatus || 'all'}
+            onValueChange={(val) => onPaymentStatusChange(val === 'all' ? undefined : val)}
+          >
+            <SelectTrigger className="w-[140px] h-9 text-sm">
+              <SelectValue placeholder="Payment" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All payments</SelectItem>
+              <SelectItem value="unpaid">Unpaid</SelectItem>
+              <SelectItem value="partial">Partial</SelectItem>
+              <SelectItem value="paid">Paid</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Date Range Filter */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={hasDateFilter ? 'default' : 'outline'}
+                size="sm"
+                className="h-9 gap-1.5"
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                {hasDateFilter ? 'Date filtered' : 'Date range'}
+                {hasDateFilter && (
+                  <X
+                    className="h-3 w-3 ml-1 opacity-70 hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleClearDateRange();
+                    }}
+                  />
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-4" align="end">
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Filter by date</p>
+                <div className="flex gap-2 items-center">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">From</label>
+                    <Input
+                      type="date"
+                      value={localDateFrom}
+                      onChange={(e) => setLocalDateFrom(e.target.value)}
+                      className="h-8 text-sm w-[150px]"
+                    />
+                  </div>
+                  <span className="text-muted-foreground mt-5">–</span>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">To</label>
+                    <Input
+                      type="date"
+                      value={localDateTo}
+                      onChange={(e) => setLocalDateTo(e.target.value)}
+                      className="h-8 text-sm w-[150px]"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={handleClearDateRange}>
+                    Clear
+                  </Button>
+                  <Button size="sm" onClick={handleApplyDateRange}>
+                    Apply
+                  </Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
@@ -281,50 +447,55 @@ export function BookingsDataTable({
       >
         <div className="overflow-x-auto pb-2 -mx-2 px-2 scrollbar-none">
           <TabsList className="bg-transparent space-x-2 h-10 w-max p-0 border-b min-w-full justify-start rounded-none">
-            {TABS.map(tab => {
-              const count = getCount(tab.value);
-              return (
-                <TabsTrigger 
-                  key={tab.value} 
-                  value={tab.value}
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none data-[state=active]:bg-transparent px-4 font-medium"
-                >
-                  {tab.label}
-                  {activeStatus === tab.value || tab.value === 'all' ? (
-                    <span className="ml-2 text-xs text-muted-foreground">({count})</span>
-                  ) : null}
-                </TabsTrigger>
-              )
-            })}
+            {TABS.map(tab => (
+              <TabsTrigger 
+                key={tab.value} 
+                value={tab.value}
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none data-[state=active]:bg-transparent px-4 font-medium"
+              >
+                {tab.label}
+                {activeStatus === tab.value && meta ? (
+                  <span className="ml-2 text-xs text-muted-foreground">({total})</span>
+                ) : null}
+              </TabsTrigger>
+            ))}
           </TabsList>
         </div>
       </Tabs>
 
-      {/* Table */}
-      <div className="rounded-md border bg-card">
+      {/* Table — min-height prevents layout collapse when switching tabs */}
+      <div className="relative rounded-md border bg-card min-h-[420px]">
+        {/* Subtle loading indicator — content stays visible underneath */}
+        {isFetching && (
+          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-background/90 px-3 py-1.5 rounded-full shadow-sm border text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading…
+          </div>
+        )}
+
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  return (
-                    <TableHead key={header.id} className="first:pl-4">
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  );
-                })}
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id} className="first:pl-4">
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </TableHead>
+                ))}
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
+          <TableBody className={cn(
+            "transition-opacity duration-150",
+            isFetching && "opacity-50 pointer-events-none"
+          )}>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => {
-                // Determine left border color accent based on status
                 const status = row.original.status;
                 let borderAccent = 'border-l-transparent';
                 if (status === 'pending') borderAccent = 'border-l-yellow-400';
@@ -333,9 +504,12 @@ export function BookingsDataTable({
 
                 return (
                   <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && 'selected'}
-                    className={cn("border-l-4 transition-colors", borderAccent)}
+                    key={row.original.id}
+                    className={cn(
+                      "border-l-4 transition-colors cursor-pointer hover:bg-muted/50",
+                      borderAccent
+                    )}
+                    onClick={() => router.push(`/dashboard/bookings/${row.original.id}`)}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className="first:pl-4 py-3">
@@ -346,7 +520,7 @@ export function BookingsDataTable({
                       </TableCell>
                     ))}
                   </TableRow>
-                )
+                );
               })
             ) : (
               <TableRow>
@@ -356,7 +530,11 @@ export function BookingsDataTable({
                 >
                   <div className="flex flex-col items-center justify-center text-muted-foreground">
                     <Package className="h-8 w-8 mb-2 opacity-30" />
-                    <span>No bookings found.</span>
+                    <span>
+                      {activeStatus === 'all'
+                        ? 'No bookings found.'
+                        : `No ${activeTabLabel} bookings found.`}
+                    </span>
                   </div>
                 </TableCell>
               </TableRow>
@@ -365,27 +543,53 @@ export function BookingsDataTable({
         </Table>
       </div>
       
-      {/* Pagination */}
-      <div className="flex items-center justify-end space-x-2 py-4">
-        <div className="flex-1 text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {data.length} records.
+      {/* Server-side Pagination */}
+      <div className="flex items-center justify-between py-2">
+        <div className="text-sm text-muted-foreground">
+          {total > 0 ? (
+            <>
+              Page <span className="font-medium">{currentPage}</span> of{' '}
+              <span className="font-medium">{totalPages}</span>
+              <span className="hidden sm:inline"> · {total.toLocaleString()} total records</span>
+            </>
+          ) : null}
         </div>
-        <div className="space-x-2">
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 hidden sm:inline-flex"
+            onClick={() => onPageChange(1)}
+            disabled={!canPrevious}
+          >
+            <ChevronsLeft className="h-4 w-4" />
+          </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={!canPrevious}
           >
+            <ChevronLeft className="h-4 w-4 mr-1" />
             Previous
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={!canNext}
           >
             Next
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 hidden sm:inline-flex"
+            onClick={() => onPageChange(totalPages)}
+            disabled={!canNext}
+          >
+            <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>
       </div>

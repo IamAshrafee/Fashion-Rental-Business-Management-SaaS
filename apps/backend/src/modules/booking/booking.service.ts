@@ -518,6 +518,8 @@ export class BookingService {
         { bookingNumber: { contains: query.search, mode: 'insensitive' } },
         { deliveryName: { contains: query.search, mode: 'insensitive' } },
         { deliveryPhone: { contains: query.search } },
+        { customer: { fullName: { contains: query.search, mode: 'insensitive' } } },
+        { customer: { phone: { contains: query.search } } },
       ];
     }
 

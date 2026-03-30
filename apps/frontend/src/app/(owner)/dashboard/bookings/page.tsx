@@ -9,24 +9,26 @@ import Link from 'next/link';
 import { BookingsDataTable } from './components/bookings-table';
 import { bookingApi, type BookingListQuery } from '@/lib/api/bookings';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import type { PaginationMeta } from '@closetrent/types';
 
 export default function BookingsPage() {
-  const [query, setQuery] = useState<BookingListQuery>({ page: 1, limit: 50 });
+  const [query, setQuery] = useState<BookingListQuery>({ page: 1, limit: 20 });
 
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['bookings', 'list', query],
     queryFn: () => bookingApi.list(query),
+    placeholderData: (prev) => prev,
   });
 
   const bookings = data?.data ?? [];
-  const meta = (data as { meta?: { total?: number; totalPages?: number } })?.meta;
+  const meta: PaginationMeta | undefined = data?.meta;
 
   // Server-side status filter — when tab changes, update the query to re-fetch
   const handleStatusChange = (status: string) => {
     setQuery((prev) => ({
       ...prev,
       status: status === 'all' ? undefined : status,
-      page: 1, // reset to first page
+      page: 1,
     }));
   };
 
@@ -35,6 +37,30 @@ export default function BookingsPage() {
     setQuery((prev) => ({
       ...prev,
       search: search || undefined,
+      page: 1,
+    }));
+  };
+
+  // Server-side pagination
+  const handlePageChange = (page: number) => {
+    setQuery((prev) => ({ ...prev, page }));
+  };
+
+  // Date range filter
+  const handleDateRangeChange = (dateFrom?: string, dateTo?: string) => {
+    setQuery((prev) => ({
+      ...prev,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      page: 1,
+    }));
+  };
+
+  // Payment status filter
+  const handlePaymentStatusChange = (paymentStatus?: string) => {
+    setQuery((prev) => ({
+      ...prev,
+      paymentStatus: paymentStatus || undefined,
       page: 1,
     }));
   };
@@ -62,7 +88,7 @@ export default function BookingsPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isLoading && !data ? (
         <div className="flex h-64 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
         </div>
@@ -76,10 +102,19 @@ export default function BookingsPage() {
         <div className="bg-card text-card-foreground">
           <BookingsDataTable
             data={bookings}
+            meta={meta}
             activeStatus={query.status || 'all'}
             onStatusChange={handleStatusChange}
             searchValue={query.search || ''}
             onSearchChange={handleSearchChange}
+            currentPage={query.page || 1}
+            onPageChange={handlePageChange}
+            dateFrom={query.dateFrom}
+            dateTo={query.dateTo}
+            onDateRangeChange={handleDateRangeChange}
+            paymentStatus={query.paymentStatus}
+            onPaymentStatusChange={handlePaymentStatusChange}
+            isFetching={isFetching}
           />
         </div>
       )}
