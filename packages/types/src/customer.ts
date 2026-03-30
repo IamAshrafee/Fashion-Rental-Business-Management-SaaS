@@ -40,6 +40,7 @@ export interface CustomerDetail {
   totalSpent: number;
   lastBookingAt: string | null;
   bookings: CustomerBooking[];
+  totalBookingCount: number;
   createdAt: string;
 }
 

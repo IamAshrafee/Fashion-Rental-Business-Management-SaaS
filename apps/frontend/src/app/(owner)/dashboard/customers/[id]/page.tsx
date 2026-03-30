@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, MapPin, Mail, Phone, Clock, Plus, X, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import { ArrowLeft, MapPin, Mail, Phone, Clock, Plus, X, Pencil, Trash2, ChevronDown, CalendarDays, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
@@ -35,7 +35,7 @@ export default function CustomerProfilePage() {
   const router = useRouter();
   const { id } = useParams() as { id: string };
 
-  const { data: response, isLoading } = useCustomer(id);
+  const { data: response, isLoading, isError } = useCustomer(id);
   const { data: settingsResponse } = useStoreSettings();
   const updateCustomer = useUpdateCustomer();
   const deleteCustomer = useDeleteCustomer();
@@ -123,21 +123,27 @@ export default function CustomerProfilePage() {
     });
   };
 
+  // C2: Helper — sends trimmed value or empty string (to clear), skips if unchanged
+  const fieldVal = (raw: FormDataEntryValue | null): string | undefined => {
+    const val = (raw as string) ?? '';
+    return val.trim(); // empty string ⟹ backend sets field to ''
+  };
+
   // S8: Handle edit submit
   const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!customer) return;
     const form = new FormData(e.currentTarget);
     const payload: UpdateCustomerDto = {
-      fullName: (form.get('fullName') as string) || undefined,
-      altPhone: (form.get('altPhone') as string) || undefined,
-      email: (form.get('email') as string) || undefined,
-      addressLine1: (form.get('addressLine1') as string) || undefined,
-      addressLine2: (form.get('addressLine2') as string) || undefined,
-      city: (form.get('city') as string) || undefined,
-      state: (form.get('state') as string) || undefined,
-      postalCode: (form.get('postalCode') as string) || undefined,
-      country: (form.get('country') as string) || undefined,
+      fullName: fieldVal(form.get('fullName')) || undefined, // name can't be empty
+      altPhone: fieldVal(form.get('altPhone')),
+      email: fieldVal(form.get('email')),
+      addressLine1: fieldVal(form.get('addressLine1')),
+      addressLine2: fieldVal(form.get('addressLine2')),
+      city: fieldVal(form.get('city')),
+      state: fieldVal(form.get('state')),
+      postalCode: fieldVal(form.get('postalCode')),
+      country: fieldVal(form.get('country')),
     };
     updateCustomer.mutate({ id: customer.id, payload }, {
       onSuccess: () => setEditOpen(false),
@@ -151,6 +157,18 @@ export default function CustomerProfilePage() {
 
   if (isLoading) {
     return <div className="p-8 text-center animate-pulse text-muted-foreground">Loading profile...</div>;
+  }
+
+  // S1: Network/server error handling
+  if (isError) {
+    return (
+      <div className="p-8 text-center space-y-4">
+        <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
+        <p className="text-destructive font-medium">Failed to load customer profile.</p>
+        <p className="text-sm text-muted-foreground">Please check your connection and try again.</p>
+        <Button onClick={() => router.back()} variant="outline" className="mt-2">Go Back</Button>
+      </div>
+    );
   }
 
   if (!customer) {
@@ -198,6 +216,7 @@ export default function CustomerProfilePage() {
                   <button 
                     onClick={() => handleRemoveTag(tag)}
                     className="hover:bg-primary/20 rounded-full p-0.5"
+                    aria-label={`Remove tag ${tag}`}
                   >
                     <X size={12} />
                   </button>
@@ -247,14 +266,21 @@ export default function CustomerProfilePage() {
               </div>
             </div>
 
-            {/* S4: Fixed - use bg-muted instead of bg-gray-50 */}
+            {/* S4: Customer since date */}
+            {customer.createdAt && (
+              <div className="flex items-center text-xs text-muted-foreground pt-2">
+                <CalendarDays className="w-3.5 h-3.5 mr-1.5" />
+                Customer since {format(new Date(customer.createdAt), 'MMM d, yyyy')}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4 pt-4 border-t">
               <div className="bg-muted p-3 rounded-lg text-center">
                 <div className="text-2xl font-bold">{customer.totalBookings}</div>
                 <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Orders</div>
               </div>
               <div className="bg-muted p-3 rounded-lg text-center">
-                <div className="text-xl font-bold text-emerald-600">{formatCurrency(customer.totalSpent)}</div>
+                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(customer.totalSpent)}</div>
                 <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Spent</div>
               </div>
             </div>
@@ -299,9 +325,12 @@ export default function CustomerProfilePage() {
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-bold">Booking History</h3>
             {/* S10: Show count */}
-            {customer.bookings?.length > 0 && (
+            {(customer.totalBookingCount ?? customer.bookings?.length) > 0 && (
               <span className="text-sm text-muted-foreground">
-                {customer.bookings.length} booking{customer.bookings.length !== 1 ? 's' : ''}
+                {customer.bookings?.length === (customer.totalBookingCount ?? customer.bookings?.length)
+                  ? `${customer.bookings.length} booking${customer.bookings.length !== 1 ? 's' : ''}`
+                  : `Showing ${customer.bookings?.length} of ${customer.totalBookingCount} bookings`
+                }
               </span>
             )}
           </div>
@@ -322,6 +351,11 @@ export default function CustomerProfilePage() {
                           <span className="font-semibold text-primary">{booking.bookingNumber}</span>
                           <Badge variant="outline" className={`
                             capitalize 
+                            ${booking.status === 'pending' ? 'border-amber-200 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30' : ''}
+                            ${booking.status === 'confirmed' ? 'border-blue-200 text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30' : ''}
+                            ${booking.status === 'shipped' ? 'border-violet-200 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30' : ''}
+                            ${booking.status === 'delivered' ? 'border-sky-200 text-sky-700 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/30' : ''}
+                            ${booking.status === 'returned' ? 'border-slate-200 text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/30' : ''}
                             ${booking.status === 'completed' ? 'border-emerald-200 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : ''}
                             ${booking.status === 'cancelled' ? 'border-rose-200 text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30' : ''}
                           `}>
@@ -364,6 +398,11 @@ export default function CustomerProfilePage() {
                       <ChevronDown className={`h-4 w-4 mr-1 transition-transform ${showAllBookings ? 'rotate-180' : ''}`} />
                       {showAllBookings ? 'Show Less' : `Show All ${customer.bookings.length} Bookings`}
                     </Button>
+                    {customer.totalBookingCount > customer.bookings.length && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {customer.totalBookingCount - customer.bookings.length} older bookings not shown
+                      </p>
+                    )}
                   </div>
                 )}
               </>
@@ -396,7 +435,8 @@ export default function CustomerProfilePage() {
       </AlertDialog>
 
       {/* S8: Edit customer dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+      {/* S7: Key forces remount on reopen so defaultValues refresh */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen} key={editOpen ? 'open' : 'closed'}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Edit Customer</DialogTitle>

@@ -166,7 +166,7 @@ export default function CustomersPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Tags</SelectItem>
-            {(Array.isArray(tags) ? tags : Array.isArray((tags as any)?.data) ? (tags as any).data : []).map((tag: string) => (
+            {(tags?.data ?? []).map((tag: string) => (
               <SelectItem key={tag} value={tag}>{tag}</SelectItem>
             ))}
           </SelectContent>

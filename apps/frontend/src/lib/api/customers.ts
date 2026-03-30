@@ -37,7 +37,7 @@ export const customerApi = {
   },
 
   getCustomerTags: async () => {
-    const { data } = await apiClient.get<string[]>('/owner/customers/tags');
+    const { data } = await apiClient.get<ApiResponse<string[]>>('/owner/customers/tags');
     return data;
   },
 

@@ -126,35 +126,41 @@ export class CustomerService {
   }
 
   async getById(tenantId: string, customerId: string) {
-    const customer = await this.prisma.customer.findFirst({
-      where: { id: customerId, tenantId, deletedAt: null },
-      include: {
-        tags: true,
-        bookings: {
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-          select: {
-            id: true,
-            bookingNumber: true,
-            status: true,
-            grandTotal: true,
-            createdAt: true,
-            items: {
-              select: {
-                productName: true,
-                colorName: true,
+    const [customer, totalBookingCount] = await Promise.all([
+      this.prisma.customer.findFirst({
+        where: { id: customerId, tenantId, deletedAt: null },
+        include: {
+          tags: true,
+          bookings: {
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+            select: {
+              id: true,
+              bookingNumber: true,
+              status: true,
+              grandTotal: true,
+              createdAt: true,
+              items: {
+                select: {
+                  productName: true,
+                  colorName: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      }),
+      this.prisma.booking.count({
+        where: { customerId, tenantId },
+      }),
+    ]);
 
     if (!customer) throw new NotFoundException('Customer not found');
 
     return {
       ...customer,
       tags: customer.tags.map((t) => t.tag),
+      totalBookingCount,
     };
   }
 
@@ -164,11 +170,16 @@ export class CustomerService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    return this.prisma.customer.update({
+    const updated = await this.prisma.customer.update({
       where: { id: customerId },
       data: dto,
       include: { tags: true },
     });
+
+    return {
+      ...updated,
+      tags: updated.tags.map((t) => t.tag),
+    };
   }
 
   async list(tenantId: string, query: CustomerQueryDto) {

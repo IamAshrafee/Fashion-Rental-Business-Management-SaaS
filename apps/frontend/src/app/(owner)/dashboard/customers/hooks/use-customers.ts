@@ -63,8 +63,8 @@ export function useUpdateCustomer() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: UpdateCustomerDto }) =>
       customerApi.updateCustomer(id, payload),
-    onSuccess: (data, variables) => {
-      queryClient.setQueryData(customerKeys.detail(variables.id), data);
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: customerKeys.detail(variables.id) });
       queryClient.invalidateQueries({ queryKey: customerKeys.lists() });
       toast.success('Customer updated');
     },
