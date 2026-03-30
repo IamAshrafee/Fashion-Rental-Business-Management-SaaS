@@ -81,6 +81,10 @@ export interface JwtPayload {
   tenantId: string | null;
   role: UserRole;
   sessionId: string;
+  /** Set to true when token was issued via admin impersonation */
+  isImpersonation?: boolean;
+  /** The admin user ID that initiated impersonation */
+  impersonatorId?: string;
   iat?: number;
   exp?: number;
 }

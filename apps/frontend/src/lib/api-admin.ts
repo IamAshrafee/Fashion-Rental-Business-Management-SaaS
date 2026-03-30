@@ -10,6 +10,37 @@ import {
 } from '@closetrent/types';
 import apiClient from './api-client';
 
+/**
+ * Point 23: Admin API calls use a wrapper that strips
+ * x-tenant-id header to prevent accidental tenant resolution.
+ */
+function adminRequest() {
+  return {
+    get: <T = any>(url: string, config?: any) =>
+      apiClient.get<T>(url, {
+        ...config,
+        headers: { ...config?.headers, 'x-tenant-id': undefined },
+      }),
+    post: <T = any>(url: string, data?: any, config?: any) =>
+      apiClient.post<T>(url, data, {
+        ...config,
+        headers: { ...config?.headers, 'x-tenant-id': undefined },
+      }),
+    patch: <T = any>(url: string, data?: any, config?: any) =>
+      apiClient.patch<T>(url, data, {
+        ...config,
+        headers: { ...config?.headers, 'x-tenant-id': undefined },
+      }),
+    delete: <T = any>(url: string, config?: any) =>
+      apiClient.delete<T>(url, {
+        ...config,
+        headers: { ...config?.headers, 'x-tenant-id': undefined },
+      }),
+  };
+}
+
+const admin = adminRequest();
+
 export const adminApi = {
   // --- Tenants ---
   async getTenants(params?: {
@@ -20,12 +51,12 @@ export const adminApi = {
     limit?: number;
     sort?: string;
   }): Promise<PaginatedResponse<AdminTenantSummary>> {
-    const res = await apiClient.get('/admin/tenants', { params });
+    const res = await admin.get('/admin/tenants', { params });
     return res.data;
   },
 
   async getTenant(id: string): Promise<ApiResponse<AdminTenantDetails>> {
-    const res = await apiClient.get(`/admin/tenants/${id}`);
+    const res = await admin.get(`/admin/tenants/${id}`);
     return res.data;
   },
 
@@ -34,7 +65,7 @@ export const adminApi = {
     status: TenantStatus,
     reason?: string
   ): Promise<ApiResponse<AdminTenantDetails>> {
-    const res = await apiClient.patch(`/admin/tenants/${id}/status`, {
+    const res = await admin.patch(`/admin/tenants/${id}/status`, {
       status,
       reason,
     });
@@ -46,7 +77,7 @@ export const adminApi = {
     planId: string,
     billingCycle: BillingCycle
   ): Promise<ApiResponse<any>> {
-    const res = await apiClient.patch(`/admin/tenants/${id}/plan`, {
+    const res = await admin.patch(`/admin/tenants/${id}/plan`, {
       planId,
       billingCycle,
     });
@@ -58,32 +89,48 @@ export const adminApi = {
       impersonationToken: string;
       tenantId: string;
       businessName: string;
+      subdomain: string;
       expiresIn: number;
     }>
   > {
-    const res = await apiClient.post(`/admin/tenants/${id}/impersonate`);
+    const res = await admin.post(`/admin/tenants/${id}/impersonate`);
+    return res.data;
+  },
+
+  /** Point 19: Soft-delete tenant */
+  async deleteTenant(id: string): Promise<ApiResponse<any>> {
+    const res = await admin.delete(`/admin/tenants/${id}`);
     return res.data;
   },
 
   // --- Analytics ---
   async getPlatformAnalytics(): Promise<ApiResponse<PlatformStats>> {
-    const res = await apiClient.get('/admin/analytics/platform');
+    const res = await admin.get('/admin/analytics/platform');
+    return res.data;
+  },
+
+  // --- Activity Log (Point 20) ---
+  async getActivityLog(params?: {
+    page?: number;
+    limit?: number;
+  }): Promise<PaginatedResponse<any>> {
+    const res = await admin.get('/admin/activity-log', { params });
     return res.data;
   },
 
   // --- Plans ---
   async getPlans(): Promise<ApiResponse<SubscriptionPlan[]>> {
-    const res = await apiClient.get('/admin/plans');
+    const res = await admin.get('/admin/plans');
     return res.data;
   },
 
   async createPlan(data: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
-    const res = await apiClient.post('/admin/plans', data);
+    const res = await admin.post('/admin/plans', data);
     return res.data;
   },
 
   async updatePlan(id: string, data: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
-    const res = await apiClient.patch(`/admin/plans/${id}`, data);
+    const res = await admin.patch(`/admin/plans/${id}`, data);
     return res.data;
   },
 };

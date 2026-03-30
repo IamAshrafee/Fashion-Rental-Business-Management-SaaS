@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -53,19 +54,35 @@ export class AdminController {
     return this.adminService.getTenant(id);
   }
 
+  /** Point 5: Pass adminUserId for audit trail */
   @Patch('tenants/:id/status')
-  async updateTenantStatus(@Param('id') id: string, @Body() dto: UpdateTenantStatusDto) {
-    return this.adminService.updateTenantStatus(id, dto);
+  async updateTenantStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateTenantStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adminService.updateTenantStatus(id, dto, user.id);
   }
 
+  /** Pass adminUserId for audit trail */
   @Patch('tenants/:id/plan')
-  async updateTenantPlan(@Param('id') id: string, @Body() dto: UpdateTenantPlanDto) {
-    return this.adminService.updateTenantPlan(id, dto);
+  async updateTenantPlan(
+    @Param('id') id: string,
+    @Body() dto: UpdateTenantPlanDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adminService.updateTenantPlan(id, dto, user.id);
   }
 
   @Post('tenants/:id/impersonate')
   async impersonateTenant(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.adminService.impersonateTenant(user.id, id);
+  }
+
+  /** Point 19: Soft-delete tenant */
+  @Delete('tenants/:id')
+  async deleteTenant(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.adminService.deleteTenant(id, user.id);
   }
 
   // =========================================================================
@@ -75,6 +92,18 @@ export class AdminController {
   @Get('analytics/platform')
   async getPlatformAnalytics() {
     return this.adminService.getPlatformAnalytics();
+  }
+
+  // =========================================================================
+  // ACTIVITY LOG (Point 20)
+  // =========================================================================
+
+  @Get('activity-log')
+  async getActivityLog(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit?: number,
+  ) {
+    return this.adminService.getActivityLog({ page: page!, limit: limit! });
   }
 
   // =========================================================================

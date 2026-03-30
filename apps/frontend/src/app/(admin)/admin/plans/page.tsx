@@ -6,9 +6,10 @@ import { PageHeader } from '@/components/shared';
 import { PlanFormDialog } from './components/plan-form-dialog';
 import { useState } from 'react';
 import { SubscriptionPlan } from '@closetrent/types';
+import { AlertCircle } from 'lucide-react';
 
 export default function SubscriptionPlansPage() {
-  const { data: res, isLoading } = useQuery({
+  const { data: res, isLoading, error } = useQuery({
     queryKey: ['admin', 'plans'],
     queryFn: () => adminApi.getPlans(),
   });
@@ -35,57 +36,75 @@ export default function SubscriptionPlansPage() {
           title="Subscription Plans"
           description="Manage standard SaaS subscription tiers for tenants."
         />
-        <button 
+        <button
           onClick={handleCreate}
-          className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+          className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
         >
           Create Plan
         </button>
       </div>
 
+      {/* Point 14: Error state */}
+      {error && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          <p className="text-sm font-medium">Failed to load subscription plans.</p>
+        </div>
+      )}
+
+      {/* Points 12/13: Semantic tokens */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {isLoading ? (
-          <div>Loading plans...</div>
+          [...Array(3)].map((_, i) => (
+            <div key={i} className="animate-pulse rounded-lg border bg-card p-6 shadow-sm">
+              <div className="h-5 w-24 rounded bg-muted" />
+              <div className="mt-4 h-4 w-16 rounded bg-muted" />
+              <div className="mt-6 space-y-3">
+                <div className="h-3 w-full rounded bg-muted" />
+                <div className="h-3 w-3/4 rounded bg-muted" />
+              </div>
+            </div>
+          ))
         ) : plans.length === 0 ? (
-          <div className="col-span-full py-12 text-center text-sm text-gray-500">
-            No plans found.
+          <div className="col-span-full py-12 text-center text-sm text-muted-foreground">
+            No plans found. Create your first subscription plan.
           </div>
         ) : (
           plans.map((plan) => (
-            <div key={plan.id} className="rounded-lg border bg-white p-6 shadow-sm flex flex-col">
+            <div key={plan.id} className="rounded-lg border bg-card p-6 shadow-sm flex flex-col">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">{plan.name}</h3>
-                  <span className={`mt-1 inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${plan.isActive ? 'bg-green-50 text-green-700 ring-green-600/20' : 'bg-gray-50 text-gray-600 ring-gray-500/10'}`}>
+                  <h3 className="text-lg font-bold text-card-foreground">{plan.name}</h3>
+                  <span className={`mt-1 inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${plan.isActive ? 'bg-green-50 text-green-700 ring-green-600/20 dark:bg-green-900/20 dark:text-green-400 dark:ring-green-500/30' : 'bg-muted text-muted-foreground ring-border'}`}>
                     {plan.isActive ? 'Active' : 'Inactive'}
                   </span>
                 </div>
-                <button 
+                <button
                   onClick={() => handleEdit(plan)}
-                  className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
+                  className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
                 >
                   Edit
                 </button>
               </div>
 
-              <div className="mt-4 border-t border-gray-100 pt-4 flex-1">
-                <p className="text-sm font-medium text-gray-900">
+              <div className="mt-4 border-t border-border pt-4 flex-1">
+                <p className="text-sm font-medium text-card-foreground">
                   <span className="text-2xl font-bold tracking-tight">৳{plan.priceMonthly}</span>
-                  <span className="text-gray-500"> /mo</span>
+                  <span className="text-muted-foreground"> /mo</span>
                 </p>
 
-                <ul className="mt-4 space-y-3 text-sm text-gray-600">
+                <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
                   <li className="flex gap-x-3">
-                    <span className="font-semibold text-gray-900">Products:</span> {plan.maxProducts === null ? 'Unlimited' : plan.maxProducts}
+                    <span className="font-semibold text-card-foreground">Products:</span> {plan.maxProducts === null ? 'Unlimited' : plan.maxProducts}
                   </li>
                   <li className="flex gap-x-3">
-                    <span className="font-semibold text-gray-900">Staff:</span> {plan.maxStaff}
+                    <span className="font-semibold text-card-foreground">Staff:</span> {plan.maxStaff}
                   </li>
                   <li className="flex gap-x-3">
-                    <span className="font-semibold text-gray-900">Custom Domain:</span> {plan.customDomain ? 'Yes' : 'No'}
+                    <span className="font-semibold text-card-foreground">Custom Domain:</span> {plan.customDomain ? 'Yes' : 'No'}
                   </li>
                   <li className="flex gap-x-3">
-                    <span className="font-semibold text-gray-900">SMS Included:</span> {plan.smsEnabled ? 'Yes' : 'No'}
+                    <span className="font-semibold text-card-foreground">SMS Included:</span> {plan.smsEnabled ? 'Yes' : 'No'}
                   </li>
                 </ul>
               </div>

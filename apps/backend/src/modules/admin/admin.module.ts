@@ -7,6 +7,7 @@ import { AdminService } from './admin.service';
 /**
  * Admin Module.
  * Implements SaaS platform operations: tenant management, platform stats, subscription plans.
+ * EventEmitter2 is global (registered in AppModule) — no import needed here.
  */
 @Module({
   imports: [

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -26,6 +26,7 @@ import { Switch } from '@/components/ui/switch';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api-admin';
 import { SubscriptionPlan } from '@closetrent/types';
+import { useToast } from '@/hooks/use-toast';
 
 const planSchema = z.object({
   name: z.string().min(2, 'Name is required'),
@@ -91,6 +92,45 @@ export function PlanFormDialog({
         },
   });
 
+  // Point 17: Reset form when plan prop changes (prevents stale data)
+  useEffect(() => {
+    if (open) {
+      form.reset(
+        plan
+          ? {
+              name: plan.name,
+              slug: plan.slug,
+              priceMonthly: plan.priceMonthly,
+              priceAnnual: plan.priceAnnual,
+              maxProducts: plan.maxProducts,
+              maxStaff: plan.maxStaff,
+              customDomain: plan.customDomain,
+              smsEnabled: plan.smsEnabled,
+              analyticsFull: plan.analyticsFull,
+              removeBranding: plan.removeBranding,
+              isActive: plan.isActive,
+              displayOrder: plan.displayOrder,
+            }
+          : {
+              name: '',
+              slug: '',
+              priceMonthly: 0,
+              priceAnnual: 0,
+              maxProducts: 100,
+              maxStaff: 1,
+              customDomain: false,
+              smsEnabled: false,
+              analyticsFull: false,
+              removeBranding: false,
+              isActive: true,
+              displayOrder: 1,
+            },
+      );
+    }
+  }, [open, plan, form]);
+
+  const { toast } = useToast();
+
   const mutation = useMutation({
     mutationFn: (values: Partial<SubscriptionPlan>) =>
       isEditing
@@ -98,8 +138,11 @@ export function PlanFormDialog({
         : adminApi.createPlan(values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] });
+      toast({ title: isEditing ? 'Plan updated' : 'Plan created', description: 'Subscription plan saved successfully.' });
       onOpenChange(false);
-      form.reset();
+    },
+    onError: () => {
+      toast({ title: 'Failed to save plan', description: 'Something went wrong.', variant: 'destructive' });
     },
   });
 

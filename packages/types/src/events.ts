@@ -105,3 +105,32 @@ export interface AuthLoginFailedEvent {
   ipAddress: string;
   attempts: number;
 }
+
+// --- Admin Events ---
+
+export interface AdminTenantImpersonatedEvent {
+  adminUserId: string;
+  tenantId: string;
+  ownerUserId: string;
+  businessName: string;
+  timestamp: string;
+}
+
+export interface AdminTenantStatusChangedEvent {
+  adminUserId: string;
+  tenantId: string;
+  businessName: string;
+  oldStatus: string;
+  newStatus: string;
+  reason?: string;
+  timestamp: string;
+}
+
+export interface AdminTenantPlanChangedEvent {
+  adminUserId: string;
+  tenantId: string;
+  oldPlanId: string | null;
+  newPlanId: string;
+  billingCycle: string;
+  timestamp: string;
+}

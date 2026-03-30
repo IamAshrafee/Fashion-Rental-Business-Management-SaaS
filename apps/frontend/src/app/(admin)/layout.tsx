@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 
 /**
  * Super Admin layout — minimal sidebar for internal SaaS management.
+ * Points 12/13: Dark mode support with semantic color tokens.
  */
 export default function AdminLayout({
   children,
@@ -17,34 +18,40 @@ export default function AdminLayout({
 }) {
   return (
     <AdminGuard>
-      <div className="flex min-h-screen bg-gray-50">
-        <aside className="fixed inset-y-0 flex w-64 flex-col border-r bg-white">
+      <div className="flex min-h-screen bg-muted/40 dark:bg-background">
+        <aside className="fixed inset-y-0 flex w-64 flex-col border-r bg-card dark:bg-card">
         <div className="flex h-14 items-center border-b px-6">
-          <span className="font-display text-lg font-bold">
+          <span className="font-display text-lg font-bold text-card-foreground">
             ClosetRent Admin
           </span>
         </div>
         <nav className="flex-1 space-y-1 p-4">
           <Link
             href="/admin"
-            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-100"
+            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-card-foreground hover:bg-muted transition-colors"
           >
             Dashboard
           </Link>
           <Link
             href="/admin/tenants"
-            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-card-foreground transition-colors"
           >
             Tenants
           </Link>
           <Link
             href="/admin/plans"
-            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-card-foreground transition-colors"
           >
             Subscription Plans
           </Link>
+          <Link
+            href="/admin/activity"
+            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-card-foreground transition-colors"
+          >
+            Activity Log
+          </Link>
         </nav>
-        <div className="p-4 border-t border-gray-100">
+        <div className="p-4 border-t border-border">
           <AdminLogoutButton />
         </div>
       </aside>
@@ -55,4 +62,3 @@ export default function AdminLayout({
     </AdminGuard>
   );
 }
-

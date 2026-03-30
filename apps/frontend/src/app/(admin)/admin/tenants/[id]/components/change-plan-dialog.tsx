@@ -29,6 +29,7 @@ import {
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api-admin';
 import { SubscriptionPlan } from '@closetrent/types';
+import { useToast } from '@/hooks/use-toast';
 
 const changePlanSchema = z.object({
   planId: z.string().min(1, 'Please select a plan'),
@@ -70,17 +71,19 @@ function ChangePlanForm({
     },
   });
 
+  const { toast } = useToast();
+
   const mutation = useMutation({
     mutationFn: (values: ChangePlanFormValues) =>
       adminApi.updateTenantPlan(tenantId, values.planId, values.billingCycle),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
-      alert('Plan updated successfully');
+      toast({ title: 'Plan updated', description: 'Tenant subscription plan changed successfully.' });
       onOpenChange(false);
       form.reset();
     },
     onError: () => {
-      alert('Failed to update plan');
+      toast({ title: 'Failed to update plan', description: 'Something went wrong.', variant: 'destructive' });
     },
   });
 
