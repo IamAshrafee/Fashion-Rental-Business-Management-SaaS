@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -29,7 +28,7 @@ import {
 } from '@/components/ui/select';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api-admin';
-import { BillingCycle, SubscriptionPlan } from '@closetrent/types';
+import { SubscriptionPlan } from '@closetrent/types';
 
 const changePlanSchema = z.object({
   planId: z.string().min(1, 'Please select a plan'),
@@ -45,21 +44,23 @@ interface ChangePlanDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function ChangePlanDialog({
+// ─────────────────────────────────────────────────────────────────────────────
+// INNER FORM — only mounts when plans are loaded.
+// Uses defaultValues so Radix Select triggers mount with the correct value.
+// key={currentPlanId} forces remount if the current plan prop changes.
+// ─────────────────────────────────────────────────────────────────────────────
+function ChangePlanForm({
   tenantId,
   currentPlanId,
-  open,
+  plans,
   onOpenChange,
-}: ChangePlanDialogProps) {
+}: {
+  tenantId: string;
+  currentPlanId?: string;
+  plans: SubscriptionPlan[];
+  onOpenChange: (open: boolean) => void;
+}) {
   const queryClient = useQueryClient();
-
-  const { data: plansRes, isLoading: isLoadingPlans } = useQuery({
-    queryKey: ['admin', 'plans'],
-    queryFn: () => adminApi.getPlans(),
-    enabled: open,
-  });
-
-  const plans = plansRes?.data || [];
 
   const form = useForm<ChangePlanFormValues>({
     resolver: zodResolver(changePlanSchema),
@@ -74,19 +75,95 @@ export function ChangePlanDialog({
       adminApi.updateTenantPlan(tenantId, values.planId, values.billingCycle),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
-      // Toast notification would be ideal here if a toast system is in place
       alert('Plan updated successfully');
       onOpenChange(false);
       form.reset();
     },
     onError: () => {
       alert('Failed to update plan');
-    }
+    },
   });
 
-  const onSubmit = (values: ChangePlanFormValues) => {
-    mutation.mutate(values);
-  };
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="space-y-6">
+        <FormField
+          control={form.control}
+          name="planId"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Subscription Plan</FormLabel>
+              <FormControl>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a plan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plans.filter((p) => p.isActive).map((plan) => (
+                      <SelectItem key={plan.id} value={plan.id}>
+                        {plan.name} (৳{plan.priceMonthly}/mo)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="billingCycle"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Billing Cycle</FormLabel>
+              <FormControl>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select billing cycle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="annual">Annual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <div className="flex justify-end gap-3 pt-4">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={mutation.isPending}>
+            {mutation.isPending ? 'Updating...' : 'Update Plan'}
+          </Button>
+        </div>
+      </form>
+    </Form>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OUTER DIALOG — waits for plans to load, then mounts ChangePlanForm.
+// key forces remount whenever the resolved planId changes.
+// ─────────────────────────────────────────────────────────────────────────────
+export function ChangePlanDialog({
+  tenantId,
+  currentPlanId,
+  open,
+  onOpenChange,
+}: ChangePlanDialogProps) {
+  const { data: plansRes, isLoading } = useQuery({
+    queryKey: ['admin', 'plans'],
+    queryFn: () => adminApi.getPlans(),
+    enabled: open,
+  });
+
+  const plans = plansRes?.data || [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -98,76 +175,18 @@ export function ChangePlanDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="planId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Subscription Plan</FormLabel>
-                  <Select
-                    disabled={isLoadingPlans}
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a plan" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {plans.filter(p => p.isActive).map((plan) => (
-                        <SelectItem key={plan.id} value={plan.id}>
-                          {plan.name} (৳{plan.priceMonthly}/mo)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        {isLoading && <div className="animate-pulse h-32 bg-muted rounded-md" />}
 
-            <FormField
-              control={form.control}
-              name="billingCycle"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Billing Cycle</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select billing cycle" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                      <SelectItem value="annual">Annual</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="flex justify-end gap-3 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? 'Updating...' : 'Update Plan'}
-              </Button>
-            </div>
-          </form>
-        </Form>
+        {!isLoading && plans.length > 0 && (
+          // key ensures form remounts fresh when plans or currentPlanId changes
+          <ChangePlanForm
+            key={`${currentPlanId}-${plans.map((p) => p.id).join(',')}`}
+            tenantId={tenantId}
+            currentPlanId={currentPlanId}
+            plans={plans}
+            onOpenChange={onOpenChange}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

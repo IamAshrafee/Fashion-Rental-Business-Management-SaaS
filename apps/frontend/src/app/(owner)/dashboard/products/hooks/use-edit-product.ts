@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useRef } from 'react';
 import { productApi } from '@/lib/api/products';
 import { productFormSchema, ProductFormValues } from '../components/product-form/schema';
 
@@ -10,7 +9,7 @@ import { productFormSchema, ProductFormValues } from '../components/product-form
  * into the flat ProductFormValues shape used by the form.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapProductToFormValues(product: any): Partial<ProductFormValues> {
+function mapProductToFormValues(product: any): ProductFormValues {
   const pricing = product.pricing;
   const services = product.services;
   const size = product.productSize;
@@ -99,17 +98,21 @@ function mapProductToFormValues(product: any): Partial<ProductFormValues> {
       question: f.question ?? '',
       answer: f.answer ?? '',
     })) ?? [],
-  };
+  } as ProductFormValues;
 }
 
 /**
  * Hook that fetches a product by ID and initializes a react-hook-form
- * instance with the mapped data. The raw product data is also returned
- * for variant/image diffing during update.
+ * instance with the mapped data.
+ *
+ * FIX: We no longer use useEffect + form.reset() after initial mount.
+ * Instead, we pass `defaultValues` directly with the real mapped data only
+ * when the product is available. The form is not created until rawProduct
+ * is truthy (callers guard on isLoading / rawProduct before rendering the
+ * FormProvider — see EditProductForm). This ensures Radix Select triggers
+ * always mount with the correct saved values without stale-state issues.
  */
 export function useEditProduct(productId: string) {
-  const hasHydrated = useRef(false);
-
   // Fetch the full product from the API
   const {
     data: rawProduct,
@@ -122,30 +125,27 @@ export function useEditProduct(productId: string) {
     enabled: !!productId,
   });
 
-  // Create form with schema validation
+  // Map to form values only when data is present, otherwise use safe empty defaults.
+  // The EditProductForm parent guards render until rawProduct is truthy, so the
+  // form will always be initialized with real data — never empty fallbacks.
+  const initialValues = rawProduct
+    ? mapProductToFormValues(rawProduct)
+    : {
+        status: 'draft' as const,
+        pricingMode: 'one_time' as const,
+        sizeMode: 'standard' as const,
+        events: [] as string[],
+        variants: [{ name: '', mainColorId: '', identicalColorIds: [] as string[], images: [] }],
+        measurements: [],
+        details: [],
+        faqs: [],
+      };
+
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productFormSchema),
-    defaultValues: {
-      status: 'draft',
-      pricingMode: 'one_time',
-      sizeMode: 'standard',
-      events: [],
-      variants: [{ name: '', mainColorId: '', identicalColorIds: [], images: [] }],
-      measurements: [],
-      details: [],
-      faqs: [],
-    },
+    defaultValues: initialValues,
     mode: 'onChange',
   });
-
-  // When data arrives, hydrate the form (once)
-  useEffect(() => {
-    if (rawProduct && !hasHydrated.current) {
-      const mapped = mapProductToFormValues(rawProduct);
-      form.reset(mapped as ProductFormValues);
-      hasHydrated.current = true;
-    }
-  }, [rawProduct, form]);
 
   return {
     form,
@@ -153,6 +153,5 @@ export function useEditProduct(productId: string) {
     isLoading,
     isError,
     error,
-    isHydrated: hasHydrated.current,
   };
 }
