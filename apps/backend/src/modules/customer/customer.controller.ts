@@ -21,13 +21,12 @@ import {
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
 
 // =========================================================================
-// PUBLIC — Customer lookup for checkout auto-fill
+// Customer Management Controller
 // =========================================================================
 
 @Controller('owner/customers')
@@ -37,10 +36,10 @@ export class CustomerController {
 
   /**
    * GET /owner/customers/lookup?phone=01712345678
-   * Public lookup for checkout auto-fill. Placed first to avoid :id catch.
+   * Customer lookup for checkout auto-fill. Requires auth — returns minimal data.
    */
   @Get('lookup')
-  @Public()
+  @Roles('owner', 'manager', 'staff')
   async lookup(
     @CurrentTenant() tenant: TenantContext,
     @Query('phone') phone: string,

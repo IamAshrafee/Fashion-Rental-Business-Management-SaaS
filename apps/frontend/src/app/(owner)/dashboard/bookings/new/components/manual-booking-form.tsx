@@ -243,8 +243,8 @@ export function ManualBookingForm() {
     form.setValue('fullName', customer.fullName);
     form.setValue('phone', customer.phone);
     if (customer.email) form.setValue('email', customer.email);
-    // Auto-fill delivery address from customer (Fix #6)
-    if (customer.district) form.setValue('district', customer.district);
+    // Auto-fill delivery city from customer
+    if (customer.city) form.setValue('city', customer.city);
     setCustomerSearch('');
     setShowCustomerDropdown(false);
   };

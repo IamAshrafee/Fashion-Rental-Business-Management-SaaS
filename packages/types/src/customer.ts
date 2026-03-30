@@ -7,7 +7,7 @@ export interface Customer {
   totalSpent: number;
   lastBookingAt: string | null;
   tags: string[];
-  district: string | null;
+  city: string | null;
 }
 
 export interface CustomerBooking {
@@ -28,14 +28,33 @@ export interface CustomerDetail {
   phone: string;
   altPhone: string | null;
   email: string | null;
-  address: string | null;
-  area: string | null;
-  district: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
   notes: string | null;
   tags: string[];
   totalBookings: number;
   totalSpent: number;
+  lastBookingAt: string | null;
   bookings: CustomerBooking[];
+  createdAt: string;
+}
+
+export interface CreateCustomerDto {
+  fullName: string;
+  phone: string;
+  altPhone?: string;
+  email?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  notes?: string;
 }
 
 export interface UpdateCustomerDto {
@@ -43,6 +62,12 @@ export interface UpdateCustomerDto {
   altPhone?: string;
   email?: string;
   notes?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
 }
 
 export interface AddCustomerTagDto {

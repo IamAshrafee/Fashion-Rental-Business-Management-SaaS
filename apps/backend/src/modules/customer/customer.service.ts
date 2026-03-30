@@ -33,8 +33,8 @@ export class CustomerService {
     });
 
     if (existing) {
-      // Update name/address if changed, return existing
-      return this.prisma.customer.update({
+      // Update name/address if changed, return existing with flag
+      const updated = await this.prisma.customer.update({
         where: { id: existing.id },
         data: {
           fullName: dto.fullName,
@@ -49,9 +49,10 @@ export class CustomerService {
         },
         include: { tags: true },
       });
+      return { ...updated, tags: updated.tags.map((t) => t.tag), wasExisting: true };
     }
 
-    return this.prisma.customer.create({
+    const created = await this.prisma.customer.create({
       data: {
         tenantId,
         fullName: dto.fullName,
@@ -68,6 +69,7 @@ export class CustomerService {
       },
       include: { tags: true },
     });
+    return { ...created, tags: created.tags.map((t) => t.tag), wasExisting: false };
   }
 
   /**
@@ -310,7 +312,7 @@ export class CustomerService {
     if (!customer) throw new NotFoundException('Customer not found');
 
     await this.prisma.customerTag.deleteMany({
-      where: { customerId, tag },
+      where: { customerId, tag, tenantId },
     });
 
     return { message: `Tag "${tag}" removed` };
@@ -337,9 +339,9 @@ export class CustomerService {
   /**
    * Increment customer stats after a booking is created/confirmed.
    */
-  async incrementBookingCount(customerId: string) {
-    await this.prisma.customer.update({
-      where: { id: customerId },
+  async incrementBookingCount(customerId: string, tenantId: string) {
+    await this.prisma.customer.updateMany({
+      where: { id: customerId, tenantId },
       data: {
         totalBookings: { increment: 1 },
         lastBookingAt: new Date(),
@@ -350,9 +352,9 @@ export class CustomerService {
   /**
    * Increment total spent after a payment is recorded.
    */
-  async incrementTotalSpent(customerId: string, amount: number) {
-    await this.prisma.customer.update({
-      where: { id: customerId },
+  async incrementTotalSpent(customerId: string, amount: number, tenantId: string) {
+    await this.prisma.customer.updateMany({
+      where: { id: customerId, tenantId },
       data: {
         totalSpent: { increment: amount },
       },

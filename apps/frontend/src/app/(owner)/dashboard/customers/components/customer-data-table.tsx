@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowUpDown, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
+import { useStoreSettings } from '../../settings/hooks/use-settings';
 
 interface CustomerDataTableProps {
   data: Customer[];
@@ -33,6 +34,11 @@ export function CustomerDataTable({
     onSortChange 
 }: CustomerDataTableProps) {
   const router = useRouter();
+  const { data: settingsResponse } = useStoreSettings();
+  const settings = settingsResponse?.data;
+
+  // #14: Use currency from store settings, fallback to BDT
+  const currencyCode = settings?.currencyCode || 'BDT';
 
   const handleSort = (key: string) => {
     if (sort === `${key}_asc`) {
@@ -43,9 +49,9 @@ export function CustomerDataTable({
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-BD', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'BDT',
+      currency: currencyCode,
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
@@ -100,8 +106,9 @@ export function CustomerDataTable({
                   <User size={16} />
                 </div>
               </TableCell>
+              {/* S4: Fixed - use text-foreground instead of text-gray-900 */}
               <TableCell>
-                <div className="font-medium text-gray-900">{customer.fullName}</div>
+                <div className="font-medium text-foreground">{customer.fullName}</div>
                 <div className="flex gap-1 mt-1 flex-wrap">
                   {customer.tags?.map(tag => (
                     <Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0 h-4 leading-none">

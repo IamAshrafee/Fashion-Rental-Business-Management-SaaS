@@ -1311,6 +1311,7 @@ export class BookingService {
     await this.customerService.incrementTotalSpent(
       booking.customerId,
       booking.grandTotal,
+      tenantId,
     );
   }
 }

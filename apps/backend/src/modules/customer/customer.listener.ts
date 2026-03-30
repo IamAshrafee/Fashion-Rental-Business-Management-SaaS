@@ -18,7 +18,7 @@ export class CustomerListener {
   @OnEvent('booking.confirmed')
   async onBookingConfirmed(payload: { customerId: string; tenantId: string }) {
     try {
-      await this.customerService.incrementBookingCount(payload.customerId);
+      await this.customerService.incrementBookingCount(payload.customerId, payload.tenantId);
       this.logger.debug(`Incremented booking count for customer ${payload.customerId}`);
     } catch (error) {
       this.logger.error(`Failed to update customer stats on booking.confirmed: ${error}`);
@@ -31,7 +31,7 @@ export class CustomerListener {
   @OnEvent('payment.recorded')
   async onPaymentRecorded(payload: { customerId: string; amount: number; tenantId: string }) {
     try {
-      await this.customerService.incrementTotalSpent(payload.customerId, payload.amount);
+      await this.customerService.incrementTotalSpent(payload.customerId, payload.amount, payload.tenantId);
       this.logger.debug(`Incremented total spent for customer ${payload.customerId} by ${payload.amount}`);
     } catch (error) {
       this.logger.error(`Failed to update customer stats on payment.recorded: ${error}`);
