@@ -176,6 +176,7 @@ export interface BookingDetailResponse {
   deliveredAt: string | null;
   returnedAt: string | null;
   completedAt: string | null;
+  cancelledAt: string | null;
   createdAt: string;
   updatedAt: string;
   customer: {
@@ -515,5 +516,17 @@ export const bookingApi = {
     );
     if (!data.success) throw new Error(data.message || 'Failed to upload damage photos');
     return data.data.urls;
+  },
+
+  /**
+   * POST /api/v1/owner/bookings/:id/late-fees
+   * Calculates and updates late fees for all items in a booking.
+   */
+  calculateLateFees: async (id: string): Promise<{ bookingId: string; lateItemsUpdated: number }> => {
+    const { data } = await apiClient.post<ApiResponse<{ bookingId: string; lateItemsUpdated: number }>>(
+      `/owner/bookings/${id}/late-fees`,
+    );
+    if (!data.success) throw new Error(data.message || 'Failed to calculate late fees');
+    return data.data;
   },
 };

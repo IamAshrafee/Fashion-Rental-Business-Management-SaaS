@@ -1,6 +1,19 @@
 import { Booking } from '../../types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+
+// Fix #8: Map payment method codes to display labels
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cod: 'Cash on Delivery',
+  bkash: 'bKash',
+  nagad: 'Nagad',
+  sslcommerz: 'SSLCommerz',
+};
+
+function getPaymentMethodLabel(method: string): string {
+  return PAYMENT_METHOD_LABELS[method] || method.toUpperCase();
+}
 
 export function PriceBreakdown({ booking }: { booking: Booking }) {
   // Compute fee breakdowns from items
@@ -13,7 +26,9 @@ export function PriceBreakdown({ booking }: { booking: Booking }) {
       <CardHeader className="pb-3 bg-muted/30">
         <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex justify-between items-center">
           Payment Summary
-          <span className="text-foreground text-base capitalize">{booking.paymentMethod}</span>
+          <Badge variant="secondary" className="text-[11px] font-medium shadow-none bg-background border">
+            {getPaymentMethodLabel(booking.paymentMethod)}
+          </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
@@ -69,10 +84,17 @@ export function PriceBreakdown({ booking }: { booking: Booking }) {
             <span>৳{booking.totalPaid.toLocaleString()}</span>
           </div>
           
-          <div className="flex justify-between items-center text-sm font-semibold mt-1">
-            <span className="text-muted-foreground">Balance Due</span>
-            <span className="text-lg">৳{booking.balance.toLocaleString()}</span>
-          </div>
+          {booking.balance > 0 ? (
+            <div className="flex justify-between items-center text-sm font-semibold mt-1">
+              <span className="text-muted-foreground">Balance Due</span>
+              <span className="text-lg text-red-600">৳{booking.balance.toLocaleString()}</span>
+            </div>
+          ) : (
+            <div className="flex justify-between items-center text-sm font-semibold mt-1 text-green-600">
+              <span>Fully Paid</span>
+              <span>✓</span>
+            </div>
+          )}
         </div>
 
       </CardContent>
