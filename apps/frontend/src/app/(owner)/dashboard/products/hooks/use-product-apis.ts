@@ -235,3 +235,24 @@ export function usePermanentDeleteProduct() {
     },
   });
 }
+
+/**
+ * Update product status (draft/published/archived).
+ */
+export function useUpdateProductStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      productApi.updateStatus(id, status),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      const label = variables.status === 'published' ? 'Published' : variables.status === 'draft' ? 'Unpublished' : 'Archived';
+      toast.success(`Product ${label}`);
+    },
+    onError: (err: any) => {
+      const message = err.response?.data?.message || 'Failed to update status';
+      toast.error(message);
+    },
+  });
+}

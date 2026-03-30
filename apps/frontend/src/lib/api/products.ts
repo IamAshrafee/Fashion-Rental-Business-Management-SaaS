@@ -72,34 +72,125 @@ export interface ProductListItem {
   deletedAt?: string | null;
 }
 
-export interface ProductDetail extends ProductListItem {
-  description: string | null;
-  subcategory?: { id: string; name: string } | null;
-  events: Array<{ id: string; name: string }>;
-  securityDeposit: number;
-  cleaningFee: number;
-  cleaningFeeEnabled: boolean;
-  backupSizeFee: number;
-  backupSizeEnabled: boolean;
-  tryOnFee: number;
-  tryOnEnabled: boolean;
-  includedDays: number;
-  pricePerDay: number;
+export interface ProductPricingData {
+  id: string;
+  mode: string;
+  rentalPrice: number | null;
+  includedDays: number | null;
+  pricePerDay: number | null;
+  minimumDays: number | null;
   retailPrice: number | null;
   rentalPercentage: number | null;
-  minPrice: number | null;
-  maxDiscount: number | null;
-  sizeMode: string;
-  measurements: Record<string, unknown> | null;
-  details: Array<{ header: string; items: string[] }>;
-  faqs: Array<{ question: string; answer: string }>;
-  purchasePrice: number | null;
+  calculatedPrice: number | null;
+  priceOverride: number | null;
+  minInternalPrice: number | null;
+  maxDiscountPrice: number | null;
+  extendedRentalRate: number | null;
+  lateFeeType: string | null;
+  lateFeeAmount: number | null;
+  lateFeePercentage: number | null;
+  maxLateFee: number | null;
+  shippingMode: string | null;
+  shippingFee: number | null;
+}
+
+export interface ProductServicesData {
+  id: string;
+  depositAmount: number | null;
+  cleaningFee: number | null;
+  backupSizeEnabled: boolean;
+  backupSizeFee: number | null;
+  tryOnEnabled: boolean;
+  tryOnFee: number | null;
+  tryOnDurationHours: number | null;
+  tryOnCreditToRental: boolean;
+}
+
+export interface ProductSizeData {
+  id: string;
+  mode: string;
+  freeSizeType: string | null;
+  availableSizes: string[];
+  sizeChartUrl: string | null;
+  mainDisplaySize: string | null;
+  measurements: Array<{ id: string; label: string; value: string; unit: string; sequence: number }>;
+  parts: Array<{
+    id: string;
+    partName: string;
+    sequence: number;
+    measurements: Array<{ id: string; label: string; value: string; unit: string; sequence: number }>;
+  }>;
+}
+
+export interface ProductVariantData {
+  id: string;
+  variantName: string | null;
+  mainColorId: string;
+  sequence: number;
+  mainColor: { id: string; name: string; hexCode: string | null };
+  identicalColors: Array<{ color: { id: string; name: string; hexCode: string | null } }>;
+  images: Array<{
+    id: string;
+    url: string;
+    thumbnailUrl: string;
+    isFeatured: boolean;
+    sequence: number;
+    originalName: string | null;
+  }>;
+}
+
+export interface ProductFaqData {
+  id: string;
+  question: string;
+  answer: string;
+  sequence: number;
+}
+
+export interface ProductDetailHeaderData {
+  id: string;
+  headerName: string;
+  sequence: number;
+  entries: Array<{ id: string; key: string; value: string; sequence: number }>;
+}
+
+/**
+ * Full product detail — matches the Prisma response from
+ * `GET /owner/products/:id` with `fullProductIncludes()`.
+ */
+export interface ProductDetail {
+  id: string;
+  tenantId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  categoryId: string;
+  subcategoryId: string | null;
+  status: string;
+  isAvailable: boolean;
+  availableFrom: string | null;
+  unavailableReason: string | null;
   purchaseDate: string | null;
-  purchaseCountry: string | null;
-  supplierName: string | null;
-  revenue: number;
+  purchasePrice: number | null;
+  purchasePricePublic: boolean;
+  itemCountry: string | null;
+  itemCountryPublic: boolean;
+  targetRentals: number | null;
+  totalBookings: number;
+  totalRevenue: number;
+  createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  deletedByUserId: string | null;
+  // Relations
+  category: { id: string; name: string; slug: string };
+  subcategory: { id: string; name: string; slug: string } | null;
+  events: Array<{ event: { id: string; name: string; slug: string } }>;
+  pricing: ProductPricingData | null;
+  services: ProductServicesData | null;
+  productSize: ProductSizeData | null;
+  variants: ProductVariantData[];
+  faqs: ProductFaqData[];
+  detailHeaders: ProductDetailHeaderData[];
 }
 
 export interface ProductListQuery {
@@ -147,6 +238,13 @@ export const productApi = {
    */
   softDelete: async (id: string): Promise<void> => {
     await apiClient.delete(`/owner/products/${id}`);
+  },
+
+  /**
+   * PATCH /api/v1/owner/products/:id/status
+   */
+  updateStatus: async (id: string, status: string): Promise<void> => {
+    await apiClient.patch(`/owner/products/${id}/status`, { status });
   },
 
   /**
