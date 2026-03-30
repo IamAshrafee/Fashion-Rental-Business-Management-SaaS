@@ -1,102 +1,132 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import {
+  getGuestProducts,
+  type GuestProductsQuery,
+} from '@/lib/api/guest-products';
 import { ProductCard } from '@/components/guest/ui/product-card';
-import { SlidersHorizontal, ChevronDown } from 'lucide-react';
-import { FilterSidebar } from '@/components/guest/ui/filter-sidebar';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 
 export default function GuestCategoryPage() {
-  const params = useParams();
-  const slug = params?.slug as string;
-  const categoryName = slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : 'Category';
+  const { slug } = useParams();
+  const categorySlug = slug as string;
 
-  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const query: GuestProductsQuery = {
+    category: categorySlug,
+    limit: 40,
+    sort: 'newest',
+  };
 
-  // Dummy products just for layout demonstration
-  const featuredProducts = [
-    {
-      id: '1',
-      slug: 'royal-banarasi-saree',
-      name: `Royal Banarasi ${categoryName}`,
-      category: categoryName,
-      eventNames: ['Wedding', 'Reception'],
-      basePrice: 7500,
-      imageUrl: '/placeholder-saree.jpg',
-      variants: [
-        { id: 'v1', name: 'Red', colorHex: '#ef4444', imageUrl: '/placeholder-saree-red.jpg' },
-        { id: 'v2', name: 'Gold', colorHex: '#fbbf24', imageUrl: '/placeholder-saree-gold.jpg' },
-      ],
-      isAvailable: true,
-    },
-    {
-      id: '2',
-      slug: `velvet-bridal-${slug}`,
-      name: `Velvet Bridal ${categoryName}`,
-      category: categoryName,
-      eventNames: ['Wedding'],
-      basePrice: 12000,
-      imageUrl: '/placeholder-lehenga.jpg',
-      isAvailable: false,
-    },
-  ];
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['guest-category-products', categorySlug],
+    queryFn: () => getGuestProducts(query),
+    enabled: !!categorySlug,
+  });
+
+  const products = data?.data || [];
+  const meta = data?.meta;
+  const categoryName =
+    products[0]?.category?.name ||
+    categorySlug.charAt(0).toUpperCase() + categorySlug.slice(1);
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Category Header */}
-      <div className="mb-12 rounded-2xl bg-gray-100 p-8 text-center sm:p-12">
-        <h1 className="font-display text-4xl font-bold tracking-tight text-gray-900">{categoryName} Collection</h1>
-        <p className="mt-4 text-gray-600 max-w-2xl mx-auto">
-          Explore our exclusive collection of premium {categoryName.toLowerCase()}s perfect for your next big event. Rent luxury fashion for a fraction of the price.
-        </p>
+      {/* Breadcrumb */}
+      <div className="mb-8">
+        <Link
+          href="/products"
+          className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-black"
+        >
+          <ArrowLeft className="h-4 w-4" /> All Products
+        </Link>
       </div>
 
-      <div className="mb-8 flex flex-col items-center justify-between gap-4 md:flex-row">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-gray-900">Explore {categoryName}s</h2>
-          <p className="text-sm text-gray-500">Showing 24 results</p>
+      <div className="mb-8">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-gray-900">
+          {categoryName}
+        </h1>
+        {meta && (
+          <p className="mt-2 text-sm text-gray-500">
+            {meta.total} {meta.total === 1 ? 'product' : 'products'} available
+          </p>
+        )}
+      </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
         </div>
-        
-        <div className="flex w-full items-center justify-between gap-4 md:w-auto">
-          <button 
-            type="button" 
-            onClick={() => setMobileFilterOpen(true)}
-            className="flex items-center gap-2 border border-black bg-white px-4 py-2 text-sm font-medium uppercase tracking-wider text-black transition-colors hover:bg-black hover:text-white md:hidden"
+      )}
+
+      {/* Error */}
+      {isError && (
+        <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
+          <p className="mb-2 text-lg font-medium text-gray-900">
+            Failed to load products
+          </p>
+          <p className="text-sm text-gray-500">
+            Please try refreshing the page.
+          </p>
+        </div>
+      )}
+
+      {/* Empty */}
+      {!isLoading && !isError && products.length === 0 && (
+        <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
+          <p className="mb-2 text-lg font-medium text-gray-900">
+            No products in this category
+          </p>
+          <p className="mb-6 text-sm text-gray-500">
+            Check back soon or browse other categories.
+          </p>
+          <Link
+            href="/products"
+            className="inline-flex items-center gap-2 border border-black px-6 py-3 text-sm font-semibold uppercase tracking-wider text-black transition-colors hover:bg-black hover:text-white"
           >
-            <SlidersHorizontal className="h-4 w-4" /> Filters
-          </button>
-          
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Sort by:</span>
-            <div className="relative">
-              <select className="appearance-none rounded-none border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm text-gray-900 outline-none focus:border-black focus:ring-0">
-                <option>Most Popular</option>
-                <option>Newest Arrivals</option>
-                <option>Price: Low to High</option>
-                <option>Price: High to Low</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-            </div>
-          </div>
+            Browse All
+          </Link>
         </div>
-      </div>
+      )}
 
-      <div className="flex flex-col md:flex-row md:gap-8">
-        {/* Sidebar wrapper */}
-        <FilterSidebar mobileOpen={mobileFilterOpen} setMobileOpen={setMobileFilterOpen} />
-        
-        {/* Products Grid */}
-        <div className="flex-1">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-6">
-            {featuredProducts.map((product) => (
-              <ProductCard key={product.id} {...product} />
-            ))}
-            {featuredProducts.map((product) => (
-              <ProductCard key={`${product.id}-clone-1`} {...product} />
-            ))}
-          </div>
+      {/* Product grid */}
+      {!isLoading && products.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-6">
+          {products.map((product) => (
+            <ProductCard
+              key={product.id}
+              id={product.id}
+              slug={product.slug}
+              name={product.name}
+              category={product.category?.name || ''}
+              eventNames={product.events?.map((e) => e.name)}
+              basePrice={product.rentalPrice || 0}
+              includedDays={product.includedDays}
+              imageUrl={
+                product.defaultVariant?.featuredImage?.thumbnailUrl ||
+                product.defaultVariant?.featuredImage?.url ||
+                ''
+              }
+              isAvailable={product.isAvailable}
+            />
+          ))}
         </div>
-      </div>
+      )}
+
+      {/* Pagination hint */}
+      {meta && meta.pages > 1 && (
+        <div className="mt-12 text-center">
+          <Link
+            href={`/products?category=${categorySlug}`}
+            className="inline-block border border-black px-8 py-3 text-sm font-semibold uppercase tracking-wider text-black transition-colors hover:bg-black hover:text-white"
+          >
+            View all with filters →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

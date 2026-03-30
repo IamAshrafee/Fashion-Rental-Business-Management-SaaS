@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -38,6 +39,12 @@ export class SearchService {
 
     // If few results, try fuzzy matching
     if (results.length < 3) {
+      // Use parameterized exclusion to avoid SQL injection
+      const excludeIds =
+        results.length > 0
+          ? Prisma.sql`AND p.id NOT IN (${Prisma.join(results.map((r) => r.id))})`
+          : Prisma.empty;
+
       const fuzzyResults: any[] = await this.prisma.$queryRaw`
         SELECT p.id, p.name, p.slug, p.total_bookings,
                similarity(p.name, ${query}) as sim
@@ -47,7 +54,7 @@ export class SearchService {
           AND p.deleted_at IS NULL
           AND p.is_available = true
           AND similarity(p.name, ${query}) > 0.2
-          AND p.id NOT IN (${results.length > 0 ? results.map((r) => r.id).join("','") : 'NULL'})
+          ${excludeIds}
         ORDER BY sim DESC
         LIMIT ${take - results.length}
       `;

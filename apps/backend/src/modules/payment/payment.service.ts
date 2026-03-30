@@ -574,6 +574,21 @@ export class PaymentService {
   }
 
   // =========================================================================
+  // BOOKING NUMBER LOOKUP (for SSLCommerz redirect)
+  // =========================================================================
+
+  /**
+   * Simple helper to get booking number by ID.
+   * Used by payment controller to redirect to confirmation page.
+   */
+  async getBookingNumber(bookingId: string) {
+    return this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { bookingNumber: true },
+    });
+  }
+
+  // =========================================================================
   // PRIVATE HELPERS
   // =========================================================================
 

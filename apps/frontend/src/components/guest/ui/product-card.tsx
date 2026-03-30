@@ -17,6 +17,7 @@ interface ProductCardProps {
   category: string;
   eventNames?: string[];
   basePrice: number;
+  includedDays?: number | null;
   imageUrl: string;
   variants?: Variant[];
   isAvailable?: boolean;
@@ -28,6 +29,7 @@ export function ProductCard({
   category,
   eventNames,
   basePrice,
+  includedDays,
   imageUrl,
   variants = [],
   isAvailable = true,
@@ -35,16 +37,24 @@ export function ProductCard({
   const { formatPrice } = useLocale();
   const [activeImage, setActiveImage] = useState(imageUrl);
 
+  const daysLabel = includedDays ? `${includedDays} days` : 'rental';
+
   return (
     <div className="group relative flex flex-col gap-2 overflow-hidden bg-white p-2 transition-all hover:shadow-lg sm:p-3">
       {/* Image Container */}
       <Link href={`/products/${slug}`} className="relative block aspect-square overflow-hidden bg-gray-100">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={activeImage || '/placeholder-product.jpg'}
-          alt={name}
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-        />
+        {activeImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={activeImage}
+            alt={name}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-gray-100 text-gray-400">
+            <span className="text-xs">No Image</span>
+          </div>
+        )}
         {!isAvailable && (
           <div className="absolute left-2 top-2 rounded bg-red-600 px-2 py-1 text-xs font-bold text-white shadow">
             Booked
@@ -63,7 +73,7 @@ export function ProductCard({
         </div>
         <div className="mt-1 font-semibold text-gray-900">
           {formatPrice(basePrice)}{' '}
-          <span className="text-xs font-normal text-gray-500">/ 3 days</span>
+          <span className="text-xs font-normal text-gray-500">/ {daysLabel}</span>
         </div>
 
         {/* Variants / Color Swatches */}
@@ -74,8 +84,8 @@ export function ProductCard({
                 key={v.id}
                 type="button"
                 className={cn(
-                  "h-4 w-4 rounded-full border border-gray-300 shadow-sm transition-transform hover:scale-125",
-                  v.imageUrl === activeImage && "ring-1 ring-black ring-offset-1"
+                  'h-4 w-4 rounded-full border border-gray-300 shadow-sm transition-transform hover:scale-125',
+                  v.imageUrl === activeImage && 'ring-1 ring-black ring-offset-1',
                 )}
                 style={{ backgroundColor: v.colorHex || '#ccc' }}
                 title={v.name}

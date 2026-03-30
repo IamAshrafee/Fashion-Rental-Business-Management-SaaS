@@ -46,6 +46,8 @@ export interface TenantPublicInfo {
   instagramUrl: string | null;
   tiktokUrl: string | null;
   youtubeUrl: string | null;
+  bkashNumber: string | null;
+  nagadNumber: string | null;
   locale: TenantLocale;
 }
 

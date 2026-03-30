@@ -105,13 +105,30 @@ export async function validateCart(payload: CartValidationRequest): Promise<Cart
  *
  * GET /api/v1/customers/lookup?phone=...
  */
-export async function lookupCustomer(phone: string): Promise<Partial<CheckoutCustomerPayload> | null> {
+export async function lookupCustomer(
+  phone: string,
+): Promise<{
+  found: boolean;
+  customer: {
+    fullName: string;
+    phone: string;
+    email: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    country: string | null;
+  } | null;
+}> {
   try {
-    const response = await apiClient.get<ApiResponse<Partial<CheckoutCustomerPayload>>>(`/customers/lookup?phone=${encodeURIComponent(phone)}`);
-    return response.data.success ? response.data.data : null;
-  } catch (error) {
-    // Graceful fail for auto-lookup. Just means they're a new customer or not found.
-    return null;
+    const response = await apiClient.get<{
+      found: boolean;
+      customer: any;
+    }>(`/customers/lookup?phone=${encodeURIComponent(phone)}`);
+    return response.data;
+  } catch {
+    return { found: false, customer: null };
   }
 }
 
@@ -134,14 +151,13 @@ export async function createBooking(payload: CheckoutPayload): Promise<BookingRe
 }
 
 /**
- * Public route to discover tracking status of any booking utilizing the booking ID and customer phone check.
+ * Public route to discover tracking status of a booking.
  *
- * GET /api/v1/bookings/track?number=...&phone=...
+ * GET /api/v1/bookings/:bookingNumber/status
  */
-export async function trackBooking(bookingNumber: string, phone: string): Promise<unknown> {
-  const response = await apiClient.get<ApiResponse<unknown>>(`/bookings/track?number=${encodeURIComponent(bookingNumber)}&phone=${encodeURIComponent(phone)}`);
-  if (!response.data.success) {
-    throw new Error(response.data.message || 'Failed to fetch tracking details');
-  }
-  return response.data.data;
+export async function trackBooking(bookingNumber: string): Promise<unknown> {
+  const response = await apiClient.get<unknown>(
+    `/bookings/${encodeURIComponent(bookingNumber)}/status`,
+  );
+  return response;
 }

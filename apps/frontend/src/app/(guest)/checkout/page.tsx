@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useCart } from '@/hooks/use-cart';
 import { useLocale } from '@/hooks/use-locale';
-import { lookupCustomer, createBooking, type CheckoutCustomerPayload } from '@/lib/api/guest-booking';
+import { useTenant } from '@/hooks/use-tenant';
+import { lookupCustomer, createBooking } from '@/lib/api/guest-booking';
 import { ArrowLeft, CheckCircle2, Loader2, MapPin, CreditCard, UserCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,7 @@ export default function GuestCheckoutPage() {
   const router = useRouter();
   const { items, totalPrice, totalDeposit, clearCart } = useCart();
   const { formatPrice } = useLocale();
+  const { tenant } = useTenant();
 
   const [mounted, setMounted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -50,15 +52,17 @@ export default function GuestCheckoutPage() {
   const handlePhoneBlur = async () => {
     if (formData.phone.length === 11 && formData.phone.startsWith('01')) {
       setLookingUp(true);
-      const data = await lookupCustomer(formData.phone);
+      const result = await lookupCustomer(formData.phone);
       setLookingUp(false);
       
-      if (data && data.fullName) {
+      if (result.found && result.customer) {
         setReturningCustomer(true);
         setFormData(prev => ({
           ...prev,
-          name: data.fullName || prev.name,
-          email: data.email || prev.email,
+          name: result.customer!.fullName || prev.name,
+          email: result.customer!.email || prev.email,
+          address: result.customer!.addressLine1 || prev.address,
+          district: result.customer!.city || prev.district,
         }));
       }
     }
@@ -303,7 +307,7 @@ export default function GuestCheckoutPage() {
                   {paymentMethod === 'bkash' && (
                     <div className="mt-4 border-t border-gray-200 pt-4 cursor-default" onClick={e => e.preventDefault()}>
                       <div className="bg-pink-50 p-3 mb-3 border border-pink-200 text-pink-900 text-sm">
-                        bKash Personal: <strong>017XXXXXXXX</strong> <br/>
+                        bKash Personal: <strong>{tenant?.bkashNumber || 'Not configured'}</strong> <br/>
                         Amount: <strong>{formatPrice(totalPrice)}</strong>
                       </div>
                       <label className="text-sm font-medium text-gray-700 block mb-1">Enter Transaction ID (TrxID) *</label>

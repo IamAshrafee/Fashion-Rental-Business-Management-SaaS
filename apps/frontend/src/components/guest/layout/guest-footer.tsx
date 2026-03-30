@@ -40,21 +40,21 @@ export function GuestFooter() {
 
           {/* Quick Links */}
           <div>
-            <h3 className="mb-4 font-semibold text-gray-900">Information</h3>
+            <h3 className="mb-4 font-semibold text-gray-900">Quick Links</h3>
             <ul className="space-y-3 text-sm text-gray-500">
               <li>
-                <Link href="/about" className="transition-colors hover:text-black">
-                  About Us
+                <Link href="/" className="transition-colors hover:text-black">
+                  Home
                 </Link>
               </li>
               <li>
-                <Link href="/faq" className="transition-colors hover:text-black">
-                  FAQ
+                <Link href="/products" className="transition-colors hover:text-black">
+                  Browse Collection
                 </Link>
               </li>
               <li>
-                <Link href="/terms" className="transition-colors hover:text-black">
-                  Terms & Conditions
+                <Link href="/booking/track" className="transition-colors hover:text-black">
+                  Track Order
                 </Link>
               </li>
             </ul>

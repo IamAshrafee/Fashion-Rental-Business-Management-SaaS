@@ -264,6 +264,8 @@ export class TenantService {
             instagramUrl: true,
             tiktokUrl: true,
             youtubeUrl: true,
+            bkashNumber: true,
+            nagadNumber: true,
             defaultLanguage: true,
             timezone: true,
             country: true,
@@ -304,6 +306,8 @@ export class TenantService {
       instagramUrl: settings?.instagramUrl ?? null,
       tiktokUrl: settings?.tiktokUrl ?? null,
       youtubeUrl: settings?.youtubeUrl ?? null,
+      bkashNumber: settings?.bkashNumber ?? null,
+      nagadNumber: settings?.nagadNumber ?? null,
       locale: {
         language: settings?.defaultLanguage ?? 'en',
         timezone: settings?.timezone ?? 'UTC',

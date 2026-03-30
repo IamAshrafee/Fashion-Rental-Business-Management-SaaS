@@ -84,11 +84,11 @@ export class PaymentGuestController {
   /**
    * GET /api/v1/payments/sslcommerz/success
    * Redirect URL after successful SSLCommerz payment.
-   * Redirects customer to the booking confirmation page.
+   * Looks up the booking from tran_id and redirects with bookingNumber.
    */
   @Public()
   @Get('sslcommerz/success')
-  handleSuccess(
+  async handleSuccess(
     @Query('tran_id') transactionId: string,
     @Res() res: Response,
   ) {
@@ -96,9 +96,22 @@ export class PaymentGuestController {
       'app.frontendUrl',
       'http://localhost:3000',
     );
+
     // Extract booking ID from tran_id format: BOOKING-{id}-{timestamp}
     const bookingId = transactionId?.split('-').slice(1, -1).join('-') ?? '';
-    return res.redirect(`${frontendUrl}/booking/confirmation?id=${bookingId}&payment=success`);
+
+    // Look up the booking number for the redirect
+    let bookingNumber = '';
+    try {
+      const booking = await this.paymentService.getBookingNumber(bookingId);
+      bookingNumber = booking?.bookingNumber || bookingId;
+    } catch {
+      bookingNumber = bookingId;
+    }
+
+    return res.redirect(
+      `${frontendUrl}/booking/confirmation?number=${encodeURIComponent(bookingNumber)}&payment=success`,
+    );
   }
 
   /**
@@ -115,7 +128,9 @@ export class PaymentGuestController {
       'app.frontendUrl',
       'http://localhost:3000',
     );
-    return res.redirect(`${frontendUrl}/checkout?payment=failed`);
+    return res.redirect(
+      `${frontendUrl}/checkout?payment=failed&tran_id=${encodeURIComponent(transactionId || '')}`,
+    );
   }
 
   /**
@@ -129,7 +144,7 @@ export class PaymentGuestController {
       'app.frontendUrl',
       'http://localhost:3000',
     );
-    return res.redirect(`${frontendUrl}/cart`);
+    return res.redirect(`${frontendUrl}/cart?payment=cancelled`);
   }
 }
 

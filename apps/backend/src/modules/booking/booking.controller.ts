@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { BookingService } from './booking.service';
+import { CustomerService } from '../customer/customer.service';
 import {
   CreateBookingDto,
   ValidateCartDto,
@@ -46,7 +47,10 @@ import { BookingStatus } from '@prisma/client';
  */
 @Controller()
 export class BookingGuestController {
-  constructor(private readonly bookingService: BookingService) {}
+  constructor(
+    private readonly bookingService: BookingService,
+    private readonly customerService: CustomerService,
+  ) {}
 
   /**
    * GET /api/v1/products/:productId/availability?month=2026-04
@@ -121,6 +125,20 @@ export class BookingGuestController {
     @Param('bookingNumber') bookingNumber: string,
   ) {
     return this.bookingService.getBookingByNumber(tenant.id, bookingNumber);
+  }
+
+  /**
+   * GET /api/v1/customers/lookup?phone=01712345678
+   * Public customer lookup for checkout auto-fill.
+   * Returns minimal customer info (name, address) — no sensitive data.
+   */
+  @Public()
+  @Get('customers/lookup')
+  async lookupCustomer(
+    @CurrentTenant() tenant: TenantContext,
+    @Query('phone') phone: string,
+  ) {
+    return this.customerService.lookupByPhone(tenant.id, phone);
   }
 }
 
