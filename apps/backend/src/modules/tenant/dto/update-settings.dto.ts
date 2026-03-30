@@ -12,6 +12,7 @@ import {
   Max,
   Matches,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 // =========================================================================
 // BRANDING + CONTACT + SOCIAL (PATCH /tenant/settings)
@@ -61,23 +62,28 @@ export class UpdateStoreSettingsDto {
   @IsString()
   address?: string;
 
-  // Social links
+  // Social links — @Transform converts empty strings to undefined so
+  // @IsOptional() + @IsUrl() correctly skips validation for blank fields.
   @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsUrl()
   @MaxLength(500)
   facebookUrl?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsUrl()
   @MaxLength(500)
   instagramUrl?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsUrl()
   @MaxLength(500)
   tiktokUrl?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value || undefined)
   @IsUrl()
   @MaxLength(500)
   youtubeUrl?: string;
