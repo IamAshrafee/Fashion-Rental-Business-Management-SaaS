@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { PageHeader } from '@/components/shared';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ListFilter, Loader2 } from 'lucide-react';
@@ -33,7 +34,7 @@ export default function CalendarPage() {
           />
         </div>
         
-        <Button variant="outline">
+        <Button variant="outline" onClick={() => toast.info('Calendar filters coming soon')}>
           <ListFilter className="h-4 w-4 mr-2" />
           Filter Events
         </Button>

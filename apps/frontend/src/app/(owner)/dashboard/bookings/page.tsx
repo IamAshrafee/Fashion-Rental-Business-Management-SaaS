@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { PageHeader } from '@/components/shared';
 import { Button } from '@/components/ui/button';
 import { Plus, Calendar as CalendarIcon, Download, Loader2 } from 'lucide-react';
@@ -34,7 +35,7 @@ export default function BookingsPage() {
               Calendar
             </Link>
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => toast.info('Export coming soon')}>
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>

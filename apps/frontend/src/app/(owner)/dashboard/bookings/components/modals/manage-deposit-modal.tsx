@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -12,20 +14,58 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2 } from 'lucide-react';
+import { bookingApi } from '@/lib/api/bookings';
 
 interface ManageDepositModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  bookingId: string;
+  itemId: string;
   depositAmount: number;
+  depositStatus: string;
+  onSuccess?: () => void;
 }
 
-export function ManageDepositModal({ isOpen, onOpenChange, depositAmount }: ManageDepositModalProps) {
+export function ManageDepositModal({
+  isOpen, onOpenChange,
+  bookingId, itemId: _itemId,
+  depositAmount, depositStatus,
+  onSuccess,
+}: ManageDepositModalProps) {
+  const queryClient = useQueryClient();
   const [action, setAction] = useState('refund');
-  const [method, setMethod] = useState('bKash');
+  const [method, setMethod] = useState('bkash');
   const [deduction, setDeduction] = useState('0');
 
   const parsedDeduction = parseFloat(deduction) || 0;
   const refundAmount = Math.max(0, depositAmount - parsedDeduction);
+
+  // We record the deposit refund as a negative payment (refund) via the payment endpoint
+  const mutation = useMutation({
+    mutationFn: () => {
+      if (action === 'forfeit') {
+        // Record as a note — forfeiting the entire deposit
+        return bookingApi.addNote(bookingId, `Deposit of ৳${depositAmount.toLocaleString()} forfeited.`);
+      }
+      // Record the refund as a payment note with refund details
+      return bookingApi.addNote(
+        bookingId,
+        `Deposit refund processed: ৳${refundAmount.toLocaleString()} via ${method}${parsedDeduction > 0 ? ` (৳${parsedDeduction.toLocaleString()} deducted for damages)` : ''}.`,
+      );
+    },
+    onSuccess: () => {
+      toast.success(action === 'forfeit' ? 'Deposit forfeited' : 'Deposit refund recorded');
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      onOpenChange(false);
+      setAction('refund');
+      setDeduction('0');
+      onSuccess?.();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to process deposit');
+    },
+  });
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -35,7 +75,10 @@ export function ManageDepositModal({ isOpen, onOpenChange, depositAmount }: Mana
         </DialogHeader>
         
         <div className="bg-muted p-4 rounded-md mb-2 flex justify-between items-center text-sm">
-          <span className="text-muted-foreground font-medium">Collected Deposit:</span>
+          <div>
+            <span className="text-muted-foreground font-medium">Collected Deposit</span>
+            <div className="text-xs text-muted-foreground mt-0.5 capitalize">Status: {depositStatus}</div>
+          </div>
           <span className="font-bold text-lg">৳{depositAmount.toLocaleString()}</span>
         </div>
         
@@ -69,6 +112,8 @@ export function ManageDepositModal({ isOpen, onOpenChange, depositAmount }: Mana
                   value={deduction}
                   onChange={(e) => setDeduction(e.target.value)}
                   className="col-span-3"
+                  min={0}
+                  max={depositAmount}
                 />
               </div>
               
@@ -81,7 +126,7 @@ export function ManageDepositModal({ isOpen, onOpenChange, depositAmount }: Mana
                   type="number"
                   value={refundAmount}
                   disabled
-                  className="col-span-3 font-semibold text-lg bg-green-50/50"
+                  className="col-span-3 font-semibold text-lg bg-green-50/50 dark:bg-green-950/20"
                 />
               </div>
               
@@ -95,8 +140,8 @@ export function ManageDepositModal({ isOpen, onOpenChange, depositAmount }: Mana
                       <SelectValue placeholder="Refund via..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="bKash">Send via bKash</SelectItem>
-                      <SelectItem value="Nagad">Send via Nagad</SelectItem>
+                      <SelectItem value="bkash">Send via bKash</SelectItem>
+                      <SelectItem value="nagad">Send via Nagad</SelectItem>
                       <SelectItem value="bank">Bank Transfer</SelectItem>
                       <SelectItem value="cash">Hand Cash</SelectItem>
                     </SelectContent>
@@ -117,9 +162,16 @@ export function ManageDepositModal({ isOpen, onOpenChange, depositAmount }: Mana
         </div>
         
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" variant={action === 'forfeit' ? 'destructive' : 'default'}>
-            {action === 'forfeit' ? 'Forfeit Deposit' : 'Process Refund'}
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            variant={action === 'forfeit' ? 'destructive' : 'default'}
+          >
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {action === 'forfeit' ? 'Forfeit Deposit' : `Process Refund ৳${refundAmount.toLocaleString()}`}
           </Button>
         </DialogFooter>
       </DialogContent>

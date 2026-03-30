@@ -84,6 +84,175 @@ export interface BookingListItem {
   _count: { items: number };
 }
 
+// ─── Booking Detail (richer than list item) ──────────────────────────────────
+
+export interface BookingDetailItem {
+  id: string;
+  bookingId: string;
+  productId: string;
+  variantId: string;
+  productName: string;
+  variantName: string | null;
+  colorName: string;
+  sizeInfo: string | null;
+  featuredImageUrl: string;
+  startDate: string;
+  endDate: string;
+  rentalDays: number;
+  baseRental: number;
+  extendedDays: number;
+  extendedCost: number;
+  depositAmount: number;
+  depositStatus: string;
+  depositRefundAmount: number | null;
+  depositRefundDate: string | null;
+  depositRefundMethod: string | null;
+  cleaningFee: number;
+  backupSize: string | null;
+  backupSizeFee: number;
+  tryOnFee: number;
+  tryOnCredited: boolean;
+  itemTotal: number;
+  lateFee: number;
+  lateDays: number;
+  createdAt: string;
+  updatedAt: string;
+  damageReport: {
+    id: string;
+    damageLevel: string;
+    description: string;
+    estimatedRepairCost: number | null;
+    deductionAmount: number;
+    additionalCharge: number;
+    photos: string[];
+    reportedBy: string;
+    createdAt: string;
+  } | null;
+}
+
+export interface BookingDetailPayment {
+  id: string;
+  amount: number;
+  method: string;
+  status: string;
+  transactionId: string | null;
+  notes: string | null;
+  recordedBy: string | null;
+  createdAt: string;
+}
+
+export interface BookingDetailResponse {
+  id: string;
+  tenantId: string;
+  bookingNumber: string;
+  customerId: string;
+  status: string;
+  paymentMethod: string;
+  paymentStatus: string;
+  subtotal: number;
+  totalFees: number;
+  shippingFee: number;
+  totalDeposit: number;
+  grandTotal: number;
+  totalPaid: number;
+  deliveryName: string;
+  deliveryPhone: string;
+  deliveryAltPhone: string | null;
+  deliveryAddressLine1: string;
+  deliveryAddressLine2: string | null;
+  deliveryCity: string;
+  deliveryState: string | null;
+  deliveryPostalCode: string | null;
+  deliveryCountry: string;
+  deliveryExtra: Record<string, string> | null;
+  customerNotes: string | null;
+  internalNotes: string | null;
+  trackingNumber: string | null;
+  courierProvider: string | null;
+  cancellationReason: string | null;
+  cancelledBy: string | null;
+  confirmedAt: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+  returnedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: {
+    id: string;
+    fullName: string;
+    phone: string;
+    altPhone: string | null;
+    email: string | null;
+    totalBookings: number;
+    totalSpent: number;
+    tags: Array<{ id: string; tag: string }>;
+  };
+  items: BookingDetailItem[];
+  payments: BookingDetailPayment[];
+}
+
+// ─── Cart Validation ─────────────────────────────────────────────────────────
+
+export interface ValidateCartPayload {
+  items: Array<{
+    productId: string;
+    variantId: string;
+    startDate: string;
+    endDate: string;
+    selectedSize?: string;
+    backupSize?: string;
+    tryOn?: boolean;
+  }>;
+}
+
+export interface ValidatedCartItem {
+  productId: string;
+  available: boolean;
+  rentalDays: number;
+  rentalPrice: number;
+  deposit: number;
+  cleaningFee: number;
+  extendedDays: number;
+  extendedCost: number;
+  backupSizeFee: number;
+  tryOnFee: number;
+  itemTotal: number;
+  shippingFee: number;
+  errors?: string[];
+}
+
+export interface ValidateCartResponse {
+  valid: boolean;
+  items: ValidatedCartItem[];
+  summary: {
+    subtotal: number;
+    totalFees: number;
+    totalDeposit: number;
+    shippingFee: number;
+    grandTotal: number;
+  };
+}
+
+// ─── Availability Check ──────────────────────────────────────────────────────
+
+export interface DateRangeCheckResponse {
+  available: boolean;
+  conflictDates?: [string, string];
+  nextAvailable?: string;
+  rentalDays?: number;
+  pricing?: {
+    baseRental: number;
+    extendedDays: number;
+    extendedCost: number;
+    deposit: number;
+    cleaningFee: number;
+    shippingFee: number;
+    total: number;
+  };
+  reason?: string;
+}
+
 export interface BookingStats {
   pendingCount: number;
   overdueCount: number;
@@ -130,6 +299,38 @@ export const bookingApi = {
   },
 
   /**
+   * POST /api/v1/bookings/validate
+   * Validates cart items and returns accurate pricing. Used pre-checkout.
+   */
+  validateCart: async (payload: ValidateCartPayload): Promise<ValidateCartResponse> => {
+    const { data } = await apiClient.post<ApiResponse<ValidateCartResponse>>(
+      '/bookings/validate',
+      payload,
+      { withCredentials: true },
+    );
+    if (!data.success) throw new Error(data.message || 'Cart validation failed');
+    return data.data;
+  },
+
+  /**
+   * POST /api/v1/products/:productId/check-availability
+   * Checks if a specific date range is available for a product and returns pricing.
+   */
+  checkDateRange: async (
+    productId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<DateRangeCheckResponse> => {
+    const { data } = await apiClient.post<ApiResponse<DateRangeCheckResponse>>(
+      `/products/${productId}/check-availability`,
+      { startDate, endDate },
+      { withCredentials: true },
+    );
+    if (!data.success) throw new Error(data.message || 'Availability check failed');
+    return data.data;
+  },
+
+  /**
    * GET /api/v1/owner/bookings/stats
    */
   getStats: async (): Promise<BookingStats> => {
@@ -151,9 +352,10 @@ export const bookingApi = {
 
   /**
    * GET /api/v1/owner/bookings/:id
+   * Returns full booking detail with items, customer, payments.
    */
-  getById: async (id: string): Promise<BookingListItem> => {
-    const { data } = await apiClient.get<ApiResponse<BookingListItem>>(`/owner/bookings/${id}`);
+  getById: async (id: string): Promise<BookingDetailResponse> => {
+    const { data } = await apiClient.get<ApiResponse<BookingDetailResponse>>(`/owner/bookings/${id}`);
     if (!data.success) throw new Error(data.message || 'Booking not found');
     return data.data;
   },
