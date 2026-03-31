@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,12 +12,20 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Gift, Sparkles } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Marketing URL params: /register?plan=pro&promo=LAUNCH2026&ref=facebook
+  const urlPlan = searchParams.get('plan');
+  const urlPromo = searchParams.get('promo');
+  const urlRef = searchParams.get('ref');
+
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -25,14 +33,18 @@ export default function RegisterPage() {
     password: '',
     businessName: '',
     subdomain: '',
+    promoCode: urlPromo || '',
+    planSlug: urlPlan || '',
+    referralSource: urlRef || '',
   });
   const [isSubdomainEdited, setIsSubdomainEdited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPromo, setShowPromo] = useState(!!urlPromo);
 
   function update(field: string, value: string) {
     setFormData((prev) => {
       const newData = { ...prev, [field]: value };
-      
+
       // Auto-generate subdomain from businessName if not manually edited
       if (field === 'businessName' && !isSubdomainEdited) {
         newData.subdomain = value
@@ -42,13 +54,12 @@ export default function RegisterPage() {
           .replace(/^-|-$/g, '')
           .substring(0, 30);
       }
-      
+
       if (field === 'subdomain') {
         setIsSubdomainEdited(true);
-        // Clean manually entered subdomain
         newData.subdomain = value.toLowerCase().replace(/[^a-z0-9-]/g, '');
       }
-      
+
       return newData;
     });
   }
@@ -62,7 +73,20 @@ export default function RegisterPage() {
 
     setIsLoading(true);
     try {
-      await apiClient.post('/auth/register', formData);
+      // Clean payload — omit empty optional fields
+      const payload: Record<string, string> = {
+        fullName: formData.fullName,
+        password: formData.password,
+        businessName: formData.businessName,
+        subdomain: formData.subdomain,
+      };
+      if (formData.email) payload.email = formData.email;
+      if (formData.phone) payload.phone = formData.phone;
+      if (formData.promoCode) payload.promoCode = formData.promoCode.toUpperCase();
+      if (formData.planSlug) payload.planSlug = formData.planSlug;
+      if (formData.referralSource) payload.referralSource = formData.referralSource;
+
+      await apiClient.post('/auth/register', payload);
       toast.success('Account created! Please sign in.');
       router.push('/login');
     } catch (err: unknown) {
@@ -82,6 +106,23 @@ export default function RegisterPage() {
         <CardDescription>
           Start managing your fashion rental business
         </CardDescription>
+        {/* Show marketing badges from URL params */}
+        {(urlPlan || urlPromo) && (
+          <div className="flex items-center justify-center gap-2 mt-2">
+            {urlPlan && (
+              <Badge variant="secondary" className="gap-1">
+                <Sparkles className="h-3 w-3" />
+                {urlPlan.charAt(0).toUpperCase() + urlPlan.slice(1)} Plan
+              </Badge>
+            )}
+            {urlPromo && (
+              <Badge className="gap-1 bg-green-600 hover:bg-green-700">
+                <Gift className="h-3 w-3" />
+                Promo: {urlPromo}
+              </Badge>
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -158,6 +199,31 @@ export default function RegisterPage() {
               At least 8 chars, 1 uppercase, 1 number
             </p>
           </div>
+
+          {/* Promo Code Field */}
+          {!showPromo && !urlPromo ? (
+            <button
+              type="button"
+              onClick={() => setShowPromo(true)}
+              className="text-sm text-primary hover:underline flex items-center gap-1"
+            >
+              <Gift className="h-3.5 w-3.5" />
+              Have a promo code?
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="promoCode">Promo Code</Label>
+              <Input
+                id="promoCode"
+                placeholder="LAUNCH2026"
+                value={formData.promoCode}
+                onChange={(e) => update('promoCode', e.target.value.toUpperCase())}
+                disabled={isLoading || !!urlPromo}
+                className="uppercase tracking-wider"
+              />
+            </div>
+          )}
+
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Account

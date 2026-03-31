@@ -44,4 +44,19 @@ export class RegisterDto {
     message: 'Subdomain must be lowercase letters, numbers, and hyphens only',
   })
   subdomain!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  promoCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  planSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  referralSource?: string;
 }

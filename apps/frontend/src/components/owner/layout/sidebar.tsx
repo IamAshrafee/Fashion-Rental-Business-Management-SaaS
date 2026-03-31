@@ -19,6 +19,7 @@ import {
   CalendarCheck,
   Users,
   BarChart3,
+  CreditCard,
   Settings,
   Menu,
   ChevronLeft,
@@ -32,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { title: 'Bookings', href: '/dashboard/bookings', icon: CalendarCheck },
   { title: 'Customers', href: '/dashboard/customers', icon: Users },
   { title: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
+  { title: 'Billing', href: '/dashboard/billing', icon: CreditCard },
   { title: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 

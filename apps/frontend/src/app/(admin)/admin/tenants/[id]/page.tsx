@@ -7,6 +7,7 @@ import { useParams } from 'next/navigation';
 import { TenantStatus } from '@closetrent/types';
 import { useState } from 'react';
 import { ChangePlanDialog } from './components/change-plan-dialog';
+import { BillingTab } from './components/billing-tab';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertCircle,
@@ -430,6 +431,16 @@ export default function TenantDetailPage() {
           </div>
         </dl>
       </div>
+
+      {/* Billing & Subscription Management */}
+      <BillingTab
+        tenantId={id}
+        subscription={t.subscription}
+        planName={t.plan?.name || null}
+        onSubscriptionUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: ['admin', 'tenant', id] });
+        }}
+      />
 
       <ChangePlanDialog
         tenantId={id}

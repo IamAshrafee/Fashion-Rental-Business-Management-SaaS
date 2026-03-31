@@ -5,13 +5,17 @@ import {
   PaginatedResponse,
   PlatformStats,
   SubscriptionPlan,
+  SubscriptionPayment,
+  PlatformInvoice,
+  PromoCode,
+  SubscriptionHistoryEntry,
   TenantStatus,
   BillingCycle,
 } from '@closetrent/types';
 import apiClient from './api-client';
 
 /**
- * Point 23: Admin API calls use a wrapper that strips
+ * Admin API calls use a wrapper that strips
  * x-tenant-id header to prevent accidental tenant resolution.
  */
 function adminRequest() {
@@ -46,6 +50,7 @@ export const adminApi = {
   async getTenants(params?: {
     status?: string;
     plan?: string;
+    paymentStatus?: string;
     search?: string;
     page?: number;
     limit?: number;
@@ -97,7 +102,6 @@ export const adminApi = {
     return res.data;
   },
 
-  /** Point 19: Soft-delete tenant */
   async deleteTenant(id: string): Promise<ApiResponse<any>> {
     const res = await admin.delete(`/admin/tenants/${id}`);
     return res.data;
@@ -109,7 +113,7 @@ export const adminApi = {
     return res.data;
   },
 
-  // --- Activity Log (Point 20) ---
+  // --- Activity Log ---
   async getActivityLog(params?: {
     page?: number;
     limit?: number;
@@ -133,4 +137,132 @@ export const adminApi = {
     const res = await admin.patch(`/admin/plans/${id}`, data);
     return res.data;
   },
+
+  // --- Subscription Payments ---
+  async recordPayment(
+    tenantId: string,
+    data: {
+      amount: number;
+      method: string;
+      reference?: string;
+      notes?: string;
+      extendMonths?: number;
+    }
+  ): Promise<ApiResponse<SubscriptionPayment>> {
+    const res = await admin.post(`/admin/tenants/${tenantId}/payments`, data);
+    return res.data;
+  },
+
+  async getPaymentHistory(
+    tenantId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<PaginatedResponse<SubscriptionPayment>> {
+    const res = await admin.get(`/admin/tenants/${tenantId}/payments`, { params });
+    return res.data;
+  },
+
+  // --- Invoices ---
+  async generateInvoice(
+    tenantId: string,
+    data: {
+      amount: number;
+      dueDate: string;
+      lineItems: { description: string; quantity: number; rate: number; amount: number }[];
+      notes?: string;
+    }
+  ): Promise<ApiResponse<PlatformInvoice>> {
+    const res = await admin.post(`/admin/tenants/${tenantId}/invoices`, data);
+    return res.data;
+  },
+
+  async getInvoices(
+    tenantId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<PaginatedResponse<PlatformInvoice>> {
+    const res = await admin.get(`/admin/tenants/${tenantId}/invoices`, { params });
+    return res.data;
+  },
+
+  async updateInvoiceStatus(
+    invoiceId: string,
+    data: { status: string; paymentId?: string }
+  ): Promise<ApiResponse<PlatformInvoice>> {
+    const res = await admin.patch(`/admin/invoices/${invoiceId}`, data);
+    return res.data;
+  },
+
+  // --- Subscription Extension ---
+  async extendSubscription(
+    tenantId: string,
+    data: { months?: number; reason?: string }
+  ): Promise<ApiResponse<{ newPeriodEnd: string; months: number }>> {
+    const res = await admin.patch(`/admin/tenants/${tenantId}/subscription/extend`, data);
+    return res.data;
+  },
+
+  // --- Subscription History ---
+  async getSubscriptionHistory(
+    tenantId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<PaginatedResponse<SubscriptionHistoryEntry>> {
+    const res = await admin.get(`/admin/tenants/${tenantId}/subscription/history`, { params });
+    return res.data;
+  },
+
+  // --- Promo Codes ---
+  async getPromoCodes(params?: {
+    page?: number;
+    limit?: number;
+  }): Promise<PaginatedResponse<PromoCode>> {
+    const res = await admin.get('/admin/promo-codes', { params });
+    return res.data;
+  },
+
+  async createPromoCode(data: {
+    code: string;
+    linkedPlanId?: string;
+    trialDays?: number;
+    discountPct?: number;
+    maxUses?: number;
+    expiresAt?: string;
+    isActive?: boolean;
+  }): Promise<ApiResponse<PromoCode>> {
+    const res = await admin.post('/admin/promo-codes', data);
+    return res.data;
+  },
+
+  async updatePromoCode(
+    id: string,
+    data: Partial<PromoCode>
+  ): Promise<ApiResponse<PromoCode>> {
+    const res = await admin.patch(`/admin/promo-codes/${id}`, data);
+    return res.data;
+  },
+
+  // --- Bulk Operations ---
+  async bulkExtendSubscriptions(
+    tenantIds: string[],
+    months: number
+  ): Promise<ApiResponse<{ processed: number }>> {
+    const results = await Promise.all(
+      tenantIds.map((id) =>
+        admin.patch(`/admin/tenants/${id}/subscription/extend`, { months }).catch(() => null)
+      )
+    );
+    return { success: true, data: { processed: results.filter(Boolean).length } };
+  },
+
+  async bulkChangePlan(
+    tenantIds: string[],
+    planId: string,
+    billingCycle: BillingCycle
+  ): Promise<ApiResponse<{ processed: number }>> {
+    const results = await Promise.all(
+      tenantIds.map((id) =>
+        admin.patch(`/admin/tenants/${id}/plan`, { planId, billingCycle }).catch(() => null)
+      )
+    );
+    return { success: true, data: { processed: results.filter(Boolean).length } };
+  },
 };
+

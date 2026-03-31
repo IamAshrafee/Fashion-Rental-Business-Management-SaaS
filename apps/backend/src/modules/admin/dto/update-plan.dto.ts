@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdatePlanDto {
   @IsOptional()
@@ -10,14 +10,34 @@ export class UpdatePlanDto {
   slug?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  badge?: string;
+
+  @IsOptional()
+  @IsInt()
   @Min(0)
   priceMonthly?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
   priceAnnual?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  trialDays?: number;
 
   @IsOptional()
   @IsInt()

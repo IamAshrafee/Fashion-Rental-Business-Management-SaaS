@@ -80,11 +80,54 @@ export class AuthService {
         },
       });
 
-      // 2. Find free plan
-      const freePlan = await tx.subscriptionPlan.findFirst({
-        where: { slug: 'free', isActive: true },
-        select: { id: true },
-      });
+      // 2. Resolve target plan: promo code → planSlug → free fallback
+      let targetPlan: { id: string; slug: string; trialDays: number } | null = null;
+      let validatedPromoId: string | null = null;
+
+      // 2a. Validate promo code if provided
+      if (dto.promoCode) {
+        const promo = await tx.promoCode.findUnique({
+          where: { code: dto.promoCode.toUpperCase() },
+          include: { linkedPlan: { select: { id: true, slug: true, trialDays: true, isActive: true } } },
+        });
+
+        if (promo && promo.isActive) {
+          const now = new Date();
+          const notExpired = !promo.expiresAt || promo.expiresAt > now;
+          const notMaxed = promo.maxUses === null || promo.currentUses < promo.maxUses;
+
+          if (notExpired && notMaxed) {
+            validatedPromoId = promo.id;
+            if (promo.linkedPlan && promo.linkedPlan.isActive) {
+              targetPlan = promo.linkedPlan;
+            }
+            // Increment usage
+            await tx.promoCode.update({
+              where: { id: promo.id },
+              data: { currentUses: { increment: 1 } },
+            });
+          }
+        }
+        // Invalid promo silently falls through to other resolution methods
+      }
+
+      // 2b. Resolve from planSlug query param (marketing links)
+      if (!targetPlan && dto.planSlug) {
+        const slugPlan = await tx.subscriptionPlan.findFirst({
+          where: { slug: dto.planSlug, isActive: true },
+          select: { id: true, slug: true, trialDays: true },
+        });
+        if (slugPlan) targetPlan = slugPlan;
+      }
+
+      // 2c. Fallback to free plan
+      if (!targetPlan) {
+        const freePlan = await tx.subscriptionPlan.findFirst({
+          where: { slug: 'free', isActive: true },
+          select: { id: true, slug: true, trialDays: true },
+        });
+        if (freePlan) targetPlan = freePlan;
+      }
 
       // 3. Create Tenant
       const tenant = await tx.tenant.create({
@@ -92,8 +135,10 @@ export class AuthService {
           businessName: dto.businessName,
           subdomain: dto.subdomain,
           ownerUserId: user.id,
-          planId: freePlan?.id || null,
+          planId: targetPlan?.id || null,
           status: 'active',
+          referralSource: dto.referralSource || null,
+          promoCodeId: validatedPromoId,
         },
       });
 
@@ -111,7 +156,6 @@ export class AuthService {
       await tx.storeSettings.create({
         data: {
           tenantId: tenant.id,
-          // Default BD locale — will be adjusted later in setup wizard
           country: 'BD',
           currencyCode: 'BDT',
           currencySymbol: '৳',
@@ -121,20 +165,32 @@ export class AuthService {
         },
       });
 
-      // 6. Create Subscription (free plan)
-      if (freePlan) {
+      // 6. Create Subscription
+      if (targetPlan) {
         const now = new Date();
+        const isFree = targetPlan.slug === 'free';
         const periodEnd = new Date(now);
-        periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+        if (isFree) {
+          // Free plan: perpetual (never expires)
+          periodEnd.setFullYear(periodEnd.getFullYear() + 100);
+        } else if (targetPlan.trialDays > 0) {
+          // Non-free plan with trial: set trial period
+          periodEnd.setDate(periodEnd.getDate() + targetPlan.trialDays);
+        } else {
+          // Non-free plan without trial: 1 month
+          periodEnd.setMonth(periodEnd.getMonth() + 1);
+        }
 
         await tx.subscription.create({
           data: {
             tenantId: tenant.id,
-            planId: freePlan.id,
+            planId: targetPlan.id,
             status: 'active',
             billingCycle: 'monthly',
             currentPeriodStart: now,
             currentPeriodEnd: periodEnd,
+            trialEndsAt: targetPlan.trialDays > 0 ? periodEnd : null,
           },
         });
       }

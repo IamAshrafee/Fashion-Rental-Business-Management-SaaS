@@ -50,6 +50,12 @@ export default function AdminLayout({
           >
             Activity Log
           </Link>
+          <Link
+            href="/admin/promo-codes"
+            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-card-foreground transition-colors"
+          >
+            Promo Codes
+          </Link>
         </nav>
         <div className="p-4 border-t border-border">
           <AdminLogoutButton />

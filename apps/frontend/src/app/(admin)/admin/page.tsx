@@ -53,7 +53,7 @@ export default function AdminDashboardPage() {
       ) : stats ? (
         <>
           {/* Points 12/13: Semantic color tokens for dark mode */}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
             <div className="rounded-lg border bg-card p-6 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Active Tenants</p>
               <p className="mt-2 text-3xl font-bold tracking-tight text-card-foreground">
@@ -72,9 +72,26 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="rounded-lg border bg-card p-6 shadow-sm">
-              <p className="text-sm font-medium text-muted-foreground">Monthly Recurring Revenue</p>
+              <p className="text-sm font-medium text-muted-foreground">Expected MRR</p>
               <p className="mt-2 text-3xl font-bold tracking-tight text-card-foreground">
-                {formatCurrency(stats.mrr || 0)}
+                {formatCurrency(stats.expectedMrr || stats.mrr || 0)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">From active subscriptions</p>
+            </div>
+
+            <div className="rounded-lg border bg-card p-6 shadow-sm">
+              <p className="text-sm font-medium text-muted-foreground">Actual Revenue (30d)</p>
+              <p className="mt-2 text-3xl font-bold tracking-tight text-card-foreground">
+                {formatCurrency((stats.actualMrr || 0) / 100)}
+              </p>
+              <p className={`mt-1 text-xs ${
+                (stats.actualMrr || 0) / 100 >= (stats.expectedMrr || stats.mrr || 1)
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-amber-600 dark:text-amber-400'
+              }`}>
+                {stats.expectedMrr || stats.mrr
+                  ? `${Math.round(((stats.actualMrr || 0) / 100 / (stats.expectedMrr || stats.mrr)) * 100)}% of expected`
+                  : 'From subscription payments'}
               </p>
             </div>
 

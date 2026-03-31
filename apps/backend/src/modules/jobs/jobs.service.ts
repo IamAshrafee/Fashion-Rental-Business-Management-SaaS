@@ -401,6 +401,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   /**
    * Check subscription expiry — notify tenants approaching expiry.
    * Runs daily at midnight UTC.
+   * Item 13: Fixed to emit proper events, set statusReason, invalidate sessions.
    */
   private async checkSubscriptions(): Promise<void> {
     const now = new Date();
@@ -418,6 +419,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         where: {
           status: 'active',
           currentPeriodEnd: { gte: targetStart, lte: targetEnd },
+          // Skip free plan subscriptions — they have perpetual period
+          plan: { slug: { not: 'free' } },
         },
         include: { tenant: { select: { id: true } } },
       });
@@ -441,21 +444,53 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       where: {
         status: 'active',
         currentPeriodEnd: { lt: graceCutoff },
+        // Never auto-suspend free plan tenants
+        plan: { slug: { not: 'free' } },
+      },
+      include: {
+        tenant: { select: { id: true, businessName: true, ownerUserId: true } },
       },
     });
 
     for (const sub of pastDue) {
-      await this.prisma.$transaction([
-        this.prisma.subscription.update({
+      await this.prisma.$transaction(async (tx) => {
+        // 1. Update subscription status
+        await tx.subscription.update({
           where: { id: sub.id },
           data: { status: 'cancelled' },
-        }),
-        this.prisma.tenant.update({
+        });
+
+        // 2. Update tenant status with reason
+        await tx.tenant.update({
           where: { id: sub.tenantId },
-          data: { status: 'suspended' },
-        }),
-      ]);
-      this.logger.warn(`Suspended tenant ${sub.tenantId} — subscription expired`);
+          data: {
+            status: 'suspended',
+            statusReason: 'Subscription expired — auto-suspended after 7-day grace period',
+          },
+        });
+
+        // 3. Invalidate all active sessions for this tenant
+        await tx.session.deleteMany({
+          where: { tenantId: sub.tenantId },
+        });
+      });
+
+      // 4. Emit domain event for notification handlers
+      this.notificationsQueue.add('notification.create', {
+        tenantId: sub.tenantId,
+        type: 'tenant_suspended',
+        title: 'Store Suspended',
+        message: 'Your subscription has expired. Please contact support to renew.',
+        data: { reason: 'subscription_expired' },
+      });
+
+      this.logger.warn(
+        `Auto-suspended tenant ${sub.tenantId} (${sub.tenant.businessName}) — subscription expired past grace period`,
+      );
+    }
+
+    if (pastDue.length > 0) {
+      this.logger.log(`Auto-suspended ${pastDue.length} tenant(s) with expired subscriptions`);
     }
   }
 

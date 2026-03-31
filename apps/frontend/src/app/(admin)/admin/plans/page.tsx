@@ -93,6 +93,12 @@ export default function SubscriptionPlansPage() {
                   <span className="text-muted-foreground"> /mo</span>
                 </p>
 
+                {(plan as any)._count?.tenants !== undefined && (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    <span className="font-semibold text-card-foreground">{(plan as any)._count.tenants}</span> tenant{(plan as any)._count.tenants !== 1 ? 's' : ''}
+                  </p>
+                )}
+
                 <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
                   <li className="flex gap-x-3">
                     <span className="font-semibold text-card-foreground">Products:</span> {plan.maxProducts === null ? 'Unlimited' : plan.maxProducts}

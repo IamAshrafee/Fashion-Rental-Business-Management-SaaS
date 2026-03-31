@@ -1,0 +1,28 @@
+ M apps/backend/prisma/schema.prisma
+ M apps/backend/prisma/seed.ts
+ M apps/backend/src/modules/admin/admin.controller.ts
+ M apps/backend/src/modules/admin/admin.service.ts
+ M apps/backend/src/modules/admin/dto/create-plan.dto.ts
+ M apps/backend/src/modules/admin/dto/update-plan.dto.ts
+ M apps/backend/src/modules/auth/auth.service.ts
+ M apps/backend/src/modules/auth/dto/register.dto.ts
+ M apps/backend/src/modules/jobs/jobs.service.ts
+ M apps/frontend/src/app/(admin)/admin/page.tsx
+ M apps/frontend/src/app/(admin)/admin/plans/page.tsx
+ M apps/frontend/src/app/(admin)/admin/tenants/[id]/page.tsx
+ M apps/frontend/src/app/(admin)/admin/tenants/page.tsx
+ M apps/frontend/src/app/(admin)/layout.tsx
+ M apps/frontend/src/app/(auth)/register/page.tsx
+ M apps/frontend/src/components/owner/layout/sidebar.tsx
+ M apps/frontend/src/lib/api-admin.ts
+ M packages/types/src/index.ts
+?? apps/backend/prisma/migrations/20260331164238_subscription_billing_system/
+?? apps/backend/src/modules/admin/dto/extend-subscription.dto.ts
+?? apps/backend/src/modules/admin/dto/invoice.dto.ts
+?? apps/backend/src/modules/admin/dto/promo-code.dto.ts
+?? apps/backend/src/modules/admin/dto/record-payment.dto.ts
+?? apps/frontend/src/app/(admin)/admin/promo-codes/
+?? apps/frontend/src/app/(admin)/admin/tenants/[id]/components/billing-tab.tsx
+?? apps/frontend/src/app/(owner)/dashboard/billing/
+?? reset-dev.bat
+?? tmp/

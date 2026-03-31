@@ -11,7 +11,7 @@ const ADMIN_USER = {
   fullName: 'Platform Admin',
   email: 'admin@closetrent.com',
   phone: '+8801700000000',
-  password: 'ClosetRent@2026!',
+  password: '0',
   role: UserRole.saas_admin,
 };
 
@@ -19,8 +19,12 @@ const SUBSCRIPTION_PLANS = [
   {
     name: 'Free',
     slug: 'free',
+    description: 'Get started with basics — perfect for trying out the platform.',
+    features: ['Up to 20 products', 'Basic analytics', 'Standard support'],
+    badge: null,
     priceMonthly: 0,
     priceAnnual: null,
+    trialDays: 0,
     maxProducts: 20,
     maxStaff: 0,
     customDomain: false,
@@ -32,8 +36,12 @@ const SUBSCRIPTION_PLANS = [
   {
     name: 'Pro',
     slug: 'pro',
+    description: 'For growing businesses — unlimited products and advanced features.',
+    features: ['Unlimited products', 'Up to 3 staff', 'Custom domain', 'SMS notifications', 'Full analytics'],
+    badge: 'Most Popular',
     priceMonthly: 2500,
     priceAnnual: 25000,
+    trialDays: 14,
     maxProducts: null, // unlimited
     maxStaff: 3,
     customDomain: true,
@@ -45,8 +53,12 @@ const SUBSCRIPTION_PLANS = [
   {
     name: 'Enterprise',
     slug: 'enterprise',
+    description: 'Full-featured plan for large operations and premium branding.',
+    features: ['Unlimited products', 'Up to 10 staff', 'Custom domain', 'SMS notifications', 'Full analytics', 'Remove branding'],
+    badge: 'Best Value',
     priceMonthly: 7500,
     priceAnnual: 75000,
+    trialDays: 14,
     maxProducts: null, // unlimited
     maxStaff: 10,
     customDomain: true,
@@ -181,8 +193,12 @@ async function main() {
       where: { slug: plan.slug },
       update: {
         name: plan.name,
+        description: plan.description,
+        features: plan.features,
+        badge: plan.badge,
         priceMonthly: plan.priceMonthly,
         priceAnnual: plan.priceAnnual,
+        trialDays: plan.trialDays,
         maxProducts: plan.maxProducts,
         maxStaff: plan.maxStaff,
         customDomain: plan.customDomain,
@@ -194,8 +210,12 @@ async function main() {
       create: {
         name: plan.name,
         slug: plan.slug,
+        description: plan.description,
+        features: plan.features,
+        badge: plan.badge,
         priceMonthly: plan.priceMonthly,
         priceAnnual: plan.priceAnnual,
+        trialDays: plan.trialDays,
         maxProducts: plan.maxProducts,
         maxStaff: plan.maxStaff,
         customDomain: plan.customDomain,

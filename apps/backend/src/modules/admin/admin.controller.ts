@@ -21,6 +21,10 @@ import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { UpdateTenantPlanDto } from './dto/update-tenant-plan.dto';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
+import { RecordPaymentDto } from './dto/record-payment.dto';
+import { CreateInvoiceDto, UpdateInvoiceStatusDto } from './dto/invoice.dto';
+import { ExtendSubscriptionDto } from './dto/extend-subscription.dto';
+import { CreatePromoCodeDto, UpdatePromoCodeDto } from './dto/promo-code.dto';
 
 /**
  * Admin API Controller.
@@ -41,12 +45,13 @@ export class AdminController {
   async getTenants(
     @Query('status') status?: string,
     @Query('plan') plan?: string,
+    @Query('paymentStatus') paymentStatus?: string,
     @Query('search') search?: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
     @Query('sort') sort?: string,
   ) {
-    return this.adminService.getTenants({ status, plan, search, page: page!, limit: limit!, sort });
+    return this.adminService.getTenants({ status, plan, paymentStatus, search, page: page!, limit: limit!, sort });
   }
 
   @Get('tenants/:id')
@@ -123,5 +128,111 @@ export class AdminController {
   @Patch('plans/:id')
   async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto) {
     return this.adminService.updatePlan(id, dto);
+  }
+
+  // =========================================================================
+  // BILLING — SUBSCRIPTION PAYMENTS
+  // =========================================================================
+
+  @Post('tenants/:id/payments')
+  async recordPayment(
+    @Param('id') id: string,
+    @Body() dto: RecordPaymentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adminService.recordPayment(id, dto, user.id);
+  }
+
+  @Get('tenants/:id/payments')
+  async getPaymentHistory(
+    @Param('id') id: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    return this.adminService.getPaymentHistory(id, { page: page!, limit: limit! });
+  }
+
+  // =========================================================================
+  // BILLING — INVOICES
+  // =========================================================================
+
+  @Post('tenants/:id/invoices')
+  async generateInvoice(
+    @Param('id') id: string,
+    @Body() dto: CreateInvoiceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adminService.generateInvoice(id, dto, user.id);
+  }
+
+  @Get('tenants/:id/invoices')
+  async getInvoices(
+    @Param('id') id: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    return this.adminService.getInvoices(id, { page: page!, limit: limit! });
+  }
+
+  @Patch('invoices/:id')
+  async updateInvoiceStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateInvoiceStatusDto,
+  ) {
+    return this.adminService.updateInvoiceStatus(id, dto);
+  }
+
+  // =========================================================================
+  // SUBSCRIPTION EXTENSION
+  // =========================================================================
+
+  @Patch('tenants/:id/subscription/extend')
+  async extendSubscription(
+    @Param('id') id: string,
+    @Body() dto: ExtendSubscriptionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adminService.extendSubscription(id, dto, user.id);
+  }
+
+  // =========================================================================
+  // SUBSCRIPTION HISTORY
+  // =========================================================================
+
+  @Get('tenants/:id/subscription/history')
+  async getSubscriptionHistory(
+    @Param('id') id: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    return this.adminService.getSubscriptionHistory(id, { page: page!, limit: limit! });
+  }
+
+  // =========================================================================
+  // PROMO CODES
+  // =========================================================================
+
+  @Get('promo-codes')
+  async getPromoCodes(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    return this.adminService.getPromoCodes({ page: page!, limit: limit! });
+  }
+
+  @Post('promo-codes')
+  async createPromoCode(
+    @Body() dto: CreatePromoCodeDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adminService.createPromoCode(dto, user.id);
+  }
+
+  @Patch('promo-codes/:id')
+  async updatePromoCode(
+    @Param('id') id: string,
+    @Body() dto: UpdatePromoCodeDto,
+  ) {
+    return this.adminService.updatePromoCode(id, dto);
   }
 }

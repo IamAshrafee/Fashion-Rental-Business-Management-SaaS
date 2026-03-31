@@ -182,13 +182,16 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  ownedTenants     Tenant[]
-  tenantUsers      TenantUser[]
-  auditLogs        AuditLog[]
-  sessions         Session[]
-  loginHistory     LoginHistory[]
-  damageReports    DamageReport[]
-  deletedProducts  Product[]     @relation("ProductDeletedBy")
+  ownedTenants        Tenant[]
+  tenantUsers         TenantUser[]
+  auditLogs           AuditLog[]
+  sessions            Session[]
+  loginHistory        LoginHistory[]
+  damageReports       DamageReport[]
+  deletedProducts     Product[]              @relation("ProductDeletedBy")
+  recordedPayments    SubscriptionPayment[]  @relation("PaymentsRecordedBy")
+  createdPromoCodes   PromoCode[]            @relation("PromoCodesCreatedBy")
+  subscriptionActions SubscriptionHistory[]  @relation("HistoryPerformedBy")
 
   @@index([phone])
   @@map("users")
@@ -213,8 +216,12 @@ model SubscriptionPlan {
   id             String   @id @default(uuid())
   name           String
   slug           String   @unique
-  priceMonthly   Decimal  @map("price_monthly") @db.Decimal(10, 2)
-  priceAnnual    Decimal? @map("price_annual") @db.Decimal(10, 2)
+  description    String?                                         // Marketing description
+  features       Json?                                           // ["Feature 1", "Feature 2", ...]
+  badge          String?                                         // e.g. "Most Popular", "Best Value"
+  priceMonthly   Int      @default(0) @map("price_monthly")      // Paisa (ADR-04)
+  priceAnnual    Int?     @map("price_annual")                   // Paisa (ADR-04)
+  trialDays      Int      @default(0) @map("trial_days")         // 0 = no trial
   maxProducts    Int?     @map("max_products")
   maxStaff       Int      @default(0) @map("max_staff")
   customDomain   Boolean  @default(false) @map("custom_domain")
@@ -228,6 +235,9 @@ model SubscriptionPlan {
 
   tenants       Tenant[]
   subscriptions Subscription[]
+  promoCodes    PromoCode[]
+  history       SubscriptionHistory[] @relation("HistoryNewPlan")
+  historyOld    SubscriptionHistory[] @relation("HistoryOldPlan")
 
   @@map("subscription_plans")
 }
@@ -248,35 +258,42 @@ model StarterTemplate {
 // ============================================================================
 
 model Tenant {
-  id           String       @id @default(uuid())
-  businessName String       @map("business_name")
-  subdomain    String       @unique
-  customDomain String?      @unique @map("custom_domain")
-  ownerUserId  String       @map("owner_user_id")
-  status       TenantStatus @default(active)
-  statusReason String?      @map("status_reason")
-  planId       String?      @map("plan_id")
-  logoUrl      String?      @map("logo_url")
-  faviconUrl   String?      @map("favicon_url")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  id             String       @id @default(uuid())
+  businessName   String       @map("business_name")
+  subdomain      String       @unique
+  customDomain   String?      @unique @map("custom_domain")
+  ownerUserId    String       @map("owner_user_id")
+  status         TenantStatus @default(active)
+  statusReason   String?      @map("status_reason")
+  planId         String?      @map("plan_id")
+  logoUrl        String?      @map("logo_url")
+  faviconUrl     String?      @map("favicon_url")
+  referralSource String?      @map("referral_source")  // Marketing channel tracking
+  promoCodeId    String?      @map("promo_code_id")    // Promo used at registration
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  owner         User              @relation(fields: [ownerUserId], references: [id])
-  plan          SubscriptionPlan? @relation(fields: [planId], references: [id])
-  storeSettings StoreSettings?
-  subscription  Subscription?
-  tenantUsers   TenantUser[]
-  products      Product[]
-  categories    Category[]
-  subcategories Subcategory[]
-  events        Event[]
-  bookings      Booking[]
-  customers     Customer[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
-  sessions      Session[]
+  owner                User                  @relation(fields: [ownerUserId], references: [id])
+  plan                 SubscriptionPlan?     @relation(fields: [planId], references: [id])
+  promoCode            PromoCode?            @relation(fields: [promoCodeId], references: [id])
+  storeSettings        StoreSettings?
+  subscription         Subscription?
+  tenantUsers          TenantUser[]
+  products             Product[]
+  categories           Category[]
+  subcategories        Subcategory[]
+  events               Event[]
+  bookings             Booking[]
+  customers            Customer[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  sessions             Session[]
+  subscriptionPayments SubscriptionPayment[]
+  invoices             Invoice[]
+  subscriptionHistory  SubscriptionHistory[]
 
   @@index([ownerUserId])
+  @@index([promoCodeId])
   @@map("tenants")
 }
 
@@ -1031,4 +1048,94 @@ model FailedJob {
   @@index([queue])
   @@index([failedAt])
   @@map("failed_jobs")
+}
+
+// ============================================================================
+// PLATFORM BILLING (SaaS Admin → Tenant)
+// ============================================================================
+
+model SubscriptionPayment {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  amount      Int                                    // Paisa (ADR-04)
+  method      String                                 // 'bkash', 'nagad', 'bank_transfer', 'cash'
+  reference   String?                                // Transaction ID or receipt number
+  notes       String?
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+  recordedBy  String   @map("recorded_by")           // Admin user ID
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  recorder  User     @relation("PaymentsRecordedBy", fields: [recordedBy], references: [id])
+  invoice   Invoice?
+
+  @@index([tenantId])
+  @@index([recordedBy])
+  @@map("subscription_payments")
+}
+
+model Invoice {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  paymentId   String?   @unique @map("payment_id")
+  invoiceNo   String    @unique @map("invoice_no")     // INV-2026-0001
+  amount      Int                                       // Paisa (ADR-04)
+  status      String    @default("unpaid")              // unpaid, paid, void
+  dueDate     DateTime  @map("due_date")
+  paidAt      DateTime? @map("paid_at")
+  lineItems   Json      @map("line_items")              // [{desc, qty, rate, amount}]
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant               @relation(fields: [tenantId], references: [id])
+  payment SubscriptionPayment? @relation(fields: [paymentId], references: [id])
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model PromoCode {
+  id           String    @id @default(uuid())
+  code         String    @unique                       // 'LAUNCH2026'
+  linkedPlanId String?   @map("linked_plan_id")        // Auto-assign this plan
+  trialDays    Int?      @map("trial_days")            // Override default trial
+  discountPct  Int?      @map("discount_pct")          // For future use
+  maxUses      Int?      @map("max_uses")              // null = unlimited
+  currentUses  Int       @default(0) @map("current_uses")
+  isActive     Boolean   @default(true) @map("is_active")
+  expiresAt    DateTime? @map("expires_at")
+  createdBy    String    @map("created_by")            // Admin user ID
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  linkedPlan SubscriptionPlan? @relation(fields: [linkedPlanId], references: [id])
+  creator    User              @relation("PromoCodesCreatedBy", fields: [createdBy], references: [id])
+  tenants    Tenant[]
+
+  @@map("promo_codes")
+}
+
+model SubscriptionHistory {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  oldPlanId    String?  @map("old_plan_id")
+  newPlanId    String   @map("new_plan_id")
+  action       String                                   // 'created', 'upgraded', 'downgraded', 'renewed', 'extended', 'cancelled'
+  billingCycle String?  @map("billing_cycle")           // 'monthly', 'annual'
+  reason       String?
+  performedBy  String   @map("performed_by")            // Admin or 'system'
+  metadata     Json?                                    // Extra context
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant            @relation(fields: [tenantId], references: [id])
+  oldPlan SubscriptionPlan? @relation("HistoryOldPlan", fields: [oldPlanId], references: [id])
+  newPlan SubscriptionPlan  @relation("HistoryNewPlan", fields: [newPlanId], references: [id])
+  actor   User              @relation("HistoryPerformedBy", fields: [performedBy], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("subscription_history")
 }

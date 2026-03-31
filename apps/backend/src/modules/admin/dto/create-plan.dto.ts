@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreatePlanDto {
   @IsString()
@@ -9,14 +9,34 @@ export class CreatePlanDto {
   @IsNotEmpty()
   slug!: string;
 
-  @IsNumber()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  badge?: string;
+
+  @IsInt()
   @Min(0)
   priceMonthly!: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
   priceAnnual?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  trialDays?: number;
 
   @IsOptional()
   @IsInt()

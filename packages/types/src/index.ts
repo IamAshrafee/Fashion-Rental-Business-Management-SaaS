@@ -142,8 +142,12 @@ export interface SubscriptionPlan {
   id: string;
   name: string;
   slug: string;
-  priceMonthly: number;
-  priceAnnual: number | null;
+  description: string | null;
+  features: string[] | null;
+  badge: string | null;
+  priceMonthly: number;       // Paisa (ADR-04)
+  priceAnnual: number | null; // Paisa (ADR-04)
+  trialDays: number;
   maxProducts: number | null;
   maxStaff: number;
   customDomain: boolean;
@@ -163,18 +167,24 @@ export interface PlatformStats {
     newThisMonth: number;
   };
   mrr: number;
+  expectedMrr: number;
+  actualMrr: number;
   gmv: number;
   churnRate: number;
   totalProducts: number;
   totalOrders: number;
 }
 
+export type BillingPaymentStatus = 'paid' | 'overdue' | 'never_paid';
+
 export interface AdminTenantSummary {
   id: string;
   businessName: string;
   subdomain: string;
   plan: string;
+  planSlug: string | null;
   status: TenantStatus;
+  paymentStatus: BillingPaymentStatus;
   productCount: number;
   orderCount: number;
   totalRevenue: number;
@@ -190,18 +200,101 @@ export interface AdminTenantDetails {
   customDomain: string | null;
   status: TenantStatus;
   plan: SubscriptionPlan | null;
+  referralSource: string | null;
+  subscription: {
+    id: string;
+    status: SubscriptionStatus;
+    billingCycle: BillingCycle;
+    currentPeriodStart: string;
+    currentPeriodEnd: string;
+    trialEndsAt: string | null;
+    computedStatus: string; // active, trial, grace_period, expired
+    daysRemaining: number;
+  } | null;
   owner: {
     id: string;
     fullName: string;
     email: string | null;
     phone: string | null;
   };
-  storeSettings: any; // We can type this later if needed
+  storeSettings: any;
   _count: {
     products: number;
     bookings: number;
     customers: number;
   };
+}
+
+// --- Platform Billing (SaaS-level) ---
+
+export type PaymentMethod_Platform = 'bkash' | 'nagad' | 'bank_transfer' | 'cash' | 'other';
+export type InvoiceStatus = 'unpaid' | 'paid' | 'void';
+
+export interface SubscriptionPayment {
+  id: string;
+  tenantId: string;
+  amount: number;           // Paisa
+  method: string;
+  reference: string | null;
+  notes: string | null;
+  periodStart: string;
+  periodEnd: string;
+  recordedBy: string;
+  createdAt: string;
+  recorder?: { fullName: string };
+}
+
+export interface InvoiceLineItem {
+  description: string;
+  quantity: number;
+  rate: number;             // Paisa
+  amount: number;           // Paisa
+}
+
+export interface PlatformInvoice {
+  id: string;
+  tenantId: string;
+  paymentId: string | null;
+  invoiceNo: string;
+  amount: number;           // Paisa
+  status: InvoiceStatus;
+  dueDate: string;
+  paidAt: string | null;
+  lineItems: InvoiceLineItem[];
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  linkedPlanId: string | null;
+  linkedPlan?: SubscriptionPlan | null;
+  trialDays: number | null;
+  discountPct: number | null;
+  maxUses: number | null;
+  currentUses: number;
+  isActive: boolean;
+  expiresAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  _count?: { tenants: number };
+}
+
+export interface SubscriptionHistoryEntry {
+  id: string;
+  tenantId: string;
+  oldPlanId: string | null;
+  newPlanId: string;
+  action: string;
+  billingCycle: string | null;
+  reason: string | null;
+  performedBy: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  oldPlan?: { name: string; slug: string } | null;
+  newPlan?: { name: string; slug: string };
+  actor?: { fullName: string };
 }
 
 // --- Analytics ---
