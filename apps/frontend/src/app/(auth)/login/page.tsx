@@ -52,7 +52,21 @@ export default function LoginPage() {
     try {
       // Call login directly so we get the user object back with their role
       const user = await loginWithCredentials(emailOrPhone, password);
-      // Sync the auth context with the new session
+
+      // Scenario B: all tenants are suspended → redirect BEFORE syncing auth
+      // context. If we call refreshUser() first, it sets isAuthenticated=true
+      // which triggers the useEffect redirect to /dashboard, causing a flash.
+      if (!user.tenantId && user.suspendedTenants && user.suspendedTenants.length > 0) {
+        const suspended = user.suspendedTenants[0];
+        const storeName = suspended?.businessName || '';
+        const reason = suspended?.statusReason || '';
+        const params = new URLSearchParams({ store: storeName });
+        if (reason) params.set('reason', reason);
+        router.push(`/store-suspended?${params.toString()}`);
+        return;
+      }
+
+      // Sync the auth context with the new session (only for active tenants)
       await refreshUser();
       toast.success('Welcome back!');
       const fromPath = new URLSearchParams(window.location.search).get('from');

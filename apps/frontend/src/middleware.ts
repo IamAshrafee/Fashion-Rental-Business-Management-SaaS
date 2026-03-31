@@ -39,7 +39,16 @@ export function middleware(request: NextRequest) {
   const isAuthenticated = !!sessionCookie?.value;
   const userRole = roleCookie?.value;
 
-  // ── 1. Redirect authenticated users away from auth pages ──────────
+  // ── 1. Allow store-suspended page for authenticated owners ──────
+  // Don't redirect to /dashboard — they need to see the suspension page.
+  if (pathname.startsWith('/store-suspended')) {
+    if (!isAuthenticated) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // ── 2. Redirect authenticated users away from auth pages ──────────
   // But allow through if there's a ?from= param — the user may need to
   // re-authenticate and the login page will redirect them back.
   if (isAuthenticated && AUTH_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
@@ -50,7 +59,7 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // ── 2. Protect owner portal (/dashboard/*) ────────────────────────
+  // ── 3. Protect owner portal (/dashboard/*) ────────────────────────
   if (pathname.startsWith('/dashboard')) {
     if (!isAuthenticated) {
       const loginUrl = new URL('/login', request.url);
@@ -64,7 +73,7 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // ── 3. Protect admin portal (/admin/*) ────────────────────────────
+  // ── 4. Protect admin portal (/admin/*) ────────────────────────────
   if (pathname.startsWith('/admin')) {
     if (!isAuthenticated) {
       const loginUrl = new URL('/login', request.url);

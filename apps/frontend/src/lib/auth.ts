@@ -126,6 +126,7 @@ export async function loginWithCredentials(
     data: {
       user: AuthUserInfo;
       tenants: Array<{ id: string; subdomain: string; businessName: string; role: string }>;
+      suspendedTenants?: Array<{ id: string; businessName: string; subdomain: string; status: string; statusReason: string | null }>;
       accessToken: string;
       expiresIn: number;
     };
@@ -135,7 +136,13 @@ export async function loginWithCredentials(
     { withCredentials: true },
   );
 
-  const { user, tenants, accessToken: token, expiresIn = 900 } = response.data.data;
+  const {
+    user,
+    tenants,
+    suspendedTenants = [],
+    accessToken: token,
+    expiresIn = 900,
+  } = response.data.data;
   const primaryTenantId = tenants?.[0]?.id || null;
 
   setAccessToken(token, expiresIn, primaryTenantId);
@@ -148,8 +155,8 @@ export async function loginWithCredentials(
     document.cookie = `closetrent_role=${user.role}; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
   }
 
-  // Attach the tenantId to the user object we return so the auth provider has it
-  return { ...user, tenantId: primaryTenantId };
+  // Attach the tenantId and suspendedTenants to the user object we return
+  return { ...user, tenantId: primaryTenantId, suspendedTenants };
 }
 
 export async function logout(): Promise<void> {

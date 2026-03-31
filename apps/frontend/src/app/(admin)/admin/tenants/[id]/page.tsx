@@ -8,7 +8,14 @@ import { TenantStatus } from '@closetrent/types';
 import { useState } from 'react';
 import { ChangePlanDialog } from './components/change-plan-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { AlertCircle } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  RotateCcw,
+  ShieldOff,
+  XCircle,
+} from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,13 +27,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { setAccessToken, setTenantIdLocal } from '@/lib/auth';
 
 export default function TenantDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [isChangePlanOpen, setIsChangePlanOpen] = useState(false);
+  const [suspendReason, setSuspendReason] = useState('');
 
   const { data: res, isLoading, error } = useQuery({
     queryKey: ['admin', 'tenant', id],
@@ -156,15 +163,16 @@ export default function TenantDetailPage() {
             { label: t.businessName }
           ]}
         />
-        <div className="flex gap-2">
-          {/* Point 15: Confirmation dialogs for destructive actions */}
+        <div className="flex flex-wrap gap-2">
+          {/* Suspend — only for active tenants */}
           {t.status === 'active' && (
-            <AlertDialog>
+            <AlertDialog onOpenChange={(open) => { if (!open) setSuspendReason(''); }}>
               <AlertDialogTrigger asChild>
                 <button
                   disabled={updateStatus.isPending}
-                  className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2 text-sm font-semibold text-yellow-700 dark:text-yellow-400 shadow-sm hover:bg-yellow-100 dark:hover:bg-yellow-900/30 ring-1 ring-inset ring-yellow-600/20"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2 text-sm font-semibold text-yellow-700 dark:text-yellow-400 shadow-sm hover:bg-yellow-100 dark:hover:bg-yellow-900/30 ring-1 ring-inset ring-yellow-600/20 disabled:opacity-50"
                 >
+                  {updateStatus.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
                   Suspend
                 </button>
               </AlertDialogTrigger>
@@ -173,13 +181,32 @@ export default function TenantDetailPage() {
                   <AlertDialogTitle>Suspend Tenant?</AlertDialogTitle>
                   <AlertDialogDescription>
                     This will prevent the tenant from accessing their dashboard and storefront.
-                    All active sessions will continue to work until they expire.
+                    All active sessions will be terminated immediately.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                <div className="px-6 pb-2">
+                  <label htmlFor="suspend-reason" className="text-sm font-medium text-foreground">
+                    Reason <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    id="suspend-reason"
+                    rows={3}
+                    className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                    placeholder="e.g. Terms of service violation, payment fraud..."
+                    value={suspendReason}
+                    onChange={(e) => setSuspendReason(e.target.value)}
+                  />
+                </div>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={() => updateStatus.mutate({ status: 'suspended', reason: 'Suspended by admin' })}
+                    onClick={() => {
+                      updateStatus.mutate({
+                        status: 'suspended',
+                        reason: suspendReason.trim() || 'Suspended by admin',
+                      });
+                      setSuspendReason('');
+                    }}
                     className="bg-yellow-600 hover:bg-yellow-700 text-white"
                   >
                     Confirm Suspend
@@ -189,13 +216,15 @@ export default function TenantDetailPage() {
             </AlertDialog>
           )}
 
+          {/* Activate — only for suspended tenants */}
           {t.status === 'suspended' && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
                   disabled={updateStatus.isPending}
-                  className="rounded-md bg-green-50 dark:bg-green-900/20 px-3 py-2 text-sm font-semibold text-green-700 dark:text-green-400 shadow-sm hover:bg-green-100 dark:hover:bg-green-900/30 ring-1 ring-inset ring-green-600/20"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-green-50 dark:bg-green-900/20 px-3 py-2 text-sm font-semibold text-green-700 dark:text-green-400 shadow-sm hover:bg-green-100 dark:hover:bg-green-900/30 ring-1 ring-inset ring-green-600/20 disabled:opacity-50"
                 >
+                  {updateStatus.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                   Activate
                 </button>
               </AlertDialogTrigger>
@@ -219,48 +248,88 @@ export default function TenantDetailPage() {
             </AlertDialog>
           )}
 
-          {/* Point 15: Impersonation with confirmation */}
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                disabled={impersonate.isPending}
-                className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
-              >
-                Impersonate
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Impersonate Tenant Owner?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  You will receive a 1-hour token that lets you view this tenant&apos;s dashboard as the owner.
-                  This action is logged for audit purposes.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => impersonate.mutate()}>
-                  Start Impersonation
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {/* Reactivate — only for cancelled tenants (restores subscription too) */}
+          {t.status === 'cancelled' && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={updateStatus.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-sm font-semibold text-blue-700 dark:text-blue-400 shadow-sm hover:bg-blue-100 dark:hover:bg-blue-900/30 ring-1 ring-inset ring-blue-600/20 disabled:opacity-50"
+                >
+                  {updateStatus.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                  Reactivate
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reactivate Tenant?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will restore the tenant&apos;s access and re-create their subscription
+                    with their previous plan. The billing period will reset to today.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => updateStatus.mutate({ status: 'active' })}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Confirm Reactivate
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
 
-          <button
-            onClick={() => setIsChangePlanOpen(true)}
-            className="rounded-md bg-card px-3 py-2 text-sm font-semibold text-card-foreground shadow-sm ring-1 ring-inset ring-border hover:bg-muted"
-          >
-            Change Plan
-          </button>
+          {/* Impersonate — only for active tenants */}
+          {t.status === 'active' && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={impersonate.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {impersonate.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Impersonate
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Impersonate Tenant Owner?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You will receive a 1-hour token that lets you view this tenant&apos;s dashboard as the owner.
+                    This action is logged for audit purposes.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => impersonate.mutate()}>
+                    Start Impersonation
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
 
-          {/* Point 19: Delete tenant with confirmation */}
+          {/* Change Plan — only for non-cancelled tenants */}
+          {t.status !== 'cancelled' && (
+            <button
+              onClick={() => setIsChangePlanOpen(true)}
+              className="rounded-md bg-card px-3 py-2 text-sm font-semibold text-card-foreground shadow-sm ring-1 ring-inset ring-border hover:bg-muted"
+            >
+              Change Plan
+            </button>
+          )}
+
+          {/* Delete — only for non-cancelled tenants */}
           {t.status !== 'cancelled' && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
                   disabled={deleteTenant.isPending}
-                  className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive shadow-sm hover:bg-destructive/20 ring-1 ring-inset ring-destructive/30"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive shadow-sm hover:bg-destructive/20 ring-1 ring-inset ring-destructive/30 disabled:opacity-50"
                 >
+                  {deleteTenant.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Delete
                 </button>
               </AlertDialogTrigger>
@@ -270,6 +339,7 @@ export default function TenantDetailPage() {
                   <AlertDialogDescription>
                     This will set the tenant status to &quot;cancelled&quot; and cancel their subscription.
                     The tenant will lose access to their dashboard and storefront.
+                    All active sessions will be terminated.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -300,9 +370,22 @@ export default function TenantDetailPage() {
               <dt className="text-muted-foreground">Subdomain</dt>
               <dd className="font-medium text-card-foreground">{t.subdomain}</dd>
             </div>
-            <div className="py-3 flex justify-between">
+            <div className="py-3 flex justify-between items-center">
               <dt className="text-muted-foreground">Status</dt>
-              <dd className="font-medium text-card-foreground capitalize">{t.status}</dd>
+              <dd>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  t.status === 'active'
+                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                    : t.status === 'suspended'
+                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                }`}>
+                  {t.status === 'active' && <CheckCircle2 className="h-3 w-3" />}
+                  {t.status === 'suspended' && <ShieldOff className="h-3 w-3" />}
+                  {t.status === 'cancelled' && <XCircle className="h-3 w-3" />}
+                  {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
+                </span>
+              </dd>
             </div>
             <div className="py-3 flex justify-between">
               <dt className="text-muted-foreground">Current Plan</dt>

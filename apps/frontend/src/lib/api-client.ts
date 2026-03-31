@@ -48,6 +48,25 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // ── Detect tenant suspension (403 from TenantMiddleware) ──────
+    // Scenario A: owner is mid-session when admin suspends their store.
+    // Instead of showing broken UI, redirect to a clear explanation page.
+    if (error.response?.status === 403) {
+      const message: string = error.response?.data?.message || error.response?.data?.error?.message || '';
+      if (
+        message.includes('suspended') ||
+        message.includes('no longer active')
+      ) {
+        if (
+          typeof window !== 'undefined' &&
+          !window.location.pathname.startsWith('/store-suspended')
+        ) {
+          window.location.href = '/store-suspended';
+        }
+        return Promise.reject(error);
+      }
+    }
+
     const originalRequest = error.config;
 
     // If 401 and we haven't already retried, try to refresh

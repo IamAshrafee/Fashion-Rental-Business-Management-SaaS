@@ -254,6 +254,7 @@ model Tenant {
   customDomain String?      @unique @map("custom_domain")
   ownerUserId  String       @map("owner_user_id")
   status       TenantStatus @default(active)
+  statusReason String?      @map("status_reason")
   planId       String?      @map("plan_id")
   logoUrl      String?      @map("logo_url")
   faviconUrl   String?      @map("favicon_url")

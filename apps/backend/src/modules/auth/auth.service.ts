@@ -199,6 +199,7 @@ export class AuthService {
                 businessName: true,
                 subdomain: true,
                 status: true,
+                statusReason: true,
               },
             },
           },
@@ -243,8 +244,13 @@ export class AuthService {
         role: tu.role,
       }));
 
-    // Use the first active tenant for session (multi-tenant selection handled by frontend)
-    const primaryTenantUser = user.tenantUsers[0];
+    // Use the first ACTIVE tenant for session — suspended/cancelled tenants excluded.
+    // If user belongs to tenants but none are active, they get a tenant-less session
+    // and the frontend will show a "store suspended" state.
+    const activeTenantUsers = user.tenantUsers.filter(
+      (tu) => tu.tenant.status === 'active',
+    );
+    const primaryTenantUser = activeTenantUsers[0] || null;
     const tenantId = primaryTenantUser?.tenantId || null;
     const role = primaryTenantUser?.role || user.role;
 
@@ -274,6 +280,18 @@ export class AuthService {
       ip: sessionInfo.ip,
     });
 
+    // Include suspended tenants so the frontend can detect why tenants list is empty
+    // and redirect to /store-suspended instead of showing a broken dashboard
+    const suspendedTenants = user.tenantUsers
+      .filter((tu) => tu.tenant.status === 'suspended')
+      .map((tu) => ({
+        id: tu.tenant.id,
+        businessName: tu.tenant.businessName,
+        subdomain: tu.tenant.subdomain,
+        status: tu.tenant.status,
+        statusReason: tu.tenant.statusReason || null,
+      }));
+
     return {
       user: {
         id: user.id,
@@ -281,6 +299,7 @@ export class AuthService {
         role: primaryTenantUser?.role || user.role,
       },
       tenants,
+      suspendedTenants,
       accessToken,
       refreshToken,
     };
@@ -331,28 +350,55 @@ export class AuthService {
       throw new UnauthorizedException('Session has expired');
     }
 
+    // Re-resolve tenantId if the current JWT has null — the tenant may have
+    // been reactivated since the user logged in during suspension.
+    let resolvedTenantId = payload.tenantId;
+    let resolvedRole = payload.role;
+
+    if (!resolvedTenantId) {
+      const activeTenantUser = await this.prisma.tenantUser.findFirst({
+        where: {
+          userId: payload.sub,
+          isActive: true,
+          tenant: { status: 'active' },
+        },
+        include: {
+          tenant: { select: { id: true } },
+        },
+      });
+
+      if (activeTenantUser) {
+        resolvedTenantId = activeTenantUser.tenant.id;
+        resolvedRole = activeTenantUser.role as JwtPayload['role'];
+        this.logger.log(
+          `Tenant re-resolved for user ${payload.sub}: ${resolvedTenantId}`,
+        );
+      }
+    }
+
     // Generate new token pair (rotation)
     const newAccessToken = this.generateAccessToken({
       sub: payload.sub,
-      tenantId: payload.tenantId,
-      role: payload.role,
+      tenantId: resolvedTenantId,
+      role: resolvedRole,
       sessionId: session.id,
     });
 
     const newRefreshToken = this.generateRefreshToken({
       sub: payload.sub,
-      tenantId: payload.tenantId,
-      role: payload.role,
+      tenantId: resolvedTenantId,
+      role: resolvedRole,
       sessionId: session.id,
     });
 
-    // Update session with new refresh token hash
+    // Update session with new refresh token hash (and resolved tenantId)
     const newRefreshHash = await this.hashToken(newRefreshToken);
     await this.prisma.session.update({
       where: { id: session.id },
       data: {
         refreshTokenHash: newRefreshHash,
         lastActiveAt: new Date(),
+        ...(resolvedTenantId !== payload.tenantId ? { tenantId: resolvedTenantId } : {}),
       },
     });
 

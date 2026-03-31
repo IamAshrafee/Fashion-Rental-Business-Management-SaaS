@@ -45,7 +45,7 @@ function checkImpersonating(): boolean {
 }
 
 export function OwnerGuard({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, tenantId } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [cookieExists] = useState(() => hasSessionCookie());
@@ -78,8 +78,15 @@ export function OwnerGuard({ children }: { children: React.ReactNode }) {
     if (!isOwnerRole(user?.role)) {
       const from = pathname ? `?from=${encodeURIComponent(pathname)}` : '';
       router.replace(`/login${from}`);
+      return;
     }
-  }, [isLoading, isAuthenticated, user, router, pathname, cookieExists, impersonating]);
+
+    // Safety net: owner with no tenant context → likely suspended
+    // Catches edge cases like direct URL navigation or stale sessions
+    if (isOwnerRole(user?.role) && !tenantId && !impersonating) {
+      router.replace('/store-suspended');
+    }
+  }, [isLoading, isAuthenticated, user, router, pathname, cookieExists, impersonating, tenantId]);
 
   // Show spinner while session is being restored, cookie exists but auth not ready,
   // or impersonation is pending

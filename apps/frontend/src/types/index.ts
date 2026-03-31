@@ -69,6 +69,13 @@ export interface AuthUserInfo {
   phone: string | null;
   role: string;
   tenantId: string | null;
+  suspendedTenants?: Array<{
+    id: string;
+    businessName: string;
+    subdomain: string;
+    status: string;
+    statusReason: string | null;
+  }>;
 }
 
 export interface LoginCredentials {

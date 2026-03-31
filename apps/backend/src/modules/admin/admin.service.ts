@@ -122,21 +122,72 @@ export class AdminService {
   }
 
   /**
-   * Point 5: Update tenant status with full audit trail.
-   * Emits 'admin.tenantStatusChanged' for audit logging.
+   * Update tenant status with full audit trail.
+   * - Validates status transition (no-ops rejected, cancelled→suspended blocked)
+   * - Invalidates all sessions on suspend/cancel
+   * - Emits 'admin.tenantStatusChanged' for audit logging
+   * - Emits 'tenant.suspended' for notification system
    */
   async updateTenantStatus(id: string, dto: UpdateTenantStatusDto, adminUserId: string) {
     const existing = await this.prisma.tenant.findUnique({
       where: { id },
-      select: { status: true, businessName: true },
+      select: { status: true, businessName: true, planId: true },
     });
 
     if (!existing) throw new NotFoundException('Tenant not found');
 
+    // Validate status transition
+    if (existing.status === dto.status) {
+      throw new BadRequestException(`Tenant is already ${dto.status}`);
+    }
+    if (existing.status === 'cancelled' && dto.status === 'suspended') {
+      throw new BadRequestException('Cannot suspend a cancelled tenant. Reactivate it first.');
+    }
+
     const tenant = await this.prisma.tenant.update({
       where: { id },
-      data: { status: dto.status },
+      data: {
+        status: dto.status,
+        statusReason: dto.status === 'suspended'
+          ? (dto.reason || 'Suspended by platform administrator')
+          : dto.status === 'active'
+            ? null  // Clear reason when reactivating
+            : undefined,  // Don't touch for other transitions
+      },
     });
+
+    // Invalidate all sessions for this tenant when suspending or cancelling
+    if (dto.status === 'suspended' || dto.status === 'cancelled') {
+      const deleted = await this.prisma.session.deleteMany({ where: { tenantId: id } });
+      if (deleted.count > 0) {
+        this.logger.log(`Invalidated ${deleted.count} session(s) for tenant ${id}`);
+      }
+    }
+
+    // If reactivating from cancelled, also restore the subscription
+    if (existing.status === 'cancelled' && dto.status === 'active' && existing.planId) {
+      const now = new Date();
+      const periodEnd = new Date(now);
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+      await this.prisma.subscription.upsert({
+        where: { tenantId: id },
+        create: {
+          tenantId: id,
+          planId: existing.planId,
+          billingCycle: 'monthly',
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+          status: 'active',
+        },
+        update: {
+          status: 'active',
+          cancelledAt: null,
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+        },
+      });
+    }
 
     // Emit audit event
     this.eventEmitter.emit('admin.tenantStatusChanged', {
@@ -148,6 +199,14 @@ export class AdminService {
       reason: dto.reason,
       timestamp: new Date().toISOString(),
     });
+
+    // Emit domain event for notification system
+    if (dto.status === 'suspended') {
+      this.eventEmitter.emit('tenant.suspended', {
+        tenantId: id,
+        reason: dto.reason || 'Suspended by platform administrator',
+      });
+    }
 
     this.logger.log(
       `Admin ${adminUserId} changed tenant ${id} status: ${existing.status} → ${dto.status}` +
