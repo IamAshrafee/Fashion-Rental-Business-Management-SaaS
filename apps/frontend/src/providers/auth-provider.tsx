@@ -46,6 +46,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     async function initAuth() {
+      // If an impersonation is pending or active, skip the normal refresh flow.
+      // ImpersonationBoot will set the token — refreshing here would overwrite it
+      // with the admin's own session from the httpOnly refresh cookie.
+      if (typeof window !== 'undefined') {
+        const hasImpersonation =
+          !!localStorage.getItem('closetrent_impersonation') ||
+          !!sessionStorage.getItem('closetrent_impersonation_token');
+        if (hasImpersonation) {
+          setState((s) => ({ ...s, isLoading: false }));
+          return;
+        }
+      }
+
       try {
         const token = await refreshAccessToken();
         if (!token || cancelled) {

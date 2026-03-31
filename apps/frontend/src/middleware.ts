@@ -57,8 +57,9 @@ export function middleware(request: NextRequest) {
       loginUrl.searchParams.set('from', pathname);
       return NextResponse.redirect(loginUrl);
     }
-    // saas_admin should not be in the owner portal
-    if (userRole === 'saas_admin') {
+    // Allow saas_admin through when impersonating a tenant
+    const isImpersonation = request.nextUrl.searchParams.get('impersonate') === 'true';
+    if (userRole === 'saas_admin' && !isImpersonation) {
       return NextResponse.redirect(new URL('/admin', request.url));
     }
   }

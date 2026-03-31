@@ -6,6 +6,7 @@
  * Rules:
  * - Session cookie missing + not authenticated → redirect to /login?from={currentPath}
  * - Role is 'saas_admin' → redirect to /admin (wrong portal)
+ *   UNLESS impersonation is active (sessionStorage marker or pending localStorage token)
  * - Role is not 'owner' | 'manager' | 'staff' → redirect to /login
  * - Session cookie exists but auth restoring → keep showing spinner (no redirect)
  * - Otherwise: render children
@@ -29,11 +30,26 @@ function hasSessionCookie(): boolean {
   return document.cookie.split(';').some((c) => c.trim().startsWith('closetrent_session='));
 }
 
+/**
+ * Check if an impersonation session is active or pending.
+ * Covers both:
+ * - Active impersonation (sessionStorage marker set by ImpersonationBoot)
+ * - Pending impersonation (localStorage token not yet consumed by ImpersonationBoot)
+ */
+function checkImpersonating(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    sessionStorage.getItem('closetrent_is_impersonation') === 'true' ||
+    !!localStorage.getItem('closetrent_impersonation')
+  );
+}
+
 export function OwnerGuard({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [cookieExists] = useState(() => hasSessionCookie());
+  const [impersonating] = useState(() => checkImpersonating());
 
   useEffect(() => {
     if (isLoading) return;
@@ -41,8 +57,11 @@ export function OwnerGuard({ children }: { children: React.ReactNode }) {
     if (!isAuthenticated) {
       // If the session cookie still exists, the refresh likely had a transient
       // failure. Don't redirect — the interceptor will retry on next API call.
-      // Only redirect to login if the cookie is genuinely gone.
       if (cookieExists) return;
+
+      // If there's a pending impersonation, don't redirect —
+      // ImpersonationBoot will consume the token and set cookies
+      if (impersonating) return;
 
       const from = pathname && pathname !== '/dashboard' ? `?from=${encodeURIComponent(pathname)}` : '';
       router.replace(`/login${from}`);
@@ -50,6 +69,8 @@ export function OwnerGuard({ children }: { children: React.ReactNode }) {
     }
 
     if (user?.role === 'saas_admin') {
+      // Don't redirect during impersonation — ImpersonationBoot has swapped the token
+      if (impersonating) return;
       router.replace('/admin');
       return;
     }
@@ -58,10 +79,11 @@ export function OwnerGuard({ children }: { children: React.ReactNode }) {
       const from = pathname ? `?from=${encodeURIComponent(pathname)}` : '';
       router.replace(`/login${from}`);
     }
-  }, [isLoading, isAuthenticated, user, router, pathname, cookieExists]);
+  }, [isLoading, isAuthenticated, user, router, pathname, cookieExists, impersonating]);
 
-  // Show spinner while session is being restored OR cookie exists but auth not ready yet
-  if (isLoading || (!isAuthenticated && cookieExists)) {
+  // Show spinner while session is being restored, cookie exists but auth not ready,
+  // or impersonation is pending
+  if (isLoading || (!isAuthenticated && (cookieExists || impersonating))) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <LoadingSpinner className="h-8 w-8 text-primary" />
@@ -69,10 +91,11 @@ export function OwnerGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Not authenticated and no cookie — render nothing while redirecting to login
-  if (!isAuthenticated || !isOwnerRole(user?.role)) {
+  // Not authenticated and no cookie/impersonation — render nothing while redirecting
+  if (!isAuthenticated || (!isOwnerRole(user?.role) && !impersonating)) {
     return null;
   }
 
   return <>{children}</>;
 }
+
