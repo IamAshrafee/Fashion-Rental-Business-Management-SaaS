@@ -47,15 +47,27 @@ export function StatusTimeline({ events }: { events: BookingTimelineEvent[] }) {
         
         <div className="space-y-6">
           {events.map((event) => {
+            const isCourier = event.type === 'courier';
             return (
-              <div key={event.id} className="relative flex items-start gap-4 z-10">
-                <div className={cn("h-8 w-8 rounded-full border-2 flex items-center justify-center shrink-0 capitalize shadow-sm", getColor(event.status))}>
-                  {getIcon(event.status)}
-                </div>
+              <div key={event.id} className={cn("relative flex items-start gap-4 z-10", isCourier && "opacity-90")}>
+                {isCourier ? (
+                  <div className="h-8 w-8 flex items-center justify-center shrink-0">
+                    <div className="h-3 w-3 rounded-full bg-muted-foreground border-2 border-background shadow-sm" />
+                  </div>
+                ) : (
+                  <div className={cn("h-8 w-8 rounded-full border-2 flex items-center justify-center shrink-0 capitalize shadow-sm", getColor(event.status))}>
+                    {getIcon(event.status)}
+                  </div>
+                )}
+                
                 <div className="pt-1 w-full">
                   <div className="flex justify-between items-start w-full">
-                    <span className="font-semibold text-sm capitalize">{event.status.replace(/_/g, ' ')}</span>
-                    <span className="text-xs text-muted-foreground text-right">{format(parseISO(event.timestamp), 'MMM d, h:mm a')}</span>
+                    <span className={cn("text-sm capitalize", isCourier ? "font-medium text-muted-foreground" : "font-semibold")}>
+                      {event.label || event.status.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-xs text-muted-foreground text-right shrink-0 ml-2">
+                       {format(parseISO(event.timestamp), 'MMM d, h:mm a')}
+                    </span>
                   </div>
                   {event.user && (
                     <div className="text-xs text-muted-foreground mt-0.5">

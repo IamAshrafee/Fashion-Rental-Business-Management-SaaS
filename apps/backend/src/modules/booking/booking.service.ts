@@ -607,6 +607,13 @@ export class BookingService {
         status: true,
         trackingNumber: true,
         courierProvider: true,
+        courierStatus: true,
+        courierStatusHistory: true,
+        pickupRequestedAt: true,
+        deliveryName: true,
+        deliveryAddressLine1: true,
+        grandTotal: true,
+        totalPaid: true,
         createdAt: true,
         confirmedAt: true,
         shippedAt: true,
@@ -625,22 +632,76 @@ export class BookingService {
 
     if (!booking) throw new NotFoundException('Booking not found');
 
-    // Build timeline
-    const timeline: { status: string; at: Date }[] = [
-      { status: 'pending', at: booking.createdAt },
+    // Build unified timeline: business stages + courier milestones
+    type TimelineEvent = { status: string; label: string; at: Date | string; type: 'business' | 'courier' };
+
+    const timeline: TimelineEvent[] = [
+      { status: 'pending', label: 'Order Placed', at: booking.createdAt, type: 'business' },
     ];
-    if (booking.confirmedAt) timeline.push({ status: 'confirmed', at: booking.confirmedAt });
-    if (booking.shippedAt) timeline.push({ status: 'shipped', at: booking.shippedAt });
-    if (booking.deliveredAt) timeline.push({ status: 'delivered', at: booking.deliveredAt });
-    if (booking.returnedAt) timeline.push({ status: 'returned', at: booking.returnedAt });
-    if (booking.completedAt) timeline.push({ status: 'completed', at: booking.completedAt });
+    if (booking.confirmedAt)  timeline.push({ status: 'confirmed',  label: 'Order Confirmed',  at: booking.confirmedAt, type: 'business' });
+
+    // Merge courier status history events chronologically
+    if (Array.isArray(booking.courierStatusHistory)) {
+      const history = booking.courierStatusHistory as Array<{
+        status: string;
+        label: string;
+        timestamp: string;
+        source: string;
+      }>;
+
+      for (const event of history) {
+        // Skip duplicates of business stages already in the timeline
+        if (event.status === 'pickup_pending' || event.status === 'pickup_assigned' ||
+            event.status === 'pickup_failed' || event.status === 'picked_up' ||
+            event.status === 'at_hub' || event.status === 'in_transit' ||
+            event.status === 'at_destination' || event.status === 'out_for_delivery' ||
+            event.status === 'partial_delivered' || event.status === 'returned_to_sender' ||
+            event.status === 'on_hold' || event.status === 'unknown') {
+          timeline.push({
+            status: event.status,
+            label: event.label,
+            at: event.timestamp,
+            type: 'courier',
+          });
+        }
+      }
+    }
+
+    if (booking.shippedAt)    timeline.push({ status: 'shipped',    label: 'Order Shipped',    at: booking.shippedAt, type: 'business' });
+    if (booking.deliveredAt)  timeline.push({ status: 'delivered',  label: 'Delivered',        at: booking.deliveredAt, type: 'business' });
+    if (booking.returnedAt)   timeline.push({ status: 'returned',   label: 'Returned',         at: booking.returnedAt, type: 'business' });
+    if (booking.completedAt)  timeline.push({ status: 'completed',  label: 'Completed',        at: booking.completedAt, type: 'business' });
+
+    // Sort chronologically
+    timeline.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
+    // Calculate rental period from items
+    const earliestStart = booking.items.reduce<Date | null>((min, item) => {
+      return !min || item.startDate < min ? item.startDate : min;
+    }, null);
+
+    const latestEnd = booking.items.reduce<Date | null>((max, item) => {
+      return !max || item.endDate > max ? item.endDate : max;
+    }, null);
+
+    const now = new Date();
+    const rentalPeriod = earliestStart && latestEnd ? {
+      startDate: earliestStart,
+      endDate: latestEnd,
+      totalDays: Math.ceil((latestEnd.getTime() - earliestStart.getTime()) / (1000 * 60 * 60 * 24)),
+      daysRemaining: Math.max(0, Math.ceil((latestEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))),
+      isActive: booking.status === 'delivered' && now >= earliestStart && now <= latestEnd,
+      isOverdue: booking.status === 'delivered' && now > latestEnd,
+    } : null;
 
     return {
       bookingNumber: booking.bookingNumber,
       status: booking.status,
       trackingNumber: booking.trackingNumber,
       courierProvider: booking.courierProvider,
+      courierStatus: booking.courierStatus,
       timeline,
+      rentalPeriod,
       items: booking.items,
     };
   }

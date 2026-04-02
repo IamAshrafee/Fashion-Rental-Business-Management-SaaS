@@ -169,6 +169,9 @@ export interface BookingDetailResponse {
   internalNotes: string | null;
   trackingNumber: string | null;
   courierProvider: string | null;
+  courierStatus: string | null;
+  courierStatusHistory: any;
+  pickupRequestedAt: string | null;
   cancellationReason: string | null;
   cancelledBy: string | null;
   confirmedAt: string | null;

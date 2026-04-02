@@ -22,7 +22,7 @@ export class JobsScheduler implements OnModuleInit {
   }
 
   private async registerCronJobs() {
-    const { schedulerQueue, cleanupQueue } = this.jobsService;
+    const { schedulerQueue, cleanupQueue, fulfillmentQueue } = this.jobsService;
 
     // Remove old repeatable jobs before re-registering (for clean updates)
     const schedulerRepeatable = await schedulerQueue.getRepeatableJobs();
@@ -33,6 +33,11 @@ export class JobsScheduler implements OnModuleInit {
     const cleanupRepeatable = await cleanupQueue.getRepeatableJobs();
     for (const job of cleanupRepeatable) {
       await cleanupQueue.removeRepeatableByKey(job.key);
+    }
+
+    const fulfillmentRepeatable = await fulfillmentQueue.getRepeatableJobs();
+    for (const job of fulfillmentRepeatable) {
+      await fulfillmentQueue.removeRepeatableByKey(job.key);
     }
 
     // ── Scheduler Queue CRON Jobs ─────────────────────────────────────────
@@ -77,6 +82,18 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
+    // ── Fulfillment Queue CRON Jobs ───────────────────────────────────────
+
+    // Every 15 min: poll Pathao API for courier status updates
+    await fulfillmentQueue.add(
+      'fulfillment.pollCourierStatus',
+      {},
+      {
+        repeat: { pattern: '*/15 * * * *' }, // Every 15 minutes
+        jobId: 'cron:fulfillment.pollCourierStatus',
+      },
+    );
+
     // ── Cleanup Queue CRON Jobs ───────────────────────────────────────────
 
     // Daily 3 AM UTC: clean notifications older than 30 days
@@ -99,6 +116,6 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
-    this.logger.log('Registered 6 CRON jobs: 4 scheduler, 2 cleanup');
+    this.logger.log('Registered 7 CRON jobs: 4 scheduler, 1 fulfillment, 2 cleanup');
   }
 }

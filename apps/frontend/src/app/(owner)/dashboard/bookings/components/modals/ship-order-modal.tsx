@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
-import { bookingApi } from '@/lib/api/bookings';
+import { fulfillmentApi } from '@/lib/api/fulfillment';
 
 interface ShipOrderModalProps {
   bookingId: string;
@@ -29,9 +29,10 @@ export function ShipOrderModal({ bookingId, open, onOpenChange, onSuccess }: Shi
   const [trackingNumber, setTrackingNumber] = useState('');
 
   const mutation = useMutation({
-    mutationFn: () => bookingApi.ship(bookingId, {
-      courierProvider: courier.trim() || undefined,
-      trackingNumber: trackingNumber.trim() || undefined,
+    mutationFn: () => fulfillmentApi.ship(bookingId, {
+      courierProvider: courier as any,
+      useApi: ['pathao', 'steadfast'].includes(courier),
+      trackingNumber: ['pathao', 'steadfast'].includes(courier) ? undefined : (trackingNumber.trim() || undefined),
     }),
     onSuccess: () => {
       toast.success('Order shipped! Customer will be notified.');
@@ -67,15 +68,18 @@ export function ShipOrderModal({ bookingId, open, onOpenChange, onSuccess }: Shi
             </Select>
           </div>
           
-          <div className="space-y-2">
-            <Label htmlFor="tracking">Tracking Number (Optional)</Label>
-            <Input
-              id="tracking"
-              placeholder="e.g. PTH-123456"
-              value={trackingNumber}
-              onChange={(e) => setTrackingNumber(e.target.value)}
-            />
-          </div>
+          
+          {!['pathao', 'steadfast'].includes(courier) && (
+            <div className="space-y-2">
+              <Label htmlFor="tracking">Tracking Number (Optional)</Label>
+              <Input
+                id="tracking"
+                placeholder="e.g. PTH-123456"
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+              />
+            </div>
+          )}
         </div>
         
         <DialogFooter>

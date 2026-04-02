@@ -96,10 +96,12 @@ export interface Payment {
 
 export interface BookingTimelineEvent {
   id: string;
-  status: BookingStatus;
+  status: string | BookingStatus;
   timestamp: string;
   user?: string;
   note?: string;
+  label?: string;
+  type?: 'business' | 'courier';
 }
 
 /**

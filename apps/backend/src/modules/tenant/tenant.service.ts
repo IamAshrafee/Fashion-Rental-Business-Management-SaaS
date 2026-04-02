@@ -215,6 +215,12 @@ export class TenantService {
             // courierApiKey: EXCLUDED — secret
             // courierSecretKey: EXCLUDED — secret
             pickupAddress: true,
+            pathaoClientId: true,
+            pathaoClientSecret: true,
+            pathaoUsername: true,
+            pathaoPassword: true,
+            pathaoStoreId: true,
+            pathaoSandbox: true,
             maxConcurrentSessions: true,
             bufferDays: true,
             createdAt: true,

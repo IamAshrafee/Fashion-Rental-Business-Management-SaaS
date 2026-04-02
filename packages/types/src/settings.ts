@@ -46,6 +46,12 @@ export interface UpdateCourierSettingsDto {
   courierApiKey?: string;
   courierSecretKey?: string;
   pickupAddress?: string;
+  pathaoClientId?: string;
+  pathaoClientSecret?: string;
+  pathaoUsername?: string;
+  pathaoPassword?: string;
+  pathaoStoreId?: number;
+  pathaoSandbox?: boolean;
 }
 
 export interface UpdateOperationalSettingsDto {
@@ -108,6 +114,12 @@ export interface StoreSettings {
   courierApiKey?: string;
   courierSecretKey?: string;
   pickupAddress?: string;
+  pathaoClientId?: string;
+  pathaoClientSecret?: string;
+  pathaoUsername?: string;
+  pathaoPassword?: string;
+  pathaoStoreId?: number;
+  pathaoSandbox?: boolean;
   
   // Operational
   maxConcurrentSessions: number;

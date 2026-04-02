@@ -155,9 +155,12 @@ export async function createBooking(payload: CheckoutPayload): Promise<BookingRe
  *
  * GET /api/v1/bookings/:bookingNumber/status
  */
-export async function trackBooking(bookingNumber: string): Promise<unknown> {
-  const response = await apiClient.get<unknown>(
+export async function trackBooking(bookingNumber: string): Promise<any> {
+  const response = await apiClient.get<ApiResponse<any>>(
     `/bookings/${encodeURIComponent(bookingNumber)}/status`,
   );
-  return response;
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Failed to track booking');
+  }
+  return response.data.data;
 }

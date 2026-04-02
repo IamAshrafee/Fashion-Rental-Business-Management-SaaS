@@ -31,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { title: 'Products', href: '/dashboard/products', icon: Package },
   { title: 'Bookings', href: '/dashboard/bookings', icon: CalendarCheck },
+  { title: 'Deliveries', href: '/dashboard/deliveries', icon: Truck },
   { title: 'Customers', href: '/dashboard/customers', icon: Users },
   { title: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
   { title: 'Billing', href: '/dashboard/billing', icon: CreditCard },

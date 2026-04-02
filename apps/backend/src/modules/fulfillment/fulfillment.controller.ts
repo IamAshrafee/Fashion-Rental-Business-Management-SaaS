@@ -11,6 +11,7 @@ import {
   Get,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -85,5 +86,31 @@ export class FulfillmentController {
       };
     }
     return { available: true, ...rate };
+  }
+
+  /**
+   * GET /api/v1/owner/fulfillment/deliveries
+   *
+   * Returns delivery management dashboard data:
+   * - Summary counts grouped by courier status
+   * - Paginated list of active deliveries
+   *
+   * Optional query params:
+   *   ?courierStatus=pickup_pending,in_transit
+   *   &page=1&limit=20
+   */
+  @Get('deliveries')
+  @Roles('owner', 'manager', 'staff')
+  async getDeliveries(
+    @CurrentTenant() tenant: TenantContext,
+    @Query('courierStatus') courierStatus?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.fulfillmentService.getDeliveryDashboard(tenant.id, {
+      courierStatus: courierStatus?.split(',').filter(Boolean),
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 }

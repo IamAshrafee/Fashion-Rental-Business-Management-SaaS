@@ -17,6 +17,9 @@ import { useLocale } from '@/hooks/use-locale';
 interface TrackingData {
   bookingNumber: string;
   status: string;
+  trackingNumber?: string | null;
+  courierProvider?: string | null;
+  courierStatus?: string | null;
   customerName: string;
   deliveryAddress: string;
   items: Array<{
@@ -30,7 +33,9 @@ interface TrackingData {
   createdAt: string;
   statusTimeline: Array<{
     status: string;
+    label: string;
     timestamp: string | null;
+    type: 'business' | 'courier';
     done: boolean;
   }>;
 }
@@ -78,22 +83,55 @@ export default function GuestBookingTrackPage() {
     try {
       const data = await trackBooking(orderNumber.trim());
       if (data && typeof data === 'object') {
-        // Map backend response to our tracking shape
         const raw = data as any;
         const currentStatus = raw.status || 'pending';
-        const currentIdx = STATUS_ORDER.indexOf(currentStatus);
 
-        const timeline = STATUS_ORDER.map((s, i) => ({
-          status: s,
-          timestamp: i <= currentIdx ? (raw.createdAt || null) : null,
-          done: i <= currentIdx,
-        }));
+        let timeline: any[] = [];
+        if (raw.timeline && Array.isArray(raw.timeline)) {
+          // Push completed events from backend history
+          timeline = raw.timeline.map((evt: any) => ({
+            status: evt.status,
+            label: evt.label,
+            timestamp: evt.at,
+            type: evt.type || 'business',
+            done: true,
+          }));
+
+          // Predict future business events to complete the progress bar
+          const businessEvents = raw.timeline.filter((e: any) => (e.type || 'business') === 'business').map((e: any) => e.status);
+          if (currentStatus !== 'cancelled') {
+             for (const flowStep of STATUS_ORDER) {
+                if (!businessEvents.includes(flowStep)) {
+                   timeline.push({
+                     status: flowStep,
+                     label: STATUS_LABELS[flowStep] || flowStep,
+                     timestamp: null,
+                     type: 'business',
+                     done: false
+                   });
+                }
+             }
+          }
+        } else {
+          // Fallback if backend does not use unified timeline
+          const currentIdx = STATUS_ORDER.indexOf(currentStatus);
+          timeline = STATUS_ORDER.map((s, i) => ({
+            status: s,
+            label: STATUS_LABELS[s] || s,
+            timestamp: i <= currentIdx ? raw.createdAt : null,
+            type: 'business',
+            done: i <= currentIdx,
+          }));
+        }
 
         setBookingData({
           bookingNumber: raw.bookingNumber || orderNumber,
           status: currentStatus,
-          customerName: raw.customer?.fullName || raw.customerName || 'Customer',
-          deliveryAddress: raw.deliveryAddress || raw.customer?.addressLine1 || '',
+          trackingNumber: raw.trackingNumber,
+          courierProvider: raw.courierProvider,
+          courierStatus: raw.courierStatus,
+          customerName: raw.deliveryName || raw.customer?.fullName || raw.customerName || 'Customer',
+          deliveryAddress: raw.deliveryAddressLine1 || raw.deliveryAddress || raw.customer?.addressLine1 || '',
           items: raw.items?.map((item: any) => ({
             productName: item.productName || item.name || 'Product',
             colorName: item.colorName,
@@ -101,7 +139,7 @@ export default function GuestBookingTrackPage() {
             endDate: item.endDate,
           })) || [],
           grandTotal: raw.grandTotal || 0,
-          paidAmount: raw.paidAmount || 0,
+          paidAmount: raw.totalPaid || raw.paidAmount || 0,
           createdAt: raw.createdAt || '',
           statusTimeline: timeline,
         });
@@ -186,23 +224,29 @@ export default function GuestBookingTrackPage() {
 
             <div className="relative border-l-2 border-gray-200 ml-3 space-y-8 pb-4">
               {bookingData.statusTimeline.map((event, idx) => (
-                <div key={idx} className="relative pl-6">
+                <div key={idx} className={`relative ${event.type === 'courier' ? 'pl-8 opacity-90' : 'pl-6'}`}>
+                  {/* Circle Marker */}
                   <div
-                    className={`absolute -left-[9px] top-0 h-4 w-4 rounded-full border-2 border-white ${
-                      event.done ? 'bg-black' : 'bg-gray-300'
-                    }`}
+                    className={`absolute ${
+                      event.type === 'courier' 
+                        ? '-left-[6px] top-1.5 h-2.5 w-2.5 bg-gray-500 border-white' 
+                        : `-left-[9px] top-0 h-4 w-4 bg-${event.done ? 'black' : 'gray-300'}`
+                    } rounded-full border-2 border-white`}
                   />
                   <div>
                     <h3
-                      className={`font-bold ${
-                        event.done ? 'text-gray-900' : 'text-gray-400'
+                      className={`${event.type === 'courier' ? 'text-sm font-medium text-gray-700' : 'font-bold'} ${
+                        event.done ? (event.type === 'business' ? 'text-gray-900' : '') : 'text-gray-400'
                       }`}
                     >
-                      {STATUS_LABELS[event.status] || event.status}
+                      {event.label}
                     </h3>
                     {event.done && event.timestamp && (
                       <p className="text-xs text-gray-500 mt-1">
-                        {new Date(event.timestamp).toLocaleDateString()}
+                        {new Date(event.timestamp).toLocaleString(undefined, {
+                          month: 'short', day: 'numeric',
+                          hour: '2-digit', minute: '2-digit'
+                        })}
                       </p>
                     )}
                   </div>
@@ -211,10 +255,11 @@ export default function GuestBookingTrackPage() {
             </div>
           </div>
 
-          <div className="bg-gray-50 p-6 border border-gray-100 h-fit">
-            <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">
-              Order Details
-            </h2>
+          <div className="flex flex-col gap-6">
+            <div className="bg-gray-50 p-6 border border-gray-100 h-fit">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">
+                Order Details
+              </h2>
             <ul className="text-sm text-gray-600 space-y-3 mb-6">
               <li>
                 <strong className="text-gray-900 w-24 inline-block">
@@ -251,13 +296,13 @@ export default function GuestBookingTrackPage() {
                 <h3 className="font-bold text-gray-900 text-sm mb-2">
                   Items Rented
                 </h3>
-                <div className="space-y-2 text-sm text-gray-600 bg-white p-3 border border-gray-200">
+                <div className="space-y-2 text-sm text-gray-600 bg-white p-3 border border-gray-200 shadow-sm">
                   {bookingData.items.map((item, i) => (
                     <div key={i} className="flex justify-between">
-                      <span>
+                      <span className="font-medium">
                         {item.productName}
                         {item.colorName && (
-                          <span className="text-gray-400">
+                          <span className="text-gray-400 font-normal">
                             {' '}
                             ({item.colorName})
                           </span>
@@ -275,6 +320,39 @@ export default function GuestBookingTrackPage() {
               </>
             )}
           </div>
+
+          {bookingData.trackingNumber && bookingData.courierProvider && (
+            <div className="bg-blue-50/50 p-6 border border-blue-100 shadow-sm h-fit">
+              <div className="flex items-center gap-3 mb-4 border-b border-blue-200 pb-2">
+                <Package className="h-5 w-5 text-blue-600" />
+                <h2 className="text-lg font-bold text-gray-900">
+                  Shipping Information
+                </h2>
+              </div>
+              <ul className="text-sm text-gray-700 space-y-3 mb-6">
+                <li className="flex justify-between items-center bg-white p-3 border border-blue-100 rounded-sm">
+                  <span className="text-gray-500 font-medium tracking-wide text-xs uppercase">Tracking ID</span>
+                  <strong className="font-mono text-blue-700">{bookingData.trackingNumber}</strong>
+                </li>
+                <li className="flex justify-between items-center bg-white p-3 border border-blue-100 rounded-sm">
+                  <span className="text-gray-500 font-medium tracking-wide text-xs uppercase">Courier</span>
+                  <span className="capitalize font-semibold text-gray-900">{bookingData.courierProvider}</span>
+                </li>
+              </ul>
+              
+              {bookingData.courierProvider.toLowerCase() === 'pathao' && (
+                <a
+                  href={`https://pathao.com/tracking/?consignment_id=${bookingData.trackingNumber}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-semibold py-3 px-4 hover:bg-blue-700 transition"
+                >
+                  Track on Pathao <Search className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          )}
+        </div>
         </div>
       )}
     </div>

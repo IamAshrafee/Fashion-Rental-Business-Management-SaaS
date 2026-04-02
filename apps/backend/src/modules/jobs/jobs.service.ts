@@ -1,13 +1,16 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Queue, Worker, Job } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { SmsService } from '../notification/sms/sms.service';
+import { FulfillmentService } from '../fulfillment/fulfillment.service';
 
 export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_SCHEDULER = 'scheduler';
 export const QUEUE_CLEANUP = 'cleanup';
+export const QUEUE_FULFILLMENT = 'fulfillment';
 
 /**
  * BullMQ connection config shared across queues.
@@ -27,11 +30,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(JobsService.name);
 
   // Queues (used to add jobs)
+  fulfillmentQueue!: Queue;
   notificationsQueue!: Queue;
   schedulerQueue!: Queue;
   cleanupQueue!: Queue;
 
   // Workers (process jobs)
+  private fulfillmentWorker!: Worker;
   private notificationsWorker!: Worker;
   private schedulerWorker!: Worker;
   private cleanupWorker!: Worker;
@@ -41,10 +46,22 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly smsService: SmsService,
+    @Inject(forwardRef(() => FulfillmentService))
+    private readonly fulfillmentService: FulfillmentService,
   ) {
     const connection = getRedisConnection(this.config);
 
     // ── Queues (Available immediately for Bull Board) ─────────────────────────
+    this.fulfillmentQueue = new Queue(QUEUE_FULFILLMENT, {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+        removeOnComplete: { count: 200 },
+        removeOnFail: { count: 50 },
+      },
+    });
+
     this.notificationsQueue = new Queue(QUEUE_NOTIFICATIONS, {
       connection,
       defaultJobOptions: {
@@ -79,6 +96,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const connection = getRedisConnection(this.config);
 
     // ── Workers ─────────────────────────────────────────────────────────────
+    this.fulfillmentWorker = new Worker(
+      QUEUE_FULFILLMENT,
+      async (job: Job) => this.processFulfillmentJob(job),
+      { connection, concurrency: 2 },
+    );
+
     this.notificationsWorker = new Worker(
       QUEUE_NOTIFICATIONS,
       async (job: Job) => this.processNotificationJob(job),
@@ -98,7 +121,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     );
 
     // ── Failure handlers ────────────────────────────────────────────────────
-    [this.notificationsWorker, this.schedulerWorker, this.cleanupWorker].forEach((worker) => {
+    [this.fulfillmentWorker, this.notificationsWorker, this.schedulerWorker, this.cleanupWorker].forEach((worker) => {
       worker.on('failed', (job, err) => this.onJobFailed(job, err));
     });
 
@@ -107,9 +130,11 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await Promise.allSettled([
+      this.fulfillmentWorker?.close(),
       this.notificationsWorker?.close(),
       this.schedulerWorker?.close(),
       this.cleanupWorker?.close(),
+      this.fulfillmentQueue?.close(),
       this.notificationsQueue?.close(),
       this.schedulerQueue?.close(),
       this.cleanupQueue?.close(),
@@ -143,6 +168,107 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
       default:
         this.logger.warn(`Unknown notification job: ${job.name}`);
+    }
+  }
+
+  // ==========================================================================
+  // FULFILLMENT QUEUE PROCESSOR
+  // ==========================================================================
+
+  private async processFulfillmentJob(job: Job): Promise<void> {
+    this.logger.debug(`Processing fulfillment job: ${job.name} (id: ${job.id})`);
+
+    switch (job.name) {
+      case 'fulfillment.requestPickup': {
+        const { tenantId, bookingId } = job.data as {
+          tenantId: string;
+          bookingId: string;
+        };
+        await this.fulfillmentService.requestPickup(tenantId, bookingId);
+        break;
+      }
+
+      case 'fulfillment.pollCourierStatus':
+        await this.fulfillmentService.pollAllCourierStatuses();
+        break;
+
+      default:
+        this.logger.warn(`Unknown fulfillment job: ${job.name}`);
+    }
+  }
+
+  // ==========================================================================
+  // EVENT LISTENER: Schedule Pickup
+  // ==========================================================================
+
+  /**
+   * Listens for 'fulfillment.schedulePickup' events emitted by FulfillmentService
+   * when a booking is confirmed. Creates a delayed BullMQ job that fires
+   * at the calculated pickup date.
+   */
+  @OnEvent('fulfillment.schedulePickup')
+  async onSchedulePickup(payload: {
+    tenantId: string;
+    bookingId: string;
+    bookingNumber: string;
+    scheduledAt: string;
+    delayMs: number;
+  }): Promise<void> {
+    const { tenantId, bookingId, bookingNumber, delayMs } = payload;
+
+    const jobId = `pickup:${bookingId}`;
+
+    const job = await this.fulfillmentQueue.add(
+      'fulfillment.requestPickup',
+      { tenantId, bookingId, bookingNumber },
+      {
+        jobId,
+        delay: delayMs,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+      },
+    );
+
+    // Save the job ID on the booking so it can be cancelled if needed
+    await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { pickupJobId: job.id ?? jobId },
+    });
+
+    this.logger.log(
+      `Pickup job scheduled for ${bookingNumber}: delay=${Math.ceil(delayMs / (1000 * 60 * 60))}h, jobId=${job.id}`,
+    );
+  }
+
+  /**
+   * Listens for 'booking.cancelled' events and removes any pending
+   * pickup job from the fulfillment queue.
+   */
+  @OnEvent('booking.cancelled')
+  async onBookingCancelled(payload: {
+    tenantId: string;
+    bookingId: string;
+    bookingNumber: string;
+  }): Promise<void> {
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: payload.bookingId },
+      select: { pickupJobId: true },
+    });
+
+    if (booking?.pickupJobId) {
+      try {
+        const job = await this.fulfillmentQueue.getJob(booking.pickupJobId);
+        if (job && (await job.isDelayed())) {
+          await job.remove();
+          this.logger.log(
+            `Cancelled pickup job ${booking.pickupJobId} for ${payload.bookingNumber}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Failed to cancel pickup job ${booking.pickupJobId}: ${(err as Error).message}`,
+        );
+      }
     }
   }
 

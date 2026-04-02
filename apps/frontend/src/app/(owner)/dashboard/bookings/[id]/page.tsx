@@ -87,40 +87,69 @@ export default function BookingDetailPage() {
   const customerName = booking.customer?.fullName || 'Unknown';
   const displayNumber = booking.bookingNumber || booking.id;
 
-  // ── Build timeline events from booking timestamps ──────────────────────
+  // ── Build timeline events from booking timestamps & courier history ──
   const timelineEvents: BookingTimelineEvent[] = [];
   let eventCounter = 0;
 
-  const addTimelineEvent = (status: string, timestamp: string | null, note?: string) => {
+  const addTimelineEvent = (status: BookingStatus | string, label: string, timestamp: string | null, type: 'business' | 'courier' = 'business', note?: string) => {
     if (!timestamp) return;
     timelineEvents.push({
       id: String(++eventCounter),
-      status: status as BookingStatus,
+      status,
+      label,
       timestamp,
+      type,
       note,
     });
   };
 
-  addTimelineEvent('pending', booking.createdAt, 'Booking created');
-  addTimelineEvent('confirmed', booking.confirmedAt);
-  addTimelineEvent('shipped', booking.shippedAt,
+  // Business events
+  addTimelineEvent('pending', 'Order Placed', booking.createdAt, 'business', 'Booking created');
+  addTimelineEvent('confirmed', 'Order Confirmed', booking.confirmedAt, 'business');
+
+  // Merge courier status history events chronologically
+  if (Array.isArray(booking.courierStatusHistory)) {
+    const history = booking.courierStatusHistory as Array<{
+      status: string;
+      label: string;
+      timestamp: string;
+      source: string;
+    }>;
+    for (const event of history) {
+      if (
+        event.status === 'pickup_pending' || event.status === 'pickup_assigned' ||
+        event.status === 'pickup_failed' || event.status === 'picked_up' ||
+        event.status === 'at_hub' || event.status === 'in_transit' ||
+        event.status === 'at_destination' || event.status === 'out_for_delivery' ||
+        event.status === 'partial_delivered' || event.status === 'returned_to_sender' ||
+        event.status === 'on_hold' || event.status === 'unknown'
+      ) {
+        addTimelineEvent(event.status, event.label, event.timestamp, 'courier');
+      }
+    }
+  }
+
+  addTimelineEvent('shipped', 'Order Shipped', booking.shippedAt, 'business', 
     booking.courierProvider
       ? `Via ${booking.courierProvider}${booking.trackingNumber ? ` — #${booking.trackingNumber}` : ''}`
       : undefined
   );
-  addTimelineEvent('delivered', booking.deliveredAt);
-  addTimelineEvent('returned', booking.returnedAt);
-  addTimelineEvent('completed', booking.completedAt);
+  addTimelineEvent('delivered', 'Delivered', booking.deliveredAt, 'business');
+  addTimelineEvent('returned', 'Returned', booking.returnedAt, 'business');
+  addTimelineEvent('completed', 'Completed', booking.completedAt, 'business');
 
-  // Fix #1: Use cancelledAt instead of updatedAt for cancelled events
+  // Cancelled event
   if (booking.status === 'cancelled') {
-    addTimelineEvent('cancelled', booking.cancelledAt || booking.updatedAt, booking.cancellationReason || undefined);
+    addTimelineEvent('cancelled', 'Cancelled', booking.cancelledAt || booking.updatedAt, 'business', booking.cancellationReason || undefined);
   }
 
-  // Fix #3: Synthetic overdue timeline event
+  // Synthetic overdue timeline event
   if (booking.status === 'overdue') {
-    addTimelineEvent('overdue', booking.updatedAt, 'Rental period has exceeded the return date');
+    addTimelineEvent('overdue', 'Overdue', booking.updatedAt, 'business', 'Rental period has exceeded the return date');
   }
+
+  // Sort timeline chronologically (courier events mixed with business)
+  timelineEvents.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   // ── Map items — types are now aligned with backend, minimal mapping needed ──
   const mappedItems: BookingItem[] = booking.items.map((item) => ({

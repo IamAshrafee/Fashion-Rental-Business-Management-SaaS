@@ -195,6 +195,35 @@ export class UpdateCourierSettingsDto {
   @IsOptional()
   @IsString()
   pickupAddress?: string;
+
+  // ── Pathao-specific credentials ──────────────────────────────────────
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  pathaoClientId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  pathaoClientSecret?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  pathaoUsername?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  pathaoPassword?: string;
+
+  @IsOptional()
+  @IsInt()
+  pathaoStoreId?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  pathaoSandbox?: boolean;
 }
 
 // =========================================================================

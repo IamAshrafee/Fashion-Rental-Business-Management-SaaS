@@ -6,6 +6,53 @@
  */
 
 // ---------------------------------------------------------------------------
+// Courier Status Types (granular tracking)
+// ---------------------------------------------------------------------------
+
+/** All possible granular courier statuses used across providers */
+export type CourierStatusSlug =
+  | 'pickup_pending'
+  | 'pickup_assigned'
+  | 'pickup_failed'
+  | 'picked_up'
+  | 'at_hub'
+  | 'in_transit'
+  | 'at_destination'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'partial_delivered'
+  | 'returned_to_sender'
+  | 'cancelled'
+  | 'on_hold'
+  | 'unknown';
+
+/** A single timeline event stored in booking.courierStatusHistory JSONB */
+export interface CourierStatusEvent {
+  status: CourierStatusSlug;
+  label: string;
+  timestamp: string; // ISO 8601
+  source: 'system' | 'pathao' | 'steadfast' | 'webhook';
+}
+
+/** Human-readable labels for each courier status */
+export const COURIER_STATUS_LABELS: Record<CourierStatusSlug, string> = {
+  pickup_pending: 'Pickup Requested',
+  pickup_assigned: 'Courier Assigned for Pickup',
+  pickup_failed: 'Pickup Request Failed',
+  picked_up: 'Parcel Picked Up by Courier',
+  at_hub: 'At Sorting Hub',
+  in_transit: 'In Transit to Destination',
+  at_destination: 'Arrived at Destination Hub',
+  out_for_delivery: 'Out for Delivery',
+  delivered: 'Delivered',
+  partial_delivered: 'Partial Delivery',
+  returned_to_sender: 'Returned to Sender',
+  cancelled: 'Shipment Cancelled',
+  on_hold: 'On Hold',
+  unknown: 'Status Update',
+};
+
+// ---------------------------------------------------------------------------
 // Shared Input Types
 // ---------------------------------------------------------------------------
 
@@ -141,6 +188,8 @@ export interface PathaoConfig {
   password: string;
   /** Pathao store/merchant ID to use for parcel creation */
   defaultStoreId: number;
+  /** If true, use Pathao sandbox URL instead of production */
+  sandbox?: boolean;
 }
 
 export interface SteadfastConfig {
@@ -154,3 +203,23 @@ export interface CourierSettings {
   pathao?: PathaoConfig;
   steadfast?: SteadfastConfig;
 }
+
+// ---------------------------------------------------------------------------
+// Pickup Lead Days Configuration (for 'smart' mode)
+// ---------------------------------------------------------------------------
+
+export interface PickupLeadDaysConfig {
+  /** Lead days for same-city deliveries (e.g., Dhaka → Dhaka) */
+  same_city: number;
+  /** Lead days for inter-city deliveries between major cities */
+  inter_city: number;
+  /** Lead days for remote/rural areas */
+  remote: number;
+}
+
+/** Major cities in Bangladesh for smart lead days calculation */
+export const MAJOR_CITIES_BD = [
+  'dhaka', 'chittagong', 'chattogram', 'rajshahi', 'khulna',
+  'sylhet', 'rangpur', 'barisal', 'barishal', 'comilla', 'cumilla',
+  'gazipur', 'narayanganj', 'mymensingh',
+];
