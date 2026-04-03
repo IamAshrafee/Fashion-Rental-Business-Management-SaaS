@@ -47,7 +47,7 @@ const fadeUp = {
   visible: (i: number = 0) => ({
     opacity: 1,
     y: 0,
-    transition: { duration: 0.35, delay: i * 0.06, ease: [0.25, 0.46, 0.45, 0.94] },
+    transition: { duration: 0.35, delay: i * 0.06, ease: [0.25, 0.46, 0.45, 0.94] as any },
   }),
 };
 
@@ -58,7 +58,7 @@ const fadeIn = {
 
 const scaleIn = {
   hidden: { opacity: 0, scale: 0.96 },
-  visible: { opacity: 1, scale: 1, transition: { duration: 0.25, ease: 'easeOut' } },
+  visible: { opacity: 1, scale: 1, transition: { duration: 0.25, ease: 'easeOut' as any } },
 };
 
 const stagger = {
