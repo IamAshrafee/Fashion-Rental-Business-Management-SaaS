@@ -162,9 +162,13 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
               />
             )}
             {data.extendedRentalRate && <Row label="Extended Rate" value={`৳${data.extendedRentalRate}/day`} />}
-            {data.lateFeePerDay && (
-              <Row label="Late Fee" value={`৳${data.lateFeePerDay}/day (${data.lateFeeType})`} />
+            {data.lateFeeType === 'fixed' && data.lateFeePerDay && (
+              <Row label="Late Fee" value={`৳${data.lateFeePerDay}/day (Fixed)`} />
             )}
+            {data.lateFeeType === 'percentage' && data.lateFeePercentage && (
+              <Row label="Late Fee" value={`${data.lateFeePercentage}%/day (Percentage)`} />
+            )}
+            {data.maxLateFeeCap && <Row label="Max Late Fee Cap" value={`৳${data.maxLateFeeCap}`} />}
             {data.minPrice && <Row label="Min Price Floor" value={`৳${data.minPrice}`} />}
           </CardContent>
         </Card>
@@ -208,6 +212,24 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
                 </Badge>
               }
             />
+            {/* Standard sizes */}
+            {data.sizeMode === 'standard' && data.availableSizes && data.availableSizes.length > 0 && (
+              <div className="pt-1">
+                <span className="font-medium text-muted-foreground text-xs">Available Sizes:</span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {data.availableSizes.map((s) => (
+                    <Badge key={s} variant={s === data.mainDisplaySize ? 'default' : 'outline'} className="text-xs">
+                      {s}{s === data.mainDisplaySize ? ' (Primary)' : ''}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Free size */}
+            {data.sizeMode === 'free' && data.freeSizeType && (
+              <Row label="Type" value={<span className="capitalize">{data.freeSizeType.replace('_', ' ')}</span>} />
+            )}
+            {/* Measurements */}
             {data.measurements && data.measurements.length > 0 && (
               <div className="pt-1">
                 <span className="font-medium text-muted-foreground text-xs">Measurements:</span>
@@ -216,6 +238,22 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
                     <span key={i} className="text-xs text-muted-foreground">
                       {m.label}: {m.value} {m.unit}
                     </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Multi-part */}
+            {data.sizeMode === 'multi_part' && data.parts && data.parts.length > 0 && (
+              <div className="pt-1">
+                <span className="font-medium text-muted-foreground text-xs">Parts:</span>
+                <div className="space-y-1 mt-1">
+                  {data.parts.map((p, i) => (
+                    <div key={i} className="text-xs text-muted-foreground">
+                      <span className="font-medium">{p.partName || 'Unnamed'}</span>
+                      {p.measurements?.length > 0 && (
+                        <span> — {p.measurements.map(m => `${m.label}: ${m.value} ${m.unit}`).join(', ')}</span>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

@@ -22,6 +22,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2 } from 'lucide-react';
 import { useCategories, useEvents } from '../../../hooks/use-product-apis';
+import { FieldTip } from '@/components/shared/field-tip';
 
 export function BasicInfoStep() {
   const { control, watch } = useFormContext<ProductFormValues>();
@@ -41,7 +42,7 @@ export function BasicInfoStep() {
           name="name"
           render={({ field }) => (
             <FormItem className="col-span-2">
-              <FormLabel>Product Name *</FormLabel>
+              <FormLabel>Product Name * <FieldTip tip="The name customers will see on your storefront. Use a descriptive name like 'Royal Banarasi Saree - Ivory Gold'." /></FormLabel>
               <FormControl>
                 <Input placeholder="e.g. Royal Banarasi Saree" {...field} />
               </FormControl>
@@ -55,7 +56,7 @@ export function BasicInfoStep() {
           name="description"
           render={({ field }) => (
             <FormItem className="col-span-2">
-              <FormLabel>Description</FormLabel>
+              <FormLabel>Description <FieldTip tip="A detailed description helps customers understand the product. Mention fabric, occasion, styling tips, and any special features." /></FormLabel>
               <FormControl>
                 <Textarea
                   placeholder="Tell customers about this product..."
@@ -73,7 +74,7 @@ export function BasicInfoStep() {
           name="categoryId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Category *</FormLabel>
+              <FormLabel>Category * <FieldTip tip="The main product category (e.g., Saree, Lehenga, Sherwani). Determines how the product is organized on your storefront." /></FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                 <FormControl>
                   <SelectTrigger disabled={isLoadingCats}>
@@ -96,7 +97,7 @@ export function BasicInfoStep() {
           name="subcategoryId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Subcategory</FormLabel>
+              <FormLabel>Subcategory <FieldTip tip="A more specific classification within the category. Helps customers find exactly what they're looking for." /></FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                 <FormControl>
                   <SelectTrigger disabled={!categoryId || subcategories.length === 0}>
@@ -120,7 +121,7 @@ export function BasicInfoStep() {
           render={() => (
             <FormItem className="col-span-2">
               <div className="mb-4">
-                <FormLabel className="text-base">Suitable Events</FormLabel>
+                <FormLabel className="text-base">Suitable Events <FieldTip tip="Select events where this product would be appropriate (e.g., Wedding, Engagement, Eid). Customers can filter by event." /></FormLabel>
                 <FormDescription>
                   Select all events this product is suitable for.
                 </FormDescription>
@@ -174,7 +175,7 @@ export function BasicInfoStep() {
           name="status"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Setup Status</FormLabel>
+              <FormLabel>Setup Status <FieldTip tip="Draft products are hidden from your storefront. Set to Published when the product is ready to be rented." /></FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value}>
                 <FormControl>
                   <SelectTrigger>
@@ -199,7 +200,7 @@ export function BasicInfoStep() {
           name="targetRentals"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Target Rentals</FormLabel>
+              <FormLabel>Target Rentals <FieldTip tip="Your goal for how many times this product should be rented. Used for ROI tracking on the analytics dashboard." /></FormLabel>
               <FormControl>
                 <Input 
                   type="number" 
@@ -230,7 +231,7 @@ export function BasicInfoStep() {
               name="purchaseDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Purchase Date</FormLabel>
+                  <FormLabel>Purchase Date <FieldTip tip="When you originally bought this item. Used for depreciation tracking and accounting reports." /></FormLabel>
                   <FormControl>
                     <Input type="date" {...field} />
                   </FormControl>
@@ -245,7 +246,7 @@ export function BasicInfoStep() {
                 name="purchasePrice"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Purchase Price (৳)</FormLabel>
+                    <FormLabel>Purchase Price (৳) <FieldTip tip="What you paid for this item. Helps calculate ROI and profit margin per rental. Not shown to customers by default." /></FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -264,7 +265,7 @@ export function BasicInfoStep() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                     <div className="space-y-0.5">
-                      <FormLabel>Show price to guests</FormLabel>
+                      <FormLabel>Show price to guests <FieldTip tip="If enabled, customers can see the original purchase price on the product page — useful for showing they're getting a deal." /></FormLabel>
                     </div>
                     <FormControl>
                       <Switch
@@ -283,7 +284,7 @@ export function BasicInfoStep() {
                 name="itemCountry"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Item Country</FormLabel>
+                    <FormLabel>Item Country <FieldTip tip="The country of origin or manufacture. Adds authenticity for imported or handcrafted items (e.g., India, Turkey, Italy)." /></FormLabel>
                     <FormControl>
                       <Input placeholder="e.g. India, Turkey" {...field} />
                     </FormControl>
@@ -297,7 +298,7 @@ export function BasicInfoStep() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                     <div className="space-y-0.5">
-                      <FormLabel>Show country to guests</FormLabel>
+                      <FormLabel>Show country to guests <FieldTip tip="Display the item's country of origin on the product page. Adds a premium feel for imported items." /></FormLabel>
                     </div>
                     <FormControl>
                       <Switch

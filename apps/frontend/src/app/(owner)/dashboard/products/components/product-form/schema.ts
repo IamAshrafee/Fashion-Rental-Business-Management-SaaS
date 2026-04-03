@@ -57,13 +57,20 @@ export const productFormSchema = z.object({
   maxDiscount: z.number().optional(),
   extendedRentalRate: z.number().optional(),
   lateFeeType: z.enum(['fixed', 'percentage'] as [LateFeeType, ...LateFeeType[]]).default('fixed'),
-  lateFeePerDay: z.number().optional(),
-  maxLateFeeCap: z.number().optional(),
+  lateFeePerDay: z.number().optional(), // fixed amount per day
+  lateFeePercentage: z.number().optional(), // percentage per day (when type=percentage)
+  maxLateFeeCap: z.number().optional(), // cap on total late fees
   shippingMode: z.enum(['free', 'flat', 'area_based'] as [ShippingMode, ...ShippingMode[]]).default('free'),
   flatShippingFee: z.number().optional(),
 
   // Step 5: Size
   sizeMode: z.enum(['standard', 'measurement', 'multi_part', 'free'] as [SizeMode, ...SizeMode[]]).default('standard'),
+  // Standard mode
+  availableSizes: z.array(z.string()).default([]),
+  mainDisplaySize: z.string().optional(),
+  // Free mode
+  freeSizeType: z.enum(['free_size', 'adjustable', 'no_size']).optional(),
+  // Measurement mode
   measurements: z
     .array(
       z.object({
@@ -73,7 +80,23 @@ export const productFormSchema = z.object({
       })
     )
     .optional(),
+  // Multi-part mode
+  parts: z
+    .array(
+      z.object({
+        partName: z.string().min(1, 'Part name is required'),
+        measurements: z.array(
+          z.object({
+            label: z.string().min(1, 'Label is required'),
+            value: z.number().min(0, 'Value is required'),
+            unit: z.string().default('inch'),
+          })
+        ).default([]),
+      })
+    )
+    .optional(),
   sizeChartUrl: z.string().optional(),
+  sizeChartImage: z.any().optional(), // File object for size chart upload
 
   // Step 6: Services
   securityDeposit: z.number().optional(),
@@ -82,7 +105,7 @@ export const productFormSchema = z.object({
   backupSizeFee: z.number().optional(),
   enableTryOn: z.boolean().default(false),
   tryOnFee: z.number().optional(),
-  tryOnDuration: z.number().int().optional(),
+  tryOnDuration: z.number().int().optional(), // In DAYS (converted to hours in submit hook)
   creditTryOnFee: z.boolean().default(false),
 
   // Step 7: Details & FAQ

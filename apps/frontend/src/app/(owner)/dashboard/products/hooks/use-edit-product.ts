@@ -63,16 +63,32 @@ function mapProductToFormValues(product: any): ProductFormValues {
     extendedRentalRate: pricing?.extendedRentalRate ?? undefined,
     lateFeeType: pricing?.lateFeeType ?? 'fixed',
     lateFeePerDay: pricing?.lateFeeAmount ?? undefined,
+    lateFeePercentage: pricing?.lateFeePercentage != null
+      ? Number(pricing.lateFeePercentage)
+      : undefined,
     maxLateFeeCap: pricing?.maxLateFee ?? undefined,
     shippingMode: pricing?.shippingMode ?? 'free',
     flatShippingFee: pricing?.shippingFee ?? undefined,
 
     // ── Size ───────────────────────────────────────────────────
     sizeMode: size?.mode ?? 'standard',
-    measurements: size?.measurements?.map((m: any) => ({
-      label: m.label ?? '',
-      value: typeof m.value === 'string' ? parseFloat(m.value) || 0 : (m.value ?? 0),
-      unit: m.unit ?? 'inch',
+    availableSizes: size?.availableSizes ?? [],
+    mainDisplaySize: size?.mainDisplaySize ?? undefined,
+    freeSizeType: size?.freeSizeType ?? undefined,
+    measurements: size?.measurements
+      ?.filter((m: any) => !m.partId) // top-level measurements only
+      ?.map((m: any) => ({
+        label: m.label ?? '',
+        value: typeof m.value === 'string' ? parseFloat(m.value) || 0 : (m.value ?? 0),
+        unit: m.unit ?? 'inch',
+      })) ?? [],
+    parts: size?.parts?.map((p: any) => ({
+      partName: p.partName ?? '',
+      measurements: p.measurements?.map((m: any) => ({
+        label: m.label ?? '',
+        value: typeof m.value === 'string' ? parseFloat(m.value) || 0 : (m.value ?? 0),
+        unit: m.unit ?? 'inch',
+      })) ?? [],
     })) ?? [],
     sizeChartUrl: size?.sizeChartUrl ?? undefined,
 
@@ -83,7 +99,10 @@ function mapProductToFormValues(product: any): ProductFormValues {
     backupSizeFee: services?.backupSizeFee ?? undefined,
     enableTryOn: services?.tryOnEnabled ?? false,
     tryOnFee: services?.tryOnFee ?? undefined,
-    tryOnDuration: services?.tryOnDurationHours ?? undefined,
+    // Convert hours → days for the form
+    tryOnDuration: services?.tryOnDurationHours != null
+      ? Math.round(services.tryOnDurationHours / 24)
+      : undefined,
     creditTryOnFee: services?.tryOnCreditToRental ?? false,
 
     // ── Details & FAQ ──────────────────────────────────────────
@@ -136,7 +155,9 @@ export function useEditProduct(productId: string) {
         sizeMode: 'standard' as const,
         events: [] as string[],
         variants: [{ name: '', mainColorId: '', identicalColorIds: [] as string[], images: [] }],
+        availableSizes: [] as string[],
         measurements: [],
+        parts: [],
         details: [],
         faqs: [],
       };

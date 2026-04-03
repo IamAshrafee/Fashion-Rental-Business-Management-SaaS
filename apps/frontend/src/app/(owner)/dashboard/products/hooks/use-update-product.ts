@@ -38,7 +38,8 @@ function buildUpdatePayload(data: ProductFormValues) {
       maxDiscountPrice: data.maxDiscount,
       extendedRentalRate: data.extendedRentalRate,
       lateFeeType: data.lateFeeType,
-      lateFeeAmount: data.lateFeePerDay,
+      lateFeeAmount: data.lateFeeType === 'fixed' ? data.lateFeePerDay : undefined,
+      lateFeePercentage: data.lateFeeType === 'percentage' ? data.lateFeePercentage : undefined,
       maxLateFee: data.maxLateFeeCap,
       shippingMode: data.shippingMode,
       shippingFee: data.flatShippingFee,
@@ -46,11 +47,22 @@ function buildUpdatePayload(data: ProductFormValues) {
 
     size: {
       mode: data.sizeMode,
-      measurements: data.measurements?.map((m) => ({
+      availableSizes: data.sizeMode === 'standard' ? data.availableSizes : undefined,
+      mainDisplaySize: data.sizeMode === 'standard' ? data.mainDisplaySize : undefined,
+      freeSizeType: data.sizeMode === 'free' ? data.freeSizeType : undefined,
+      measurements: (data.sizeMode === 'measurement' || data.sizeMode === 'standard') ? data.measurements?.map((m) => ({
         label: m.label,
         value: String(m.value),
         unit: m.unit,
-      })),
+      })) : undefined,
+      parts: data.sizeMode === 'multi_part' ? data.parts?.map((p) => ({
+        partName: p.partName,
+        measurements: p.measurements?.map((m) => ({
+          label: m.label,
+          value: String(m.value),
+          unit: m.unit,
+        })) ?? [],
+      })) : undefined,
       sizeChartUrl: data.sizeChartUrl,
     },
 
@@ -61,7 +73,8 @@ function buildUpdatePayload(data: ProductFormValues) {
       backupSizeFee: data.backupSizeFee,
       tryOnEnabled: data.enableTryOn,
       tryOnFee: data.tryOnFee,
-      tryOnDurationHours: data.tryOnDuration,
+      // Convert days → hours for backend
+      tryOnDurationHours: data.tryOnDuration != null ? data.tryOnDuration * 24 : undefined,
       tryOnCreditToRental: data.creditTryOnFee,
     },
 

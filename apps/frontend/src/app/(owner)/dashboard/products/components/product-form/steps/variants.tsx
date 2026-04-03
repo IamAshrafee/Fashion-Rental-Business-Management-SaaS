@@ -20,6 +20,7 @@ import {
 import { Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useColors } from '../../../hooks/use-product-apis';
+import { FieldTip } from '@/components/shared/field-tip';
 
 export function VariantsStep() {
   const { control, watch, setValue } = useFormContext<ProductFormValues>();
@@ -70,7 +71,7 @@ export function VariantsStep() {
                   name={`variants.${index}.name`}
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
-                      <FormLabel>Variant Name (Optional)</FormLabel>
+                      <FormLabel>Variant Name (Optional) <FieldTip tip="A custom name for this color variant (e.g., 'Ivory Gold', 'Royal Purple'). If left blank, the main color name is used as the label." /></FormLabel>
                       <FormControl>
                         <Input placeholder="e.g. Ivory Gold" {...field} />
                       </FormControl>
@@ -85,7 +86,7 @@ export function VariantsStep() {
                   name={`variants.${index}.mainColorId`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Main Color *</FormLabel>
+                      <FormLabel>Main Color * <FieldTip tip="The dominant/primary color of this item. This is used as the swatch color on the storefront product page." /></FormLabel>
                       <Select 
                         onValueChange={(val) => {
                           field.onChange(val);
@@ -123,7 +124,7 @@ export function VariantsStep() {
                   name={`variants.${index}.identicalColorIds`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Identical Colors *</FormLabel>
+                      <FormLabel>Identical Colors * <FieldTip tip="All the colors visible in this variant. If a customer searches for 'gold' or 'red', this item will show up. Add the main color + any accent/secondary colors." /></FormLabel>
                       <Select 
                         onValueChange={(val) => {
                           // Very basic multi-select simulation for now
