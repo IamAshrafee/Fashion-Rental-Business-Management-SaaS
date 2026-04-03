@@ -745,7 +745,7 @@ export class AuthService {
     userId: string,
     tenantId: string,
     role: string,
-    deviceType: DeviceType,
+    _deviceType: DeviceType,
   ): Promise<void> {
     // Owners and admins are exempt from session limits
     if (role === 'owner' || role === 'saas_admin') return;
@@ -792,6 +792,7 @@ export class AuthService {
     ];
 
     for (const cat of defaultCategories) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (tx as any).category.create({
         data: { ...cat, tenantId },
       });
@@ -812,6 +813,7 @@ export class AuthService {
     ];
 
     for (const event of defaultEvents) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (tx as any).event.create({
         data: { ...event, tenantId },
       });

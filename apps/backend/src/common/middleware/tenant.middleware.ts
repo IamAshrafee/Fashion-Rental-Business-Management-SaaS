@@ -3,7 +3,6 @@ import {
   NestMiddleware,
   Logger,
   NotFoundException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';

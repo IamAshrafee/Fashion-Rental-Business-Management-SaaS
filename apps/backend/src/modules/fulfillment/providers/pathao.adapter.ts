@@ -364,7 +364,7 @@ export class PathaoAdapter implements CourierProvider {
       if (errorData) {
          try {
             errorMsg = typeof errorData === 'object' ? JSON.stringify(errorData) : String(errorData);
-         } catch(e) {
+         } catch {
             errorMsg = "Unparseable error data from Pathao";
          }
       }

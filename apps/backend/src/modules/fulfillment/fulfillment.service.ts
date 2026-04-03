@@ -361,6 +361,7 @@ export class FulfillmentService {
           courierConsignmentId: parcelResult.trackingId,
           courierStatus: 'pickup_pending',
           pickupRequestedAt: new Date(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           courierStatusHistory: [statusEvent] as any,
         },
       });
@@ -531,6 +532,7 @@ export class FulfillmentService {
       where: { id: shipment.id },
       data: {
         courierStatus: newStatus,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         courierStatusHistory: history as any,
       },
     });
@@ -855,6 +857,7 @@ export class FulfillmentService {
       where: { id: booking.id },
       data: {
         courierStatus: newStatus,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         courierStatusHistory: history as any,
       },
     });

@@ -61,11 +61,11 @@ export class AnalyticsService {
         createdAt: { gte: prevFrom, lte: prevTo },
         deletedAt: null,
       },
-      select: { grandTotal: true, totalDeposit: true },
+      select: { grandTotal: true, totalDeposit: true, status: true },
     });
 
     // Calculate Revenues (excluding deposits)
-    const calculateRevenue = (bookings: any[]) =>
+    const calculateRevenue = (bookings: { grandTotal: number; totalDeposit: number; status: string }[]) =>
       bookings
         .filter((b) => !['cancelled', 'pending'].includes(b.status)) // basic heuristic
         .reduce((sum, b) => sum + (b.grandTotal - b.totalDeposit), 0);
@@ -85,22 +85,7 @@ export class AnalyticsService {
     const cancellationRate = totalBookingsCount === 0 ? 0 : Number(((cancelledCount / totalBookingsCount) * 100).toFixed(1));
     const averageOrderValue = completedCount === 0 ? 0 : Math.round(totalRevenue / completedCount);
 
-    // Customers
-    // For this simple stat, new means createdAt in range, returning means totalBookings > 1
-    const customersInRange = await this.prisma.customer.findMany({
-      where: { tenantId, deletedAt: null, /* ideally filter by booking in date range, but we cheat here */ },
-      select: { createdAt: true, totalBookings: true },
-    });
-    
     // Better way to do active customers in range:
-    const activeCustomerIds = await this.prisma.booking.groupBy({
-      by: ['customerId'],
-      where: { tenantId, createdAt: { gte: from, lte: to }, deletedAt: null },
-    });
-
-    const totalCustomersThisPeriod = activeCustomerIds.length;
-    const newCustomers = 0;
-    
     // We can count how many of these active customers were created in this period
     const allStoreCustomers = await this.prisma.customer.findMany({
         where: { tenantId, deletedAt: null }
