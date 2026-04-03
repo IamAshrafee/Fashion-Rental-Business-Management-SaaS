@@ -63,9 +63,12 @@ export function clearAccessToken(): void {
   tenantId = null;
   if (typeof window !== 'undefined') {
     localStorage.removeItem('closetrent_tenant_id');
+    const domainStr = window.location.hostname.includes('localhost')
+      ? ''
+      : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
     // Clear middleware marker cookies
-    document.cookie = 'closetrent_session=; Max-Age=0; path=/';
-    document.cookie = 'closetrent_role=; Max-Age=0; path=/';
+    document.cookie = `closetrent_session=; Max-Age=0; path=/${domainStr}`;
+    document.cookie = `closetrent_role=; Max-Age=0; path=/${domainStr}`;
   }
 }
 
@@ -96,7 +99,10 @@ export async function refreshAccessToken(): Promise<string | null> {
         // Extend marker cookie so middleware stays in sync (7 days)
         if (typeof document !== 'undefined') {
           const REFRESH_MAX_AGE = 7 * 24 * 60 * 60;
-          document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
+          const domainStr = window.location.hostname.includes('localhost') 
+            ? ''
+            : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
+          document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
         }
         return newToken;
       }
@@ -155,7 +161,7 @@ export async function loginWithCredentials(
     
     // Allow cookies to span subdomains
     const domainStr = window.location.hostname.includes('localhost') 
-      ? '; domain=localhost' 
+      ? '' // Chrome rejects domain=localhost when on a subdomain. Omit for dev.
       : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
       
     document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;

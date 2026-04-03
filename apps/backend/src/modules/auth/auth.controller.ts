@@ -48,7 +48,7 @@ export class AuthController {
 
     const cookieDomain = process.env.NODE_ENV === 'production' 
       ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : 'localhost';
+      : undefined;
 
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
@@ -77,7 +77,7 @@ export class AuthController {
 
     const cookieDomain = process.env.NODE_ENV === 'production' 
       ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : 'localhost';
+      : undefined;
 
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
@@ -107,7 +107,7 @@ export class AuthController {
 
     const cookieDomain = process.env.NODE_ENV === 'production' 
       ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : 'localhost';
+      : undefined;
 
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
@@ -132,7 +132,7 @@ export class AuthController {
     await this.authService.logout(user.sessionId, user.id);
     const cookieDomain = process.env.NODE_ENV === 'production' 
       ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : 'localhost';
+      : undefined;
       
     res.clearCookie('closetrent_refresh', { 
       path: '/api/v1/auth/refresh',
