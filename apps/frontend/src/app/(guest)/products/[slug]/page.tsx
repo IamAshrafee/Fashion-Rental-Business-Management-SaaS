@@ -57,6 +57,7 @@ export default function GuestProductDetailPage() {
 
   const [activeImage, setActiveImage] = useState(0);
   const [selectedVariantIdx, setSelectedVariantIdx] = useState(0);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   
   // Custom date selection state
   const [date, setDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -81,6 +82,19 @@ export default function GuestProductDetailPage() {
     },
     onError: () => setAvailabilityResult(null),
   });
+
+  // Auto-resolve size if free, measurement-only, or singleton
+  useEffect(() => {
+    if (product?.productSize) {
+      if (product.productSize.mode === 'free') {
+        setSelectedSize(product.productSize.freeSizeType === 'adjustable' ? 'Adjustable' : 'Free Size');
+      } else if (product.productSize.mode === 'measurement' && (!product.productSize.availableSizes || product.productSize.availableSizes.length === 0)) {
+        setSelectedSize('Made to Measure');
+      } else if (product.productSize.availableSizes?.length === 1) {
+        setSelectedSize(product.productSize.availableSizes[0]);
+      }
+    }
+  }, [product?.productSize]);
 
   useEffect(() => {
     setAvailabilityResult(null);
@@ -145,7 +159,11 @@ export default function GuestProductDetailPage() {
   const backupFee = addBackup && services?.backupSizeEnabled ? (services.backupSizeFee || 0) : 0;
   const totalPrice = rentalPrice + depositAmount + tryOnFee + backupFee;
 
-  const isFormValid = !!date.from && !!date.to && days > 0;
+  const hasSizes = (product?.productSize?.availableSizes?.length ?? 0) > 0;
+  const isSizeRequired = (product?.productSize?.mode === 'standard' || product?.productSize?.mode === 'multi_part') && hasSizes;
+  const isSizeValid = !isSizeRequired || selectedSize !== null;
+
+  const isFormValid = !!date.from && !!date.to && days > 0 && isSizeValid;
   const isAvailable = availabilityResult?.available !== false;
   const canAddToCart = isFormValid && isAvailable && !availabilityMutation.isPending;
 
@@ -162,6 +180,7 @@ export default function GuestProductDetailPage() {
       startDate: format(date.from, 'yyyy-MM-dd'),
       endDate: format(date.to, 'yyyy-MM-dd'),
       durationDays: days,
+      selectedSize: selectedSize || undefined,
       serviceMap: {
         tryOn: addTryOn,
         backupSize: addBackup ? selectedBackupSize : null,
@@ -364,6 +383,58 @@ export default function GuestProductDetailPage() {
               </motion.div>
             )}
 
+            {/* Sizes */}
+            {product.productSize && (product.productSize.mode === 'standard' || product.productSize.mode === 'multi_part') && (product.productSize.availableSizes?.length > 0) && (
+              <motion.div variants={fadeInUp} className="mb-10">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Select Size</h3>
+                  {product.productSize.sizeChartUrl && (
+                    <a href={product.productSize.sizeChartUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-black underline underline-offset-4 hover:text-black/70">
+                      Size Guide
+                    </a>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {product.productSize.availableSizes.map((sizeOpt) => (
+                    <button
+                      key={sizeOpt}
+                      onClick={() => setSelectedSize(sizeOpt)}
+                      className={cn(
+                        'flex min-w-[3.5rem] items-center justify-center rounded-xl border-2 px-4 py-2.5 text-sm font-semibold transition-all duration-300',
+                        selectedSize === sizeOpt 
+                          ? 'border-black bg-black text-white shadow-md' 
+                          : 'border-black/10 bg-white text-black hover:border-black/30'
+                      )}
+                    >
+                      {sizeOpt}
+                    </button>
+                  ))}
+                </div>
+                {!isSizeValid && (
+                   <p className="mt-2 text-xs font-medium text-red-500 animate-pulse tracking-wide">
+                     Please select a size to continue
+                   </p>
+                )}
+              </motion.div>
+            )}
+
+            {/* Free Mode Badge (if no available sizes array) */}
+            {product.productSize?.mode === 'free' && (
+              <motion.div variants={fadeInUp} className="mb-10">
+                <div className="mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Size</h3>
+                </div>
+                <span className="inline-flex rounded-xl border-2 border-black/10 bg-neutral-50 px-5 py-2.5 text-sm font-semibold text-black">
+                   {product.productSize.freeSizeType === 'adjustable' ? 'Adjustable / Drawstring' : 'One Size Fits All'}
+                </span>
+                {product.productSize.sizeChartUrl && (
+                  <a href={product.productSize.sizeChartUrl} target="_blank" rel="noreferrer" className="ml-4 text-xs font-semibold text-black underline underline-offset-4 hover:text-black/70">
+                    Sizing Ref
+                  </a>
+                )}
+              </motion.div>
+            )}
+
             {/* Date Picker (Custom Pane) */}
             <motion.div variants={fadeInUp} className="mb-10">
                <CustomDateRangePicker date={date} setDate={(d) => setDate(d || {from: undefined, to: undefined})} />
@@ -481,6 +552,58 @@ export default function GuestProductDetailPage() {
                  </div>
                )}
 
+               {/* Fit & Measurements */}
+               {product.productSize && ((product.productSize.measurements && product.productSize.measurements.length > 0) || (product.productSize.parts && product.productSize.parts.length > 0)) && (
+                 <div className="border-b border-black/10 py-5">
+                    <button onClick={() => toggleAccordion('fit')} className="flex w-full items-center justify-between text-left font-bold uppercase tracking-widest text-black">
+                      Fit & Measurements
+                      {openAccordion === 'fit' ? <Minus className="h-4 w-4 opacity-50" /> : <Plus className="h-4 w-4 opacity-50" />}
+                    </button>
+                    <AnimatePresence>
+                      {openAccordion === 'fit' && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                           <div className="pt-5 space-y-6">
+                             
+                             {/* Top Layer Measurements */}
+                             {product.productSize.measurements && product.productSize.measurements.length > 0 && (
+                               <div className="rounded-xl border border-black/5 bg-neutral-50/50 p-4">
+                                 <div className="grid grid-cols-1 gap-y-3 sm:grid-cols-2 sm:gap-x-4 px-2">
+                                   {product.productSize.measurements.map(m => (
+                                      <div key={m.id} className="flex items-center justify-between border-b mx-2 border-black/5 pb-2 last:border-0 last:pb-0 sm:last:border-b sm:last:pb-2">
+                                        <span className="text-sm font-medium text-muted-foreground">{m.label}</span>
+                                        <span className="text-sm font-bold text-black">{m.value} <span className="text-xs text-muted-foreground font-normal">{m.unit}</span></span>
+                                      </div>
+                                   ))}
+                                 </div>
+                               </div>
+                             )}
+
+                             {/* Multi-Part Measurements */}
+                             {product.productSize.parts && product.productSize.parts.length > 0 && (
+                               <div className="space-y-4">
+                                  {product.productSize.parts.map(part => (
+                                    <div key={part.id} className="rounded-xl border border-black/5 bg-neutral-50/50 p-4">
+                                       <h4 className="mb-3 text-xs font-bold uppercase tracking-widest text-black underline underline-offset-4 decoration-black/20">{part.partName}</h4>
+                                       <div className="grid grid-cols-1 gap-y-3 sm:grid-cols-2 sm:gap-x-4 px-2">
+                                         {part.measurements?.map(m => (
+                                            <div key={m.id} className="flex items-center justify-between border-b mx-2 border-black/5 pb-2 last:border-0 last:pb-0 sm:last:border-b sm:last:pb-2">
+                                              <span className="text-sm font-medium text-muted-foreground">{m.label}</span>
+                                              <span className="text-sm font-bold text-black">{m.value} <span className="text-xs text-muted-foreground font-normal">{m.unit}</span></span>
+                                            </div>
+                                         ))}
+                                       </div>
+                                    </div>
+                                  ))}
+                               </div>
+                             )}
+
+                           </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                 </div>
+               )}
+
                {/* FAQs */}
                {product.faqs?.length > 0 && (
                  <div className="border-b border-black/10 py-5">
@@ -540,7 +663,7 @@ export default function GuestProductDetailPage() {
                  !canAddToCart ? 'bg-black/20 cursor-not-allowed' : 'bg-black hover:scale-[1.02] active:scale-95 shadow-xl shadow-black/20'
                )}
              >
-                {availabilityMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : (canAddToCart ? 'Add to Bag' : 'Select Dates')}
+                 {availabilityMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : (canAddToCart ? 'Add to Bag' : (isSizeValid ? 'Select Dates' : 'Select Size'))}
              </button>
            </div>
          </div>

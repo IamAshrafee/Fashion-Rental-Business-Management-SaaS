@@ -277,14 +277,14 @@ function PricingTab({ pricing, services }: { pricing: ProductPricingData | null;
             {pricing.mode === 'one_time' && (
               <>
                 <Row label="Rental Price" value={<PriceDisplay amount={pricing.rentalPrice || 0} />} bold />
-                {pricing.includedDays && <Row label="Included Days" value={`${pricing.includedDays} days`} />}
-                {pricing.extendedRentalRate && <Row label="Extended Rate" value={<><PriceDisplay amount={pricing.extendedRentalRate} />/day</>} />}
+                {pricing.includedDays != null && <Row label="Included Days" value={`${pricing.includedDays} days`} />}
+                {pricing.extendedRentalRate != null && <Row label="Extended Rate" value={<><PriceDisplay amount={pricing.extendedRentalRate} />/day</>} />}
               </>
             )}
             {pricing.mode === 'per_day' && (
               <>
                 <Row label="Price per Day" value={<PriceDisplay amount={pricing.pricePerDay || 0} />} bold />
-                {pricing.minimumDays && <Row label="Minimum Days" value={`${pricing.minimumDays} days`} />}
+                {pricing.minimumDays != null && <Row label="Minimum Days" value={`${pricing.minimumDays} days`} />}
               </>
             )}
             {pricing.mode === 'percentage' && (
@@ -292,6 +292,8 @@ function PricingTab({ pricing, services }: { pricing: ProductPricingData | null;
                 <Row label="Retail Price" value={<PriceDisplay amount={pricing.retailPrice || 0} />} />
                 <Row label="Rental %" value={`${Number(pricing.rentalPercentage)}%`} />
                 <Row label="Calculated" value={<PriceDisplay amount={pricing.calculatedPrice || 0} />} bold />
+                {pricing.includedDays != null && <Row label="Included Days" value={`${pricing.includedDays} days`} />}
+                {pricing.extendedRentalRate != null && <Row label="Extended Rate" value={<><PriceDisplay amount={pricing.extendedRentalRate} />/day</>} />}
               </>
             )}
             {pricing.priceOverride && (
@@ -300,17 +302,17 @@ function PricingTab({ pricing, services }: { pricing: ProductPricingData | null;
           </motion.div>
 
           {/* Guard rails */}
-          {(pricing.minInternalPrice || pricing.maxDiscountPrice) && (
+          {(pricing.minInternalPrice != null || pricing.maxDiscountPrice != null) && (
             <motion.div variants={fadeUp} custom={2}>
               <Separator className="mb-4" />
               <div className="grid grid-cols-2 gap-6">
-                {pricing.minInternalPrice && (
+                {pricing.minInternalPrice != null && (
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-0.5">Min Internal</div>
                     <PriceDisplay amount={pricing.minInternalPrice} className="text-sm font-semibold" />
                   </div>
                 )}
-                {pricing.maxDiscountPrice && (
+                {pricing.maxDiscountPrice != null && (
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-0.5">Max Discount</div>
                     <PriceDisplay amount={pricing.maxDiscountPrice} className="text-sm font-semibold" />
@@ -327,13 +329,13 @@ function PricingTab({ pricing, services }: { pricing: ProductPricingData | null;
               <SectionLabel icon={Clock}>Late Fees</SectionLabel>
               <div className="space-y-0.5">
                 <Row label="Type" value={<span className="capitalize">{pricing.lateFeeType}</span>} />
-                {pricing.lateFeeType === 'fixed' && pricing.lateFeeAmount && (
+                {pricing.lateFeeType === 'fixed' && pricing.lateFeeAmount != null && (
                   <Row label="Amount/day" value={<PriceDisplay amount={pricing.lateFeeAmount} />} />
                 )}
-                {pricing.lateFeeType === 'percentage' && pricing.lateFeePercentage && (
+                {pricing.lateFeeType === 'percentage' && pricing.lateFeePercentage != null && (
                   <Row label="Rate/day" value={`${Number(pricing.lateFeePercentage)}%`} />
                 )}
-                {pricing.maxLateFee && <Row label="Cap" value={<PriceDisplay amount={pricing.maxLateFee} />} />}
+                {pricing.maxLateFee != null && <Row label="Cap" value={<PriceDisplay amount={pricing.maxLateFee} />} />}
               </div>
             </motion.div>
           )}
@@ -360,21 +362,21 @@ function PricingTab({ pricing, services }: { pricing: ProductPricingData | null;
           <Separator className="mb-4" />
           <SectionLabel icon={Shield}>Services</SectionLabel>
           <div className="space-y-0.5">
-            <Row label="Deposit" value={services.depositAmount ? <PriceDisplay amount={services.depositAmount} /> : '—'} />
-            <Row label="Cleaning" value={services.cleaningFee ? <PriceDisplay amount={services.cleaningFee} /> : '—'} />
+            <Row label="Deposit" value={services.depositAmount != null ? <PriceDisplay amount={services.depositAmount} /> : '—'} />
+            <Row label="Cleaning" value={services.cleaningFee != null ? <PriceDisplay amount={services.cleaningFee} /> : '—'} />
             {services.backupSizeEnabled && (
               <Row
                 label={<span className="flex items-center gap-1.5">Backup Size <Dot on /></span>}
-                value={services.backupSizeFee ? <PriceDisplay amount={services.backupSizeFee} /> : '—'}
+                value={services.backupSizeFee != null ? <PriceDisplay amount={services.backupSizeFee} /> : '—'}
               />
             )}
             {services.tryOnEnabled && (
               <>
                 <Row
                   label={<span className="flex items-center gap-1.5">Try-on <Dot on /></span>}
-                  value={services.tryOnFee ? <PriceDisplay amount={services.tryOnFee} /> : '—'}
+                  value={services.tryOnFee != null ? <PriceDisplay amount={services.tryOnFee} /> : '—'}
                 />
-                {services.tryOnDurationHours && <Row label="Duration" value={`${services.tryOnDurationHours}h`} />}
+                {services.tryOnDurationHours != null && <Row label="Duration" value={`${services.tryOnDurationHours}h`} />}
                 {services.tryOnCreditToRental && (
                   <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 pt-1">
                     <Sparkles className="h-3 w-3" /> Try-on credited to rental
@@ -429,7 +431,7 @@ function SizesTab({ size }: { size: ProductSizeData | null }) {
         </motion.div>
       )}
 
-      {size.mode === 'free_size' && size.freeSizeType && (
+      {size.mode === 'free' && size.freeSizeType && (
         <motion.div variants={fadeUp} custom={2}>
           <Row label="Type" value={<span className="capitalize">{size.freeSizeType.replace('_', ' ')}</span>} />
         </motion.div>
@@ -620,6 +622,7 @@ export default function ProductDetailPage() {
   const { formatPrice, formatDate } = useLocale();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
   const { data: product, isLoading, isError, error } = useQuery({
     queryKey: ['products', 'detail', id],
@@ -785,10 +788,13 @@ export default function ProductDetailPage() {
                 {product.pricing && (
                   <p className="text-xs text-muted-foreground mt-1">
                     {getPricingModeLabel(product.pricing.mode)}
-                    {product.pricing.mode === 'one_time' && product.pricing.includedDays && (
+                    {product.pricing.mode === 'one_time' && product.pricing.includedDays != null && (
                       <> · {product.pricing.includedDays} days included</>
                     )}
-                    {product.pricing.mode === 'per_day' && product.pricing.minimumDays && (
+                    {product.pricing.mode === 'percentage' && product.pricing.includedDays != null && (
+                      <> · {product.pricing.includedDays} days included</>
+                    )}
+                    {product.pricing.mode === 'per_day' && product.pricing.minimumDays != null && (
                       <> · min {product.pricing.minimumDays} days</>
                     )}
                   </p>
@@ -856,10 +862,18 @@ export default function ProductDetailPage() {
 
           {/* Description */}
           {product.description && (
-            <motion.div variants={scaleIn} className="rounded-2xl border bg-card p-4 flex-1">
-              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap line-clamp-5">
+            <motion.div variants={scaleIn} className="rounded-2xl border bg-card p-4 flex-1 flex flex-col">
+              <div className={`text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap transition-all relative ${!isDescriptionExpanded ? 'line-clamp-5' : ''}`}>
                 {product.description}
-              </p>
+              </div>
+              {product.description.length > 200 && (
+                <button
+                  onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+                  className="text-xs text-primary font-medium self-start mt-2 hover:underline"
+                >
+                  {isDescriptionExpanded ? 'Show less' : 'Show more'}
+                </button>
+              )}
             </motion.div>
           )}
         </div>

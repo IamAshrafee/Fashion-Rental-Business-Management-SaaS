@@ -14,6 +14,7 @@ export interface CartItem {
   startDate: string;       // YYYY-MM-DD
   endDate: string;         // YYYY-MM-DD
   durationDays: number;
+  selectedSize?: string;   // The size selected by customer
   serviceMap: { 
     tryOn: boolean;
     backupSize?: string | null; 
@@ -22,7 +23,8 @@ export interface CartItem {
   totalPrice: number;      // Calculated total
 }
 
-const CART_STORAGE_KEY = 'closetrent_guest_cart';
+const CART_STORAGE_KEY = 'closetrent_guest_cart_v2'; // Bumped version to invalidate old carts missing size
+
 
 // Fallback logic for SSR
 const getCartSnapshot = () => {
