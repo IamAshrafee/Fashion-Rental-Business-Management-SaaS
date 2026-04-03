@@ -7,7 +7,17 @@ export interface DashboardStats {
   overdueCount: number;
   todayDeliveries: number;
   totalActive: number;
-  revenueThisMonth: number; // Placeholder for now, missing from backend
+  revenueThisMonth: number;
+  revenueChart: Array<{
+    date: string;
+    revenue: number;
+  }>;
+  topProducts: Array<{
+    id: string;
+    name: string;
+    image: string | null;
+    count: number;
+  }>;
   recentBookings: Array<{
     id: string;
     bookingNumber: string;
@@ -25,13 +35,8 @@ export function useBookingStats() {
     queryKey: ['owner', 'bookings', 'stats', tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
-      const response = await apiClient.get<{ success: boolean; data: Omit<DashboardStats, 'revenueThisMonth'> }>('/owner/bookings/stats');
-      
-      // Inject dummy revenue until backend API provides it
-      return {
-        ...response.data.data,
-        revenueThisMonth: 185000, 
-      } as DashboardStats;
+      const response = await apiClient.get<{ success: boolean; data: DashboardStats }>('/owner/bookings/stats');
+      return response.data.data;
     },
   });
 }

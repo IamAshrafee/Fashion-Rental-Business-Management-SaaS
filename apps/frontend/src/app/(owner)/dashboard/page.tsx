@@ -9,6 +9,9 @@ import { useBookingStats } from '@/hooks/use-booking-stats';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
+import { DashboardRevenueChart } from './components/dashboard-chart';
+import { DashboardTopProducts } from './components/top-products';
+
 export default function DashboardPage() {
   const { data: stats, isLoading, isError, error } = useBookingStats();
 
@@ -40,9 +43,17 @@ export default function DashboardPage() {
         <>
           <DashboardStatCards stats={stats} />
 
-          <div className="grid gap-4 md:grid-cols-7">
-            {/* Recent Bookings Table takes up most space */}
-            <div className="col-span-1 md:col-span-7 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+            {/* Revenue Chart */}
+            <DashboardRevenueChart data={stats.revenueChart} className="col-span-1 lg:col-span-4" />
+            
+            {/* Top Products */}
+            <DashboardTopProducts products={stats.topProducts} className="col-span-1 lg:col-span-3" />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-1">
+            {/* Recent Bookings Table takes up full width */}
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium tracking-tight">Recent Activity</h3>
               </div>

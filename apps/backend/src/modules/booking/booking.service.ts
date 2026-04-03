@@ -712,7 +712,11 @@ export class BookingService {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const [pendingCount, overdueCount, todayDeliveries, totalActive, recentBookings] =
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+
+    const [pendingCount, overdueCount, todayDeliveries, totalActive, recentBookings, revenueAgg, topProductsRaw, recentRevenueBookings] =
       await Promise.all([
         this.prisma.booking.count({
           where: { tenantId, status: 'pending', deletedAt: null },
@@ -755,7 +759,54 @@ export class BookingService {
             createdAt: true,
           },
         }),
+        this.prisma.booking.aggregate({
+          _sum: { grandTotal: true },
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: { notIn: ['pending', 'cancelled'] },
+            createdAt: { gte: firstDayOfMonth },
+          },
+        }),
+        this.prisma.bookingItem.groupBy({
+          by: ['productId', 'productName', 'featuredImageUrl'],
+          where: { tenantId, booking: { status: { notIn: ['pending', 'cancelled'] }, deletedAt: null } },
+          _count: { productId: true },
+          orderBy: { _count: { productId: 'desc' } },
+          take: 5,
+        }),
+        this.prisma.booking.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: { notIn: ['pending', 'cancelled'] },
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          select: { createdAt: true, grandTotal: true },
+        }),
       ]);
+
+    const revenueMap = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+        const d = new Date(thirtyDaysAgo);
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        revenueMap.set(dateStr, 0);
+    }
+    for (const b of recentRevenueBookings) {
+        const dateStr = b.createdAt.toISOString().split('T')[0];
+        if (revenueMap.has(dateStr)) {
+            revenueMap.set(dateStr, revenueMap.get(dateStr)! + b.grandTotal);
+        }
+    }
+    const revenueChart = Array.from(revenueMap.entries()).map(([date, revenue]) => ({ date, revenue }));
+
+    const topProducts = topProductsRaw.map((item) => ({
+      id: item.productId,
+      name: item.productName,
+      image: item.featuredImageUrl,
+      count: item._count.productId,
+    }));
 
     return {
       pendingCount,
@@ -763,6 +814,9 @@ export class BookingService {
       todayDeliveries,
       totalActive,
       recentBookings,
+      revenueThisMonth: revenueAgg._sum.grandTotal || 0,
+      revenueChart,
+      topProducts,
     };
   }
 
