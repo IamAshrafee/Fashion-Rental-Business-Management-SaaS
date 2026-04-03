@@ -144,6 +144,7 @@ export async function loginWithCredentials(
     expiresIn = 900,
   } = response.data.data;
   const primaryTenantId = tenants?.[0]?.id || null;
+  const primarySubdomain = tenants?.[0]?.subdomain || null;
 
   setAccessToken(token, expiresIn, primaryTenantId);
 
@@ -151,12 +152,18 @@ export async function loginWithCredentials(
   // NOTE: These match the refresh token lifespan (7 days), NOT the short-lived access token.
   if (typeof document !== 'undefined') {
     const REFRESH_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
-    document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
-    document.cookie = `closetrent_role=${user.role}; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
+    
+    // Allow cookies to span subdomains
+    const domainStr = window.location.hostname.includes('localhost') 
+      ? '; domain=localhost' 
+      : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
+      
+    document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
+    document.cookie = `closetrent_role=${user.role}; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
   }
 
-  // Attach the tenantId and suspendedTenants to the user object we return
-  return { ...user, tenantId: primaryTenantId, suspendedTenants };
+  // Attach the tenantId, subdomain, and suspendedTenants to the user object we return
+  return { ...user, tenantId: primaryTenantId, subdomain: primarySubdomain, suspendedTenants };
 }
 
 export async function logout(): Promise<void> {

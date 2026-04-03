@@ -35,10 +35,14 @@ const EXCLUDED_PATHS = [
 
 /**
  * Tenant Resolution Middleware.
- * Resolves the tenant from either:
- *   1. Custom domain (if not *.closetrent.com)
- *   2. Subdomain (e.g., storename.closetrent.com)
- *   3. X-Tenant-ID header (for API/development)
+ *
+ * Resolves the tenant from the incoming request using multiple strategies:
+ *
+ *   1. X-Tenant-ID header (API clients, authenticated requests)
+ *   2. Custom domain — production:  rentbysara.com
+ *                     — dev:        rentbysara.local  (hosts file mapping)
+ *   3. Subdomain    — production:  rentiva.closetrent.com
+ *                     — dev:        rentiva.localhost
  *
  * Attaches `req.tenant` (TenantContext) to every request.
  * Admin portal routes are excluded.
@@ -89,9 +93,16 @@ export class TenantMiddleware implements NestMiddleware {
       }
     }
 
-    // 2. Custom domain
-    if (!tenant && !this.isBaseDomainHost(host)) {
-      tenant = await this.tenantService.resolveByCustomDomain(host);
+    // 2. Custom domain (includes *.local dev domains via hosts file)
+    if (!tenant && this.isCustomDomainHost(host)) {
+      const domainToLookup = this.normalizeCustomDomain(host);
+      tenant = await this.tenantService.resolveByCustomDomain(domainToLookup);
+
+      if (tenant) {
+        this.logger.debug(
+          `Resolved tenant by custom domain: ${domainToLookup} → ${tenant.subdomain} (${tenant.id})`,
+        );
+      }
     }
 
     // 3. Subdomain
@@ -125,6 +136,44 @@ export class TenantMiddleware implements NestMiddleware {
   }
 
   /**
+   * Check if the host is a custom domain (not a subdomain of the base domain).
+   *
+   * Custom domains include:
+   *   - Production: rentbysara.com (not ending with .closetrent.com)
+   *   - Development: rentbysara.local (hosts file mapping)
+   */
+  private isCustomDomainHost(host: string): boolean {
+    const hostWithoutPort = host.split(':')[0];
+
+    // Dev: hosts file custom domain (e.g., rentbysara.local)
+    if (hostWithoutPort.endsWith('.local')) {
+      return true;
+    }
+
+    // Not a base-domain host and not localhost/IP
+    if (hostWithoutPort === 'localhost' || hostWithoutPort === '127.0.0.1') {
+      return false;
+    }
+
+    // If it doesn't end with the base domain, it's a custom domain
+    return !this.isBaseDomainHost(host);
+  }
+
+  /**
+   * Normalize a custom domain for database lookup.
+   *
+   * For dev *.local domains: strip .local suffix so "rentbysara.local"
+   * looks up "rentbysara.local" in the customDomain column.
+   * Tenants store their *.local domain in customDomain for local testing.
+   *
+   * For production: return the domain as-is (e.g., "rentbysara.com").
+   */
+  private normalizeCustomDomain(host: string): string {
+    const hostWithoutPort = host.split(':')[0];
+    return hostWithoutPort.toLowerCase();
+  }
+
+  /**
    * Check if the host matches the base domain (with or without subdomain).
    */
   private isBaseDomainHost(host: string): boolean {
@@ -135,12 +184,22 @@ export class TenantMiddleware implements NestMiddleware {
 
   /**
    * Extract subdomain from host.
-   * e.g., "storename.closetrent.com" → "storename"
-   * e.g., "storename.localhost" → "storename"
+   *
+   * Examples:
+   *   "storename.closetrent.com" → "storename"
+   *   "storename.localhost"      → "storename"
+   *   "storename.localhost:4000" → "storename"
+   *   "localhost"                → null
+   *   "rentbysara.local"         → null (handled as custom domain)
    */
   private extractSubdomain(host: string): string | null {
     const hostWithoutPort = host.split(':')[0];
     const baseDomainWithoutPort = this.baseDomain.split(':')[0];
+
+    // Skip *.local domains — they're custom domains, not subdomains
+    if (hostWithoutPort.endsWith('.local')) {
+      return null;
+    }
 
     // If host ends with base domain, extract what comes before it
     if (hostWithoutPort.endsWith(`.${baseDomainWithoutPort}`)) {

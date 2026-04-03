@@ -66,7 +66,7 @@ export function TenantProvider({
 
     async function loadTenant() {
       try {
-        const info = await fetchTenantByHost(window.location.hostname);
+        const info = await fetchTenantByHost(window.location.host);
         if (info) {
           setTenant(info);
           applyTenantBranding(info);

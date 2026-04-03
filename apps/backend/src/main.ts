@@ -20,10 +20,41 @@ async function bootstrap(): Promise<void> {
   // Global prefix
   app.setGlobalPrefix('api/v1');
 
-  // CORS
+  // CORS — allow *.localhost subdomains in development
   const corsOrigins = configService.get<string>('CORS_ORIGINS', 'http://localhost:3000');
   app.enableCors({
-    origin: corsOrigins.split(',').map((origin) => origin.trim()),
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (server-to-server, same-origin, curl)
+      if (!origin) return callback(null, true);
+
+      // Development: allow any *.localhost origin (subdomain testing)
+      if (/^https?:\/\/([\w-]+\.)?localhost(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Development: allow hosts-file custom domains (e.g., rentbysara.local)
+      if (/^https?:\/\/[\w-]+\.local(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Production: check against configured CORS_ORIGINS
+      const allowed = corsOrigins.split(',').map((o) => o.trim());
+      if (allowed.includes(origin)) return callback(null, true);
+
+      // Also allow any subdomain of configured origins (*.closetrent.com)
+      const isSubdomainOfAllowed = allowed.some((allowedOrigin) => {
+        try {
+          const allowedHost = new URL(allowedOrigin).hostname;
+          const originHost = new URL(origin).hostname;
+          return originHost.endsWith(`.${allowedHost}`);
+        } catch {
+          return false;
+        }
+      });
+      if (isSubdomainOfAllowed) return callback(null, true);
+
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     credentials: true,
   });
 

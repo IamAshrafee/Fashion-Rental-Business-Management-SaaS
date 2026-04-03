@@ -16,14 +16,55 @@ import {
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { loginWithCredentials } from '@/lib/auth';
+import { extractSubdomain } from '@/lib/tenant';
 
-/** Determine the portal URL based on authenticated user role and redirect param */
-function getPostLoginRedirect(role: string | undefined, fromPath: string | null): string {
+/**
+ * Determine the post-login redirect URL.
+ *
+ * KEY RULE: tenant owners MUST land on their subdomain, not the bare domain.
+ * If the user logs in on the bare domain (localhost:3000/login), we redirect them
+ * to their subdomain URL (e.g., rentiva.localhost:3000/dashboard).
+ *
+ * Returns:
+ * - Full URL (http://...) for cross-subdomain navigation
+ * - Relative path for same-origin navigation
+ */
+function getPostLoginRedirect(
+  role: string | undefined,
+  fromPath: string | null,
+  userSubdomain?: string | null,
+): string {
   if (role === 'saas_admin') return '/admin';
-  if (fromPath && fromPath.startsWith('/') && !fromPath.startsWith('/login')) {
-    return fromPath;
+
+  // Determine the target path
+  const targetPath =
+    fromPath && fromPath.startsWith('/') && !fromPath.startsWith('/login')
+      ? fromPath
+      : '/dashboard';
+
+  // If we're on bare domain and user has a subdomain, redirect to their subdomain
+  if (typeof window !== 'undefined' && userSubdomain) {
+    const currentHost = window.location.host;
+    const currentSubdomain = extractSubdomain(currentHost);
+
+    // We're on bare domain (no subdomain) → need to jump to user's subdomain
+    if (!currentSubdomain) {
+      const hostname = window.location.hostname;
+      const port = window.location.port ? `:${window.location.port}` : '';
+
+      // Development: subdomain.localhost:3000
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return `http://${userSubdomain}.localhost${port}${targetPath}`;
+      }
+
+      // Production: subdomain.closetrent.com
+      const protocol = window.location.protocol;
+      const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com';
+      return `${protocol}//${userSubdomain}.${baseDomain}${targetPath}`;
+    }
   }
-  return '/dashboard'; // owner | manager | staff | unknown
+
+  return targetPath;
 }
 
 export default function LoginPage() {
@@ -38,7 +79,14 @@ export default function LoginPage() {
   useEffect(() => {
     if (authLoading || !isAuthenticated) return;
     const fromPath = new URLSearchParams(window.location.search).get('from');
-    router.replace(getPostLoginRedirect(user?.role, fromPath));
+    const redirectUrl = getPostLoginRedirect(user?.role, fromPath, user?.subdomain);
+
+    // Cross-origin redirect (to subdomain) → use window.location
+    if (redirectUrl.startsWith('http')) {
+      window.location.href = redirectUrl;
+    } else {
+      router.replace(redirectUrl);
+    }
   }, [authLoading, isAuthenticated, user, router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -70,7 +118,14 @@ export default function LoginPage() {
       await refreshUser();
       toast.success('Welcome back!');
       const fromPath = new URLSearchParams(window.location.search).get('from');
-      router.push(getPostLoginRedirect(user.role, fromPath));
+      const redirectUrl = getPostLoginRedirect(user.role, fromPath, user.subdomain);
+
+      // Cross-origin redirect (to subdomain) → use window.location
+      if (redirectUrl.startsWith('http')) {
+        window.location.href = redirectUrl;
+      } else {
+        router.push(redirectUrl);
+      }
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { error?: { message?: string } } } })

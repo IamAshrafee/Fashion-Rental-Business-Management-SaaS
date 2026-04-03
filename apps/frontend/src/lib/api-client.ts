@@ -2,7 +2,8 @@
  * Centralized Axios Instance — ClosetRent Frontend
  *
  * Features:
- * - Base URL from environment
+ * - Dynamic base URL: uses the current subdomain/custom-domain so the
+ *   backend TenantMiddleware can resolve the tenant from the Host header
  * - Request interceptor: attach JWT from memory + tenant header
  * - Response interceptor: auto-refresh on 401, global error toast
  */
@@ -10,8 +11,45 @@
 import axios from 'axios';
 import { getAccessToken, refreshAccessToken, clearAccessToken, getTenantId } from './auth';
 
+// ----------------------------------------------------------------
+// Dynamic Base URL
+// ----------------------------------------------------------------
+
+/**
+ * Build the API base URL based on the current hostname.
+ *
+ * In development with subdomains:
+ *   rentiva.localhost:3000 → http://rentiva.localhost:4000/api/v1
+ *   rentbysara.local:3000  → http://rentbysara.local:4000/api/v1
+ *   localhost:3000          → http://localhost:4000/api/v1
+ *
+ * In production (via Nginx):
+ *   rentiva.closetrent.com → /api/v1 (same origin, proxied by Nginx)
+ */
+function getApiBaseUrl(): string {
+  // Server-side rendering — use env var
+  if (typeof window === 'undefined') {
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+  }
+
+  const hostname = window.location.hostname;
+
+  // Development: *.localhost → backend on same subdomain, port 4000
+  if (hostname.endsWith('.localhost') || hostname === 'localhost') {
+    return `http://${hostname}:4000/api/v1`;
+  }
+
+  // Development: custom domain via hosts file (*.local)
+  if (hostname.endsWith('.local')) {
+    return `http://${hostname}:4000/api/v1`;
+  }
+
+  // Production: API on same host via Nginx proxy
+  return process.env.NEXT_PUBLIC_API_URL || `${window.location.protocol}//${hostname}/api/v1`;
+}
+
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1',
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,18 +57,21 @@ const apiClient = axios.create({
   withCredentials: true, // Send httpOnly cookies for refresh
 });
 
-// ----------------------------------------------------------------
-// Request Interceptor — attach JWT + tenant header
-// ----------------------------------------------------------------
-
+// Recalculate base URL on every request (handles SPA navigation between tenants)
 apiClient.interceptors.request.use(
   (config) => {
+    // Update baseURL dynamically in case the user navigates between subdomains
+    if (typeof window !== 'undefined') {
+      config.baseURL = getApiBaseUrl();
+    }
+
     // Attach in-memory JWT if available
     const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
+    // Attach tenant ID from auth state (for authenticated requests)
     const tid = getTenantId();
     if (tid) {
       config.headers['x-tenant-id'] = tid;

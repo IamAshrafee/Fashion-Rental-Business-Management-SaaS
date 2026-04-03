@@ -69,6 +69,8 @@ export interface AuthUserInfo {
   phone: string | null;
   role: string;
   tenantId: string | null;
+  /** The tenant's subdomain — used for post-login redirect to the correct store URL */
+  subdomain?: string | null;
   suspendedTenants?: Array<{
     id: string;
     businessName: string;

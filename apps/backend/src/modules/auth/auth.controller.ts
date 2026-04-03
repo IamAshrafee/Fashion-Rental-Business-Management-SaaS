@@ -46,12 +46,17 @@ export class AuthController {
 
     const result = await this.authService.register(dto, { ua, ip });
 
+    const cookieDomain = process.env.NODE_ENV === 'production' 
+      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+      : 'localhost';
+
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/api/v1/auth/refresh',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      domain: cookieDomain,
     });
 
     return result;
@@ -70,12 +75,17 @@ export class AuthController {
 
     const result = await this.authService.login(dto, { ua, ip });
 
+    const cookieDomain = process.env.NODE_ENV === 'production' 
+      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+      : 'localhost';
+
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/api/v1/auth/refresh',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      domain: cookieDomain,
     });
 
     return result;
@@ -95,12 +105,17 @@ export class AuthController {
 
     const result = await this.authService.refreshTokens(token);
 
+    const cookieDomain = process.env.NODE_ENV === 'production' 
+      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+      : 'localhost';
+
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/api/v1/auth/refresh',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      domain: cookieDomain,
     });
 
     return result;
@@ -115,7 +130,14 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(@CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
     await this.authService.logout(user.sessionId, user.id);
-    res.clearCookie('closetrent_refresh', { path: '/api/v1/auth/refresh' });
+    const cookieDomain = process.env.NODE_ENV === 'production' 
+      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+      : 'localhost';
+      
+    res.clearCookie('closetrent_refresh', { 
+      path: '/api/v1/auth/refresh',
+      domain: cookieDomain,
+    });
     return { message: 'Logged out successfully' };
   }
 

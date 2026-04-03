@@ -87,8 +87,21 @@ export default function RegisterPage() {
       if (formData.referralSource) payload.referralSource = formData.referralSource;
 
       await apiClient.post('/auth/register', payload);
-      toast.success('Account created! Please sign in.');
-      router.push('/login');
+      toast.success('Account created! Redirecting to your store...');
+
+      // Redirect to login on the new subdomain
+      const subdomain = formData.subdomain;
+      const hostname = window.location.hostname;
+      const port = window.location.port ? `:${window.location.port}` : '';
+
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        // Development: redirect to subdomain.localhost:3000/login
+        window.location.href = `http://${subdomain}.localhost${port}/login`;
+      } else {
+        // Production: redirect to subdomain.closetrent.com/login
+        const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com';
+        window.location.href = `${window.location.protocol}//${subdomain}.${baseDomain}/login`;
+      }
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { error?: { message?: string } } } })
