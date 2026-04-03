@@ -177,9 +177,15 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
       ) : (
         <Alert variant="default" className="bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-          <AlertTitle className="text-emerald-800 dark:text-emerald-300">Ready to publish</AlertTitle>
-          <AlertDescription className="text-emerald-700 dark:text-emerald-400">
+          <AlertTitle className="text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+            <span>Ready to complete</span>
+            <Badge variant={data.status === 'published' ? 'default' : 'secondary'} className="uppercase text-[10px]">
+              {data.status === 'published' ? 'Will be Live' : 'Saved as Draft'}
+            </Badge>
+          </AlertTitle>
+          <AlertDescription className="text-emerald-700 dark:text-emerald-400 mt-2">
             All required fields are filled.
+            {data.status === 'draft' ? ' This product will remain invisible to customers until you publish it.' : ' This product will go live on your storefront instantly.'}
             {totalWarnings > 0 && ` ${totalWarnings} optional improvement${totalWarnings > 1 ? 's' : ''} suggested below.`}
           </AlertDescription>
         </Alert>

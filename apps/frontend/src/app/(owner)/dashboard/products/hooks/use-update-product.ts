@@ -47,10 +47,10 @@ function buildUpdatePayload(data: ProductFormValues) {
 
     size: {
       mode: data.sizeMode,
-      availableSizes: data.sizeMode === 'standard' ? data.availableSizes : undefined,
-      mainDisplaySize: data.sizeMode === 'standard' ? data.mainDisplaySize : undefined,
+      availableSizes: (data.sizeMode === 'standard' || data.sizeMode === 'multi_part') ? data.availableSizes : undefined,
+      mainDisplaySize: (data.sizeMode === 'standard' || data.sizeMode === 'multi_part') ? data.mainDisplaySize : undefined,
       freeSizeType: data.sizeMode === 'free' ? data.freeSizeType : undefined,
-      measurements: (data.sizeMode === 'measurement' || data.sizeMode === 'standard') ? data.measurements?.map((m) => ({
+      measurements: (data.sizeMode === 'measurement' || data.sizeMode === 'standard' || data.sizeMode === 'free') ? data.measurements?.map((m) => ({
         label: m.label,
         value: String(m.value),
         unit: m.unit,

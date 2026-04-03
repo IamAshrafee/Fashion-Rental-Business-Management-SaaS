@@ -38,6 +38,7 @@ const STANDARD_SIZES = [
 const UNIT_OPTIONS = [
   { value: 'inch', label: 'Inches' },
   { value: 'cm', label: 'cm' },
+  { value: 'mm', label: 'mm' },
   { value: 'ft', label: 'Feet' },
 ];
 
@@ -194,7 +195,7 @@ export function SizeStep() {
                 onValueChange={(val) => {
                   field.onChange(val);
                   // Reset mode-specific fields when switching
-                  if (val !== 'standard') {
+                  if (val !== 'standard' && val !== 'multi_part') {
                     form.setValue('availableSizes', [], { shouldDirty: true });
                     form.setValue('mainDisplaySize', undefined, { shouldDirty: true });
                   }
@@ -249,11 +250,11 @@ export function SizeStep() {
         )}
       />
 
-      {/* ── Standard Sizes ─────────────────────────────────────────── */}
-      {sizeMode === 'standard' && (
+      {/* ── Available & Standard Sizes ─────────────────────────────────── */}
+      {(sizeMode === 'standard' || sizeMode === 'multi_part') && (
         <div className="space-y-5">
           <div>
-            <Label className="mb-3 block text-sm font-medium">Available Sizes</Label>
+            <Label className="mb-3 block text-sm font-medium">Available Sizes {sizeMode === 'multi_part' && '(Optional)'}</Label>
             <p className="text-sm text-muted-foreground mb-3">
               Click to select which sizes are available for this product.
             </p>
@@ -296,7 +297,7 @@ export function SizeStep() {
               />
               <span className="text-xs text-muted-foreground">Press Enter to add</span>
             </div>
-            {availableSizes.length === 0 && (
+            {sizeMode === 'standard' && availableSizes.length === 0 && (
               <p className="text-sm text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 Select at least one available size
@@ -336,43 +337,45 @@ export function SizeStep() {
           )}
 
           {/* Optional measurements for standard sizes too */}
-          <div className="pt-2">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <Label className="block text-sm font-medium">Measurements (Optional)</Label>
-                <p className="text-sm text-muted-foreground">
-                  Add exact measurements for customers who want precise sizing.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => measurementsArray.append({ label: '', value: 0, unit: 'inch' })}
-                className="gap-1.5"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add
-              </Button>
-            </div>
-            {measurementsArray.fields.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  <div className="flex-1">Label</div>
-                  <div className="w-24">Value</div>
-                  <div className="w-24">Unit</div>
-                  <div className="w-8" />
+          {sizeMode === 'standard' && (
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <Label className="block text-sm font-medium">Measurements (Optional)</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Add exact measurements for customers who want precise sizing.
+                  </p>
                 </div>
-                {measurementsArray.fields.map((field, index) => (
-                  <MeasurementFields
-                    key={field.id}
-                    prefix="measurements"
-                    index={index}
-                    onRemove={() => measurementsArray.remove(index)}
-                  />
-                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => measurementsArray.append({ label: '', value: 0, unit: 'inch' })}
+                  className="gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
               </div>
-            )}
-          </div>
+              {measurementsArray.fields.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    <div className="flex-1">Label</div>
+                    <div className="w-24">Value</div>
+                    <div className="w-24">Unit</div>
+                    <div className="w-8" />
+                  </div>
+                  {measurementsArray.fields.map((field, index) => (
+                    <MeasurementFields
+                      key={field.id}
+                      prefix="measurements"
+                      index={index}
+                      onRemove={() => measurementsArray.remove(index)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -485,61 +488,102 @@ export function SizeStep() {
 
       {/* ── Free Size Mode ─────────────────────────────────────────── */}
       {sizeMode === 'free' && (
-        <FormField
-          control={form.control}
-          name="freeSizeType"
-          render={({ field }) => (
-            <FormItem className="space-y-3">
-              <FormLabel>Free Size Type</FormLabel>
-              <FormDescription>
-                Specify what &quot;free size&quot; means for this product.
-              </FormDescription>
-              <FormControl>
-                <RadioGroup
-                  value={field.value ?? ''}
-                  onValueChange={field.onChange}
-                  className="grid grid-cols-1 sm:grid-cols-3 gap-3"
-                >
-                  {[
-                    {
-                      value: 'free_size',
-                      label: 'Free Size',
-                      desc: 'Standard free/one-size-fits-all',
-                    },
-                    {
-                      value: 'adjustable',
-                      label: 'Adjustable',
-                      desc: 'Has ties, elastic, or adjustable features',
-                    },
-                    {
-                      value: 'no_size',
-                      label: 'No Size Needed',
-                      desc: 'Accessories, bags, jewelry etc.',
-                    },
-                  ].map((option) => (
-                    <Label
-                      key={option.value}
-                      htmlFor={`free-size-${option.value}`}
-                      className={cn(
-                        'flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all hover:border-primary/50',
-                        field.value === option.value
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border'
-                      )}
-                    >
-                      <RadioGroupItem value={option.value} id={`free-size-${option.value}`} className="mt-0.5" />
-                      <div>
-                        <span className="text-sm font-medium block">{option.label}</span>
-                        <span className="text-xs text-muted-foreground">{option.desc}</span>
-                      </div>
-                    </Label>
-                  ))}
-                </RadioGroup>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        <div className="space-y-4">
+          <FormField
+            control={form.control}
+            name="freeSizeType"
+            render={({ field }) => (
+              <FormItem className="space-y-3">
+                <FormLabel>Free Size Type</FormLabel>
+                <FormDescription>
+                  Specify what &quot;free size&quot; means for this product.
+                </FormDescription>
+                <FormControl>
+                  <RadioGroup
+                    value={field.value ?? ''}
+                    onValueChange={field.onChange}
+                    className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                  >
+                    {[
+                      {
+                        value: 'free_size',
+                        label: 'Free Size',
+                        desc: 'Standard free/one-size-fits-all',
+                      },
+                      {
+                        value: 'adjustable',
+                        label: 'Adjustable',
+                        desc: 'Has ties, elastic, or adjustable features',
+                      },
+                      {
+                        value: 'no_size',
+                        label: 'No Size Needed',
+                        desc: 'Accessories, bags, jewelry etc.',
+                      },
+                    ].map((option) => (
+                      <Label
+                        key={option.value}
+                        htmlFor={`free-size-${option.value}`}
+                        className={cn(
+                          'flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all hover:border-primary/50',
+                          field.value === option.value
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border'
+                        )}
+                      >
+                        <RadioGroupItem value={option.value} id={`free-size-${option.value}`} className="mt-0.5" />
+                        <div>
+                          <span className="text-sm font-medium block">{option.label}</span>
+                          <span className="text-xs text-muted-foreground">{option.desc}</span>
+                        </div>
+                      </Label>
+                    ))}
+                  </RadioGroup>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          
+          {/* Optional Measurements for Free Size */}
+          <div className="pt-2">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <Label className="block text-sm font-medium">Measurements (Optional)</Label>
+                <p className="text-sm text-muted-foreground">
+                  Add exact measurements (e.g. length of a free-size gown).
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => measurementsArray.append({ label: '', value: 0, unit: 'inch' })}
+                className="gap-1.5"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </Button>
+            </div>
+            {measurementsArray.fields.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  <div className="flex-1">Label</div>
+                  <div className="w-24">Value</div>
+                  <div className="w-24">Unit</div>
+                  <div className="w-8" />
+                </div>
+                {measurementsArray.fields.map((field, index) => (
+                  <MeasurementFields
+                    key={field.id}
+                    prefix="measurements"
+                    index={index}
+                    onRemove={() => measurementsArray.remove(index)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Size Chart (all modes) ─────────────────────────────────── */}
