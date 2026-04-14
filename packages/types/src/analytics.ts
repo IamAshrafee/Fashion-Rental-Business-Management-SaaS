@@ -75,3 +75,56 @@ export interface TargetRecoverySummary {
   productsBelowTarget: number;
   products: TargetRecoveryProduct[];
 }
+
+export type StorefrontEventType = 
+  | 'product_view' 
+  | 'add_to_cart' 
+  | 'remove_from_cart' 
+  | 'checkout_started';
+
+export interface StorefrontEventPayload {
+  sessionId: string;
+  eventType: StorefrontEventType;
+  productId?: string;
+  variantId?: string;
+  metadata?: Record<string, any>;
+  // Intentionally omitting IP and UserAgent as those are derived from req headers
+}
+
+export interface StorefrontTrafficSummary {
+  uniqueVisitors: number;
+  totalViews: number;
+  cartAdds: number;
+  cartConversionRate: number;
+  previousVisitors: number;
+  growthPercentage: number;
+}
+
+export interface FunnelNode {
+  step: string;
+  count: number;
+  dropOffRate: number;
+}
+
+export interface TrafficFunnel {
+  nodes: FunnelNode[];
+}
+
+export interface TopViewedProduct {
+  productId: string;
+  name: string;
+  views: number;
+  cartAdds: number;
+  checkoutStarts: number;
+  viewToCartRate: number;
+  cartToCheckoutRate: number;
+  thumbnailUrl: string | null;
+}
+
+export interface AttributionSource {
+  source: string;
+  campaign: string;
+  views: number;
+  cartAdds: number;
+  checkouts: number;
+}

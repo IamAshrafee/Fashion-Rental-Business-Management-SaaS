@@ -24,6 +24,7 @@ import {
   Menu,
   ChevronLeft,
   Truck,
+  Activity,
 } from 'lucide-react';
 import type { NavItem } from '@/types';
 
@@ -33,7 +34,8 @@ const NAV_ITEMS: NavItem[] = [
   { title: 'Bookings', href: '/dashboard/bookings', icon: CalendarCheck },
   { title: 'Deliveries', href: '/dashboard/deliveries', icon: Truck },
   { title: 'Customers', href: '/dashboard/customers', icon: Users },
-  { title: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
+  { title: 'Sales Analytics', href: '/dashboard/analytics', icon: BarChart3 },
+  { title: 'Traffic & Funnel', href: '/dashboard/traffic', icon: Activity },
   { title: 'Billing', href: '/dashboard/billing', icon: CreditCard },
   { title: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];

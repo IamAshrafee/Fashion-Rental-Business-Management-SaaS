@@ -4,11 +4,13 @@ import { useCart } from '@/hooks/use-cart';
 import { useLocale } from '@/hooks/use-locale';
 import Link from 'next/link';
 import { ShoppingBag, ArrowLeft, Trash2, Loader2, AlertCircle, Edit3 } from 'lucide-react';
+import { useAnalytics } from '@/providers/analytics-provider';
 import { useState, useEffect, useCallback } from 'react';
 import { validateCart, type CartValidationResponse } from '@/lib/api/guest-booking';
 
 export default function GuestCartPage() {
   const { items, removeItem, updateItem, totalPrice, totalDeposit } = useCart();
+  const { trackEvent } = useAnalytics();
   const { formatPrice } = useLocale();
   const [mounted, setMounted] = useState(false);
   const [validation, setValidation] = useState<CartValidationResponse | null>(null);
@@ -80,6 +82,17 @@ export default function GuestCartPage() {
       }
     }
     setEditingItemId(null);
+  };
+
+  const handleCheckoutClick = () => {
+    // Analytics: Track checkout drop-off intent using beacon!
+    trackEvent('checkout_started', {
+      metadata: {
+        cartItemCount: items.length,
+        grandTotal: validation?.summary?.grandTotal || totalPrice,
+      },
+      useBeacon: true // Guarantee sending during navigation
+    });
   };
 
   if (!mounted) return null;
@@ -268,7 +281,14 @@ export default function GuestCartPage() {
                       </button>
                     )}
                     <button
-                      onClick={() => removeItem(item.cartItemId)}
+                      onClick={() => {
+                        trackEvent('remove_from_cart', {
+                          productId: item.productId,
+                          variantId: item.variantId || undefined,
+                          metadata: { productName: item.productName }
+                        });
+                        removeItem(item.cartItemId);
+                      }}
                       className="flex items-center gap-1 text-sm text-red-500 hover:text-red-700 transition-colors ml-auto"
                     >
                       <Trash2 className="h-4 w-4" /> Remove
@@ -347,6 +367,7 @@ export default function GuestCartPage() {
               </button>
               <Link
                 href="/checkout"
+                onClick={handleCheckoutClick}
                 className="flex w-full items-center justify-center bg-black px-6 py-4 text-sm font-bold uppercase tracking-widest text-white transition-colors hover:bg-gray-800"
               >
                 Proceed to Checkout

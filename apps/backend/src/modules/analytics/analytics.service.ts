@@ -9,6 +9,10 @@ import {
   TopProduct,
   TargetRecoverySummary,
   TargetRecoveryProduct,
+  StorefrontTrafficSummary,
+  TrafficFunnel,
+  TopViewedProduct,
+  AttributionSource
 } from '@closetrent/types';
 
 @Injectable()
@@ -21,7 +25,17 @@ export class AnalyticsService {
    */
   private getDateRange(query: AnalyticsQueryDto): { from: Date; to: Date } {
     const to = query.to ? new Date(query.to) : new Date();
+    // If 'to' was provided as exactly YYYY-MM-DD, push it to the end of that day to include all today's events
+    if (query.to && query.to.length <= 10) {
+      to.setUTCHours(23, 59, 59, 999);
+    }
+
     const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Best practice to align 'from' to start of day if it was provided as a string
+    if (query.from && query.from.length <= 10) {
+      from.setUTCHours(0, 0, 0, 0);
+    }
+
     return { from, to };
   }
 
@@ -296,5 +310,143 @@ export class AnalyticsService {
       productsBelowTarget,
       products: items,
     };
+  }
+
+  // ---------------------------------------------------------
+  // Storefront Traffic Funnel Analytics
+  // ---------------------------------------------------------
+
+  async getStorefrontSummary(tenantId: string, query: AnalyticsQueryDto): Promise<StorefrontTrafficSummary> {
+    const { from, to } = this.getDateRange(query);
+    const { prevFrom, prevTo } = this.getPreviousDateRange(from, to);
+
+    const [currentEvents, previousEvents] = await Promise.all([
+      this.prisma.storefrontEvent.findMany({
+        where: { tenantId, productId: query.productId, createdAt: { gte: from, lte: to } },
+        select: { sessionId: true, eventType: true }
+      }),
+      this.prisma.storefrontEvent.findMany({
+        where: { tenantId, productId: query.productId, createdAt: { gte: prevFrom, lte: prevTo } },
+        select: { sessionId: true }
+      })
+    ]);
+
+    const uniqueVisitors = new Set(currentEvents.map(e => e.sessionId)).size;
+    const previousVisitors = new Set(previousEvents.map(e => e.sessionId)).size;
+    const totalViews = currentEvents.filter(e => e.eventType === 'product_view').length;
+    const cartAdds = currentEvents.filter(e => e.eventType === 'add_to_cart').length;
+    
+    const cartConversionRate = uniqueVisitors > 0 ? Number(((cartAdds / uniqueVisitors) * 100).toFixed(1)) : 0;
+    const growthPercentage = this.calculateGrowth(uniqueVisitors, previousVisitors);
+
+    return { uniqueVisitors, totalViews, cartAdds, cartConversionRate, previousVisitors, growthPercentage };
+  }
+
+  async getFunnelMetrics(tenantId: string, query: AnalyticsQueryDto): Promise<TrafficFunnel> {
+    const { from, to } = this.getDateRange(query);
+    const events = await this.prisma.storefrontEvent.findMany({
+      where: { 
+        tenantId, 
+        productId: query.productId,
+        createdAt: { gte: from, lte: to }, 
+        eventType: { in: ['product_view', 'add_to_cart', 'checkout_started'] } 
+      },
+      select: { eventType: true }
+    });
+
+    const views = events.filter(e => e.eventType === 'product_view').length;
+    const carts = events.filter(e => e.eventType === 'add_to_cart').length;
+    const checkouts = events.filter(e => e.eventType === 'checkout_started').length;
+
+    return {
+      nodes: [
+        { step: 'Product Views', count: views, dropOffRate: 0 },
+        { step: 'Added to Cart', count: carts, dropOffRate: views > 0 ? Number(((1 - (carts / views)) * 100).toFixed(1)) : 0 },
+        { step: 'Checkout Started', count: checkouts, dropOffRate: carts > 0 ? Number(((1 - (checkouts / carts)) * 100).toFixed(1)) : 0 }
+      ]
+    };
+  }
+
+  async getTopViewedProducts(tenantId: string, query: AnalyticsQueryDto): Promise<TopViewedProduct[]> {
+    const { from, to } = this.getDateRange(query);
+    
+    const events = await this.prisma.storefrontEvent.findMany({
+      where: { tenantId, productId: { not: null }, createdAt: { gte: from, lte: to } },
+      select: { productId: true, eventType: true }
+    });
+
+    const productStats = new Map<string, { views: number, carts: number, checkouts: number }>();
+    
+    for (const e of events) {
+      if (!e.productId) continue;
+      if (!productStats.has(e.productId)) productStats.set(e.productId, { views: 0, carts: 0, checkouts: 0 });
+      const stats = productStats.get(e.productId)!;
+      if (e.eventType === 'product_view') stats.views++;
+      else if (e.eventType === 'add_to_cart') stats.carts++;
+      else if (e.eventType === 'checkout_started') stats.checkouts++;
+    }
+
+    const topIds = Array.from(productStats.entries())
+      .sort((a, b) => b[1].views - a[1].views)
+      .slice(0, 15)
+      .map(entry => entry[0]);
+
+    if(topIds.length === 0) return [];
+
+    const productsInfo = await this.prisma.product.findMany({
+      where: { id: { in: topIds } },
+      select: { id: true, name: true, variants: { include: { images: { where: { isFeatured: true }, take: 1 } }, take: 1 } }
+    });
+
+    return topIds.map(id => {
+      const p = productsInfo.find(x => x.id === id);
+      const stats = productStats.get(id)!;
+      let thumb = null;
+      if (p?.variants?.[0]?.images?.[0]) thumb = p.variants[0].images[0].thumbnailUrl;
+      
+      return {
+        productId: id,
+        name: p?.name || 'Unknown',
+        views: stats.views,
+        cartAdds: stats.carts,
+        checkoutStarts: stats.checkouts,
+        viewToCartRate: stats.views > 0 ? Number(((stats.carts / stats.views) * 100).toFixed(1)) : 0,
+        cartToCheckoutRate: stats.carts > 0 ? Number(((stats.checkouts / stats.carts) * 100).toFixed(1)) : 0,
+        thumbnailUrl: thumb
+      };
+    });
+  }
+
+  async getMarketingAttribution(tenantId: string, query: AnalyticsQueryDto): Promise<AttributionSource[]> {
+     const { from, to } = this.getDateRange(query);
+     const events = await this.prisma.storefrontEvent.findMany({
+       where: { tenantId, createdAt: { gte: from, lte: to } },
+       select: { metadata: true, eventType: true }
+     });
+
+     const attrMap = new Map<string, { views: number, carts: number, checkouts: number }>();
+     
+     for (const e of events) {
+       const meta = e.metadata as any;
+       // We need to parse metadata safely if it's stored as plain stringified JSON, but Prisma handles JSONB object directly.
+       const source = meta?.utm_source || 'Direct / Organic';
+       const campaign = meta?.utm_campaign || 'N/A';
+       const key = `${source}|${campaign}`;
+       
+       if (!attrMap.has(key)) attrMap.set(key, { views: 0, carts: 0, checkouts: 0 });
+       const stats = attrMap.get(key)!;
+       
+       if (e.eventType === 'product_view') stats.views++;
+       else if (e.eventType === 'add_to_cart') stats.carts++;
+       else if (e.eventType === 'checkout_started') stats.checkouts++;
+     }
+
+     return Array.from(attrMap.entries())
+       .map(([key, stats]) => {
+         const [source, campaign] = key.split('|');
+         return { source, campaign, views: stats.views, cartAdds: stats.carts, checkouts: stats.checkouts };
+       })
+       .sort((a, b) => b.views - a.views)
+       .slice(0, 50); // limit to top 50 sources to prevent huge payloads
   }
 }

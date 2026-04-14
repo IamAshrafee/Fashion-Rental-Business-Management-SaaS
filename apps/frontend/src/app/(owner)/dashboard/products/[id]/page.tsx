@@ -39,6 +39,7 @@ import { useSoftDeleteProduct, useUpdateProductStatus } from '../hooks/use-produ
 import { useLocale } from '@/hooks/use-locale';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ProductTrafficCard } from './components/product-traffic-card';
 
 // ─── Animation Variants ───────────────────────────────────────────────────────
 
@@ -831,6 +832,11 @@ export default function ProductDetailPage() {
             {product.unavailableReason && (
               <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">{product.unavailableReason}</p>
             )}
+          </motion.div>
+
+          {/* Traffic Overview Card */}
+          <motion.div variants={scaleIn}>
+            <ProductTrafficCard productId={id} />
           </motion.div>
 
           {/* Stats — compact 2-up */}

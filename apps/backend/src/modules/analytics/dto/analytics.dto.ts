@@ -8,6 +8,10 @@ export class AnalyticsQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  @IsOptional()
+  @IsString()
+  productId?: string;
 }
 
 export class RevenueChartQueryDto extends AnalyticsQueryDto {

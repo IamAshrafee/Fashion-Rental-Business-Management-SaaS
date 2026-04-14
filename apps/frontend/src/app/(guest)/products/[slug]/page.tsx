@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useCart } from '@/hooks/use-cart';
 import { useLocale } from '@/hooks/use-locale';
+import { useAnalytics } from '@/providers/analytics-provider';
 import {
   getProductBySlug,
   checkDateRange,
@@ -44,6 +45,7 @@ export default function GuestProductDetailPage() {
   const { slug } = useParams();
   const { formatPrice } = useLocale();
   const { addItem } = useCart();
+  const { trackEvent } = useAnalytics();
   const { scrollYProgress } = useScroll();
   const scaleImage = useTransform(scrollYProgress, [0, 1], [1, 1.05]);
 
@@ -95,6 +97,22 @@ export default function GuestProductDetailPage() {
       }
     }
   }, [product?.productSize]);
+
+  // Analytics: Track product view once per page load
+  const hasTrackedView = useRef(false);
+  useEffect(() => {
+    if (product?.id && !hasTrackedView.current) {
+      hasTrackedView.current = true;
+      trackEvent('product_view', {
+        productId: product.id,
+        metadata: {
+          productName: product.name,
+          categoryName: product.category?.name,
+          basePrice: product.pricing?.rentalPrice || product.pricing?.priceOverride || 0,
+        }
+      });
+    }
+  }, [product?.id, product?.name, product?.category?.name, trackEvent, product?.pricing?.rentalPrice, product?.pricing?.priceOverride]);
 
   useEffect(() => {
     setAvailabilityResult(null);
@@ -169,6 +187,20 @@ export default function GuestProductDetailPage() {
 
   const handleAddToCart = () => {
     if (!canAddToCart || !product || !date.from || !date.to) return;
+    
+    // Analytics: Track add to cart
+    trackEvent('add_to_cart', {
+      productId: product.id,
+      variantId: selectedVariant?.id,
+      metadata: {
+        productName: product.name,
+        categoryName: product.category?.name,
+        totalPrice,
+        durationDays: days,
+        addedServices: { tryOn: addTryOn, backupSize: addBackup },
+      }
+    });
+
     addItem({
       productId: product.id,
       variantId: selectedVariant?.id,

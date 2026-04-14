@@ -290,6 +290,7 @@ model Tenant {
   subscriptionPayments SubscriptionPayment[]
   invoices             Invoice[]
   subscriptionHistory  SubscriptionHistory[]
+  storefrontEvents     StorefrontEvent[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -484,6 +485,7 @@ model Product {
   bookingItems  BookingItem[]
   dateBlocks    DateBlock[]
   reviews       Review[]
+  storefrontEvents StorefrontEvent[]
 
   @@unique([tenantId, slug])
   @@index([categoryId])
@@ -1162,4 +1164,33 @@ model SubscriptionHistory {
   @@index([tenantId])
   @@index([tenantId, createdAt])
   @@map("subscription_history")
+}
+
+// ============================================================================
+// STOREFRONT ANALYTICS (Events tracking)
+// ============================================================================
+
+model StorefrontEvent {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  sessionId   String   @map("session_id") // UUID stored in the buyer's browser
+  eventType   String   @map("event_type") // 'product_view', 'add_to_cart', 'remove_from_cart', 'checkout_started'
+  
+  productId   String?  @map("product_id")
+  variantId   String?  @map("variant_id")
+  
+  metadata    Json?    // Optional: source url, time spent on page, cart value, etc.
+  
+  ipAddress   String?  @map("ip_address") // Crucial for bot protection
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id])
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Compound indexes for lightning-fast dashboard queries over millions of rows
+  @@index([tenantId, eventType, createdAt])
+  @@index([productId, eventType])
+  @@index([sessionId])
+  @@map("storefront_events")
 }
