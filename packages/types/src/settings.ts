@@ -52,6 +52,8 @@ export interface UpdateCourierSettingsDto {
   pathaoPassword?: string;
   pathaoStoreId?: number;
   pathaoSandbox?: boolean;
+  pickupLeadDays?: number;
+  pickupLeadDaysConfig?: Record<string, number>;
 }
 
 export interface UpdateOperationalSettingsDto {
@@ -120,6 +122,10 @@ export interface StoreSettings {
   pathaoPassword?: string;
   pathaoStoreId?: number;
   pathaoSandbox?: boolean;
+
+  // Pickup scheduling
+  pickupLeadDays?: number;
+  pickupLeadDaysConfig?: Record<string, number>;
   
   // Operational
   maxConcurrentSessions: number;

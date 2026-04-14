@@ -353,7 +353,7 @@ export default function CustomerProfilePage() {
                             capitalize 
                             ${booking.status === 'pending' ? 'border-amber-200 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30' : ''}
                             ${booking.status === 'confirmed' ? 'border-blue-200 text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30' : ''}
-                            ${booking.status === 'shipped' ? 'border-violet-200 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30' : ''}
+                            ${booking.status === 'confirmed' ? 'border-blue-200 text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30' : ''}
                             ${booking.status === 'delivered' ? 'border-sky-200 text-sky-700 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/30' : ''}
                             ${booking.status === 'returned' ? 'border-slate-200 text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/30' : ''}
                             ${booking.status === 'completed' ? 'border-emerald-200 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : ''}

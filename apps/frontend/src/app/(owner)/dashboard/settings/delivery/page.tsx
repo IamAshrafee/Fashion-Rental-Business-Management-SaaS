@@ -24,6 +24,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Truck, Shield, TestTube } from 'lucide-react';
 import type { StoreSettings } from '@closetrent/types';
+import { DistrictLeadDaysEditor } from './district-lead-days-editor';
 
 const courierSchema = z.object({
   defaultCourier: z.string().optional(),
@@ -38,6 +39,9 @@ const courierSchema = z.object({
   // Legacy (for Steadfast / others)
   courierApiKey: z.string().max(255).optional(),
   courierSecretKey: z.string().max(255).optional(),
+  
+  // Delivery Schedule
+  pickupLeadDays: z.coerce.number().int().min(0).max(14).optional(),
 });
 
 type CourierValues = z.infer<typeof courierSchema>;
@@ -61,6 +65,7 @@ function DeliveryForm({ data }: { data: StoreSettings }) {
       pathaoSandbox: data.pathaoSandbox || false,
       courierApiKey: data.courierApiKey || '',
       courierSecretKey: data.courierSecretKey || '',
+      pickupLeadDays: data.pickupLeadDays ?? 2,
     },
   });
 
@@ -112,6 +117,27 @@ function DeliveryForm({ data }: { data: StoreSettings }) {
               </FormControl>
               <FormDescription>
                 The address where the courier will pick up parcels from your store/warehouse.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="pickupLeadDays"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Default Lead Days</FormLabel>
+              <FormControl>
+                <div className="flex items-center gap-2">
+                  <Input type="number" min="0" max="14" className="w-[120px]" {...field} />
+                  <span className="text-sm text-muted-foreground">days</span>
+                </div>
+              </FormControl>
+              <FormDescription>
+                How many days before the rental start date should the courier pick up the order? 
+                This applies to all areas not explicitly configured otherwise.
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -341,7 +367,13 @@ export default function CourierSettingsPage() {
       {isLoading && <div className="animate-pulse h-64 bg-muted rounded-md" />}
 
       {!isLoading && response?.data && (
-        <DeliveryForm key={response.data.updatedAt} data={response.data} />
+        <>
+          <DeliveryForm key={response.data.updatedAt} data={response.data} />
+          <DistrictLeadDaysEditor
+            initialConfig={response.data.pickupLeadDaysConfig as any}
+            defaultLeadDays={response.data.pickupLeadDays ?? 2}
+          />
+        </>
       )}
     </div>
   );

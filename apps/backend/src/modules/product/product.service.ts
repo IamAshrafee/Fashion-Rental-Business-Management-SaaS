@@ -356,7 +356,7 @@ export class ProductService {
           productId,
           tenantId,
           booking: {
-            status: { in: ['pending', 'confirmed', 'shipped', 'delivered', 'overdue'] },
+            status: { in: ['pending', 'confirmed', 'delivered', 'overdue'] },
           },
         },
       }),
@@ -430,7 +430,7 @@ export class ProductService {
         productId,
         tenantId,
         booking: {
-          status: { in: ['pending', 'confirmed', 'shipped', 'delivered', 'overdue'] },
+          status: { in: ['pending', 'confirmed', 'delivered', 'overdue'] },
         },
       },
     });

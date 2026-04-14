@@ -2,10 +2,18 @@ import apiClient from '@/lib/api-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export type DeliveryStage =
+  | 'prepare_parcel'
+  | 'awaiting_pickup'
+  | 'in_transit'
+  | 'delivered'
+  | 'error';
+
 export interface DeliveryItem {
   id: string;
   bookingNumber: string;
   status: string;
+  deliveryStage: DeliveryStage | null;
   courierProvider: string | null;
   courierConsignmentId: string | null;
   courierStatus: string | null;
@@ -17,7 +25,9 @@ export interface DeliveryItem {
   }> | null;
   trackingNumber: string | null;
   pickupRequestedAt: string | null;
-  shippedAt: string | null;
+  scheduledPickupAt: string | null;
+  deliveryLeadDays: number | null;
+  courierErrorReason: string | null;
   deliveredAt: string | null;
   deliveryName: string;
   deliveryPhone: string;
@@ -32,6 +42,7 @@ export interface DeliveryItem {
 
 export interface DeliveryDashboardResponse {
   summary: Record<string, number>;
+  stageSummary: Record<DeliveryStage, number>;
   data: DeliveryItem[];
   meta: {
     page: number;
@@ -42,6 +53,7 @@ export interface DeliveryDashboardResponse {
 }
 
 export interface DeliveryQuery {
+  stage?: DeliveryStage;
   courierStatus?: string;
   page?: number;
   limit?: number;
@@ -63,13 +75,21 @@ export const fulfillmentApi = {
   },
 
   /**
-   * POST /api/v1/owner/fulfillment/:bookingId/ship
-   * Ships an order (automated API call or manual tracking)
+   * POST /api/v1/owner/fulfillment/:bookingId/send-pickup
+   * Sends an immediate pickup request to the courier.
    */
-  ship: async (
+  sendPickup: async (bookingId: string): Promise<void> => {
+    await apiClient.post(`/owner/fulfillment/${bookingId}/send-pickup`);
+  },
+
+  /**
+   * PATCH /api/v1/owner/fulfillment/:bookingId/stage
+   * Manually transitions a delivery to a new stage.
+   */
+  updateStage: async (
     bookingId: string,
-    payload: { courierProvider?: string; useApi: boolean; trackingNumber?: string }
+    payload: { stage: DeliveryStage; reason?: string },
   ): Promise<void> => {
-    await apiClient.post(`/owner/fulfillment/${bookingId}/ship`, payload);
+    await apiClient.patch(`/owner/fulfillment/${bookingId}/stage`, payload);
   },
 };

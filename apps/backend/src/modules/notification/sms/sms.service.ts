@@ -56,10 +56,11 @@ export class SmsService {
           `Contact us for questions: ${data.phone}. — ${data.storeName}`
         );
 
-      case 'booking_shipped':
+      case 'pickup_requested':
         return (
-          `Your order ${data.bookingNumber} has been shipped! ` +
-          `Track: ${data.trackingLink}. — ${data.storeName}`
+          `Your order ${data.bookingNumber} is being prepared by the courier! ` +
+          (data.trackingLink ? `Track: ${data.trackingLink} ` : '') +
+          `\n- ${data.storeName}`
         );
 
       case 'return_reminder':

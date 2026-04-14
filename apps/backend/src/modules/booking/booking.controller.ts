@@ -19,7 +19,6 @@ import {
   CreateBookingDto,
   ValidateCartDto,
   UpdateBookingStatusDto,
-  ShipBookingDto,
   CancelBookingDto,
   AddNoteDto,
   CreateDamageReportDto,
@@ -223,22 +222,8 @@ export class BookingOwnerController {
   }
 
   /**
-   * PATCH /api/v1/owner/bookings/:id/ship
-   * Mark booking as shipped (with optional courier details).
-   */
-  @Patch(':id/ship')
-  @Roles('owner', 'manager', 'staff')
-  async shipBooking(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-    @Body() dto: ShipBookingDto,
-  ) {
-    return this.bookingService.shipBooking(tenant.id, id, dto);
-  }
-
-  /**
    * PATCH /api/v1/owner/bookings/:id/deliver
-   * Mark booking as delivered.
+   * Mark booking as delivered (manual fallback — normally triggered by delivery module).
    */
   @Patch(':id/deliver')
   @Roles('owner', 'manager', 'staff')

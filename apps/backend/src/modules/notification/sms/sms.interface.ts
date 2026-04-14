@@ -20,7 +20,7 @@ export type SmsTemplate =
   | 'booking_placed'
   | 'booking_confirmed'
   | 'booking_cancelled'
-  | 'booking_shipped'
+  | 'pickup_requested'
   | 'return_reminder'
   | 'return_due_today'
   | 'booking_completed'
@@ -43,9 +43,9 @@ export interface SmsTemplateData {
     phone: string;
     storeName: string;
   };
-  booking_shipped: {
+  pickup_requested: {
     bookingNumber: string;
-    trackingLink: string;
+    trackingLink?: string;
     storeName: string;
   };
   return_reminder: {

@@ -1,5 +1,5 @@
 /**
- * Courier Provider Interface — P09 Order Fulfillment & Logistics
+ * Courier Provider Interface — Order Fulfillment & Logistics
  *
  * Abstract contract that every courier adapter must implement.
  * This enables plug-and-play courier support without changing core order logic.
@@ -11,6 +11,7 @@
 
 /** All possible granular courier statuses used across providers */
 export type CourierStatusSlug =
+  | 'prepare_parcel'
   | 'pickup_pending'
   | 'pickup_assigned'
   | 'pickup_failed'
@@ -24,6 +25,7 @@ export type CourierStatusSlug =
   | 'returned_to_sender'
   | 'cancelled'
   | 'on_hold'
+  | 'error'
   | 'unknown';
 
 /** A single timeline event stored in booking.courierStatusHistory JSONB */
@@ -31,12 +33,13 @@ export interface CourierStatusEvent {
   status: CourierStatusSlug;
   label: string;
   timestamp: string; // ISO 8601
-  source: 'system' | 'pathao' | 'steadfast' | 'webhook';
+  source: 'system' | 'pathao' | 'steadfast' | 'webhook' | 'manual';
 }
 
 /** Human-readable labels for each courier status */
 export const COURIER_STATUS_LABELS: Record<CourierStatusSlug, string> = {
-  pickup_pending: 'Pickup Requested',
+  prepare_parcel: 'Prepare Parcel',
+  pickup_pending: 'Awaiting Pickup',
   pickup_assigned: 'Courier Assigned for Pickup',
   pickup_failed: 'Pickup Request Failed',
   picked_up: 'Parcel Picked Up by Courier',
@@ -49,8 +52,50 @@ export const COURIER_STATUS_LABELS: Record<CourierStatusSlug, string> = {
   returned_to_sender: 'Returned to Sender',
   cancelled: 'Shipment Cancelled',
   on_hold: 'On Hold',
+  error: 'Error — Requires Attention',
   unknown: 'Status Update',
 };
+
+// ---------------------------------------------------------------------------
+// Delivery Stage Groups (for dashboard)
+// ---------------------------------------------------------------------------
+
+/** High-level delivery stage groups shown in the deliveries dashboard */
+export type DeliveryStageGroup =
+  | 'prepare_parcel'
+  | 'awaiting_pickup'
+  | 'in_transit'
+  | 'delivered'
+  | 'error';
+
+/** Maps each granular courier status to its dashboard stage group */
+export const COURIER_STATUS_TO_STAGE: Record<CourierStatusSlug, DeliveryStageGroup> = {
+  prepare_parcel: 'prepare_parcel',
+  pickup_pending: 'awaiting_pickup',
+  pickup_assigned: 'awaiting_pickup',
+  pickup_failed: 'error',
+  picked_up: 'in_transit',
+  at_hub: 'in_transit',
+  in_transit: 'in_transit',
+  at_destination: 'in_transit',
+  out_for_delivery: 'in_transit',
+  delivered: 'delivered',
+  partial_delivered: 'error',
+  returned_to_sender: 'error',
+  cancelled: 'error',
+  on_hold: 'error',
+  error: 'error',
+  unknown: 'error',
+};
+
+/** The allowed manual delivery stage values owners can set */
+export const MANUAL_DELIVERY_STAGES: DeliveryStageGroup[] = [
+  'prepare_parcel',
+  'awaiting_pickup',
+  'in_transit',
+  'delivered',
+  'error',
+];
 
 // ---------------------------------------------------------------------------
 // Shared Input Types
@@ -205,21 +250,88 @@ export interface CourierSettings {
 }
 
 // ---------------------------------------------------------------------------
-// Pickup Lead Days Configuration (for 'smart' mode)
+// District-Based Pickup Lead Days Configuration
 // ---------------------------------------------------------------------------
 
-export interface PickupLeadDaysConfig {
-  /** Lead days for same-city deliveries (e.g., Dhaka → Dhaka) */
-  same_city: number;
-  /** Lead days for inter-city deliveries between major cities */
-  inter_city: number;
-  /** Lead days for remote/rural areas */
-  remote: number;
+/**
+ * District-based lead days config stored in StoreSettings.pickupLeadDaysConfig.
+ * Each district maps to a number of lead days (1, 2, or 3).
+ * Districts not in the map use defaultLeadDays.
+ */
+export interface DistrictLeadDaysConfig {
+  /** Map of district name (lowercase) → lead days (1, 2, or 3) */
+  districtLeadDays: Record<string, number>;
+  /** Fallback lead days for districts not explicitly mapped */
+  defaultLeadDays: number;
 }
 
-/** Major cities in Bangladesh for smart lead days calculation */
-export const MAJOR_CITIES_BD = [
-  'dhaka', 'chittagong', 'chattogram', 'rajshahi', 'khulna',
-  'sylhet', 'rangpur', 'barisal', 'barishal', 'comilla', 'cumilla',
-  'gazipur', 'narayanganj', 'mymensingh',
+// ---------------------------------------------------------------------------
+// Bangladesh Districts (64 total)
+// ---------------------------------------------------------------------------
+
+/** All 64 districts of Bangladesh for pre-populating settings */
+export const BANGLADESH_DISTRICTS: string[] = [
+  // Dhaka Division
+  'Dhaka', 'Gazipur', 'Narayanganj', 'Tangail', 'Kishoreganj',
+  'Manikganj', 'Munshiganj', 'Narsingdi', 'Faridpur', 'Gopalganj',
+  'Madaripur', 'Rajbari', 'Shariatpur',
+  // Chittagong Division
+  'Chittagong', 'Comilla', 'Cox\'s Bazar', 'Feni', 'Lakshmipur',
+  'Noakhali', 'Chandpur', 'Brahmanbaria', 'Rangamati', 'Bandarban',
+  'Khagrachari',
+  // Rajshahi Division
+  'Rajshahi', 'Bogra', 'Pabna', 'Sirajganj', 'Natore',
+  'Nawabganj', 'Naogaon', 'Joypurhat',
+  // Khulna Division
+  'Khulna', 'Jessore', 'Satkhira', 'Bagerhat', 'Narail',
+  'Magura', 'Kushtia', 'Chuadanga', 'Meherpur', 'Jhenaidah',
+  // Barisal Division
+  'Barisal', 'Patuakhali', 'Bhola', 'Pirojpur', 'Jhalokathi',
+  'Barguna',
+  // Sylhet Division
+  'Sylhet', 'Habiganj', 'Sunamganj', 'Moulvibazar',
+  // Rangpur Division
+  'Rangpur', 'Dinajpur', 'Kurigram', 'Lalmonirhat', 'Nilphamari',
+  'Gaibandha', 'Thakurgaon', 'Panchagarh',
+  // Mymensingh Division
+  'Mymensingh', 'Netrokona', 'Sherpur', 'Jamalpur',
 ];
+
+/**
+ * Default district lead days mapping.
+ * Tier 1 (1 day): Dhaka metro area
+ * Tier 2 (2 days): Major cities / divisional capitals
+ * Tier 3 (3 days): Everything else
+ */
+export const DEFAULT_DISTRICT_LEAD_DAYS: DistrictLeadDaysConfig = {
+  districtLeadDays: {
+    // Tier 1 — 1-day delivery (Dhaka metro)
+    'dhaka': 1,
+    'gazipur': 1,
+    'narayanganj': 1,
+
+    // Tier 2 — 2-day delivery (major cities / divisional capitals)
+    'chittagong': 2,
+    'rajshahi': 2,
+    'khulna': 2,
+    'sylhet': 2,
+    'rangpur': 2,
+    'barisal': 2,
+    'mymensingh': 2,
+    'comilla': 2,
+    'bogra': 2,
+    'cox\'s bazar': 2,
+    'jessore': 2,
+    'dinajpur': 2,
+    'tangail': 2,
+    'narsingdi': 2,
+    'faridpur': 2,
+    'manikganj': 2,
+    'munshiganj': 2,
+    'madaripur': 2,
+    'kishoreganj': 2,
+
+    // All others default to 3-day via defaultLeadDays
+  },
+  defaultLeadDays: 3,
+};

@@ -224,6 +224,16 @@ export class UpdateCourierSettingsDto {
   @IsOptional()
   @IsBoolean()
   pathaoSandbox?: boolean;
+
+  // ── Pickup Scheduling ──────────────────────────────────────────────────
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(14)
+  pickupLeadDays?: number;
+
+  @IsOptional()
+  pickupLeadDaysConfig?: Record<string, number>;
 }
 
 // =========================================================================

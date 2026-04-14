@@ -40,7 +40,6 @@ export type BookingStatus =
   | 'pending'
   | 'confirmed'
   | 'cancelled'
-  | 'shipped'
   | 'delivered'
   | 'overdue'
   | 'returned'

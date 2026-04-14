@@ -18,7 +18,6 @@ import {
   BookingQueryDto,
   BlockDatesDto,
   CreateDamageReportDto,
-  ShipBookingDto,
   CancelBookingDto,
 } from './dto/booking.dto';
 
@@ -64,8 +63,7 @@ interface CartSummary {
 
 const VALID_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   pending: ['confirmed', 'cancelled'],
-  confirmed: ['shipped', 'cancelled'],
-  shipped: ['delivered'],
+  confirmed: ['delivered', 'cancelled'],
   delivered: ['returned', 'overdue'],
   overdue: ['returned'],
   returned: ['inspected'],
@@ -616,7 +614,6 @@ export class BookingService {
         totalPaid: true,
         createdAt: true,
         confirmedAt: true,
-        shippedAt: true,
         deliveredAt: true,
         returnedAt: true,
         completedAt: true,
@@ -667,7 +664,6 @@ export class BookingService {
       }
     }
 
-    if (booking.shippedAt)    timeline.push({ status: 'shipped',    label: 'Order Shipped',    at: booking.shippedAt, type: 'business' });
     if (booking.deliveredAt)  timeline.push({ status: 'delivered',  label: 'Delivered',        at: booking.deliveredAt, type: 'business' });
     if (booking.returnedAt)   timeline.push({ status: 'returned',   label: 'Returned',         at: booking.returnedAt, type: 'business' });
     if (booking.completedAt)  timeline.push({ status: 'completed',  label: 'Completed',        at: booking.completedAt, type: 'business' });
@@ -727,7 +723,8 @@ export class BookingService {
         this.prisma.booking.count({
           where: {
             tenantId,
-            status: 'shipped',
+            status: 'confirmed',
+            courierStatus: { in: ['in_transit', 'out_for_delivery', 'at_destination'] },
             deletedAt: null,
             items: {
               some: {
@@ -742,7 +739,7 @@ export class BookingService {
         this.prisma.booking.count({
           where: {
             tenantId,
-            status: { in: ['pending', 'confirmed', 'shipped', 'delivered'] },
+            status: { in: ['pending', 'confirmed', 'delivered'] },
             deletedAt: null,
           },
         }),
@@ -853,11 +850,6 @@ export class BookingService {
           data: { blockType: 'booking' },
         });
         break;
-      case 'shipped':
-        updateData.shippedAt = now;
-        if (extras?.trackingNumber) updateData.trackingNumber = extras.trackingNumber;
-        if (extras?.courierProvider) updateData.courierProvider = extras.courierProvider;
-        break;
       case 'delivered':
         updateData.deliveredAt = now;
         break;
@@ -894,12 +886,6 @@ export class BookingService {
     return updated;
   }
 
-  async shipBooking(tenantId: string, bookingId: string, dto: ShipBookingDto) {
-    return this.updateStatus(tenantId, bookingId, 'shipped', {
-      trackingNumber: dto.trackingNumber,
-      courierProvider: dto.courierProvider,
-    });
-  }
 
   async cancelBooking(
     tenantId: string,

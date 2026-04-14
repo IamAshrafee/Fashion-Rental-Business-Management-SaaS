@@ -172,10 +172,12 @@ export interface BookingDetailResponse {
   courierStatus: string | null;
   courierStatusHistory: any;
   pickupRequestedAt: string | null;
+  scheduledPickupAt: string | null;
+  deliveryLeadDays: number | null;
+  courierErrorReason: string | null;
   cancellationReason: string | null;
   cancelledBy: string | null;
   confirmedAt: string | null;
-  shippedAt: string | null;
   deliveredAt: string | null;
   returnedAt: string | null;
   completedAt: string | null;
@@ -380,13 +382,6 @@ export const bookingApi = {
    */
   cancel: async (id: string, reason: string): Promise<void> => {
     await apiClient.patch(`/owner/bookings/${id}/cancel`, { reason });
-  },
-
-  /**
-   * PATCH /api/v1/owner/bookings/:id/ship
-   */
-  ship: async (id: string, payload: { courierProvider?: string; trackingNumber?: string }): Promise<void> => {
-    await apiClient.patch(`/owner/bookings/${id}/ship`, payload);
   },
 
   /**

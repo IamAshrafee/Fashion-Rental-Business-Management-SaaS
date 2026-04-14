@@ -131,29 +131,35 @@ export class NotificationListener {
     }
   }
 
-  @OnEvent('booking.shipped')
-  async handleBookingShipped(event: BookingStatusEvent) {
+  @OnEvent('fulfillment.pickupRequested')
+  async handlePickupRequested(event: {
+    tenantId: string;
+    bookingId: string;
+    bookingNumber: string;
+    courierProvider?: string;
+    trackingNumber?: string;
+  }) {
     try {
       const [booking, store] = await this.getBookingAndStore(event);
       if (!booking || !store) return;
 
       await this.notificationService.create({
         tenantId: event.tenantId,
-        type: 'booking_shipped',
-        title: `Order ${event.bookingNumber} shipped`,
+        type: 'pickup_requested',
+        title: `Pickup requested for ${event.bookingNumber}`,
         message: `Tracking: ${event.trackingNumber ?? 'N/A'} via ${event.courierProvider ?? 'courier'}`,
         data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
       });
 
       if (store.smsEnabled && booking.customer.phone) {
-        await this.smsService.send(booking.customer.phone, 'booking_shipped', {
+        await this.smsService.send(booking.customer.phone, 'pickup_requested', {
           bookingNumber: event.bookingNumber,
-          trackingLink: event.trackingNumber ?? 'N/A',
+          trackingLink: event.trackingNumber ?? undefined,
           storeName: store.storeName,
         });
       }
     } catch (err) {
-      this.logger.error(`handleBookingShipped failed: ${(err as Error).message}`);
+      this.logger.error(`handlePickupRequested failed: ${(err as Error).message}`);
     }
   }
 

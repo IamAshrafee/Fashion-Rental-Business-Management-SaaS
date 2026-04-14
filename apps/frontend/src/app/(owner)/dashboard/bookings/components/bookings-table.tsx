@@ -86,7 +86,6 @@ export function BookingStatusBadge({ status }: { status: BookingStatus }) {
   switch (status) {
     case 'pending': colorClass = 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'; break;
     case 'confirmed': colorClass = 'bg-blue-100 text-blue-800 hover:bg-blue-200'; break;
-    case 'shipped': colorClass = 'bg-indigo-100 text-indigo-800 hover:bg-indigo-200'; break;
     case 'delivered': colorClass = 'bg-teal-100 text-teal-800 hover:bg-teal-200'; break;
     case 'overdue': colorClass = 'bg-red-100 text-red-800 hover:bg-red-200 border-red-200 font-bold'; label = 'Overdue ⚠️'; break;
     case 'returned': colorClass = 'bg-purple-100 text-purple-800 hover:bg-purple-200'; break;
@@ -209,13 +208,6 @@ export const columns: ColumnDef<BookingRow>[] = [
                   <Maximize2 className="mr-2 h-4 w-4" /> View Detail
                 </Link>
               </DropdownMenuItem>
-              {booking.status === 'confirmed' && (
-                <DropdownMenuItem asChild>
-                  <Link href={`/dashboard/bookings/${booking.id}?action=ship`}>
-                    <Package className="mr-2 h-4 w-4" /> Ship Order
-                  </Link>
-                </DropdownMenuItem>
-              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -230,7 +222,6 @@ const TABS: Array<{ value: string, label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
   { value: 'confirmed', label: 'Confirmed' },
-  { value: 'shipped', label: 'Shipped' },
   { value: 'delivered', label: 'Delivered' },
   { value: 'overdue', label: 'Overdue' },
   { value: 'returned', label: 'Returned' },

@@ -17,7 +17,6 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { bookingApi } from '@/lib/api/bookings';
-import { ShipOrderModal } from '../../components/modals/ship-order-modal';
 
 interface OrderActionsProps {
   bookingId: string;
@@ -26,7 +25,6 @@ interface OrderActionsProps {
 
 export function OrderActions({ bookingId, status }: OrderActionsProps) {
   const queryClient = useQueryClient();
-  const [showShipModal, setShowShipModal] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
 
@@ -141,10 +139,13 @@ export function OrderActions({ bookingId, status }: OrderActionsProps) {
 
         {status === 'confirmed' && (
           <>
-            <Button onClick={() => setShowShipModal(true)} disabled={isAnyPending}>
-              <Package className="mr-2 h-4 w-4" />
-              Ship Order
-            </Button>
+            <ActionButton
+              onClick={() => deliverMutation.mutate()}
+              isPending={deliverMutation.isPending}
+              icon={Truck}
+              label="Mark as Delivered"
+              className="bg-teal-600 hover:bg-teal-700"
+            />
             <Button
               variant="outline"
               className="text-destructive hover:bg-destructive/10"
@@ -154,16 +155,6 @@ export function OrderActions({ bookingId, status }: OrderActionsProps) {
               Cancel Order
             </Button>
           </>
-        )}
-
-        {status === 'shipped' && (
-          <ActionButton
-            onClick={() => deliverMutation.mutate()}
-            isPending={deliverMutation.isPending}
-            icon={Truck}
-            label="Mark as Delivered"
-            className="bg-teal-600 hover:bg-teal-700"
-          />
         )}
 
         {(status === 'delivered' || status === 'overdue') && (
@@ -256,15 +247,6 @@ export function OrderActions({ bookingId, status }: OrderActionsProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Ship Order Modal */}
-      {showShipModal && (
-        <ShipOrderModal
-          bookingId={bookingId}
-          open={showShipModal}
-          onOpenChange={setShowShipModal}
-          onSuccess={invalidate}
-        />
-      )}
     </>
   );
 }

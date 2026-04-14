@@ -57,12 +57,30 @@ export class AuditLogListener {
     await this.recordStatusChange(event, 'booking.confirmed');
   }
 
-  @OnEvent('booking.shipped')
-  async onBookingShipped(event: BookingStatusEvent) {
-    await this.recordStatusChange(event, 'booking.shipped', {
-      trackingNumber: event.trackingNumber,
-      courierProvider: event.courierProvider,
-    });
+  @OnEvent('fulfillment.pickupRequested')
+  async onPickupRequested(event: {
+    tenantId: string;
+    bookingId: string;
+    bookingNumber: string;
+    courierProvider?: string;
+    trackingNumber?: string;
+  }) {
+    try {
+      await this.auditLogService.record({
+        tenantId: event.tenantId,
+        userId: 'system',
+        action: 'fulfillment.pickupRequested',
+        entityType: 'booking',
+        entityId: event.bookingId,
+        newValues: {
+          bookingNumber: event.bookingNumber,
+          trackingNumber: event.trackingNumber,
+          courierProvider: event.courierProvider,
+        },
+      });
+    } catch (err) {
+      this.logger.error(`Audit fulfillment.pickupRequested failed: ${(err as Error).message}`);
+    }
   }
 
   @OnEvent('booking.delivered')

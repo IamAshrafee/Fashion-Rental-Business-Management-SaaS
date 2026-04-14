@@ -83,7 +83,6 @@ enum BookingStatus {
   pending
   confirmed
   cancelled
-  shipped
   delivered
   overdue
   returned
@@ -342,8 +341,7 @@ model StoreSettings {
   pathaoStoreId         Int?     @map("pathao_store_id")
   pathaoSandbox         Boolean  @default(false) @map("pathao_sandbox")
 
-  // Pickup scheduling — 'fixed' uses pickupLeadDays, 'smart' uses pickupLeadDaysConfig
-  pickupScheduleMode    String?  @default("fixed") @map("pickup_schedule_mode")
+  // Pickup scheduling — district-based lead days
   pickupLeadDays        Int?     @default(2) @map("pickup_lead_days")
   pickupLeadDaysConfig  Json?    @map("pickup_lead_days_config") @db.JsonB
 
@@ -853,11 +851,13 @@ model Booking {
   courierStatusHistory Json?         @map("courier_status_history") @db.JsonB
   pickupRequestedAt    DateTime?     @map("pickup_requested_at")
   pickupJobId          String?       @map("pickup_job_id")
+  scheduledPickupAt    DateTime?     @map("scheduled_pickup_at")
+  deliveryLeadDays     Int?          @map("delivery_lead_days")
+  courierErrorReason   String?       @map("courier_error_reason")
   cancellationReason   String?       @map("cancellation_reason")
   cancelledBy          CancelledBy?  @map("cancelled_by")
   cancelledAt          DateTime?     @map("cancelled_at")
   confirmedAt          DateTime?     @map("confirmed_at")
-  shippedAt            DateTime?     @map("shipped_at")
   deliveredAt          DateTime?     @map("delivered_at")
   returnedAt           DateTime?     @map("returned_at")
   completedAt          DateTime?     @map("completed_at")

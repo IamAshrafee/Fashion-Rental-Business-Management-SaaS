@@ -221,6 +221,8 @@ export class TenantService {
             pathaoPassword: true,
             pathaoStoreId: true,
             pathaoSandbox: true,
+            pickupLeadDays: true,
+            pickupLeadDaysConfig: true,
             maxConcurrentSessions: true,
             bufferDays: true,
             createdAt: true,

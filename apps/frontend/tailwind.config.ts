@@ -68,7 +68,7 @@ const config: Config = {
         status: {
           pending: 'hsl(45 93% 58%)',
           confirmed: 'hsl(221 83% 53%)',
-          shipped: 'hsl(271 68% 55%)',
+          prepare_parcel: 'hsl(36 100% 50%)',
           delivered: 'hsl(168 76% 42%)',
           overdue: 'hsl(0 84% 60%)',
           returned: 'hsl(25 95% 53%)',

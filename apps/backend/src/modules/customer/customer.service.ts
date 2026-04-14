@@ -248,7 +248,7 @@ export class CustomerService {
       where: {
         customerId,
         tenantId,
-        status: { in: ['pending', 'confirmed', 'shipped', 'delivered'] },
+        status: { in: ['pending', 'confirmed', 'delivered'] },
       },
     });
 

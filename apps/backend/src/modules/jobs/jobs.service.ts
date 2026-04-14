@@ -192,6 +192,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         await this.fulfillmentService.pollAllCourierStatuses();
         break;
 
+      case 'fulfillment.checkStuckPickups':
+        await this.fulfillmentService.checkStuckPickups();
+        break;
+
       default:
         this.logger.warn(`Unknown fulfillment job: ${job.name}`);
     }

@@ -99,6 +99,34 @@ export class CalculateRateDto {
 }
 
 // ---------------------------------------------------------------------------
+// Update Delivery Stage DTO
+// ---------------------------------------------------------------------------
+
+export enum DeliveryStageEnum {
+  PREPARE_PARCEL = 'prepare_parcel',
+  AWAITING_PICKUP = 'awaiting_pickup',
+  IN_TRANSIT = 'in_transit',
+  DELIVERED = 'delivered',
+  ERROR = 'error',
+}
+
+/**
+ * Body for PATCH /api/v1/owner/fulfillment/:bookingId/stage
+ *
+ * Allows the owner to manually advance or revert a delivery stage.
+ * This supports manual courier workflows and error recovery.
+ */
+export class UpdateDeliveryStageDto {
+  @IsEnum(DeliveryStageEnum)
+  stage!: DeliveryStageEnum;
+
+  /** Reason for the transition — required when stage = 'error' */
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Pathao Webhook Payload
 // ---------------------------------------------------------------------------
 
@@ -131,3 +159,4 @@ export interface SteadfastWebhookPayload {
   delivery_status: string;
   updated_at?: string;
 }
+

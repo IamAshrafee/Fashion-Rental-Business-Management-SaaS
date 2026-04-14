@@ -10,7 +10,6 @@ export function StatusTimeline({ events }: { events: BookingTimelineEvent[] }) {
     switch(status) {
       case 'pending': return <DollarSign className="h-4 w-4" />;
       case 'confirmed': return <CheckCircle2 className="h-4 w-4" />;
-      case 'shipped': return <Navigation className="h-4 w-4" />;
       case 'delivered': return <Package className="h-4 w-4" />;
       case 'returned': return <RotateCcw className="h-4 w-4" />;
       case 'inspected': return <PenTool className="h-4 w-4" />;
@@ -24,7 +23,6 @@ export function StatusTimeline({ events }: { events: BookingTimelineEvent[] }) {
     switch(status) {
       case 'pending': return 'bg-yellow-500 text-white border-yellow-500';
       case 'confirmed': return 'bg-blue-500 text-white border-blue-500';
-      case 'shipped': return 'bg-indigo-500 text-white border-indigo-500';
       case 'delivered': return 'bg-teal-500 text-white border-teal-500';
       case 'overdue': return 'bg-red-500 text-white border-red-500';
       case 'returned': return 'bg-purple-500 text-white border-purple-500';

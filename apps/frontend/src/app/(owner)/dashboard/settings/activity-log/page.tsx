@@ -51,7 +51,7 @@ const ENTITY_TYPES = [
 const ACTION_LABELS: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   'booking.created': { label: 'Created', variant: 'default' },
   'booking.confirmed': { label: 'Confirmed', variant: 'default' },
-  'booking.shipped': { label: 'Shipped', variant: 'secondary' },
+  'fulfillment.pickupRequested': { label: 'Pickup Requested', variant: 'secondary' },
   'booking.delivered': { label: 'Delivered', variant: 'secondary' },
   'booking.returned': { label: 'Returned', variant: 'secondary' },
   'booking.inspected': { label: 'Inspected', variant: 'outline' },

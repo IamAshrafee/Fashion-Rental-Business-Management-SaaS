@@ -44,7 +44,7 @@ interface DayEvent {
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800',
   confirmed: 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
-  shipped: 'bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800',
+
   delivered: 'bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-800',
   overdue: 'bg-red-100 text-red-800 border-red-200 shadow-sm shadow-red-500/20 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
   returned: 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
@@ -56,7 +56,7 @@ const STATUS_COLORS: Record<string, string> = {
 const LEGEND_ITEMS = [
   { status: 'pending', label: 'Pending', color: 'bg-yellow-100 border-yellow-200' },
   { status: 'confirmed', label: 'Confirmed', color: 'bg-blue-100 border-blue-200' },
-  { status: 'shipped', label: 'Shipped', color: 'bg-indigo-100 border-indigo-200' },
+
   { status: 'delivered', label: 'Delivered', color: 'bg-teal-100 border-teal-200' },
   { status: 'overdue', label: 'Overdue', color: 'bg-red-100 border-red-200' },
   { status: 'returned', label: 'Returned', color: 'bg-purple-100 border-purple-200' },

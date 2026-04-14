@@ -12,6 +12,7 @@ import { BookingItems } from './components/booking-items';
 import { PriceBreakdown } from './components/price-breakdown';
 import { PaymentHistory } from './components/payment-history';
 import { StatusTimeline } from './components/status-timeline';
+import { DeliveryTrackingCard } from './components/delivery-tracking-card';
 import { bookingApi } from '@/lib/api/bookings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -117,6 +118,7 @@ export default function BookingDetailPage() {
     }>;
     for (const event of history) {
       if (
+        event.status === 'prepare_parcel' || event.status === 'error' ||
         event.status === 'pickup_pending' || event.status === 'pickup_assigned' ||
         event.status === 'pickup_failed' || event.status === 'picked_up' ||
         event.status === 'at_hub' || event.status === 'in_transit' ||
@@ -129,11 +131,6 @@ export default function BookingDetailPage() {
     }
   }
 
-  addTimelineEvent('shipped', 'Order Shipped', booking.shippedAt, 'business', 
-    booking.courierProvider
-      ? `Via ${booking.courierProvider}${booking.trackingNumber ? ` — #${booking.trackingNumber}` : ''}`
-      : undefined
-  );
   addTimelineEvent('delivered', 'Delivered', booking.deliveredAt, 'business');
   addTimelineEvent('returned', 'Returned', booking.returnedAt, 'business');
   addTimelineEvent('completed', 'Completed', booking.completedAt, 'business');
@@ -402,6 +399,8 @@ export default function BookingDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          <DeliveryTrackingCard booking={booking} />
 
           <div>
             <h2 className="text-lg font-semibold tracking-tight mb-4">Rented Items</h2>

@@ -43,7 +43,6 @@ interface TrackingData {
 const STATUS_ORDER = [
   'pending',
   'confirmed',
-  'shipped',
   'delivered',
   'returned',
   'completed',
@@ -52,7 +51,6 @@ const STATUS_ORDER = [
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Order Placed',
   confirmed: 'Confirmed',
-  shipped: 'Shipped',
   delivered: 'Delivered',
   returned: 'Returned',
   completed: 'Completed',

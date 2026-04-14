@@ -7,7 +7,7 @@ export type NotificationType =
   | 'new_booking'
   | 'booking_confirmed'
   | 'booking_cancelled'
-  | 'booking_shipped'
+  | 'pickup_requested'
   | 'booking_delivered'
   | 'booking_overdue'
   | 'booking_returned'

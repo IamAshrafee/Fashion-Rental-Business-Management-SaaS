@@ -32,7 +32,7 @@ const TYPE_META: Record<string, { label: string; color: string }> = {
   new_booking: { label: 'New Booking', color: 'bg-blue-500' },
   booking_confirmed: { label: 'Confirmed', color: 'bg-emerald-500' },
   booking_cancelled: { label: 'Cancelled', color: 'bg-red-500' },
-  booking_shipped: { label: 'Shipped', color: 'bg-violet-500' },
+  pickup_requested: { label: 'Pickup Requested', color: 'bg-violet-500' },
   booking_delivered: { label: 'Delivered', color: 'bg-teal-500' },
   booking_overdue: { label: 'Overdue', color: 'bg-orange-500' },
   booking_returned: { label: 'Returned', color: 'bg-cyan-500' },

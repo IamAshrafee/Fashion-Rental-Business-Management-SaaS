@@ -94,6 +94,16 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
+    // Every 6 hours: check for pickups stuck 3+ days → auto-mark as error
+    await fulfillmentQueue.add(
+      'fulfillment.checkStuckPickups',
+      {},
+      {
+        repeat: { pattern: '0 */6 * * *' }, // Every 6 hours
+        jobId: 'cron:fulfillment.checkStuckPickups',
+      },
+    );
+
     // ── Cleanup Queue CRON Jobs ───────────────────────────────────────────
 
     // Daily 3 AM UTC: clean notifications older than 30 days
@@ -116,6 +126,6 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
-    this.logger.log('Registered 7 CRON jobs: 4 scheduler, 1 fulfillment, 2 cleanup');
+    this.logger.log('Registered 8 CRON jobs: 4 scheduler, 2 fulfillment, 2 cleanup');
   }
 }

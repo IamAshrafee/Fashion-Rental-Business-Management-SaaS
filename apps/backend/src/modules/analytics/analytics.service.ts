@@ -76,7 +76,7 @@ export class AnalyticsService {
 
     // Filter valid vs completed vs active...
     const completedStatuses = ['completed', 'returned', 'inspected'];
-    const activeStatuses = ['confirmed', 'shipped', 'delivered', 'overdue'];
+    const activeStatuses = ['confirmed', 'delivered', 'overdue'];
 
     const totalBookingsCount = currentBookings.length;
     const completedCount = currentBookings.filter((b) => completedStatuses.includes(b.status)).length;

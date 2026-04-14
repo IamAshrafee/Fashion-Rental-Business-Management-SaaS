@@ -18,10 +18,6 @@ const STATUS_CONFIG: Record<
     label: 'Confirmed',
     className: 'bg-status-confirmed/15 text-blue-700 border-status-confirmed/30',
   },
-  shipped: {
-    label: 'Shipped',
-    className: 'bg-status-shipped/15 text-purple-700 border-status-shipped/30',
-  },
   delivered: {
     label: 'Delivered',
     className: 'bg-status-delivered/15 text-emerald-700 border-status-delivered/30',

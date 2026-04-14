@@ -158,7 +158,7 @@ const STARTER_TEMPLATE = {
     storeSettings: {
       defaultBufferDays: 1,
       bookingExpiryHours: 48,
-      cancellationPolicy: 'free_before_shipped',
+      cancellationPolicy: 'free_before_pickup',
     },
   },
 };

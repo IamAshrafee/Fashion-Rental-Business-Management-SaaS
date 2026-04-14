@@ -175,7 +175,6 @@ const BOOKING_STATUSES = [
   'pending',
   'confirmed',
   'cancelled',
-  'shipped',
   'delivered',
   'overdue',
   'returned',
@@ -186,22 +185,6 @@ const BOOKING_STATUSES = [
 export class UpdateBookingStatusDto {
   @IsEnum(BOOKING_STATUSES)
   status!: (typeof BOOKING_STATUSES)[number];
-}
-
-export class ShipBookingDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  courierProvider?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  trackingNumber?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  useCourierApi?: boolean;
 }
 
 export class CancelBookingDto {
