@@ -832,6 +832,9 @@ model Booking {
   totalDeposit         Int           @default(0) @map("total_deposit")
   grandTotal           Int           @map("grand_total")
   totalPaid            Int           @default(0) @map("total_paid")
+  discountAmount       Int           @default(0) @map("discount_amount")
+  discountType         String?       @map("discount_type")   // 'flat' | 'percentage'
+  discountReason       String?       @map("discount_reason")
   deliveryName         String        @map("delivery_name")
   deliveryPhone        String        @map("delivery_phone")
   deliveryAltPhone     String?       @map("delivery_alt_phone")

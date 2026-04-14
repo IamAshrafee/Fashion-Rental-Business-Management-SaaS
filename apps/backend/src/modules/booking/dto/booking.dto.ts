@@ -13,6 +13,7 @@ import {
   IsNotEmpty,
   MaxLength,
   MinLength,
+  IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -25,6 +26,9 @@ export type PaymentMethodType = (typeof PAYMENT_METHODS)[number];
 
 export const DAMAGE_LEVELS = ['none', 'minor', 'moderate', 'severe', 'destroyed', 'lost'] as const;
 export type DamageLevelType = (typeof DAMAGE_LEVELS)[number];
+
+export const DISCOUNT_TYPES = ['flat', 'percentage'] as const;
+export type DiscountType = (typeof DISCOUNT_TYPES)[number];
 
 // ============================================================================
 // CART VALIDATION
@@ -132,9 +136,61 @@ export class DeliveryAddressDto {
 
   @IsOptional()
   extra?: Record<string, unknown>;
+
+  // ── Delivery recipient override (may differ from customer) ──
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  deliveryName?: string;
+
+  @IsOptional()
+  @IsString()
+  deliveryPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  deliveryAltPhone?: string;
 }
 
-export class BookingItemDto extends CartItemDto {}
+export class BookingItemDto extends CartItemDto {
+  /** Per-item price override for manual bookings */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  priceOverride?: number;
+}
+
+export class InitialPaymentDto {
+  @IsInt()
+  @Min(1)
+  amount!: number;
+
+  @IsEnum(PAYMENT_METHODS)
+  method!: PaymentMethodType;
+
+  @IsOptional()
+  @IsString()
+  transactionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+
+export class DiscountDto {
+  @IsEnum(DISCOUNT_TYPES)
+  type!: DiscountType;
+
+  @IsNumber()
+  @Min(0)
+  value!: number; // flat amount in paisa OR percentage (e.g. 10 = 10%)
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
 
 export class CreateBookingDto {
   @ValidateNested()
@@ -165,6 +221,31 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   nagadTransactionId?: string;
+
+  // ── Manual booking power-ups ──
+
+  /** Internal notes visible only to tenant staff */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  internalNotes?: string;
+
+  /** Skip pending → create as confirmed immediately */
+  @IsOptional()
+  @IsBoolean()
+  autoConfirm?: boolean;
+
+  /** Record an upfront payment atomically with the booking */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InitialPaymentDto)
+  initialPayment?: InitialPaymentDto;
+
+  /** Discount applied to the order */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DiscountDto)
+  discount?: DiscountDto;
 }
 
 // ============================================================================

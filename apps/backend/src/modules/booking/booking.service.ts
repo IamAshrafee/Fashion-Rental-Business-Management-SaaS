@@ -279,10 +279,13 @@ export class BookingService {
   /**
    * Creates a booking atomically:
    * 1. Find/create customer by phone
-   * 2. Re-validate all items
+   * 2. Re-validate all items (with optional price overrides)
    * 3. Generate booking number
-   * 4. Create Booking + BookingItems + DateBlocks in one transaction
-   * 5. Emit booking.created event
+   * 4. Apply discount if provided (flat or percentage)
+   * 5. Create Booking + BookingItems + DateBlocks in one transaction
+   * 6. Optionally auto-confirm (skip pending state)
+   * 7. Optionally record initial payment
+   * 8. Emit booking.created (and booking.confirmed) event
    */
   async createBooking(tenantId: string, dto: CreateBookingDto) {
     // Step 1: Find or create customer (outside transaction — idempotent)
@@ -301,7 +304,7 @@ export class BookingService {
       },
     );
 
-    // Steps 2-4: Validate + create atomically inside a single transaction
+    // Steps 2-7: Validate + create atomically inside a single transaction
     // This prevents double-booking: the availability check and DateBlock creation
     // are serialized via the transaction, so concurrent requests cannot both pass.
     const booking = await this.prisma.$transaction(async (tx) => {
@@ -314,6 +317,34 @@ export class BookingService {
             `Product "${result.productName}" is not available for the selected dates: ${item.startDate} – ${item.endDate}`,
           );
         }
+
+        // Apply per-item price override if provided (manual booking power-up)
+        if ('priceOverride' in item && item.priceOverride !== undefined && item.priceOverride !== null) {
+          const product = await tx.product.findFirst({
+            where: { id: item.productId, tenantId },
+            include: { pricing: true },
+          });
+          const minPrice = product?.pricing?.minInternalPrice ?? 0;
+
+          if (item.priceOverride < minPrice && minPrice > 0) {
+            // Soft warn — allow but log it for audit
+            this.logger.warn(
+              `Price override ৳${item.priceOverride} is below minInternalPrice ৳${minPrice} ` +
+              `for product "${result.productName}" (tenant: ${tenantId}). Allowing with audit flag.`,
+            );
+          }
+
+          // Override the base rental and recalculate item total
+          const originalBaseRental = result.baseRental;
+          result.baseRental = item.priceOverride;
+          result.extendedDays = 0;
+          result.extendedCost = 0;
+          result.itemTotal = result.baseRental + result.cleaningFee + result.backupSizeFee + result.tryOnFee;
+          this.logger.log(
+            `Price override applied for "${result.productName}": ৳${originalBaseRental} → ৳${item.priceOverride}`,
+          );
+        }
+
         validatedItems.push(result);
       }
 
@@ -330,6 +361,28 @@ export class BookingService {
       });
       const bufferDays = storeSettings?.bufferDays ?? 0;
 
+      // Step 4: Apply discount if provided
+      let discountAmount = 0;
+      let discountType: string | null = null;
+      let discountReason: string | null = null;
+
+      if (dto.discount) {
+        discountType = dto.discount.type;
+        discountReason = dto.discount.reason ?? null;
+
+        if (dto.discount.type === 'flat') {
+          discountAmount = Math.min(dto.discount.value, summary.grandTotal);
+        } else if (dto.discount.type === 'percentage') {
+          const pct = Math.min(dto.discount.value, 100);
+          discountAmount = Math.ceil((summary.subtotal + summary.totalFees) * (pct / 100));
+          discountAmount = Math.min(discountAmount, summary.grandTotal);
+        }
+
+        if (discountAmount < 0) discountAmount = 0;
+      }
+
+      const grandTotalAfterDiscount = summary.grandTotal - discountAmount;
+
       // Build delivery address extra (area, thana, district)
       const deliveryExtra: Record<string, string> = {};
       if (dto.delivery.area) deliveryExtra.area = dto.delivery.area;
@@ -341,24 +394,36 @@ export class BookingService {
         }
       }
 
-      // Step 4: Create booking
+      // Resolve delivery recipient (may differ from customer)
+      const deliveryName = dto.delivery.deliveryName || dto.customer.fullName;
+      const deliveryPhone = dto.delivery.deliveryPhone || dto.customer.phone;
+      const deliveryAltPhone = dto.delivery.deliveryAltPhone || dto.customer.altPhone || null;
+
+      // Determine initial status (auto-confirm power-up)
+      const initialStatus = dto.autoConfirm ? 'confirmed' : 'pending';
+      const now = new Date();
+
+      // Step 5: Create booking
       const newBooking = await tx.booking.create({
         data: {
           tenantId,
           bookingNumber,
           customerId: customer.id,
-          status: 'pending',
+          status: initialStatus,
           paymentMethod: dto.paymentMethod as PaymentMethod,
           paymentStatus: 'unpaid',
           subtotal: summary.subtotal,
           totalFees: summary.totalFees,
           shippingFee: summary.shippingFee,
           totalDeposit: summary.totalDeposit,
-          grandTotal: summary.grandTotal,
+          grandTotal: grandTotalAfterDiscount,
           totalPaid: 0,
-          deliveryName: dto.customer.fullName,
-          deliveryPhone: dto.customer.phone,
-          deliveryAltPhone: dto.customer.altPhone ?? null,
+          discountAmount,
+          discountType,
+          discountReason,
+          deliveryName,
+          deliveryPhone,
+          deliveryAltPhone,
           deliveryAddressLine1: dto.delivery.address,
           deliveryAddressLine2: null,
           deliveryCity: dto.delivery.city ?? dto.delivery.district ?? '',
@@ -367,11 +432,22 @@ export class BookingService {
           deliveryCountry: dto.delivery.country ?? 'BD',
           deliveryExtra: Object.keys(deliveryExtra).length > 0 ? deliveryExtra : Prisma.DbNull,
           customerNotes: dto.customerNotes ?? null,
+          internalNotes: dto.internalNotes ?? null,
+          // Set confirmedAt when auto-confirming
+          ...(dto.autoConfirm ? { confirmedAt: now } : {}),
         },
       });
 
       // Create booking items + date blocks
       for (const item of validatedItems) {
+        // Find the matching cart item DTO (match on both productId + variantId for safety)
+        const cartItem = dto.items.find(
+          (i) => i.productId === item.productId && i.variantId === item.variantId,
+        ) ?? dto.items.find((i) => i.productId === item.productId)!;
+
+        // Build sizeInfo string from selectedSize
+        const sizeInfo = cartItem.selectedSize || null;
+
         // Create booking item
         await tx.bookingItem.create({
           data: {
@@ -382,9 +458,10 @@ export class BookingService {
             productName: item.productName,
             variantName: item.variantName ?? null,
             colorName: item.colorName,
+            sizeInfo,
             featuredImageUrl: item.featuredImageUrl,
-            startDate: new Date(dto.items.find((i) => i.productId === item.productId)!.startDate),
-            endDate: new Date(dto.items.find((i) => i.productId === item.productId)!.endDate),
+            startDate: new Date(cartItem.startDate),
+            endDate: new Date(cartItem.endDate),
             rentalDays: item.rentalDays,
             baseRental: item.baseRental,
             extendedDays: item.extendedDays,
@@ -392,6 +469,7 @@ export class BookingService {
             depositAmount: item.depositAmount,
             depositStatus: 'pending',
             cleaningFee: item.cleaningFee,
+            backupSize: cartItem.backupSize ?? null,
             backupSizeFee: item.backupSizeFee,
             tryOnFee: item.tryOnFee,
             itemTotal: item.itemTotal,
@@ -400,25 +478,52 @@ export class BookingService {
           },
         });
 
-        // Create date block (type = pending until confirmed)
-        const cartItem = dto.items.find((i) => i.productId === item.productId)!;
-        const startDate = new Date(cartItem.startDate);
-        const endDate = new Date(cartItem.endDate);
+        // Create date block
+        const blockStartDate = new Date(cartItem.startDate);
+        const blockEndDate = new Date(cartItem.endDate);
 
         // Apply buffer days
         if (bufferDays > 0) {
-          startDate.setDate(startDate.getDate() - bufferDays);
-          endDate.setDate(endDate.getDate() + bufferDays);
+          blockStartDate.setDate(blockStartDate.getDate() - bufferDays);
+          blockEndDate.setDate(blockEndDate.getDate() + bufferDays);
         }
 
         await tx.dateBlock.create({
           data: {
             tenantId,
             productId: item.productId,
-            startDate,
-            endDate,
-            blockType: 'pending',
+            startDate: blockStartDate,
+            endDate: blockEndDate,
+            // When auto-confirming, date blocks are immediately 'booking' (not 'pending')
+            blockType: dto.autoConfirm ? 'booking' : 'pending',
             bookingId: newBooking.id,
+          },
+        });
+      }
+
+      // Step 7: Record initial payment if provided
+      if (dto.initialPayment) {
+        const paymentAmount = Math.min(dto.initialPayment.amount, grandTotalAfterDiscount);
+        await tx.payment.create({
+          data: {
+            tenantId,
+            bookingId: newBooking.id,
+            amount: paymentAmount,
+            method: dto.initialPayment.method as PaymentMethod,
+            status: 'verified',
+            transactionId: dto.initialPayment.transactionId ?? null,
+            notes: dto.initialPayment.notes ?? 'Initial payment recorded at booking creation',
+            verifiedAt: now,
+          },
+        });
+
+        // Update booking totalPaid and paymentStatus
+        const newPaymentStatus = paymentAmount >= grandTotalAfterDiscount ? 'paid' : 'partial';
+        await tx.booking.update({
+          where: { id: newBooking.id },
+          data: {
+            totalPaid: paymentAmount,
+            paymentStatus: newPaymentStatus,
           },
         });
       }
@@ -443,6 +548,14 @@ export class BookingService {
               itemTotal: true,
             },
           },
+          payments: {
+            select: {
+              id: true,
+              amount: true,
+              method: true,
+              status: true,
+            },
+          },
         },
       });
     }, {
@@ -454,7 +567,7 @@ export class BookingService {
 
     if (!booking) throw new UnprocessableEntityException('Failed to create booking');
 
-    // Step 5: Emit event (ADR-05)
+    // Step 8: Emit events (ADR-05)
     this.eventEmitter.emit('booking.created', {
       tenantId,
       bookingId: booking.id,
@@ -463,7 +576,22 @@ export class BookingService {
       grandTotal: booking.grandTotal,
     });
 
-    this.logger.log(`Booking created: ${booking.bookingNumber} (tenant: ${tenantId})`);
+    // If auto-confirmed, also emit the confirmed event
+    if (dto.autoConfirm) {
+      this.eventEmitter.emit('booking.confirmed', {
+        tenantId,
+        bookingId: booking.id,
+        bookingNumber: booking.bookingNumber,
+        customerId: booking.customerId,
+      });
+    }
+
+    this.logger.log(
+      `Booking created: ${booking.bookingNumber} (tenant: ${tenantId})` +
+      `${dto.autoConfirm ? ' [auto-confirmed]' : ''}` +
+      `${dto.discount ? ` [discount: ${dto.discount.type} ${dto.discount.value}]` : ''}` +
+      `${dto.initialPayment ? ` [initial payment: ৳${dto.initialPayment.amount}]` : ''}`,
+    );
 
     return {
       bookingId: booking.id,
@@ -476,10 +604,12 @@ export class BookingService {
         totalFees: booking.totalFees,
         shippingFee: booking.shippingFee,
         totalDeposit: booking.totalDeposit,
+        discountAmount: booking.discountAmount,
         grandTotal: booking.grandTotal,
       },
       customer: booking.customer,
       items: booking.items,
+      payments: booking.payments,
     };
   }
 

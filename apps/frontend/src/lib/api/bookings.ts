@@ -19,6 +19,10 @@ export interface CreateBookingPayload {
     state?: string;
     postalCode?: string;
     country?: string;
+    // Delivery recipient override (may differ from customer)
+    deliveryName?: string;
+    deliveryPhone?: string;
+    deliveryAltPhone?: string;
   };
   items: Array<{
     productId: string;
@@ -28,11 +32,31 @@ export interface CreateBookingPayload {
     selectedSize?: string;
     backupSize?: string;
     tryOn?: boolean;
+    /** Per-item price override (manual booking only) */
+    priceOverride?: number;
   }>;
   paymentMethod: 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
   customerNotes?: string;
   bkashTransactionId?: string;
   nagadTransactionId?: string;
+  // ── Manual booking power-ups ──
+  /** Internal notes visible only to tenant staff */
+  internalNotes?: string;
+  /** Skip pending → create as confirmed immediately */
+  autoConfirm?: boolean;
+  /** Record an upfront payment atomically with the booking */
+  initialPayment?: {
+    amount: number;
+    method: 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
+    transactionId?: string;
+    notes?: string;
+  };
+  /** Discount applied to the order */
+  discount?: {
+    type: 'flat' | 'percentage';
+    value: number;
+    reason?: string;
+  };
 }
 
 export interface BookingCreatedResponse {
@@ -46,6 +70,7 @@ export interface BookingCreatedResponse {
     totalFees: number;
     shippingFee: number;
     totalDeposit: number;
+    discountAmount: number;
     grandTotal: number;
   };
   customer: { id: string; fullName: string; phone: string };
@@ -59,6 +84,12 @@ export interface BookingCreatedResponse {
     baseRental: number;
     depositAmount: number;
     itemTotal: number;
+  }>;
+  payments: Array<{
+    id: string;
+    amount: number;
+    method: string;
+    status: string;
   }>;
 }
 
@@ -155,6 +186,9 @@ export interface BookingDetailResponse {
   totalDeposit: number;
   grandTotal: number;
   totalPaid: number;
+  discountAmount: number;
+  discountType: string | null;
+  discountReason: string | null;
   deliveryName: string;
   deliveryPhone: string;
   deliveryAltPhone: string | null;

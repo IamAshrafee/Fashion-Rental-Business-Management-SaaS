@@ -27,16 +27,32 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
   PackageSearch, CheckCircle, Loader2, Plus, Trash2,
   UserCheck, AlertCircle, Calendar, ShoppingBag, ImageIcon,
-  ChevronDown, ChevronUp, Pencil, Ruler,
+  Pencil, Ruler, Tag, CreditCard, Zap, ChevronDown, ChevronUp,
+  Percent, DollarSign, Truck,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { customerApi } from '@/lib/api/customers';
-import { productApi, type ProductSizeData } from '@/lib/api/products';
+import { productApi, type ProductSizeData, type ProductServicesData } from '@/lib/api/products';
 import { bookingApi, type ValidateCartResponse } from '@/lib/api/bookings';
 import type { ApiResponse, Customer } from '@closetrent/types';
+
+// ─── Extended customer type (the list endpoint returns full model) ──────────
+/** The backend customer list returns all Prisma columns, but the shared
+ *  `Customer` type is minimal. We extend it here for auto-fill. */
+interface CustomerForAutoFill extends Customer {
+  altPhone?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+  notes?: string | null;
+  addressExtra?: Record<string, string> | null;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,6 +85,7 @@ interface ProductForForm {
   id: string;
   name: string;
   rentalPrice: number;
+  minInternalPrice: number;
   thumbnailUrl: string;
   pricingMode: string;
   variants: Array<{
@@ -79,6 +96,8 @@ interface ProductForForm {
   }>;
   // Size config (loaded lazily after selection)
   sizeConfig?: ProductSizeData | null;
+  // Service config (loaded lazily after selection)
+  services?: ProductServicesData | null;
 }
 
 interface BookingItemLine {
@@ -91,9 +110,15 @@ interface BookingItemLine {
   thumbnailUrl: string;
   selectedSize?: string;
   backupSize?: string;
+  tryOn?: boolean;
+  priceOverride?: number;
+  minInternalPrice: number;
   // Set after validation
   price: number;
   deposit: number;
+  // Service info for display
+  hasTryOn: boolean;
+  hasBackupSize: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -116,6 +141,7 @@ function mapToFormProduct(raw: OwnerProductResult): ProductForForm {
     id: raw.id,
     name: raw.name,
     rentalPrice: price,
+    minInternalPrice: raw.pricing?.minInternalPrice ?? 0,
     thumbnailUrl: thumb,
     pricingMode: raw.pricing?.mode ?? 'one_time',
     variants: (raw.variants ?? []).map((v) => ({
@@ -150,6 +176,10 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () =
   }, [ref, onClose]);
 }
 
+function formatCurrency(amount: number): string {
+  return `৳${amount.toLocaleString()}`;
+}
+
 // ─── Zod Schema ────────────────────────────────────────────────────────────────
 
 const schema = z.object({
@@ -164,11 +194,31 @@ const schema = z.object({
   thana: z.string().optional(),
   city: z.string().optional(),
   district: z.string().optional(),
+  postalCode: z.string().optional(),
+  // Delivery recipient override
+  deliveryDiffers: z.boolean().optional(),
+  deliveryName: z.string().optional(),
+  deliveryPhone: z.string().optional(),
+  deliveryAltPhone: z.string().optional(),
   // Payment
   paymentMethod: z.enum(['cod', 'bkash', 'nagad', 'sslcommerz']),
   bkashTransactionId: z.string().optional(),
   nagadTransactionId: z.string().optional(),
+  // Notes
   customerNotes: z.string().optional(),
+  internalNotes: z.string().optional(),
+  // Auto-confirm
+  autoConfirm: z.boolean().optional(),
+  // Discount
+  discountEnabled: z.boolean().optional(),
+  discountType: z.enum(['flat', 'percentage']).optional(),
+  discountValue: z.number().min(0).optional(),
+  discountReason: z.string().optional(),
+  // Initial payment
+  initialPaymentEnabled: z.boolean().optional(),
+  initialPaymentAmount: z.number().min(0).optional(),
+  initialPaymentMethod: z.enum(['cod', 'bkash', 'nagad', 'sslcommerz']).optional(),
+  initialPaymentTxId: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -186,6 +236,8 @@ export function ManualBookingForm() {
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
   const [backupSize, setBackupSize] = useState('');
+  const [tryOn, setTryOn] = useState(false);
+  const [itemPriceOverride, setItemPriceOverride] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -225,10 +277,33 @@ export function ManualBookingForm() {
       district: '',
       area: '',
       thana: '',
+      postalCode: '',
+      deliveryDiffers: false,
+      deliveryName: '',
+      deliveryPhone: '',
+      deliveryAltPhone: '',
+      autoConfirm: false,
+      discountEnabled: false,
+      discountType: 'flat',
+      discountValue: 0,
+      discountReason: '',
+      initialPaymentEnabled: false,
+      initialPaymentAmount: 0,
+      initialPaymentMethod: 'bkash',
+      initialPaymentTxId: '',
+      internalNotes: '',
+      customerNotes: '',
     },
   });
 
   const watchPaymentMethod = form.watch('paymentMethod');
+  const watchDeliveryDiffers = form.watch('deliveryDiffers');
+  const watchAutoConfirm = form.watch('autoConfirm');
+  const watchDiscountEnabled = form.watch('discountEnabled');
+  const watchDiscountType = form.watch('discountType');
+  const watchDiscountValue = form.watch('discountValue') || 0;
+  const watchInitialPaymentEnabled = form.watch('initialPaymentEnabled');
+  const watchInitialPaymentAmount = form.watch('initialPaymentAmount') || 0;
 
   // ── Customer search ──────────────────────────────────────────────────────
 
@@ -239,12 +314,23 @@ export function ManualBookingForm() {
     staleTime: 5000,
   });
 
-  const handleSelectCustomer = (customer: Customer) => {
+  const handleSelectCustomer = (customer: CustomerForAutoFill) => {
+    // Full auto-fill — all known fields
     form.setValue('fullName', customer.fullName);
     form.setValue('phone', customer.phone);
+    if (customer.altPhone) form.setValue('altPhone', customer.altPhone);
     if (customer.email) form.setValue('email', customer.email);
-    // Auto-fill delivery city from customer
+    if (customer.addressLine1) form.setValue('address', customer.addressLine1);
     if (customer.city) form.setValue('city', customer.city);
+    if (customer.state) form.setValue('district', customer.state);
+    if (customer.postalCode) form.setValue('postalCode', customer.postalCode);
+    // addressExtra may have area/thana
+    if (customer.addressExtra) {
+      const extra = customer.addressExtra as Record<string, string>;
+      if (extra.area) form.setValue('area', extra.area);
+      if (extra.thana) form.setValue('thana', extra.thana);
+      if (extra.district) form.setValue('district', extra.district);
+    }
     setCustomerSearch('');
     setShowCustomerDropdown(false);
   };
@@ -258,6 +344,8 @@ export function ManualBookingForm() {
       setSelectedVariantId('');
       setSelectedSize('');
       setBackupSize('');
+      setTryOn(false);
+      setItemPriceOverride('');
       setAvailabilityResult(null);
     }
     if (q.length < 2) { setSearchResults([]); setShowProductDropdown(false); return; }
@@ -271,7 +359,7 @@ export function ManualBookingForm() {
     }
   };
 
-  // ── Product selection + size config fetch (Fix #1, #4) ────────────────
+  // ── Product selection + size/services config fetch ────────────────
 
   const handleSelectProduct = async (product: ProductForForm) => {
     setSelectedProduct(product);
@@ -282,17 +370,20 @@ export function ManualBookingForm() {
     setAvailabilityResult(null);
     setSelectedSize('');
     setBackupSize('');
+    setTryOn(false);
+    setItemPriceOverride('');
 
-    // Fetch full product detail for size config
+    // Fetch full product detail for size config + services
     setIsLoadingSize(true);
     try {
       const detail = await productApi.getById(product.id);
       setSelectedProduct(prev => prev ? {
         ...prev,
         sizeConfig: detail.productSize,
+        services: detail.services,
       } : null);
     } catch {
-      // Non-critical — size just won't be available
+      // Non-critical — size/services just won't be available
     } finally {
       setIsLoadingSize(false);
     }
@@ -354,7 +445,7 @@ export function ManualBookingForm() {
     }
   };
 
-  // ── Add item to cart (Fix #5 — deduplication) ──────────────────────────
+  // ── Add item to cart ──────────────────────────────────────────────────
 
   const handleAddItem = () => {
     if (!selectedProduct || !selectedVariantId || !startDate || !endDate) {
@@ -370,7 +461,7 @@ export function ManualBookingForm() {
       return;
     }
 
-    // Check for duplicate (Fix #5)
+    // Duplicate check
     const isDuplicate = cartItems.some(
       item => item.productId === selectedProduct.id
         && item.variantId === selectedVariantId
@@ -382,14 +473,25 @@ export function ManualBookingForm() {
       return;
     }
 
-    // Validate size selection if product has sizes
+    // Validate size selection if product has standard sizes
     const sizeConfig = selectedProduct.sizeConfig;
-    if (sizeConfig && sizeConfig.mode === 'fixed' && sizeConfig.availableSizes.length > 0 && !selectedSize) {
+    if (sizeConfig && sizeConfig.mode === 'standard' && sizeConfig.availableSizes.length > 0 && !selectedSize) {
       toast.error('Please select a size for this product.');
       return;
     }
 
+    // Parse price override
+    const parsedOverride = itemPriceOverride ? parseInt(itemPriceOverride, 10) : undefined;
+    if (parsedOverride !== undefined && isNaN(parsedOverride)) {
+      toast.error('Invalid price override value.');
+      return;
+    }
+
     const variant = selectedProduct.variants.find(v => v.id === selectedVariantId);
+    const services = selectedProduct.services;
+    const hasTryOn = !!services?.tryOnEnabled;
+    const hasBackupSize = !!services?.backupSizeEnabled;
+
     setCartItems(prev => [...prev, {
       productId: selectedProduct.id,
       variantId: selectedVariantId,
@@ -400,8 +502,13 @@ export function ManualBookingForm() {
       thumbnailUrl: variant?.thumbnailUrl || selectedProduct.thumbnailUrl,
       selectedSize: selectedSize || undefined,
       backupSize: backupSize || undefined,
-      price: availabilityResult?.pricing?.baseRental ?? selectedProduct.rentalPrice,
+      tryOn: tryOn || undefined,
+      priceOverride: parsedOverride,
+      minInternalPrice: selectedProduct.minInternalPrice,
+      price: parsedOverride ?? availabilityResult?.pricing?.baseRental ?? selectedProduct.rentalPrice,
       deposit: availabilityResult?.pricing?.deposit ?? 0,
+      hasTryOn,
+      hasBackupSize,
     }]);
 
     // Reset selection
@@ -409,6 +516,8 @@ export function ManualBookingForm() {
     setSelectedVariantId('');
     setSelectedSize('');
     setBackupSize('');
+    setTryOn(false);
+    setItemPriceOverride('');
     setStartDate('');
     setEndDate('');
     setProductSearch('');
@@ -440,6 +549,7 @@ export function ManualBookingForm() {
           endDate: item.endDate,
           selectedSize: item.selectedSize,
           backupSize: item.backupSize,
+          tryOn: item.tryOn,
         })),
       });
 
@@ -452,13 +562,13 @@ export function ManualBookingForm() {
         return;
       }
 
-      // Update cart items with validated pricing
+      // Update cart items with validated pricing (but keep priceOverride if set)
       setCartItems(prev => prev.map((item, idx) => {
         const validated = result.items[idx];
         if (!validated) return item;
         return {
           ...item,
-          price: validated.itemTotal,
+          price: item.priceOverride ?? validated.itemTotal,
           deposit: validated.deposit,
         };
       }));
@@ -473,17 +583,31 @@ export function ManualBookingForm() {
     }
   };
 
-  // ── Totals ───────────────────────────────────────────────────────────────
+  // ── Discount calculation ──────────────────────────────────────────────
 
-  const summary = validatedCart?.summary ?? {
-    subtotal: cartItems.reduce((sum, i) => sum + i.price, 0),
-    totalFees: 0,
-    totalDeposit: cartItems.reduce((sum, i) => sum + i.deposit, 0),
-    shippingFee: 0,
-    grandTotal: cartItems.reduce((sum, i) => sum + i.price + i.deposit, 0),
-  };
+  const rawSubtotal = validatedCart?.summary?.subtotal
+    ?? cartItems.reduce((sum, i) => sum + i.price, 0);
+  const rawTotalFees = validatedCart?.summary?.totalFees ?? 0;
+  const rawTotalDeposit = validatedCart?.summary?.totalDeposit
+    ?? cartItems.reduce((sum, i) => sum + i.deposit, 0);
+  const rawShippingFee = validatedCart?.summary?.shippingFee ?? 0;
+  const rawGrandTotal = rawSubtotal + rawTotalFees + rawShippingFee + rawTotalDeposit;
 
-  // ── Submit (Fix #12 — confirmation dialog) ──────────────────────────────
+  let discountAmount = 0;
+  if (watchDiscountEnabled && watchDiscountValue > 0) {
+    if (watchDiscountType === 'flat') {
+      discountAmount = Math.min(watchDiscountValue, rawGrandTotal);
+    } else {
+      const pct = Math.min(watchDiscountValue, 100);
+      discountAmount = Math.ceil((rawSubtotal + rawTotalFees) * (pct / 100));
+      discountAmount = Math.min(discountAmount, rawGrandTotal);
+    }
+  }
+
+  const grandTotal = rawGrandTotal - discountAmount;
+  const balanceDue = grandTotal - (watchInitialPaymentEnabled ? Math.min(watchInitialPaymentAmount, grandTotal) : 0);
+
+  // ── Submit ──────────────────────────────────────────────────────────────
 
   const mutation = useMutation({
     mutationFn: (payload: Parameters<typeof bookingApi.create>[0]) => bookingApi.create(payload),
@@ -498,33 +622,63 @@ export function ManualBookingForm() {
     },
   });
 
-  const buildPayload = (values: FormValues) => ({
-    customer: {
-      fullName: values.fullName,
-      phone: values.phone,
-      altPhone: values.altPhone || undefined,
-      email: values.email || undefined,
-    },
-    delivery: {
-      address: values.address,
-      area: values.area || undefined,
-      thana: values.thana || undefined,
-      city: values.city || values.district || undefined, // Fix #2
-      district: values.district || undefined,
-    },
-    items: cartItems.map(item => ({
-      productId: item.productId,
-      variantId: item.variantId,
-      startDate: item.startDate,
-      endDate: item.endDate,
-      selectedSize: item.selectedSize,
-      backupSize: item.backupSize,
-    })),
-    paymentMethod: values.paymentMethod,
-    bkashTransactionId: values.bkashTransactionId || undefined,
-    nagadTransactionId: values.nagadTransactionId || undefined,
-    customerNotes: values.customerNotes || undefined,
-  });
+  const buildPayload = (values: FormValues) => {
+    const payload: Parameters<typeof bookingApi.create>[0] = {
+      customer: {
+        fullName: values.fullName,
+        phone: values.phone,
+        altPhone: values.altPhone || undefined,
+        email: values.email || undefined,
+      },
+      delivery: {
+        address: values.address,
+        area: values.area || undefined,
+        thana: values.thana || undefined,
+        city: values.city || values.district || undefined,
+        district: values.district || undefined,
+        postalCode: values.postalCode || undefined,
+        ...(values.deliveryDiffers ? {
+          deliveryName: values.deliveryName || undefined,
+          deliveryPhone: values.deliveryPhone || undefined,
+          deliveryAltPhone: values.deliveryAltPhone || undefined,
+        } : {}),
+      },
+      items: cartItems.map(item => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        selectedSize: item.selectedSize,
+        backupSize: item.backupSize,
+        tryOn: item.tryOn,
+        priceOverride: item.priceOverride,
+      })),
+      paymentMethod: values.paymentMethod,
+      customerNotes: values.customerNotes || undefined,
+      internalNotes: values.internalNotes || undefined,
+      autoConfirm: values.autoConfirm || undefined,
+    };
+
+    // Discount
+    if (values.discountEnabled && (values.discountValue ?? 0) > 0) {
+      payload.discount = {
+        type: values.discountType || 'flat',
+        value: values.discountValue ?? 0,
+        reason: values.discountReason || undefined,
+      };
+    }
+
+    // Initial payment
+    if (values.initialPaymentEnabled && (values.initialPaymentAmount ?? 0) > 0) {
+      payload.initialPayment = {
+        amount: values.initialPaymentAmount ?? 0,
+        method: values.initialPaymentMethod || 'bkash',
+        transactionId: values.initialPaymentTxId || undefined,
+      };
+    }
+
+    return payload;
+  };
 
   const handleSubmitClick = form.handleSubmit(() => {
     if (cartItems.length === 0) {
@@ -532,7 +686,7 @@ export function ManualBookingForm() {
       setStep(2);
       return;
     }
-    setShowConfirmDialog(true); // Fix #12
+    setShowConfirmDialog(true);
   });
 
   const handleConfirmSubmit = () => {
@@ -543,7 +697,7 @@ export function ManualBookingForm() {
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Step navigation helpers (Fix #8)
+  // Step navigation helpers
   const goToStep = (target: number) => {
     if (target < step) setStep(target);
   };
@@ -553,7 +707,7 @@ export function ManualBookingForm() {
       <form onSubmit={handleSubmitClick} className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
 
-          {/* ── Step 1: Customer ── */}
+          {/* ── Step 1: Customer & Delivery ── */}
           <Card className="shadow-none border">
             <CardHeader
               className="pb-3 bg-muted/30 cursor-pointer"
@@ -564,9 +718,8 @@ export function ManualBookingForm() {
                   <span className={`h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center ${step > 1 ? 'bg-green-600 text-white' : 'bg-primary text-primary-foreground'}`}>
                     {step > 1 ? <CheckCircle className="h-3 w-3" /> : '1'}
                   </span>
-                  Customer Details
+                  Customer & Delivery
                 </span>
-                {/* Fix #9 — collapsed summary */}
                 {step > 1 && (
                   <div className="flex items-center gap-3">
                     <span className="text-xs font-medium text-green-600">
@@ -580,7 +733,6 @@ export function ManualBookingForm() {
               </CardTitle>
             </CardHeader>
 
-            {/* Fix #9 — only show content when active */}
             {step === 1 && (
               <CardContent className="pt-4 space-y-4">
                 {/* Customer lookup */}
@@ -604,7 +756,7 @@ export function ManualBookingForm() {
                         ) : (customerResults?.data ?? []).length === 0 ? (
                           <div className="p-3 text-sm text-muted-foreground">No customers found.</div>
                         ) : (
-                          (customerResults?.data ?? []).map((c: Customer) => (
+                          (customerResults?.data ?? []).map((c: CustomerForAutoFill) => (
                             <button
                               key={c.id}
                               type="button"
@@ -614,6 +766,9 @@ export function ManualBookingForm() {
                               <UserCheck className="h-3.5 w-3.5 text-green-600 shrink-0" />
                               <span className="font-medium">{c.fullName}</span>
                               <span className="text-muted-foreground">{c.phone}</span>
+                              {c.totalBookings > 0 && (
+                                <Badge variant="secondary" className="text-[10px] ml-auto">{c.totalBookings} bookings</Badge>
+                              )}
                             </button>
                           ))
                         )}
@@ -662,7 +817,7 @@ export function ManualBookingForm() {
 
                 <Separator />
 
-                {/* Delivery — Fix #2: added city field */}
+                {/* Delivery Address */}
                 <div className="grid grid-cols-2 gap-4">
                   <FormField control={form.control} name="address" render={({ field }) => (
                     <FormItem className="col-span-2">
@@ -699,6 +854,54 @@ export function ManualBookingForm() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                  <FormField control={form.control} name="postalCode" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Postal Code</FormLabel>
+                      <FormControl><Input placeholder="e.g. 1207" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+
+                {/* Delivery recipient override toggle */}
+                <div className="rounded-md border p-3 space-y-3">
+                  <FormField control={form.control} name="deliveryDiffers" render={({ field }) => (
+                    <FormItem className="flex items-center justify-between gap-2">
+                      <div>
+                        <FormLabel className="text-sm font-medium flex items-center gap-2">
+                          <Truck className="h-4 w-4" />
+                          Delivery recipient differs from customer
+                        </FormLabel>
+                        <p className="text-xs text-muted-foreground mt-0.5">Enable if the order is a gift or being delivered to someone else.</p>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )} />
+
+                  {watchDeliveryDiffers && (
+                    <div className="grid grid-cols-3 gap-3 pt-1">
+                      <FormField control={form.control} name="deliveryName" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Recipient Name</FormLabel>
+                          <FormControl><Input placeholder="Recipient name" {...field} /></FormControl>
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="deliveryPhone" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Recipient Phone</FormLabel>
+                          <FormControl><Input placeholder="01XXXXXXXXX" {...field} /></FormControl>
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="deliveryAltPhone" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Alt Phone</FormLabel>
+                          <FormControl><Input placeholder="Optional" {...field} /></FormControl>
+                        </FormItem>
+                      )} />
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end pt-2">
@@ -743,10 +946,9 @@ export function ManualBookingForm() {
                 </CardTitle>
               </CardHeader>
 
-              {/* Fix #9 — only show content when active */}
               {step === 2 && (
                 <CardContent className="pt-4 space-y-4">
-                  {/* Added items — Fix #10: formatted dates */}
+                  {/* Added items */}
                   {cartItems.length > 0 && (
                     <div className="space-y-2">
                       {cartItems.map((item, idx) => (
@@ -766,7 +968,12 @@ export function ManualBookingForm() {
                               )}
                             </div>
                             <div>
-                              <div className="font-medium text-sm">{item.productName}</div>
+                              <div className="font-medium text-sm flex items-center gap-1.5">
+                                {item.productName}
+                                {item.priceOverride !== undefined && (
+                                  <Badge variant="outline" className="text-[9px] border-yellow-500 text-yellow-600 px-1">Custom Price</Badge>
+                                )}
+                              </div>
                               <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                                 <span>{item.variantName}</span>
                                 {item.selectedSize && (
@@ -775,18 +982,23 @@ export function ManualBookingForm() {
                                     <span className="flex items-center gap-0.5"><Ruler className="h-3 w-3" />{item.selectedSize}</span>
                                   </>
                                 )}
+                                {item.tryOn && (
+                                  <>
+                                    <span>·</span>
+                                    <Badge variant="secondary" className="text-[9px] px-1">Try-on</Badge>
+                                  </>
+                                )}
                                 <span>·</span>
                                 <Calendar className="h-3 w-3" />
-                                {/* Fix #10 — formatted dates */}
                                 <span>{format(parseISO(item.startDate), 'MMM d')} → {format(parseISO(item.endDate), 'MMM d, yyyy')}</span>
                               </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
                             <div className="text-sm text-right">
-                              <div className="font-medium">৳{item.price.toLocaleString()}</div>
+                              <div className="font-medium">{formatCurrency(item.price)}</div>
                               {item.deposit > 0 && (
-                                <div className="text-xs text-muted-foreground">+৳{item.deposit.toLocaleString()} deposit</div>
+                                <div className="text-xs text-muted-foreground">+{formatCurrency(item.deposit)} deposit</div>
                               )}
                             </div>
                             <Button
@@ -810,7 +1022,7 @@ export function ManualBookingForm() {
                       <PackageSearch className="h-3.5 w-3.5" /> Add Product
                     </p>
 
-                    {/* Product search — Fix #11: click-outside */}
+                    {/* Product search */}
                     <div className="relative" ref={productDropdownRef}>
                       <Input
                         placeholder="Search products by name..."
@@ -849,7 +1061,7 @@ export function ManualBookingForm() {
                                     {p.variants.length} variant{p.variants.length !== 1 ? 's' : ''}
                                   </div>
                                 </div>
-                                <span className="text-muted-foreground font-medium shrink-0">৳{p.rentalPrice?.toLocaleString()}</span>
+                                <span className="text-muted-foreground font-medium shrink-0">{formatCurrency(p.rentalPrice)}</span>
                               </button>
                             ))
                           )}
@@ -885,7 +1097,7 @@ export function ManualBookingForm() {
                             </Select>
                           </div>
 
-                          {/* Size selector — Fix #1, #4 */}
+                          {/* Size selector — all modes */}
                           {isLoadingSize ? (
                             <div className="space-y-1 col-span-2 sm:col-span-1">
                               <Label className="text-xs">Size</Label>
@@ -893,7 +1105,7 @@ export function ManualBookingForm() {
                                 <Loader2 className="h-3 w-3 animate-spin" /> Loading sizes...
                               </div>
                             </div>
-                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'fixed' && selectedProduct.sizeConfig.availableSizes.length > 0 ? (
+                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'standard' && selectedProduct.sizeConfig.availableSizes.length > 0 ? (
                             <div className="space-y-1 col-span-2 sm:col-span-1">
                               <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Size *</Label>
                               <Select value={selectedSize} onValueChange={setSelectedSize}>
@@ -907,11 +1119,32 @@ export function ManualBookingForm() {
                                 </SelectContent>
                               </Select>
                             </div>
-                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'free_size' ? (
+                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'free' ? (
                             <div className="space-y-1 col-span-2 sm:col-span-1">
                               <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Size</Label>
                               <div className="h-9 flex items-center text-sm text-muted-foreground">
                                 Free Size{selectedProduct.sizeConfig.freeSizeType ? ` (${selectedProduct.sizeConfig.freeSizeType})` : ''}
+                              </div>
+                            </div>
+                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'measurement' ? (
+                            <div className="space-y-1 col-span-2 sm:col-span-1">
+                              <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Measurements</Label>
+                              <div className="text-xs text-muted-foreground space-y-0.5 max-h-20 overflow-y-auto">
+                                {selectedProduct.sizeConfig.measurements.map(m => (
+                                  <div key={m.id}>{m.label}: {m.value} {m.unit}</div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'multi_part' ? (
+                            <div className="space-y-1 col-span-2">
+                              <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Multi-Part Sizes</Label>
+                              <div className="text-xs text-muted-foreground grid grid-cols-2 gap-2 max-h-24 overflow-y-auto">
+                                {selectedProduct.sizeConfig.parts.map(part => (
+                                  <div key={part.id}>
+                                    <span className="font-medium">{part.partName}:</span>{' '}
+                                    {part.measurements.map(m => `${m.label}: ${m.value}${m.unit}`).join(', ')}
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           ) : null}
@@ -937,6 +1170,66 @@ export function ManualBookingForm() {
                           </div>
                         </div>
 
+                        {/* Service toggles: Try-on + Backup Size */}
+                        {(selectedProduct.services?.tryOnEnabled || selectedProduct.services?.backupSizeEnabled) && (
+                          <div className="grid grid-cols-2 gap-3">
+                            {selectedProduct.services?.tryOnEnabled && (
+                              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                <div>
+                                  <div className="text-xs font-medium">Try-on Service</div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {formatCurrency(selectedProduct.services.tryOnFee ?? 0)}
+                                    {selectedProduct.services.tryOnCreditToRental && ' (credited to rental)'}
+                                  </div>
+                                </div>
+                                <Switch checked={tryOn} onCheckedChange={setTryOn} />
+                              </div>
+                            )}
+                            {selectedProduct.services?.backupSizeEnabled && selectedProduct.sizeConfig?.availableSizes && selectedProduct.sizeConfig.availableSizes.length > 1 && (
+                              <div className="space-y-1">
+                                <Label className="text-xs">Backup Size ({formatCurrency(selectedProduct.services.backupSizeFee ?? 0)})</Label>
+                                <Select value={backupSize} onValueChange={setBackupSize}>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="None" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="">None</SelectItem>
+                                    {selectedProduct.sizeConfig.availableSizes
+                                      .filter(s => s !== selectedSize)
+                                      .map(s => (
+                                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Per-item price override */}
+                        <div className="space-y-1">
+                          <Label className="text-xs flex items-center gap-1.5 text-muted-foreground">
+                            <Tag className="h-3 w-3" /> Custom Price (optional)
+                          </Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              placeholder={`Standard: ${formatCurrency(selectedProduct.rentalPrice)}`}
+                              value={itemPriceOverride}
+                              onChange={e => setItemPriceOverride(e.target.value)}
+                              className="max-w-[200px]"
+                            />
+                            {selectedProduct.minInternalPrice > 0 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                Min: {formatCurrency(selectedProduct.minInternalPrice)}
+                              </span>
+                            )}
+                            {itemPriceOverride && parseInt(itemPriceOverride) < selectedProduct.minInternalPrice && selectedProduct.minInternalPrice > 0 && (
+                              <Badge variant="outline" className="text-[9px] border-yellow-500 text-yellow-600">Below min</Badge>
+                            )}
+                          </div>
+                        </div>
+
                         {/* Availability feedback */}
                         {isCheckingAvailability && (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 rounded bg-muted/50">
@@ -958,9 +1251,9 @@ export function ManualBookingForm() {
                                   <div className="font-medium">Available — {availabilityResult.rentalDays} days</div>
                                   {availabilityResult.pricing && (
                                     <div className="text-xs mt-1 opacity-80">
-                                      Rental: ৳{availabilityResult.pricing.baseRental.toLocaleString()}
+                                      Rental: {formatCurrency(availabilityResult.pricing.baseRental)}
                                       {availabilityResult.pricing.deposit > 0 && (
-                                        <> · Deposit: ৳{availabilityResult.pricing.deposit.toLocaleString()}</>
+                                        <> · Deposit: {formatCurrency(availabilityResult.pricing.deposit)}</>
                                       )}
                                     </div>
                                   )}
@@ -990,7 +1283,7 @@ export function ManualBookingForm() {
                     </Button>
                   </div>
 
-                  {/* Navigation — Fix #8 */}
+                  {/* Navigation */}
                   <div className="flex justify-between pt-2">
                     <Button type="button" variant="outline" onClick={() => setStep(1)}>
                       Back
@@ -1012,7 +1305,7 @@ export function ManualBookingForm() {
             </Card>
           )}
 
-          {/* ── Step 3: Payment ── */}
+          {/* ── Step 3: Payment, Notes, Discount ── */}
           {step >= 3 && (
             <Card className="shadow-none border">
               <CardHeader className="pb-3 bg-muted/30">
@@ -1020,10 +1313,11 @@ export function ManualBookingForm() {
                   <span className="h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center bg-primary text-primary-foreground">
                     3
                   </span>
-                  Payment Details
+                  Payment & Options
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-4 space-y-4">
+              <CardContent className="pt-4 space-y-5">
+                {/* Payment method */}
                 <FormField control={form.control} name="paymentMethod" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Payment Method *</FormLabel>
@@ -1063,21 +1357,193 @@ export function ManualBookingForm() {
                   )} />
                 )}
 
-                <FormField control={form.control} name="customerNotes" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Internal Notes</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Any special instructions or notes for this order..."
-                        rows={3}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                <Separator />
+
+                {/* ── Discount Section ── */}
+                <div className="rounded-md border p-3 space-y-3">
+                  <FormField control={form.control} name="discountEnabled" render={({ field }) => (
+                    <FormItem className="flex items-center justify-between gap-2">
+                      <div>
+                        <FormLabel className="text-sm font-medium flex items-center gap-2">
+                          <Tag className="h-4 w-4" />
+                          Apply Discount
+                        </FormLabel>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )} />
+
+                  {watchDiscountEnabled && (
+                    <div className="space-y-3 pt-1">
+                      <div className="flex items-center gap-3">
+                        <FormField control={form.control} name="discountType" render={({ field }) => (
+                          <FormItem className="flex-shrink-0">
+                            <Select value={field.value} onValueChange={field.onChange}>
+                              <FormControl>
+                                <SelectTrigger className="w-[130px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="flat">
+                                  <span className="flex items-center gap-1.5"><DollarSign className="h-3 w-3" /> Flat Amount</span>
+                                </SelectItem>
+                                <SelectItem value="percentage">
+                                  <span className="flex items-center gap-1.5"><Percent className="h-3 w-3" /> Percentage</span>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="discountValue" render={({ field }) => (
+                          <FormItem className="flex-1">
+                            <FormControl>
+                              <Input
+                                type="number"
+                                placeholder={watchDiscountType === 'flat' ? 'Amount in ৳' : 'Percentage (e.g. 10)'}
+                                value={field.value || ''}
+                                onChange={e => field.onChange(e.target.value ? Number(e.target.value) : 0)}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )} />
+                      </div>
+                      {discountAmount > 0 && (
+                        <div className="text-xs text-green-600 font-medium flex items-center gap-1">
+                          <CheckCircle className="h-3 w-3" />
+                          Discount: -{formatCurrency(discountAmount)}
+                        </div>
+                      )}
+                      <FormField control={form.control} name="discountReason" render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input placeholder="Reason (e.g. Repeat customer, Festival offer)" {...field} />
+                          </FormControl>
+                        </FormItem>
+                      )} />
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Initial Payment Section ── */}
+                <div className="rounded-md border p-3 space-y-3">
+                  <FormField control={form.control} name="initialPaymentEnabled" render={({ field }) => (
+                    <FormItem className="flex items-center justify-between gap-2">
+                      <div>
+                        <FormLabel className="text-sm font-medium flex items-center gap-2">
+                          <CreditCard className="h-4 w-4" />
+                          Record Upfront Payment
+                        </FormLabel>
+                        <p className="text-xs text-muted-foreground mt-0.5">Record a payment collected at booking time.</p>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )} />
+
+                  {watchInitialPaymentEnabled && (
+                    <div className="grid grid-cols-3 gap-3 pt-1">
+                      <FormField control={form.control} name="initialPaymentAmount" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Amount *</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="Amount"
+                              value={field.value || ''}
+                              onChange={e => field.onChange(e.target.value ? Number(e.target.value) : 0)}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="initialPaymentMethod" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Method</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="cod">Cash</SelectItem>
+                              <SelectItem value="bkash">bKash</SelectItem>
+                              <SelectItem value="nagad">Nagad</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="initialPaymentTxId" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Transaction ID</FormLabel>
+                          <FormControl><Input placeholder="TrxID..." {...field} /></FormControl>
+                        </FormItem>
+                      )} />
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* ── Notes ── */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField control={form.control} name="internalNotes" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center gap-1.5">
+                        Internal Notes
+                        <Badge variant="secondary" className="text-[9px]">Staff only</Badge>
+                      </FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Notes for your team (not visible to customer)..."
+                          rows={3}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="customerNotes" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Customer Notes</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Notes from or for the customer..."
+                          rows={3}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+
+                <Separator />
+
+                {/* ── Auto-confirm Toggle ── */}
+                <FormField control={form.control} name="autoConfirm" render={({ field }) => (
+                  <div className="rounded-md border p-3">
+                    <FormItem className="flex items-center justify-between gap-2">
+                      <div>
+                        <FormLabel className="text-sm font-medium flex items-center gap-2">
+                          <Zap className="h-4 w-4 text-yellow-500" />
+                          Create & Confirm Immediately
+                        </FormLabel>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Skip the pending state — booking will be confirmed on creation.
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  </div>
                 )} />
 
-                {/* Fix #8 — Back button */}
+                {/* Back button */}
                 <div className="flex justify-start pt-2">
                   <Button type="button" variant="outline" onClick={() => setStep(2)}>
                     Back
@@ -1108,14 +1574,20 @@ export function ManualBookingForm() {
                       return (
                         <div key={idx} className="flex justify-between text-sm gap-2">
                           <div className="text-muted-foreground truncate flex-1">
-                            <div className="truncate">{item.productName}</div>
+                            <div className="truncate flex items-center gap-1">
+                              {item.productName}
+                              {item.priceOverride !== undefined && (
+                                <Tag className="h-2.5 w-2.5 text-yellow-500" />
+                              )}
+                            </div>
                             <div className="text-[11px] flex items-center gap-1">
                               {validatedItem && <span>{validatedItem.rentalDays} days</span>}
                               {item.selectedSize && <span>· {item.selectedSize}</span>}
+                              {item.tryOn && <span>· Try-on</span>}
                             </div>
                           </div>
                           <span className="font-medium shrink-0">
-                            ৳{(validatedItem?.itemTotal ?? item.price).toLocaleString()}
+                            {formatCurrency(item.priceOverride ?? validatedItem?.itemTotal ?? item.price)}
                           </span>
                         </div>
                       );
@@ -1126,38 +1598,72 @@ export function ManualBookingForm() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Subtotal</span>
-                      <span>৳{summary.subtotal.toLocaleString()}</span>
+                      <span>{formatCurrency(rawSubtotal)}</span>
                     </div>
-                    {summary.totalFees > 0 && (
+                    {rawTotalFees > 0 && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Fees</span>
-                        <span>৳{summary.totalFees.toLocaleString()}</span>
+                        <span>{formatCurrency(rawTotalFees)}</span>
                       </div>
                     )}
-                    {summary.shippingFee > 0 && (
+                    {rawShippingFee > 0 && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Shipping</span>
-                        <span>৳{summary.shippingFee.toLocaleString()}</span>
+                        <span>{formatCurrency(rawShippingFee)}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Deposit held</span>
-                      <span>৳{summary.totalDeposit.toLocaleString()}</span>
+                      <span>{formatCurrency(rawTotalDeposit)}</span>
                     </div>
+                    {discountAmount > 0 && (
+                      <div className="flex justify-between text-green-600">
+                        <span className="flex items-center gap-1">
+                          <Tag className="h-3 w-3" />
+                          Discount
+                        </span>
+                        <span>-{formatCurrency(discountAmount)}</span>
+                      </div>
+                    )}
                   </div>
 
                   <Separator />
                   <div className="flex justify-between font-semibold text-base">
                     <span>Grand Total</span>
-                    <span className="text-primary">৳{summary.grandTotal.toLocaleString()}</span>
+                    <span className="text-primary">{formatCurrency(grandTotal)}</span>
                   </div>
 
-                  {validatedCart && (
-                    <div className="flex items-center gap-1.5 text-xs text-green-600">
-                      <CheckCircle className="h-3 w-3" />
-                      Pricing verified by server
-                    </div>
+                  {watchInitialPaymentEnabled && watchInitialPaymentAmount > 0 && (
+                    <>
+                      <div className="flex justify-between text-sm text-blue-600">
+                        <span className="flex items-center gap-1">
+                          <CreditCard className="h-3 w-3" />
+                          Upfront Payment
+                        </span>
+                        <span>-{formatCurrency(Math.min(watchInitialPaymentAmount, grandTotal))}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-medium">
+                        <span>Balance Due</span>
+                        <span>{formatCurrency(Math.max(balanceDue, 0))}</span>
+                      </div>
+                    </>
                   )}
+
+                  {/* Status badges */}
+                  <div className="space-y-1.5">
+                    {validatedCart && (
+                      <div className="flex items-center gap-1.5 text-xs text-green-600">
+                        <CheckCircle className="h-3 w-3" />
+                        Pricing verified by server
+                      </div>
+                    )}
+                    {watchAutoConfirm && (
+                      <div className="flex items-center gap-1.5 text-xs text-yellow-600">
+                        <Zap className="h-3 w-3" />
+                        Will be confirmed immediately
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -1170,6 +1676,8 @@ export function ManualBookingForm() {
                 >
                   {mutation.isPending ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</>
+                  ) : watchAutoConfirm ? (
+                    <><Zap className="mr-2 h-4 w-4" /> Create & Confirm</>
                   ) : (
                     'Create Booking'
                   )}
@@ -1180,7 +1688,7 @@ export function ManualBookingForm() {
         </div>
       </form>
 
-      {/* Fix #12 — Confirmation dialog */}
+      {/* Confirmation dialog */}
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1197,19 +1705,43 @@ export function ManualBookingForm() {
                     <span className="text-muted-foreground">Phone</span>
                     <span>{form.getValues('phone')}</span>
                   </div>
+                  {watchDeliveryDiffers && form.getValues('deliveryName') && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Deliver to</span>
+                      <span className="font-medium">{form.getValues('deliveryName')}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Items</span>
                     <span>{cartItems.length} product{cartItems.length !== 1 ? 's' : ''}</span>
                   </div>
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Discount</span>
+                      <span>-{formatCurrency(discountAmount)}</span>
+                    </div>
+                  )}
                   <Separator />
                   <div className="flex justify-between font-semibold">
                     <span>Grand Total</span>
-                    <span className="text-primary">৳{summary.grandTotal.toLocaleString()}</span>
+                    <span className="text-primary">{formatCurrency(grandTotal)}</span>
                   </div>
+                  {watchInitialPaymentEnabled && watchInitialPaymentAmount > 0 && (
+                    <div className="flex justify-between text-xs text-blue-600">
+                      <span>Upfront Payment</span>
+                      <span>{formatCurrency(Math.min(watchInitialPaymentAmount, grandTotal))}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Payment</span>
                     <span className="uppercase">{form.getValues('paymentMethod')}</span>
                   </div>
+                  {watchAutoConfirm && (
+                    <div className="flex items-center gap-1.5 text-xs text-yellow-600 pt-1">
+                      <Zap className="h-3 w-3" />
+                      Will be confirmed immediately
+                    </div>
+                  )}
                 </div>
               </div>
             </AlertDialogDescription>
@@ -1217,7 +1749,7 @@ export function ManualBookingForm() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmSubmit}>
-              Confirm & Create
+              {watchAutoConfirm ? 'Confirm & Create' : 'Create Booking'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
