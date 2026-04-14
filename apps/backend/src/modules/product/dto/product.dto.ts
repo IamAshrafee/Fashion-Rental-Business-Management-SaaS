@@ -258,3 +258,9 @@ export class CreateDateBlockDto {
   @IsDateString() endDate!: string;
   @IsOptional() @IsString() reason?: string;
 }
+
+// --- Storefront Showcase DTO (landing page APIs) ---
+export class StorefrontShowcaseQueryDto {
+  @IsOptional() @IsInt() @Min(1) @Type(() => Number) limit?: number; // default 12
+  @IsOptional() @IsString() slug?: string; // category/subcategory/event slug (auto-detect if missing)
+}

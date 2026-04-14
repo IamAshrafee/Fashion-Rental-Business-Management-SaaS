@@ -126,6 +126,16 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
-    this.logger.log('Registered 8 CRON jobs: 4 scheduler, 2 fulfillment, 2 cleanup');
+    // Every 2 hours: recalculate product popularity scores from storefront events
+    await schedulerQueue.add(
+      'product.recalculatePopularity',
+      {},
+      {
+        repeat: { pattern: '0 */2 * * *' }, // Every 2 hours
+        jobId: 'cron:product.recalculatePopularity',
+      },
+    );
+
+    this.logger.log('Registered 9 CRON jobs: 5 scheduler, 2 fulfillment, 2 cleanup');
   }
 }

@@ -19,6 +19,7 @@ import {
   UpdateProductDto,
   UpdateProductStatusDto,
   ProductQueryDto,
+  StorefrontShowcaseQueryDto,
   CreateVariantDto,
   UpdateVariantDto,
   ReorderDto,
@@ -77,6 +78,56 @@ export class ProductGuestController {
   async getFilters(@CurrentTenant() tenant: TenantContext) {
     return this.searchService.getFilterCounts(tenant.id);
   }
+
+  // --- Storefront Showcase APIs (landing page) ---
+  // IMPORTANT: These static routes MUST be above ':slug' to avoid route collision.
+
+  @Public()
+  @Get('latest')
+  async getLatestArrivals(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: StorefrontShowcaseQueryDto,
+  ) {
+    return this.productService.getLatestArrivals(tenant.id, query.limit);
+  }
+
+  @Public()
+  @Get('popular')
+  async getPopularProducts(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: StorefrontShowcaseQueryDto,
+  ) {
+    return this.productService.getPopularProducts(tenant.id, query.limit);
+  }
+
+  @Public()
+  @Get('popular/category')
+  async getPopularByCategory(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: StorefrontShowcaseQueryDto,
+  ) {
+    return this.productService.getPopularByCategory(tenant.id, query.slug, query.limit);
+  }
+
+  @Public()
+  @Get('popular/subcategory')
+  async getPopularBySubcategory(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: StorefrontShowcaseQueryDto,
+  ) {
+    return this.productService.getPopularBySubcategory(tenant.id, query.slug, query.limit);
+  }
+
+  @Public()
+  @Get('popular/event')
+  async getPopularByEvent(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: StorefrontShowcaseQueryDto,
+  ) {
+    return this.productService.getPopularByEvent(tenant.id, query.slug, query.limit);
+  }
+
+  // --- Master product listing ---
 
   @Public()
   @Get()

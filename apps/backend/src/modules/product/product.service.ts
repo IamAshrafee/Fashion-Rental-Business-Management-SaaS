@@ -480,41 +480,7 @@ export class ProductService {
         skip,
         take: limit,
         orderBy,
-        include: {
-          category: { select: { id: true, name: true, slug: true } },
-          subcategory: { select: { id: true, name: true, slug: true } },
-          events: {
-            include: { event: { select: { id: true, name: true } } },
-          },
-          pricing: {
-            select: {
-              mode: true,
-              rentalPrice: true,
-              includedDays: true,
-              pricePerDay: true,
-              calculatedPrice: true,
-              priceOverride: true,
-              shippingMode: true,
-              shippingFee: true,
-            },
-          },
-          services: {
-            select: { depositAmount: true },
-          },
-          variants: {
-            orderBy: { sequence: 'asc' },
-            take: 1,
-            include: {
-              mainColor: { select: { id: true, name: true, hexCode: true } },
-              images: {
-                where: { isFeatured: true },
-                take: 1,
-                select: { url: true, thumbnailUrl: true },
-              },
-            },
-          },
-          _count: { select: { variants: true } },
-        },
+        include: this.productCardIncludes(),
       }),
       this.prisma.product.count({ where }),
     ]);
@@ -543,6 +509,270 @@ export class ProductService {
 
     if (!product) throw new NotFoundException('Product not found');
     return this.mapProductDetail(product);
+  }
+
+  // =========================================================================
+  // READ — GUEST STOREFRONT SHOWCASE (Landing Page APIs)
+  // =========================================================================
+
+  /**
+   * Latest arrivals — most recently published products.
+   * Simple indexed query on (tenant_id, status) + ORDER BY created_at DESC.
+   */
+  async getLatestArrivals(tenantId: string, limit = 12) {
+    const take = Math.min(limit, 50);
+
+    const products = await this.prisma.product.findMany({
+      where: { tenantId, status: 'published', isAvailable: true, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: this.productCardIncludes(),
+    });
+
+    return {
+      data: products.map((p) => this.mapProductCard(p)),
+      meta: { limit: take },
+    };
+  }
+
+  /**
+   * Popular products — ranked by materialized popularity_score.
+   * Fallback chain: popularityScore DESC → totalBookings DESC → createdAt DESC.
+   * Ensures results even for brand new stores with zero analytics.
+   */
+  async getPopularProducts(tenantId: string, limit = 12) {
+    const take = Math.min(limit, 50);
+
+    const products = await this.prisma.product.findMany({
+      where: { tenantId, status: 'published', isAvailable: true, deletedAt: null },
+      orderBy: [
+        { popularityScore: 'desc' },
+        { totalBookings: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      take,
+      include: this.productCardIncludes(),
+    });
+
+    return {
+      data: products.map((p) => this.mapProductCard(p)),
+      meta: { limit: take },
+    };
+  }
+
+  /**
+   * Popular products filtered by a specific category.
+   * If no slug provided, auto-detects the most popular category.
+   */
+  async getPopularByCategory(tenantId: string, slug?: string, limit = 8) {
+    const take = Math.min(limit, 50);
+
+    // Resolve category — provided slug or auto-detect most popular
+    let category: { id: string; name: string; slug: string } | null = null;
+
+    if (slug) {
+      category = await this.prisma.category.findFirst({
+        where: { tenantId, slug, isActive: true },
+        select: { id: true, name: true, slug: true },
+      });
+      if (!category) throw new NotFoundException('Category not found');
+    } else {
+      // Auto-detect: category with highest aggregate popularity_score
+      const grouped = await this.prisma.product.groupBy({
+        by: ['categoryId'],
+        where: {
+          tenantId,
+          status: 'published',
+          isAvailable: true,
+          deletedAt: null,
+        },
+        _sum: { popularityScore: true },
+        _count: { id: true },
+        orderBy: [
+          { _sum: { popularityScore: 'desc' } },
+          { _count: { id: 'desc' } },
+        ],
+        take: 1,
+      });
+      if (grouped[0]?.categoryId) {
+        category = await this.prisma.category.findUnique({
+          where: { id: grouped[0].categoryId },
+          select: { id: true, name: true, slug: true },
+        });
+      }
+    }
+
+    if (!category) {
+      return { category: null, data: [], meta: { limit: take } };
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        tenantId,
+        categoryId: category.id,
+        status: 'published',
+        isAvailable: true,
+        deletedAt: null,
+      },
+      orderBy: [
+        { popularityScore: 'desc' },
+        { totalBookings: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      take,
+      include: this.productCardIncludes(),
+    });
+
+    return {
+      category: { slug: category.slug, name: category.name },
+      data: products.map((p) => this.mapProductCard(p)),
+      meta: { limit: take },
+    };
+  }
+
+  /**
+   * Popular products filtered by a specific subcategory.
+   * If no slug provided, auto-detects the most popular subcategory.
+   */
+  async getPopularBySubcategory(tenantId: string, slug?: string, limit = 8) {
+    const take = Math.min(limit, 50);
+
+    let subcategory: { id: string; name: string; slug: string; category: { slug: string; name: string } } | null = null;
+
+    if (slug) {
+      subcategory = await this.prisma.subcategory.findFirst({
+        where: { tenantId, slug, isActive: true },
+        select: {
+          id: true, name: true, slug: true,
+          category: { select: { slug: true, name: true } },
+        },
+      });
+      if (!subcategory) throw new NotFoundException('Subcategory not found');
+    } else {
+      // Auto-detect: subcategory with highest aggregate popularity_score
+      const grouped = await this.prisma.product.groupBy({
+        by: ['subcategoryId'],
+        where: {
+          tenantId,
+          status: 'published',
+          isAvailable: true,
+          deletedAt: null,
+        },
+        _sum: { popularityScore: true },
+        _count: { id: true },
+        orderBy: [
+          { _sum: { popularityScore: 'desc' } },
+          { _count: { id: 'desc' } },
+        ],
+        take: 1,
+      });
+      if (grouped[0]?.subcategoryId) {
+        const found = await this.prisma.subcategory.findUnique({
+          where: { id: grouped[0].subcategoryId },
+          select: {
+            id: true, name: true, slug: true,
+            category: { select: { slug: true, name: true } },
+          },
+        });
+        if (found) subcategory = found;
+      }
+    }
+
+    if (!subcategory) {
+      return { subcategory: null, data: [], meta: { limit: take } };
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        tenantId,
+        subcategoryId: subcategory.id,
+        status: 'published',
+        isAvailable: true,
+        deletedAt: null,
+      },
+      orderBy: [
+        { popularityScore: 'desc' },
+        { totalBookings: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      take,
+      include: this.productCardIncludes(),
+    });
+
+    return {
+      subcategory: {
+        slug: subcategory.slug,
+        name: subcategory.name,
+        category: subcategory.category,
+      },
+      data: products.map((p) => this.mapProductCard(p)),
+      meta: { limit: take },
+    };
+  }
+
+  /**
+   * Popular products filtered by a specific event.
+   * If no slug provided, auto-detects the most popular event.
+   */
+  async getPopularByEvent(tenantId: string, slug?: string, limit = 8) {
+    const take = Math.min(limit, 50);
+
+    let event: { id: string; name: string; slug: string } | null = null;
+
+    if (slug) {
+      event = await this.prisma.event.findFirst({
+        where: { tenantId, slug, isActive: true },
+        select: { id: true, name: true, slug: true },
+      });
+      if (!event) throw new NotFoundException('Event not found');
+    } else {
+      // Auto-detect: event with most popular products
+      // Find the most popular product that has events, then use its top event
+      const topProduct = await this.prisma.product.findFirst({
+        where: {
+          tenantId,
+          status: 'published',
+          isAvailable: true,
+          deletedAt: null,
+          events: { some: { event: { isActive: true } } },
+        },
+        orderBy: [{ popularityScore: 'desc' }, { totalBookings: 'desc' }],
+        select: {
+          events: {
+            take: 1,
+            select: { event: { select: { id: true, name: true, slug: true } } },
+          },
+        },
+      });
+      event = topProduct?.events[0]?.event || null;
+    }
+
+    if (!event) {
+      return { event: null, data: [], meta: { limit: take } };
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        tenantId,
+        events: { some: { eventId: event.id } },
+        status: 'published',
+        isAvailable: true,
+        deletedAt: null,
+      },
+      orderBy: [
+        { popularityScore: 'desc' },
+        { totalBookings: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      take,
+      include: this.productCardIncludes(),
+    });
+
+    return {
+      event: { slug: event.slug, name: event.name },
+      data: products.map((p) => this.mapProductCard(p)),
+      meta: { limit: take },
+    };
   }
 
   // =========================================================================
@@ -716,7 +946,7 @@ export class ProductService {
     return where;
   }
 
-  private buildOrderBy(sort?: string, order?: string): Prisma.ProductOrderByWithRelationInput {
+  private buildOrderBy(sort?: string, order?: string): Prisma.ProductOrderByWithRelationInput | Prisma.ProductOrderByWithRelationInput[] {
     const direction = order === 'asc' ? 'asc' : 'desc';
 
     switch (sort) {
@@ -725,12 +955,58 @@ export class ProductService {
       case 'price_desc':
         return { pricing: { rentalPrice: 'desc' } };
       case 'popularity':
-        return { totalBookings: 'desc' };
+        return [
+          { popularityScore: 'desc' },
+          { totalBookings: 'desc' },
+          { createdAt: 'desc' },
+        ];
       case 'newest':
         return { createdAt: 'desc' };
       default:
         return { createdAt: direction as Prisma.SortOrder };
     }
+  }
+
+  /**
+   * Lightweight includes for product card rendering (listing pages, showcases).
+   * Reused by listGuest(), getLatestArrivals(), getPopular*(), etc.
+   */
+  private productCardIncludes() {
+    return {
+      category: { select: { id: true, name: true, slug: true } },
+      subcategory: { select: { id: true, name: true, slug: true } },
+      events: {
+        include: { event: { select: { id: true, name: true } } },
+      },
+      pricing: {
+        select: {
+          mode: true,
+          rentalPrice: true,
+          includedDays: true,
+          pricePerDay: true,
+          calculatedPrice: true,
+          priceOverride: true,
+          shippingMode: true,
+          shippingFee: true,
+        },
+      },
+      services: {
+        select: { depositAmount: true },
+      },
+      variants: {
+        orderBy: { sequence: 'asc' as const },
+        take: 1,
+        include: {
+          mainColor: { select: { id: true, name: true, hexCode: true } },
+          images: {
+            where: { isFeatured: true },
+            take: 1,
+            select: { url: true, thumbnailUrl: true },
+          },
+        },
+      },
+      _count: { select: { variants: true } },
+    } as const;
   }
 
   private fullProductIncludes() {

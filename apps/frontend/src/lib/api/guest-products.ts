@@ -205,6 +205,98 @@ export async function getGuestProducts(
   return data;
 }
 
+// ─── Storefront Showcase APIs (Landing Page) ──────────────────────────────────
+
+export interface ShowcaseResponse {
+  data: GuestProductCard[];
+  meta: { limit: number };
+}
+
+export interface ShowcaseByCategoryResponse {
+  category: { slug: string; name: string } | null;
+  data: GuestProductCard[];
+  meta: { limit: number };
+}
+
+export interface ShowcaseBySubcategoryResponse {
+  subcategory: { slug: string; name: string; category: { slug: string; name: string } } | null;
+  data: GuestProductCard[];
+  meta: { limit: number };
+}
+
+export interface ShowcaseByEventResponse {
+  event: { slug: string; name: string } | null;
+  data: GuestProductCard[];
+  meta: { limit: number };
+}
+
+/**
+ * GET /api/v1/products/latest
+ * Latest arrivals — most recently published products.
+ */
+export async function getLatestArrivals(limit = 12): Promise<ShowcaseResponse> {
+  const { data } = await apiClient.get<ShowcaseResponse>('/products/latest', {
+    params: { limit },
+  });
+  return data;
+}
+
+/**
+ * GET /api/v1/products/popular
+ * Popular products — ranked by popularity score.
+ */
+export async function getPopularProducts(limit = 12): Promise<ShowcaseResponse> {
+  const { data } = await apiClient.get<ShowcaseResponse>('/products/popular', {
+    params: { limit },
+  });
+  return data;
+}
+
+/**
+ * GET /api/v1/products/popular/category
+ * Popular products in a specific or auto-detected category.
+ */
+export async function getPopularByCategory(
+  slug?: string,
+  limit = 8,
+): Promise<ShowcaseByCategoryResponse> {
+  const { data } = await apiClient.get<ShowcaseByCategoryResponse>(
+    '/products/popular/category',
+    { params: { slug, limit } },
+  );
+  return data;
+}
+
+/**
+ * GET /api/v1/products/popular/subcategory
+ * Popular products in a specific or auto-detected subcategory.
+ */
+export async function getPopularBySubcategory(
+  slug?: string,
+  limit = 8,
+): Promise<ShowcaseBySubcategoryResponse> {
+  const { data } = await apiClient.get<ShowcaseBySubcategoryResponse>(
+    '/products/popular/subcategory',
+    { params: { slug, limit } },
+  );
+  return data;
+}
+
+/**
+ * GET /api/v1/products/popular/event
+ * Popular products for a specific or auto-detected event.
+ */
+export async function getPopularByEvent(
+  slug?: string,
+  limit = 8,
+): Promise<ShowcaseByEventResponse> {
+  const { data } = await apiClient.get<ShowcaseByEventResponse>(
+    '/products/popular/event',
+    { params: { slug, limit } },
+  );
+  return data;
+}
+
 /**
  * GET /api/v1/products/:slug
  * Public product detail by slug.

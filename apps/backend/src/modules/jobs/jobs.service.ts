@@ -300,6 +300,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         await this.checkSubscriptions();
         break;
 
+      case 'product.recalculatePopularity':
+        await this.recalculatePopularityScores();
+        break;
+
       default:
         this.logger.warn(`Unknown scheduler job: ${job.name}`);
     }
@@ -700,5 +704,57 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       where: { status: 'active' },
       select: { id: true },
     });
+  }
+
+  /**
+   * Recalculate popularity scores for all products across all tenants.
+   * Uses raw SQL for maximum efficiency — single pass over storefront_events.
+   * Scoring: product_view = 1pt, add_to_cart = 3pt, within a 30-day rolling window.
+   * Time decay is built-in: events older than 30 days are excluded.
+   * Runs every 2 hours via CRON.
+   */
+  private async recalculatePopularityScores(): Promise<void> {
+    const start = Date.now();
+
+    try {
+      // Step 1: Update products that have recent events with their computed score
+      await this.prisma.$executeRaw`
+        UPDATE products p
+        SET popularity_score = scores.score,
+            updated_at = NOW()
+        FROM (
+          SELECT se.product_id,
+                 SUM(CASE
+                   WHEN se.event_type = 'add_to_cart' THEN 3
+                   ELSE 1
+                 END)::INTEGER AS score
+          FROM storefront_events se
+          WHERE se.created_at >= NOW() - INTERVAL '30 days'
+            AND se.product_id IS NOT NULL
+          GROUP BY se.product_id
+        ) scores
+        WHERE p.id = scores.product_id
+      `;
+
+      // Step 2: Zero out products with no recent events (time decay)
+      await this.prisma.$executeRaw`
+        UPDATE products
+        SET popularity_score = 0,
+            updated_at = NOW()
+        WHERE popularity_score > 0
+          AND id NOT IN (
+            SELECT DISTINCT product_id
+            FROM storefront_events
+            WHERE created_at >= NOW() - INTERVAL '30 days'
+              AND product_id IS NOT NULL
+          )
+      `;
+
+      const elapsed = Date.now() - start;
+      this.logger.log(`Popularity scores recalculated in ${elapsed}ms`);
+    } catch (error) {
+      this.logger.error(`Failed to recalculate popularity scores: ${(error as Error).message}`);
+      throw error;
+    }
   }
 }

@@ -465,6 +465,7 @@ model Product {
   targetRentals       Int?                  @map("target_rentals")
   totalBookings       Int                   @default(0) @map("total_bookings")
   totalRevenue        Int                   @default(0) @map("total_revenue")
+  popularityScore     Int                   @default(0) @map("popularity_score")
   searchVector        Unsupported("tsvector")? @map("search_vector")
   createdAt           DateTime              @default(now()) @map("created_at")
   updatedAt           DateTime              @updatedAt @map("updated_at")
@@ -490,6 +491,7 @@ model Product {
   @@unique([tenantId, slug])
   @@index([categoryId])
   @@index([tenantId, status])
+  @@index([tenantId, status, popularityScore])
   @@map("products")
 }
 
