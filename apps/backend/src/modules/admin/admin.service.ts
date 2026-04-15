@@ -3,6 +3,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MeteringService } from '../metering/metering.service';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
@@ -24,6 +25,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly meteringService: MeteringService,
   ) {}
 
   // =========================================================================
@@ -1163,5 +1165,197 @@ export class AdminService {
       data: entries,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  // =========================================================================
+  // RESOURCE MONITOR & OBSERVABILITY
+  // =========================================================================
+
+  /**
+   * Real-time overview of ALL active tenants for the admin resource dashboard.
+   * Combines live Redis metrics with the latest PostgreSQL snapshot.
+   *
+   * Alert levels:
+   *   🟢 green  — utilization < 70%
+   *   🟡 yellow — utilization 70-89%
+   *   🔴 red    — utilization ≥ 90%
+   */
+  async getResourceMonitorOverview() {
+    const tenants = await this.prisma.tenant.findMany({
+      where: { status: 'active' },
+      select: {
+        id: true,
+        businessName: true,
+        subdomain: true,
+        logoUrl: true,
+        subscription: {
+          select: {
+            plan: {
+              select: {
+                name: true,
+                slug: true,
+                maxRpm: true,
+                maxApiCallsDaily: true,
+                maxStorageMb: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const tenantIds = tenants.map((t) => t.id);
+
+    // Fetch today's snapshot for resource metrics (products, storage, etc.)
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const [liveMetricsMap, snapshots] = await Promise.all([
+      this.meteringService.getAllTenantsLiveMetrics(tenantIds),
+      (this.prisma as any).tenantUsageSnapshot.findMany({
+        where: {
+          tenantId: { in: tenantIds },
+          snapshotDate: today,
+        },
+        select: {
+          tenantId: true,
+          productCount: true,
+          bookingCount: true,
+          customerCount: true,
+          staffCount: true,
+          storageUsedMb: true,
+        },
+      }),
+    ]);
+
+    // Index snapshots by tenantId for O(1) lookup
+    const snapshotMap = new Map<string, any>();
+    for (const snap of snapshots) {
+      snapshotMap.set(snap.tenantId, snap);
+    }
+
+    const rows = tenants.map((tenant) => {
+      const live = liveMetricsMap.get(tenant.id);
+      const snap = snapshotMap.get(tenant.id);
+      const plan = tenant.subscription?.plan;
+
+      const apiCallsToday = live?.apiCallsToday ?? 0;
+      const maxApiCalls = plan?.maxApiCallsDaily ?? null;
+      const storageUsedMb = snap?.storageUsedMb ?? 0;
+      const maxStorageMb = plan?.maxStorageMb ?? null;
+      const currentRpm = live?.currentRpm ?? 0;
+      const maxRpm = plan?.maxRpm ?? 120;
+
+      // Compute utilization percentages (null = unlimited = 0%)
+      const apiUtilPct = maxApiCalls ? Math.round((apiCallsToday / maxApiCalls) * 100) : 0;
+      const storageUtilPct = maxStorageMb ? Math.round((storageUsedMb / maxStorageMb) * 100) : 0;
+      const rpmUtilPct = Math.round((currentRpm / maxRpm) * 100);
+      const overallUtil = Math.max(apiUtilPct, storageUtilPct, rpmUtilPct);
+
+      const alertLevel =
+        overallUtil >= 90 ? 'red' : overallUtil >= 70 ? 'yellow' : 'green';
+
+      return {
+        tenantId: tenant.id,
+        businessName: tenant.businessName,
+        subdomain: tenant.subdomain,
+        logoUrl: tenant.logoUrl,
+        plan: plan ? { name: plan.name, slug: plan.slug } : null,
+        live: {
+          apiCallsToday,
+          avgLatencyMs: live?.avgLatencyMs ?? 0,
+          errorsToday: live?.errorsToday ?? 0,
+          currentRpm,
+          bandwidthKbToday: live?.bandwidthKbToday ?? 0,
+        },
+        resources: {
+          productCount: snap?.productCount ?? 0,
+          bookingCount: snap?.bookingCount ?? 0,
+          customerCount: snap?.customerCount ?? 0,
+          staffCount: snap?.staffCount ?? 0,
+          storageUsedMb,
+        },
+        limits: {
+          maxApiCallsDaily: maxApiCalls,
+          maxStorageMb,
+          maxRpm,
+        },
+        utilization: {
+          apiPct: apiUtilPct,
+          storagePct: storageUtilPct,
+          rpmPct: rpmUtilPct,
+          overallPct: overallUtil,
+        },
+        alertLevel,
+      };
+    });
+
+    // Sort: red first, then yellow, then green; secondary sort by utilization desc
+    const order = { red: 0, yellow: 1, green: 2 };
+    rows.sort((a, b) => {
+      const diff = order[a.alertLevel as keyof typeof order] - order[b.alertLevel as keyof typeof order];
+      return diff !== 0 ? diff : b.utilization.overallPct - a.utilization.overallPct;
+    });
+
+    const alertCount = rows.filter((r) => r.alertLevel !== 'green').length;
+
+    return {
+      success: true,
+      data: {
+        tenants: rows,
+        summary: {
+          totalActiveTenants: tenants.length,
+          alertCount,
+          redCount: rows.filter((r) => r.alertLevel === 'red').length,
+          yellowCount: rows.filter((r) => r.alertLevel === 'yellow').length,
+        },
+      },
+    };
+  }
+
+  /**
+   * Historical resource data for a specific tenant (trend charts).
+   * Returns daily snapshots sorted most-recent first.
+   */
+  async getTenantResourceHistory(
+    tenantId: string,
+    params: { from?: string; to?: string; limit?: number },
+  ) {
+    const { from, to, limit = 30 } = params;
+
+    const where: any = { tenantId };
+    if (from || to) {
+      where.snapshotDate = {};
+      if (from) where.snapshotDate.gte = new Date(from);
+      if (to) where.snapshotDate.lte = new Date(to);
+    }
+
+    const snapshots = await (this.prisma as any).tenantUsageSnapshot.findMany({
+      where,
+      orderBy: { snapshotDate: 'desc' },
+      take: limit,
+    });
+
+    return { success: true, data: snapshots };
+  }
+
+  /**
+   * Real-time live metrics for a single tenant (from Redis).
+   */
+  async getTenantLiveMetrics(tenantId: string) {
+    const live = await this.meteringService.getLiveMetrics(tenantId);
+    return { success: true, data: live };
+  }
+
+  /**
+   * Returns tenants currently at or above 70% utilization on any limit.
+   * Quick alert list for the admin. Sorted by severity.
+   */
+  async getResourceAlerts() {
+    const overview = await this.getResourceMonitorOverview();
+    const alerts = (overview.data.tenants as any[]).filter(
+      (t) => t.alertLevel !== 'green',
+    );
+    return { success: true, data: alerts };
   }
 }

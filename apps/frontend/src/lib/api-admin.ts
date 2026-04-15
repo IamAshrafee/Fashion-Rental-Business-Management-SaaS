@@ -113,6 +113,30 @@ export const adminApi = {
     return res.data;
   },
 
+  // --- Resource Monitor ---
+  async getResourceMonitorOverview(): Promise<ApiResponse<any>> {
+    const res = await admin.get('/admin/resource-monitor');
+    return res.data;
+  },
+
+  async getResourceAlerts(): Promise<ApiResponse<any>> {
+    const res = await admin.get('/admin/resource-monitor/alerts');
+    return res.data;
+  },
+
+  async getTenantResourceHistory(
+    id: string,
+    params?: { from?: string; to?: string; limit?: number }
+  ): Promise<ApiResponse<any>> {
+    const res = await admin.get(`/admin/tenants/${id}/resource-history`, { params });
+    return res.data;
+  },
+
+  async getTenantLiveMetrics(id: string): Promise<ApiResponse<any>> {
+    const res = await admin.get(`/admin/tenants/${id}/live-metrics`);
+    return res.data;
+  },
+
   // --- Activity Log ---
   async getActivityLog(params?: {
     page?: number;

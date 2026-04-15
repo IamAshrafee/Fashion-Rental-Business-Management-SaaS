@@ -39,6 +39,12 @@ export default function AdminLayout({
             Tenants
           </Link>
           <Link
+            href="/admin/resources"
+            className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-card-foreground transition-colors"
+          >
+            Resource Monitor
+          </Link>
+          <Link
             href="/admin/plans"
             className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-card-foreground transition-colors"
           >

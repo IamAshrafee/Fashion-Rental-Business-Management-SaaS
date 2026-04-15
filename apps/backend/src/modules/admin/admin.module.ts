@@ -8,6 +8,7 @@ import { AdminService } from './admin.service';
  * Admin Module.
  * Implements SaaS platform operations: tenant management, platform stats, subscription plans.
  * EventEmitter2 is global (registered in AppModule) — no import needed here.
+ * MeteringModule is global — MeteringService is available via DI without explicit import.
  */
 @Module({
   imports: [
@@ -29,3 +30,4 @@ import { AdminService } from './admin.service';
   providers: [AdminService],
 })
 export class AdminModule {}
+

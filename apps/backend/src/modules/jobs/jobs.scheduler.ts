@@ -136,6 +136,39 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
-    this.logger.log('Registered 9 CRON jobs: 5 scheduler, 2 fulfillment, 2 cleanup');
+    // ── Metering Queue CRON Jobs ──────────────────────────────────────────────
+
+    // Every hour at :45: snapshot today's Redis API metrics → PostgreSQL
+    // Runs at :45 (not :00) to avoid colliding with hourly overdue check
+    await schedulerQueue.add(
+      'metering.snapshotDaily',
+      {},
+      {
+        repeat: { pattern: '45 * * * *' }, // Every hour at :45
+        jobId: 'cron:metering.snapshotDaily',
+      },
+    );
+
+    // Daily at 2 AM UTC: compute resource usage (row counts, storage MB)
+    await schedulerQueue.add(
+      'metering.computeResourceUsage',
+      {},
+      {
+        repeat: { pattern: '0 2 * * *' }, // Daily at 2 AM UTC
+        jobId: 'cron:metering.computeResourceUsage',
+      },
+    );
+
+    // Weekly Sunday 5 AM UTC: clean metering snapshots older than 90 days
+    await cleanupQueue.add(
+      'metering.cleanOldSnapshots',
+      {},
+      {
+        repeat: { pattern: '0 5 * * 0' }, // Weekly Sunday 5 AM UTC
+        jobId: 'cron:metering.cleanOldSnapshots',
+      },
+    );
+
+    this.logger.log('Registered 12 CRON jobs: 7 scheduler, 2 fulfillment, 3 cleanup');
   }
 }

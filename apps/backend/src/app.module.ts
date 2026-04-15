@@ -1,12 +1,17 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ThrottlerModule } from '@nestjs/throttler';
 import configuration from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
 
 // Middleware
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
+
+// Metering (Resource Governance & Observability)
+import { MeteringModule } from './modules/metering/metering.module';
+import { MeteringInterceptor } from './modules/metering/metering.interceptor';
+import { TenantRateLimitGuard } from './common/guards/tenant-rate-limit.guard';
 
 // Application modules
 import { AuthModule } from './modules/auth/auth.module';
@@ -32,19 +37,15 @@ import { JobsModule } from './modules/jobs/jobs.module';
       envFilePath: ['.env', '../../.env'],
     }),
 
-    // Rate limiting
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60000,
-        limit: 100,
-      },
-    ]),
-
     // Event system (ADR-05, ADR-27)
     EventEmitterModule.forRoot(),
 
     // Database
     PrismaModule,
+
+    // Resource Governance & Metering (replaces ThrottlerModule)
+    // Global — MeteringService available everywhere without re-importing
+    MeteringModule,
 
     // Application modules
     AuthModule,
@@ -61,6 +62,20 @@ import { JobsModule } from './modules/jobs/jobs.module';
     AnalyticsModule,
     JobsModule,
   ],
+  providers: [
+    // Global metering interceptor — captures per-tenant API metrics on every request.
+    // Runs AFTER response (tap operator) — zero latency impact.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: MeteringInterceptor,
+    },
+    // Global per-tenant rate limiter — replaces ThrottlerModule.
+    // Plan-aware: Free=60rpm, Pro=180rpm, Enterprise=600rpm.
+    {
+      provide: APP_GUARD,
+      useClass: TenantRateLimitGuard,
+    },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
@@ -69,3 +84,4 @@ export class AppModule implements NestModule {
       .forRoutes('*');
   }
 }
+

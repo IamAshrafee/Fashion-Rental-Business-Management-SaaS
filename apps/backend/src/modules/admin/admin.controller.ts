@@ -25,6 +25,11 @@ import { RecordPaymentDto } from './dto/record-payment.dto';
 import { CreateInvoiceDto, UpdateInvoiceStatusDto } from './dto/invoice.dto';
 import { ExtendSubscriptionDto } from './dto/extend-subscription.dto';
 import { CreatePromoCodeDto, UpdatePromoCodeDto } from './dto/promo-code.dto';
+import { SKIP_RATE_LIMIT_KEY } from '../../common/guards/tenant-rate-limit.guard';
+import { SetMetadata } from '@nestjs/common';
+
+/** Skip tenant rate limiting on admin routes — they have their own auth layer */
+const SkipTenantRateLimit = () => SetMetadata(SKIP_RATE_LIMIT_KEY, true);
 
 /**
  * Admin API Controller.
@@ -234,5 +239,57 @@ export class AdminController {
     @Body() dto: UpdatePromoCodeDto,
   ) {
     return this.adminService.updatePromoCode(id, dto);
+  }
+
+  // =========================================================================
+  // RESOURCE MONITOR & OBSERVABILITY
+  // =========================================================================
+
+  /**
+   * GET /api/v1/admin/resource-monitor
+   * Real-time overview of all active tenants: API usage, latency, utilization, alert levels.
+   * Combines live Redis metrics with today's PostgreSQL snapshot.
+   * Sorted: red alerts first, then yellow, then green.
+   */
+  @Get('resource-monitor')
+  @SkipTenantRateLimit()
+  async getResourceMonitorOverview() {
+    return this.adminService.getResourceMonitorOverview();
+  }
+
+  /**
+   * GET /api/v1/admin/resource-monitor/alerts
+   * Quick list of tenants at 70%+ utilization on any resource limit.
+   */
+  @Get('resource-monitor/alerts')
+  @SkipTenantRateLimit()
+  async getResourceAlerts() {
+    return this.adminService.getResourceAlerts();
+  }
+
+  /**
+   * GET /api/v1/admin/tenants/:id/resource-history
+   * Daily snapshot history for a specific tenant (for trend charts).
+   * Query params: from (YYYY-MM-DD), to (YYYY-MM-DD), limit (default 30)
+   */
+  @Get('tenants/:id/resource-history')
+  @SkipTenantRateLimit()
+  async getTenantResourceHistory(
+    @Param('id') id: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit?: number,
+  ) {
+    return this.adminService.getTenantResourceHistory(id, { from, to, limit: limit! });
+  }
+
+  /**
+   * GET /api/v1/admin/tenants/:id/live-metrics
+   * Real-time Redis metrics for a single tenant (current RPM, today's calls, etc.).
+   */
+  @Get('tenants/:id/live-metrics')
+  @SkipTenantRateLimit()
+  async getTenantLiveMetrics(@Param('id') id: string) {
+    return this.adminService.getTenantLiveMetrics(id);
   }
 }

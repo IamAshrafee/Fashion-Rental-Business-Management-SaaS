@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { SmsService } from '../notification/sms/sms.service';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
+import { MeteringService } from '../metering/metering.service';
 
 export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_SCHEDULER = 'scheduler';
@@ -48,6 +49,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly smsService: SmsService,
     @Inject(forwardRef(() => FulfillmentService))
     private readonly fulfillmentService: FulfillmentService,
+    private readonly meteringService: MeteringService,
   ) {
     const connection = getRedisConnection(this.config);
 
@@ -304,6 +306,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         await this.recalculatePopularityScores();
         break;
 
+      case 'metering.snapshotDaily':
+        await this.snapshotDailyMetrics();
+        break;
+
+      case 'metering.computeResourceUsage':
+        await this.computeResourceUsage();
+        break;
+
       default:
         this.logger.warn(`Unknown scheduler job: ${job.name}`);
     }
@@ -329,6 +339,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
       case 'trash.autoDeleteExpired':
         await this.autoDeleteExpiredTrash();
+        break;
+
+      case 'metering.cleanOldSnapshots':
+        await this.cleanOldSnapshots();
         break;
 
       default:
@@ -756,5 +770,166 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to recalculate popularity scores: ${(error as Error).message}`);
       throw error;
     }
+  }
+
+  // ==========================================================================
+  // METERING AGGREGATOR JOBS
+  // ==========================================================================
+
+  /**
+   * Snapshot today's API metrics from Redis into PostgreSQL.
+   * Idempotent: uses upsert with @@unique([tenantId, snapshotDate]).
+   * Runs hourly — builds up an accurate picture of the day as it progresses.
+   */
+  private async snapshotDailyMetrics(): Promise<void> {
+    const start = Date.now();
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0); // Normalize to midnight UTC for @db.Date
+
+    const tenants = await this.getActiveTenants();
+    const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    let upserted = 0;
+    for (const tenant of tenants) {
+      try {
+        const metrics = await this.meteringService.readDailyCounters(tenant.id, dateStr);
+
+        // Skip tenants with zero activity (don't pollute DB with empty rows)
+        if (metrics.apiRequestCount === 0) continue;
+
+        await (this.prisma as any).tenantUsageSnapshot.upsert({
+          where: {
+            tenantId_snapshotDate: {
+              tenantId: tenant.id,
+              snapshotDate: today,
+            },
+          },
+          create: {
+            tenantId: tenant.id,
+            snapshotDate: today,
+            apiRequestCount: metrics.apiRequestCount,
+            avgResponseTimeMs: metrics.avgResponseTimeMs,
+            p95ResponseTimeMs: metrics.p95ResponseTimeMs,
+            errorCount: metrics.errorCount,
+            totalBandwidthKb: metrics.totalBandwidthKb,
+            peakRpm: metrics.peakRpm,
+          },
+          update: {
+            // Overwrite with latest accumulated values (always increasing throughout the day)
+            apiRequestCount: metrics.apiRequestCount,
+            avgResponseTimeMs: metrics.avgResponseTimeMs,
+            p95ResponseTimeMs: metrics.p95ResponseTimeMs,
+            errorCount: metrics.errorCount,
+            totalBandwidthKb: metrics.totalBandwidthKb,
+            peakRpm: metrics.peakRpm,
+          },
+        });
+        upserted++;
+      } catch (err) {
+        this.logger.warn(`Failed to snapshot tenant ${tenant.id}: ${(err as Error).message}`);
+      }
+    }
+
+    this.logger.log(`Metering snapshot: ${upserted}/${tenants.length} tenants in ${Date.now() - start}ms`);
+  }
+
+  /**
+   * Compute resource usage (row counts + storage) for all active tenants.
+   * Writes to today's snapshot (upsert — safe to run multiple times).
+   * Runs daily at 2 AM UTC when DB load is lowest.
+   *
+   * Storage: summed from product_images.file_size — fast DB aggregate,
+   * avoids slow MinIO API calls. Calibrated weekly if needed.
+   */
+  private async computeResourceUsage(): Promise<void> {
+    const start = Date.now();
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const tenants = await this.getActiveTenants();
+
+    // Process tenants in parallel batches of 5 to avoid DB overload
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < tenants.length; i += BATCH_SIZE) {
+      const batch = tenants.slice(i, i + BATCH_SIZE);
+
+      await Promise.all(
+        batch.map(async (tenant) => {
+          try {
+            const [productCount, bookingCount, customerCount, staffCount, storageResult] =
+              await Promise.all([
+                this.prisma.product.count({
+                  where: { tenantId: tenant.id, deletedAt: null },
+                }),
+                this.prisma.booking.count({
+                  where: { tenantId: tenant.id, deletedAt: null },
+                }),
+                this.prisma.customer.count({
+                  where: { tenantId: tenant.id, deletedAt: null },
+                }),
+                this.prisma.tenantUser.count({
+                  where: { tenantId: tenant.id, isActive: true },
+                }),
+                // Sum file sizes from product images — approximation without MinIO API
+                this.prisma.productImage.aggregate({
+                  where: { tenantId: tenant.id },
+                  _sum: { fileSize: true },
+                }),
+              ]);
+
+            const storageMb = Math.round(
+              ((storageResult._sum.fileSize ?? 0) / (1024 * 1024)),
+            );
+
+            await (this.prisma as any).tenantUsageSnapshot.upsert({
+              where: {
+                tenantId_snapshotDate: {
+                  tenantId: tenant.id,
+                  snapshotDate: today,
+                },
+              },
+              create: {
+                tenantId: tenant.id,
+                snapshotDate: today,
+                productCount,
+                bookingCount,
+                customerCount,
+                staffCount,
+                storageUsedMb: storageMb,
+              },
+              update: {
+                productCount,
+                bookingCount,
+                customerCount,
+                staffCount,
+                storageUsedMb: storageMb,
+              },
+            });
+          } catch (err) {
+            this.logger.warn(
+              `Resource scan failed for tenant ${tenant.id}: ${(err as Error).message}`,
+            );
+          }
+        }),
+      );
+    }
+
+    this.logger.log(`Resource usage computed for ${tenants.length} tenants in ${Date.now() - start}ms`);
+  }
+
+  /**
+   * Delete snapshot rows older than 90 days.
+   * Runs weekly — keeps DB table small (~4,500 rows for 50 tenants).
+   */
+  private async cleanOldSnapshots(): Promise<void> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    cutoff.setUTCHours(0, 0, 0, 0);
+
+    const result = await (this.prisma as any).tenantUsageSnapshot.deleteMany({
+      where: { snapshotDate: { lt: cutoff } },
+    });
+
+    this.logger.log(`Cleaned ${result.count} old metering snapshots (older than 90 days)`);
   }
 }

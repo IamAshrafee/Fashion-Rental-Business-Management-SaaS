@@ -1,5 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
+
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsQueryDto, RevenueChartQueryDto, TopProductsQueryDto } from './dto/analytics.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -16,14 +16,12 @@ import { Request } from 'express';
 import { StorefrontEventDto } from './dto/storefront-event.dto';
 
 @Controller('analytics')
-@UseGuards(ThrottlerGuard)
 export class AnalyticsGuestController {
   constructor(@InjectQueue('analytics-events') private readonly eventsQueue: Queue) {}
 
   @Public()
   @Post('events')
   @HttpCode(HttpStatus.ACCEPTED)
-  @Throttle({ default: { limit: 10, ttl: 10000 } }) // Max 10 events per 10 seconds per IP
   async trackEvent(
     @CurrentTenant() tenant: TenantContext,
     @Body() payload: StorefrontEventDto,

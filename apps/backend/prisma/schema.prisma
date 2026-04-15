@@ -225,12 +225,16 @@ model SubscriptionPlan {
   maxStaff       Int      @default(0) @map("max_staff")
   customDomain   Boolean  @default(false) @map("custom_domain")
   smsEnabled     Boolean  @default(false) @map("sms_enabled")
-  analyticsFull  Boolean  @default(false) @map("analytics_full")
-  removeBranding Boolean  @default(false) @map("remove_branding")
-  isActive       Boolean  @default(true) @map("is_active")
-  displayOrder   Int      @default(0) @map("display_order")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  analyticsFull     Boolean  @default(false) @map("analytics_full")
+  removeBranding    Boolean  @default(false) @map("remove_branding")
+  isActive          Boolean  @default(true) @map("is_active")
+  displayOrder      Int      @default(0) @map("display_order")
+  // Resource Governance Limits (null = unlimited)
+  maxApiCallsDaily  Int?     @map("max_api_calls_daily")   // Daily API request quota per tenant
+  maxStorageMb      Int?     @map("max_storage_mb")        // MaxStorage in MB for product images
+  maxRpm            Int      @default(120) @map("max_rpm") // Max requests per minute (noisy neighbor)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   tenants       Tenant[]
   subscriptions Subscription[]
@@ -291,11 +295,53 @@ model Tenant {
   invoices             Invoice[]
   subscriptionHistory  SubscriptionHistory[]
   storefrontEvents     StorefrontEvent[]
+  usageSnapshots       TenantUsageSnapshot[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
   @@map("tenants")
 }
+
+// ============================================================================
+// TENANT RESOURCE METERING (Governance & Observability)
+// ============================================================================
+
+// Hourly snapshots of per-tenant resource consumption.
+// Written by the BullMQ aggregator job (metering.snapshotDaily).
+// Provides historical trend data for the admin resource dashboard.
+// One row per tenant per day (upserted hourly via @@unique constraint).
+// 90 days of history retained (~50 tenants x 90 rows = 4,500 rows -- trivial).
+model TenantUsageSnapshot {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  snapshotDate    DateTime @map("snapshot_date") @db.Date // The day this snapshot covers
+
+  // API Metrics -- aggregated from Redis counters
+  apiRequestCount     Int @default(0) @map("api_request_count")
+  avgResponseTimeMs   Int @default(0) @map("avg_response_time_ms")
+  p95ResponseTimeMs   Int @default(0) @map("p95_response_time_ms") // Peak latency sample
+  errorCount          Int @default(0) @map("error_count")           // 4xx + 5xx count
+  totalBandwidthKb    Int @default(0) @map("total_bandwidth_kb")    // Response body sizes in KB
+  peakRpm             Int @default(0) @map("peak_rpm")              // Highest RPM observed
+
+  // Resource Metrics -- computed by daily resource scan job
+  productCount    Int @default(0) @map("product_count")
+  bookingCount    Int @default(0) @map("booking_count")
+  customerCount   Int @default(0) @map("customer_count")
+  staffCount      Int @default(0) @map("staff_count")
+  storageUsedMb   Int @default(0) @map("storage_used_mb") // Sum of product image file sizes
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, snapshotDate])
+  @@index([snapshotDate])                       // Fast range scans for dashboard time ranges
+  @@index([tenantId, snapshotDate(sort: Desc)]) // Fast per-tenant history fetch
+  @@map("tenant_usage_snapshots")
+}
+
 
 model StoreSettings {
   id                    String   @id @default(uuid())
