@@ -82,8 +82,8 @@ export function VariantsMediaStep() {
               )}
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  {mainColor?.hex && (
-                    <div className="h-4 w-4 rounded-full border" style={{ backgroundColor: mainColor.hex }} />
+                  {mainColor?.hexCode && (
+                    <div className="h-4 w-4 rounded-full border" style={{ backgroundColor: mainColor.hexCode }} />
                   )}
                   {variantName || mainColor?.name || `Variant ${index + 1}`}
                   {index === 0 && <span className="text-muted-foreground font-normal text-sm">(Default)</span>}
@@ -119,7 +119,7 @@ export function VariantsMediaStep() {
                               setValue(`variants.${index}.identicalColorIds`, [...identicalColorIds, val]);
                             }
                           }}
-                          value={field.value}
+                          value={field.value || undefined}
                         >
                           <FormControl>
                             <SelectTrigger disabled={isLoadingColors} className="h-11">
@@ -130,7 +130,7 @@ export function VariantsMediaStep() {
                             {COLORS.map((c: any) => (
                               <SelectItem key={c.id} value={c.id}>
                                 <div className="flex items-center gap-2">
-                                  <div className="h-3 w-3 rounded-full border border-border" style={{ backgroundColor: c.hex || '#E5E7EB' }} />
+                                  <div className="h-3 w-3 rounded-full border border-border" style={{ backgroundColor: c.hexCode || '#E5E7EB' }} />
                                   {c.name}
                                 </div>
                               </SelectItem>
@@ -149,11 +149,13 @@ export function VariantsMediaStep() {
                       <FormItem>
                         <FormLabel>Identical Colors * <FieldTip tip="All visible colors for search matching." /></FormLabel>
                         <Select
+                          key={`identical-${index}-${field.value.length}`}
                           onValueChange={(val) => {
                             if (!field.value.includes(val)) {
                               field.onChange([...field.value, val]);
                             }
                           }}
+                          value={undefined}
                         >
                           <FormControl>
                             <SelectTrigger disabled={isLoadingColors} className="h-11">
@@ -161,9 +163,17 @@ export function VariantsMediaStep() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className="max-h-[300px]">
-                            {COLORS.map((c: any) => (
-                              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            {COLORS.filter((c: any) => !field.value.includes(c.id)).map((c: any) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                <div className="flex items-center gap-2">
+                                  <div className="h-3 w-3 rounded-full border border-border" style={{ backgroundColor: c.hexCode || '#E5E7EB' }} />
+                                  {c.name}
+                                </div>
+                              </SelectItem>
                             ))}
+                            {COLORS.filter((c: any) => !field.value.includes(c.id)).length === 0 && (
+                              <div className="p-2 text-sm text-muted-foreground text-center">All colors added</div>
+                            )}
                           </SelectContent>
                         </Select>
                         <div className="flex flex-wrap gap-2 mt-2">
@@ -172,7 +182,7 @@ export function VariantsMediaStep() {
                             if (!colorObj) return null;
                             return (
                               <span key={colorId} className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-secondary-foreground min-h-[28px]">
-                                <div className="h-2 w-2 rounded-full border border-border" style={{ backgroundColor: colorObj.hex || '#E5E7EB' }} />
+                                <div className="h-2 w-2 rounded-full border border-border" style={{ backgroundColor: colorObj.hexCode || '#E5E7EB' }} />
                                 {colorObj.name}
                                 {colorId !== mainColorId && (
                                   <button

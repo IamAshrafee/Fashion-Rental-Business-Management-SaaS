@@ -28,7 +28,7 @@ export interface OwnerEvent {
 export interface Color {
   id: string;
   name: string;
-  hex: string | null;
+  hexCode: string | null;
 }
 
 export interface OwnerSubcategory {
