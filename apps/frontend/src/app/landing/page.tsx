@@ -22,6 +22,8 @@ export const metadata: Metadata = {
     'The all-in-one SaaS platform to launch, manage, and scale your fashion rental business. Product catalogs, booking management, customer tracking, courier integration, and more.',
 };
 
+import { LandingNavbarActions } from './landing-navbar-actions';
+
 // ─────────────────────────────────────────────────────────────────────
 // Data
 // ─────────────────────────────────────────────────────────────────────
@@ -203,20 +205,7 @@ export default function LandingPage() {
             </a>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="text-sm font-medium text-gray-600 transition-colors hover:text-gray-900"
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/register"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 hover:shadow-md"
-            >
-              Get Started <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
+            <LandingNavbarActions />
         </div>
       </nav>
 
