@@ -9,7 +9,7 @@ import {
   Eye, EyeOff, MoreVertical, Tag, Calendar, MapPin, Ruler,
   HelpCircle, Info, ChevronDown, ChevronRight, Star,
   DollarSign, Clock, Shield, Sparkles, Package, TrendingUp,
-  Check, X, ImageIcon,
+  Check, X, ImageIcon, Settings, Grid3X3
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +33,6 @@ import type {
   ProductVariantData,
   ProductPricingData,
   ProductServicesData,
-  ProductSizeData,
 } from '@/lib/api/products';
 import { useSoftDeleteProduct, useUpdateProductStatus } from '../hooks/use-product-apis';
 import { useLocale } from '@/hooks/use-locale';
@@ -392,109 +391,6 @@ function PricingTab({ pricing, services }: { pricing: ProductPricingData | null;
   );
 }
 
-// ─── Tab: Sizes ───────────────────────────────────────────────────────────────
-
-function SizesTab({ size }: { size: ProductSizeData | null }) {
-  if (!size) return <p className="text-sm text-muted-foreground py-6 text-center">No size info configured.</p>;
-
-  return (
-    <motion.div className="space-y-4" variants={stagger} initial="hidden" animate="visible">
-      <motion.div variants={fadeUp} custom={0}>
-        <Row label="Size Mode" value={<Badge variant="outline" className="capitalize text-[10px] font-medium">{size.mode.replace('_', ' ')}</Badge>} />
-      </motion.div>
-
-      {size.mainDisplaySize && (
-        <motion.div variants={fadeUp} custom={1}>
-          <Row label="Display Size" value={<span className="font-semibold">{size.mainDisplaySize}</span>} />
-        </motion.div>
-      )}
-
-      {size.mode === 'standard' && size.availableSizes.length > 0 && (
-        <motion.div variants={fadeUp} custom={2}>
-          <SectionLabel icon={Ruler}>Available Sizes</SectionLabel>
-          <div className="flex gap-1.5 flex-wrap">
-            {size.availableSizes.map((s, i) => (
-              <motion.span
-                key={s}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.03, duration: 0.2 }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                  s === size.mainDisplaySize
-                    ? 'bg-primary/10 border-primary/30 text-primary'
-                    : 'bg-muted/50 border-border/50 text-muted-foreground'
-                }`}
-              >
-                {s}
-              </motion.span>
-            ))}
-          </div>
-        </motion.div>
-      )}
-
-      {size.mode === 'free' && size.freeSizeType && (
-        <motion.div variants={fadeUp} custom={2}>
-          <Row label="Type" value={<span className="capitalize">{size.freeSizeType.replace('_', ' ')}</span>} />
-        </motion.div>
-      )}
-
-      {size.mode === 'measurement' && size.measurements.length > 0 && (
-        <motion.div variants={fadeUp} custom={2} className="overflow-hidden rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/30">
-                <th className="text-left py-2 px-3 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">Measurement</th>
-                <th className="text-right py-2 px-3 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {size.measurements.map((m) => (
-                <tr key={m.id} className="border-t">
-                  <td className="py-2 px-3 text-sm">{m.label}</td>
-                  <td className="py-2 px-3 text-right font-medium text-sm">{m.value} {m.unit}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </motion.div>
-      )}
-
-      {size.mode === 'multi_part' && size.parts.length > 0 && (
-        <motion.div variants={fadeUp} custom={2} className="space-y-4">
-          {size.parts.map((part) => (
-            <div key={part.id} className="rounded-lg border p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-                {part.partName}
-              </div>
-              {part.measurements.length > 0 ? (
-                <div className="space-y-0.5">
-                  {part.measurements.map((m) => (
-                    <Row key={m.id} label={m.label} value={`${m.value} ${m.unit}`} />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No measurements</p>
-              )}
-            </div>
-          ))}
-        </motion.div>
-      )}
-
-      {size.sizeChartUrl && (
-        <motion.div variants={fadeUp} custom={3}>
-          <a
-            href={size.sizeChartUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline underline-offset-2 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" /> View Size Chart
-          </a>
-        </motion.div>
-      )}
-    </motion.div>
-  );
-}
 
 // ─── Tab: Variants ────────────────────────────────────────────────────────────
 
@@ -517,8 +413,15 @@ function VariantsTab({ variants }: { variants: ProductVariantData[] }) {
             transition={{ type: 'spring', stiffness: 400 }}
           />
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-sm truncate">{v.variantName || v.mainColor.name}</div>
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+            <div className="font-medium text-sm flex items-center gap-2 truncate">
+              {v.variantName || v.mainColor.name}
+              {v.sizeInstance && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 uppercase tracking-wider font-semibold">
+                  {v.sizeInstance.displayLabel}
+                </Badge>
+              )}
+            </div>
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
               <span>{v.images.length} image{v.images.length !== 1 ? 's' : ''}</span>
               {v.identicalColors.length > 0 && (
                 <>
@@ -548,6 +451,98 @@ function VariantsTab({ variants }: { variants: ProductVariantData[] }) {
           )}
         </motion.div>
       ))}
+    </motion.div>
+  );
+}
+
+// ─── Tab: Sizes ───────────────────────────────────────────────────────────────
+
+function SizesTab({ sizing, productType }: { sizing: ProductDetail['sizing'], productType: ProductDetail['productType'] }) {
+  if (!sizing) return <p className="text-sm text-muted-foreground py-6 text-center">No size schema configured.</p>;
+
+  return (
+    <motion.div className="space-y-6" variants={stagger} initial="hidden" animate="visible">
+      {/* Schema Header */}
+      <motion.div variants={fadeUp} custom={0}>
+        <SectionLabel icon={Settings}>Configuration</SectionLabel>
+        <div className="space-y-1">
+          <Row label="Product Type" value={productType?.name || 'Unassigned'} />
+          <Row label="Active Schema" value={
+            <span className="flex items-center gap-2">
+              {sizing.schema.name}
+              <Badge variant="outline" className="text-[9px] px-1 uppercase tracking-widest">{sizing.schema.code}</Badge>
+            </span>
+          } bold />
+          <Row label="Selector Mode" value={<span className="capitalize">{(sizing.schema.definition as any)?.ui?.selectorType || 'grid'}</span>} />
+        </div>
+      </motion.div>
+
+      <Separator />
+
+      {/* Size Instances Map */}
+      <motion.div variants={fadeUp} custom={1}>
+        <SectionLabel icon={Ruler}>Allowed Sizes ({sizing.instances.length})</SectionLabel>
+        {sizing.instances.length > 0 ? (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {sizing.instances.map((inst, i) => (
+              <div
+                key={inst.id}
+                className="flex items-center justify-center rounded-lg border border-border bg-muted/20 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-muted/40"
+                title={`Sort Order: ${inst.sortOrder}`}
+              >
+                {inst.displayLabel}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground mt-1">No sizes configured in this schema.</p>
+        )}
+      </motion.div>
+
+      {/* Size Charts */}
+      {sizing.sizeCharts && sizing.sizeCharts.length > 0 && (
+        <motion.div variants={fadeUp} custom={2}>
+          <Separator className="mb-4" />
+          <SectionLabel icon={Grid3X3}>Size Guides ({sizing.sizeCharts.length})</SectionLabel>
+          <div className="mt-3 space-y-4">
+            {sizing.sizeCharts.map(chart => (
+              <div key={chart.id} className="overflow-hidden rounded-xl border border-border">
+                <div className="bg-muted px-4 py-2 text-xs font-bold uppercase tracking-widest text-muted-foreground border-b border-border flex items-center justify-between">
+                  {chart.title}
+                </div>
+                {chart.rows?.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/20">
+                          <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Size</th>
+                          {Object.keys(chart.rows[0]?.measurements || {}).map((key) => (
+                            <th key={key} className="px-3 py-2.5 text-left font-semibold text-muted-foreground capitalize whitespace-nowrap">
+                              {key.replace(/_/g, ' ')}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chart.rows.map(row => (
+                          <tr key={row.id} className="border-b last:border-0 hover:bg-muted/10 transition-colors">
+                            <td className="px-3 py-2.5 font-bold text-foreground border-r bg-muted/10">{row.sizeLabel}</td>
+                            {Object.values(row.measurements || {}).map((val: any, idx) => (
+                              <td key={idx} className="px-3 py-2.5 text-foreground/80">{String(val)}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-4 text-xs text-muted-foreground text-center">No rows configured.</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }
@@ -675,7 +670,7 @@ export default function ProductDetailPage() {
     : null;
 
   const hasPricing = !!(product.pricing || product.services);
-  const hasSizes = !!product.productSize;
+  const hasSizes = !!product.sizing?.schema;
   const hasVariants = product.variants.length > 0;
   const hasDetails = product.detailHeaders.length > 0;
   const hasFaqs = product.faqs.length > 0;
@@ -947,7 +942,7 @@ export default function ProductDetailPage() {
                 )}
                 {hasSizes && (
                   <TabsContent value="sizes" className="m-0 mt-0 focus-visible:ring-0 focus-visible:outline-none">
-                    <SizesTab size={product.productSize} />
+                    <SizesTab sizing={product.sizing} productType={product.productType} />
                   </TabsContent>
                 )}
                 {hasVariants && (

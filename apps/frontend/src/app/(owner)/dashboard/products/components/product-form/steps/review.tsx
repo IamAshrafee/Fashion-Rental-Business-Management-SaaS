@@ -148,8 +148,8 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
   if (!data.lateFeePerDay && !data.lateFeePercentage) pricingWarnings.push('No late fee configured — customers may delay returns.');
 
   const sizeWarnings: string[] = [];
-  if (data.sizeMode === 'standard' && (!data.availableSizes || data.availableSizes.length === 0)) {
-    sizeWarnings.push('No sizes selected in standard mode.');
+  if (!data.productTypeId) {
+    sizeWarnings.push('No Product Type selected — product sizing will not be configured correctly.');
   }
   if (!data.faqs || data.faqs.length === 0) sizeWarnings.push('No FAQs added — common questions reduce customer support load.');
 
@@ -253,7 +253,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
         </ReviewCard>
 
         {/* ── Variants & Media ─────────────────────────────── */}
-        <ReviewCard title="Variants & Media" icon={ImageIcon} step={1} onGoToStep={onGoToStep} warnings={variantWarnings}>
+        <ReviewCard title="Variants & Media" icon={ImageIcon} step={2} onGoToStep={onGoToStep} warnings={variantWarnings}>
           <Row label="Variants" value={String(data.variants?.length || 0)} />
           <Row label="Total Images" value={String(totalImages)} />
           {data.variants?.map((v, idx) => {
@@ -268,8 +268,8 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
                     <div className="h-8 w-8 rounded overflow-hidden border bg-muted shrink-0">
                       <img src={firstImageUrl} alt="" className="h-full w-full object-cover" />
                     </div>
-                  ) : mainColor?.hex ? (
-                    <div className="h-8 w-8 rounded border shrink-0" style={{ backgroundColor: mainColor.hex }} />
+                  ) : mainColor?.hexCode ? (
+                    <div className="h-8 w-8 rounded border shrink-0" style={{ backgroundColor: mainColor.hexCode }} />
                   ) : (
                     <div className="h-8 w-8 rounded border bg-muted shrink-0 flex items-center justify-center">
                       <ImageIcon className="h-3 w-3 text-muted-foreground" />
@@ -286,7 +286,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
         </ReviewCard>
 
         {/* ── Pricing & Fees ───────────────────────────────── */}
-        <ReviewCard title="Pricing & Fees" icon={DollarSign} step={2} onGoToStep={onGoToStep} warnings={pricingWarnings}>
+        <ReviewCard title="Pricing & Fees" icon={DollarSign} step={3} onGoToStep={onGoToStep} warnings={pricingWarnings}>
           <Row
             label="Mode"
             value={
@@ -333,59 +333,17 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
         </ReviewCard>
 
         {/* ── Size & Details ───────────────────────────────── */}
-        <ReviewCard title="Size & Details" icon={Ruler} step={3} onGoToStep={onGoToStep} warnings={sizeWarnings}>
+        <ReviewCard title="Size & Details" icon={Ruler} step={1} onGoToStep={onGoToStep} warnings={sizeWarnings}>
           <Row
-            label="Size Mode"
+            label="Product Type"
             value={
               <Badge variant="outline" className="capitalize">
-                {data.sizeMode?.replace('_', ' ')}
+                {data.productTypeId ? 'Assigned' : 'Not set'}
               </Badge>
             }
           />
-          {data.sizeMode === 'standard' && data.availableSizes && data.availableSizes.length > 0 && (
-            <div className="pt-1">
-              <span className="font-medium text-muted-foreground text-xs">Available Sizes:</span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {data.availableSizes.map((s) => (
-                  <Badge key={s} variant={s === data.mainDisplaySize ? 'default' : 'outline'} className="text-[10px]">
-                    {s}{s === data.mainDisplaySize ? ' ★' : ''}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {data.sizeMode === 'free' && data.freeSizeType && (
-            <Row label="Type" value={<span className="capitalize">{data.freeSizeType.replace('_', ' ')}</span>} />
-          )}
-          {data.measurements && data.measurements.length > 0 && (
-            <div className="pt-1">
-              <span className="font-medium text-muted-foreground text-xs">Measurements:</span>
-              <div className="grid grid-cols-2 gap-1 mt-1">
-                {data.measurements.map((m, i) => (
-                  <span key={i} className="text-xs text-muted-foreground">
-                    {m.label}: {m.value} {m.unit}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {data.sizeMode === 'multi_part' && data.parts && data.parts.length > 0 && (
-            <div className="pt-1">
-              <span className="font-medium text-muted-foreground text-xs">Parts:</span>
-              <div className="space-y-0.5 mt-1">
-                {data.parts.map((p, i) => (
-                  <div key={i} className="text-xs text-muted-foreground">
-                    <span className="font-medium">{p.partName || 'Unnamed'}</span>
-                    {p.measurements?.length > 0 && (
-                      <span> — {p.measurements.map(m => `${m.label}: ${m.value} ${m.unit}`).join(', ')}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {data.sizeChartUrl && <Row label="Size Chart" value="Provided ✓" />}
-
+          {data.sizeSchemaOverrideId && <Row label="Custom Size Schema" value={<Badge variant="default" className="text-[10px]">Overridden</Badge>} />}
+          
           {/* Details & FAQ summary */}
           {((data.details && data.details.length > 0) || (data.faqs && data.faqs.length > 0)) && (
             <div className="border-t mt-2 pt-2">

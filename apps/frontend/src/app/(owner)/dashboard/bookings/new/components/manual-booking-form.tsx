@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { customerApi } from '@/lib/api/customers';
-import { productApi, type ProductSizeData, type ProductServicesData } from '@/lib/api/products';
+import { productApi, type ProductServicesData } from '@/lib/api/products';
 import { bookingApi, type ValidateCartResponse } from '@/lib/api/bookings';
 import type { ApiResponse, Customer } from '@closetrent/types';
 
@@ -94,8 +94,7 @@ interface ProductForForm {
     colorHex: string | null;
     thumbnailUrl: string;
   }>;
-  // Size config (loaded lazily after selection)
-  sizeConfig?: ProductSizeData | null;
+  // Sizing handled abstractly via attributes now if needed
   // Service config (loaded lazily after selection)
   services?: ProductServicesData | null;
 }
@@ -379,7 +378,6 @@ export function ManualBookingForm() {
       const detail = await productApi.getById(product.id);
       setSelectedProduct(prev => prev ? {
         ...prev,
-        sizeConfig: detail.productSize,
         services: detail.services,
       } : null);
     } catch {
@@ -473,12 +471,6 @@ export function ManualBookingForm() {
       return;
     }
 
-    // Validate size selection if product has standard sizes
-    const sizeConfig = selectedProduct.sizeConfig;
-    if (sizeConfig && sizeConfig.mode === 'standard' && sizeConfig.availableSizes.length > 0 && !selectedSize) {
-      toast.error('Please select a size for this product.');
-      return;
-    }
 
     // Parse price override
     const parsedOverride = itemPriceOverride ? parseInt(itemPriceOverride, 10) : undefined;
@@ -1097,58 +1089,6 @@ export function ManualBookingForm() {
                             </Select>
                           </div>
 
-                          {/* Size selector — all modes */}
-                          {isLoadingSize ? (
-                            <div className="space-y-1 col-span-2 sm:col-span-1">
-                              <Label className="text-xs">Size</Label>
-                              <div className="h-9 flex items-center text-sm text-muted-foreground gap-1.5">
-                                <Loader2 className="h-3 w-3 animate-spin" /> Loading sizes...
-                              </div>
-                            </div>
-                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'standard' && selectedProduct.sizeConfig.availableSizes.length > 0 ? (
-                            <div className="space-y-1 col-span-2 sm:col-span-1">
-                              <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Size *</Label>
-                              <Select value={selectedSize} onValueChange={setSelectedSize}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select size" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {selectedProduct.sizeConfig.availableSizes.map(s => (
-                                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'free' ? (
-                            <div className="space-y-1 col-span-2 sm:col-span-1">
-                              <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Size</Label>
-                              <div className="h-9 flex items-center text-sm text-muted-foreground">
-                                Free Size{selectedProduct.sizeConfig.freeSizeType ? ` (${selectedProduct.sizeConfig.freeSizeType})` : ''}
-                              </div>
-                            </div>
-                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'measurement' ? (
-                            <div className="space-y-1 col-span-2 sm:col-span-1">
-                              <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Measurements</Label>
-                              <div className="text-xs text-muted-foreground space-y-0.5 max-h-20 overflow-y-auto">
-                                {selectedProduct.sizeConfig.measurements.map(m => (
-                                  <div key={m.id}>{m.label}: {m.value} {m.unit}</div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : selectedProduct.sizeConfig && selectedProduct.sizeConfig.mode === 'multi_part' ? (
-                            <div className="space-y-1 col-span-2">
-                              <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Multi-Part Sizes</Label>
-                              <div className="text-xs text-muted-foreground grid grid-cols-2 gap-2 max-h-24 overflow-y-auto">
-                                {selectedProduct.sizeConfig.parts.map(part => (
-                                  <div key={part.id}>
-                                    <span className="font-medium">{part.partName}:</span>{' '}
-                                    {part.measurements.map(m => `${m.label}: ${m.value}${m.unit}`).join(', ')}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-
                           {/* Date pickers */}
                           <div className="space-y-1">
                             <Label className="text-xs">From Date *</Label>
@@ -1185,22 +1125,14 @@ export function ManualBookingForm() {
                                 <Switch checked={tryOn} onCheckedChange={setTryOn} />
                               </div>
                             )}
-                            {selectedProduct.services?.backupSizeEnabled && selectedProduct.sizeConfig?.availableSizes && selectedProduct.sizeConfig.availableSizes.length > 1 && (
+                            {selectedProduct.services?.backupSizeEnabled && (
                               <div className="space-y-1">
                                 <Label className="text-xs">Backup Size ({formatCurrency(selectedProduct.services.backupSizeFee ?? 0)})</Label>
-                                <Select value={backupSize} onValueChange={setBackupSize}>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="None" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="">None</SelectItem>
-                                    {selectedProduct.sizeConfig.availableSizes
-                                      .filter(s => s !== selectedSize)
-                                      .map(s => (
-                                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                                      ))}
-                                  </SelectContent>
-                                </Select>
+                                <Input
+                                  placeholder="Enter backup size"
+                                  value={backupSize}
+                                  onChange={(e) => setBackupSize(e.target.value)}
+                                />
                               </div>
                             )}
                           </div>

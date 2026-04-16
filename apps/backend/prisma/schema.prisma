@@ -49,17 +49,10 @@ enum ProductStatus {
   archived
 }
 
-enum SizeMode {
-  standard
-  measurement
-  multi_part
-  free
-}
-
-enum FreeSizeType {
-  free_size
-  adjustable
-  no_size
+enum SizeSchemaStatus {
+  draft
+  active
+  deprecated
 }
 
 enum PricingMode {
@@ -285,6 +278,7 @@ model Tenant {
   products             Product[]
   categories           Category[]
   subcategories        Subcategory[]
+  variantSizes         VariantSize[]
   events               Event[]
   bookings             Booking[]
   customers            Customer[]
@@ -492,73 +486,96 @@ model LoginHistory {
 // ============================================================================
 
 model Product {
-  id                  String                @id @default(uuid())
-  tenantId            String                @map("tenant_id")
-  name                String
-  slug                String
-  description         String?
-  categoryId          String                @map("category_id")
-  subcategoryId       String?               @map("subcategory_id")
-  status              ProductStatus         @default(draft)
-  isAvailable         Boolean               @default(true) @map("is_available")
-  availableFrom       DateTime?             @map("available_from") @db.Date
-  unavailableReason   String?               @map("unavailable_reason")
-  purchaseDate        DateTime?             @map("purchase_date") @db.Date
-  purchasePrice       Int?                  @map("purchase_price")
-  purchasePricePublic Boolean               @default(false) @map("purchase_price_public")
-  itemCountry         String?               @map("item_country")
-  itemCountryPublic   Boolean               @default(false) @map("item_country_public")
-  targetRentals       Int?                  @map("target_rentals")
-  totalBookings       Int                   @default(0) @map("total_bookings")
-  totalRevenue        Int                   @default(0) @map("total_revenue")
-  popularityScore     Int                   @default(0) @map("popularity_score")
-  searchVector        Unsupported("tsvector")? @map("search_vector")
-  createdAt           DateTime              @default(now()) @map("created_at")
-  updatedAt           DateTime              @updatedAt @map("updated_at")
-  deletedAt           DateTime?             @map("deleted_at")
-  deletedByUserId     String?               @map("deleted_by_user_id")
+  id                    String                @id @default(uuid())
+  tenantId              String                @map("tenant_id")
+  name                  String
+  slug                  String
+  description           String?
+  categoryId            String                @map("category_id")
+  subcategoryId         String?               @map("subcategory_id")
+  productTypeId         String?               @map("product_type_id")
+  sizeSchemaOverrideId  String?               @map("size_schema_override_id")
+  status                ProductStatus         @default(draft)
+  isAvailable           Boolean               @default(true) @map("is_available")
+  availableFrom         DateTime?             @map("available_from") @db.Date
+  unavailableReason     String?               @map("unavailable_reason")
+  purchaseDate          DateTime?             @map("purchase_date") @db.Date
+  purchasePrice         Int?                  @map("purchase_price")
+  purchasePricePublic   Boolean               @default(false) @map("purchase_price_public")
+  itemCountry           String?               @map("item_country")
+  itemCountryPublic     Boolean               @default(false) @map("item_country_public")
+  targetRentals         Int?                  @map("target_rentals")
+  totalBookings         Int                   @default(0) @map("total_bookings")
+  totalRevenue          Int                   @default(0) @map("total_revenue")
+  popularityScore       Int                   @default(0) @map("popularity_score")
+  searchVector          Unsupported("tsvector")? @map("search_vector")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
+  deletedAt             DateTime?             @map("deleted_at")
+  deletedByUserId       String?               @map("deleted_by_user_id")
 
-  tenant        Tenant               @relation(fields: [tenantId], references: [id])
-  deletedBy     User?                @relation("ProductDeletedBy", fields: [deletedByUserId], references: [id])
-  category      Category             @relation(fields: [categoryId], references: [id])
-  subcategory   Subcategory?         @relation(fields: [subcategoryId], references: [id])
-  variants      ProductVariant[]
-  events        ProductEvent[]
-  productSize   ProductSize?
-  pricing       ProductPricing?
-  services      ProductServices?
-  faqs          ProductFaq[]
-  detailHeaders ProductDetailHeader[]
-  bookingItems  BookingItem[]
-  dateBlocks    DateBlock[]
-  reviews       Review[]
-  storefrontEvents StorefrontEvent[]
+  tenant             Tenant               @relation(fields: [tenantId], references: [id])
+  deletedBy          User?                @relation("ProductDeletedBy", fields: [deletedByUserId], references: [id])
+  category           Category             @relation(fields: [categoryId], references: [id])
+  subcategory        Subcategory?         @relation(fields: [subcategoryId], references: [id])
+  productType        ProductType?         @relation(fields: [productTypeId], references: [id])
+  sizeSchemaOverride SizeSchema?          @relation("ProductSchemaOverride", fields: [sizeSchemaOverrideId], references: [id])
+  variants           ProductVariant[]
+  events             ProductEvent[]
+  pricing            ProductPricing?
+  services           ProductServices?
+  faqs               ProductFaq[]
+  detailHeaders      ProductDetailHeader[]
+  bookingItems       BookingItem[]
+  dateBlocks         DateBlock[]
+  reviews            Review[]
+  sizeCharts         SizeChart[]
+  storefrontEvents   StorefrontEvent[]
 
   @@unique([tenantId, slug])
   @@index([categoryId])
+  @@index([productTypeId])
+  @@index([sizeSchemaOverrideId])
   @@index([tenantId, status])
   @@index([tenantId, status, popularityScore])
   @@map("products")
 }
 
 model ProductVariant {
-  id          String   @id @default(uuid())
-  tenantId    String   @map("tenant_id")
-  productId   String   @map("product_id")
-  variantName String?  @map("variant_name")
-  mainColorId String   @map("main_color_id")
-  sequence    Int      @default(0)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  productId      String   @map("product_id")
+  variantName    String?  @map("variant_name")
+  mainColorId    String   @map("main_color_id")
+  sequence       Int      @default(0)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  product        Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  mainColor      Color          @relation("MainColor", fields: [mainColorId], references: [id])
+  product         Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mainColor       Color          @relation("MainColor", fields: [mainColorId], references: [id])
   identicalColors VariantColor[]
-  images         ProductImage[]
+  images          ProductImage[]
+  sizes           VariantSize[]
 
   @@index([productId])
   @@index([tenantId])
   @@map("product_variants")
+}
+
+model VariantSize {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  variantId      String   @map("variant_id")
+  sizeInstanceId String   @map("size_instance_id")
+  stockLevel     Int      @default(1) @map("stock_level")
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  sizeInstance SizeInstance   @relation(fields: [sizeInstanceId], references: [id])
+
+  @@unique([variantId, sizeInstanceId])
+  @@index([variantId])
+  @@map("variant_sizes")
 }
 
 model VariantColor {
@@ -674,52 +691,100 @@ model ProductServices {
   @@map("product_services")
 }
 
-model ProductSize {
-  id              String        @id @default(uuid())
-  tenantId        String        @map("tenant_id")
-  productId       String        @unique @map("product_id")
-  mode            SizeMode
-  freeSizeType    FreeSizeType? @map("free_size_type")
-  availableSizes  String[]      @map("available_sizes")
-  sizeChartUrl    String?       @map("size_chart_url")
-  mainDisplaySize String?       @map("main_display_size")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+// ============================================================================
+// SIZING MODULE — Schema-Driven Architecture
+// ============================================================================
 
-  product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
-  measurements SizeMeasurement[]
-  parts        SizePart[]
+model ProductType {
+  id                   String      @id @default(uuid())
+  tenantId             String      @map("tenant_id")
+  name                 String
+  slug                 String
+  description          String?     @db.VarChar(255)
+  defaultSizeSchemaId  String?     @map("default_size_schema_id")
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
 
-  @@map("product_sizes")
+  defaultSizeSchema SizeSchema? @relation(fields: [defaultSizeSchemaId], references: [id])
+  products          Product[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([defaultSizeSchemaId])
+  @@map("product_types")
 }
 
-model SizeMeasurement {
-  id            String      @id @default(uuid())
-  productSizeId String      @map("product_size_id")
-  partId        String?     @map("part_id")
-  label         String
-  value         String
-  unit          String      @default("inch")
-  sequence      Int         @default(0)
+model SizeSchema {
+  id         String           @id @default(uuid())
+  tenantId   String           @map("tenant_id")
+  code       String
+  name       String
+  description String?         @db.VarChar(255)
+  schemaType String           @default("STANDARD") @map("schema_type")
+  status     SizeSchemaStatus @default(draft)
+  definition Json             @default("{}") @db.JsonB
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
 
-  productSize ProductSize @relation(fields: [productSizeId], references: [id], onDelete: Cascade)
-  part        SizePart?   @relation(fields: [partId], references: [id], onDelete: Cascade)
+  instances              SizeInstance[]
+  productTypes           ProductType[]
+  productSchemaOverrides Product[]    @relation("ProductSchemaOverride")
+  sizeCharts             SizeChart[]
 
-  @@index([productSizeId])
-  @@map("size_measurements")
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@map("size_schemas")
 }
 
-model SizePart {
-  id            String @id @default(uuid())
-  productSizeId String @map("product_size_id")
-  partName      String @map("part_name")
-  sequence      Int    @default(0)
+model SizeInstance {
+  id            String   @id @default(uuid())
+  sizeSchemaId  String   @map("size_schema_id")
+  normalizedKey String   @map("normalized_key")
+  displayLabel  String   @map("display_label")
+  payload       Json     @default("{}") @db.JsonB
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  productSize  ProductSize      @relation(fields: [productSizeId], references: [id], onDelete: Cascade)
-  measurements SizeMeasurement[]
+  sizeSchema   SizeSchema       @relation(fields: [sizeSchemaId], references: [id])
+  variantSizes VariantSize[]
 
-  @@index([productSizeId])
-  @@map("size_parts")
+  @@unique([sizeSchemaId, normalizedKey])
+  @@index([sizeSchemaId])
+  @@map("size_instances")
+}
+
+model SizeChart {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  sizeSchemaId String   @map("size_schema_id")
+  productId    String?  @map("product_id")
+  title        String   @default("Size Guide")
+  chartMeta    Json     @default("{}") @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sizeSchema SizeSchema     @relation(fields: [sizeSchemaId], references: [id])
+  product    Product?       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rows       SizeChartRow[]
+
+  @@index([tenantId])
+  @@index([sizeSchemaId])
+  @@index([productId])
+  @@map("size_charts")
+}
+
+model SizeChartRow {
+  id              String @id @default(uuid())
+  sizeChartId     String @map("size_chart_id")
+  sizeLabel       String @map("size_label")
+  measurements    Json   @default("{}") @db.JsonB
+  sortOrder       Int    @default(0) @map("sort_order")
+
+  sizeChart SizeChart @relation(fields: [sizeChartId], references: [id], onDelete: Cascade)
+
+  @@index([sizeChartId, sortOrder])
+  @@map("size_chart_rows")
 }
 
 // ============================================================================

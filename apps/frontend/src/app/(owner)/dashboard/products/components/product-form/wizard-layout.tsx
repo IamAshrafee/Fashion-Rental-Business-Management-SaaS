@@ -19,9 +19,9 @@ import {
 /* ─── Step Definitions ─────────────────────────────────────────────────── */
 export const WIZARD_STEPS = [
   { label: 'Product Info', icon: Package, shortLabel: 'Info' },
+  { label: 'Size & Details', icon: Ruler, shortLabel: 'Size' },
   { label: 'Variants & Media', icon: Palette, shortLabel: 'Media' },
   { label: 'Pricing & Fees', icon: DollarSign, shortLabel: 'Pricing' },
-  { label: 'Size & Details', icon: Ruler, shortLabel: 'Size' },
   { label: 'Review', icon: CheckCircle2, shortLabel: 'Review' },
 ] as const;
 

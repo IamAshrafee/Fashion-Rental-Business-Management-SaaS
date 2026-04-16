@@ -12,8 +12,37 @@ export type TenantStatus = 'active' | 'suspended' | 'cancelled';
 export type UserRole = 'saas_admin' | 'owner' | 'manager' | 'staff';
 export type TenantRole = 'owner' | 'manager' | 'staff';
 export type ProductStatus = 'draft' | 'published' | 'archived';
-export type SizeMode = 'standard' | 'measurement' | 'multi_part' | 'free';
-export type FreeSizeType = 'free_size' | 'adjustable' | 'no_size';
+export type SizeSchemaStatus = 'draft' | 'active' | 'deprecated';
+
+// --- Sizing Types ---
+
+export interface SizeDimensionDef {
+  code: string;
+  label: string;
+  type: 'enum' | 'number' | 'text';
+  required: boolean;
+  values?: string[];
+  step?: number;
+  min?: number;
+  max?: number;
+  unit?: string;
+}
+
+export interface SizeSchemaUIDef {
+  selectorType: 'grid' | 'dropdown' | 'composite' | 'component';
+  displayTemplate: string;
+  dimensionOrder: string[];
+  components?: Record<string, { schemaCode: string }>;
+}
+
+export interface SizeSchemaDefinition {
+  dimensions: SizeDimensionDef[];
+  ui: SizeSchemaUIDef;
+  normalization: {
+    normalizedKeyTemplate: string;
+  };
+}
+
 export type PricingMode = 'one_time' | 'per_day' | 'percentage';
 export type LateFeeType = 'fixed' | 'percentage';
 export type ShippingMode = 'free' | 'flat' | 'area_based';

@@ -27,6 +27,9 @@ import { StaffModule } from './modules/staff/staff.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { JobsModule } from './modules/jobs/jobs.module';
+import { SizeSchemaModule } from './modules/size-schema/size-schema.module';
+import { SizeInstanceModule } from './modules/size-instance/size-instance.module';
+import { ProductTypeModule } from './modules/product-type/product-type.module';
 
 @Module({
   imports: [
@@ -61,6 +64,9 @@ import { JobsModule } from './modules/jobs/jobs.module';
     FulfillmentModule,
     AnalyticsModule,
     JobsModule,
+    SizeSchemaModule,
+    SizeInstanceModule,
+    ProductTypeModule,
   ],
   providers: [
     // Global metering interceptor — captures per-tenant API metrics on every request.

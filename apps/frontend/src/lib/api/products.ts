@@ -1,5 +1,5 @@
 import apiClient from '../api-client';
-import type { ApiResponse, PaginatedResponse } from '@closetrent/types';
+import type { ApiResponse, PaginatedResponse, SizeSchemaDefinition } from '@closetrent/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,20 +106,58 @@ export interface ProductServicesData {
   tryOnCreditToRental: boolean;
 }
 
-export interface ProductSizeData {
+export interface ProductTypeData {
   id: string;
-  mode: string;
-  freeSizeType: string | null;
-  availableSizes: string[];
-  sizeChartUrl: string | null;
-  mainDisplaySize: string | null;
-  measurements: Array<{ id: string; label: string; value: string; unit: string; sequence: number }>;
-  parts: Array<{
+  name: string;
+  description?: string | null;
+  slug: string;
+  defaultSizeSchema?: SizeSchemaData | null;
+  _count?: { products: number };
+}
+
+export interface SizeSchemaData {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  schemaType: string;
+  status: string;
+  definition: SizeSchemaDefinition | Record<string, unknown>;
+  instances?: SizeInstanceData[];
+  sizeCharts?: SizeChartData[];
+  _count?: { instances: number; productTypes: number };
+}
+
+export interface SizeInstanceData {
+  id: string;
+  normalizedKey: string;
+  displayLabel: string;
+  payload: Record<string, unknown>;
+  sortOrder: number;
+}
+
+export interface SizeChartData {
+  id: string;
+  title: string;
+  chartMeta: Record<string, unknown>;
+  rows: Array<{
     id: string;
-    partName: string;
-    sequence: number;
-    measurements: Array<{ id: string; label: string; value: string; unit: string; sequence: number }>;
+    sizeLabel: string;
+    measurements: Record<string, unknown>;
+    sortOrder: number;
   }>;
+}
+
+export interface SizingPayload {
+  schema: {
+    id: string;
+    code: string;
+    name: string;
+    schemaType: string;
+    definition: SizeSchemaDefinition | Record<string, unknown>;
+  };
+  instances: SizeInstanceData[];
+  sizeCharts: SizeChartData[];
 }
 
 export interface ProductVariantData {
@@ -129,6 +167,7 @@ export interface ProductVariantData {
   sequence: number;
   mainColor: { id: string; name: string; hexCode: string | null };
   identicalColors: Array<{ color: { id: string; name: string; hexCode: string | null } }>;
+  sizeInstance: SizeInstanceData | null;
   images: Array<{
     id: string;
     url: string;
@@ -187,7 +226,9 @@ export interface ProductDetail {
   events: Array<{ event: { id: string; name: string; slug: string } }>;
   pricing: ProductPricingData | null;
   services: ProductServicesData | null;
-  productSize: ProductSizeData | null;
+  productType: ProductTypeData | null;
+  sizeSchemaOverride: SizeSchemaData | null;
+  sizing: SizingPayload | null;
   variants: ProductVariantData[];
   faqs: ProductFaqData[];
   detailHeaders: ProductDetailHeaderData[];
@@ -292,7 +333,7 @@ export const productApi = {
     return data.data;
   },
 
-  addVariant: async (productId: string, payload: { variantName?: string; mainColorId: string; identicalColorIds?: string[] }): Promise<{ id: string }> => {
+  addVariant: async (productId: string, payload: { variantName?: string; mainColorId: string; sizeInstanceIds?: string[]; identicalColorIds?: string[] }): Promise<{ id: string }> => {
     const { data } = await apiClient.post<ApiResponse<{ id: string }>>(`/owner/products/${productId}/variants`, payload);
     return data.data;
   },
@@ -327,7 +368,7 @@ export const productApi = {
   updateVariant: async (
     productId: string,
     variantId: string,
-    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[] },
+    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[]; sizeInstanceIds?: string[] },
   ): Promise<Record<string, unknown>> => {
     const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
       `/owner/products/${productId}/variants/${variantId}`,
@@ -401,5 +442,81 @@ export const productApi = {
 
   deleteEvent: async (id: string): Promise<void> => {
     await apiClient.delete(`/owner/events/${id}`);
+  },
+};
+
+// ─── Sizing Module API ──────────────────────────────────────────────────────
+
+export const sizingApi = {
+  // Product Types
+  listProductTypes: async (): Promise<ProductTypeData[]> => {
+    const { data } = await apiClient.get<ApiResponse<ProductTypeData[]>>('/owner/product-types');
+    return data.data;
+  },
+
+  createProductType: async (payload: { name: string; description?: string; defaultSizeSchemaId?: string }): Promise<ProductTypeData> => {
+    const { data } = await apiClient.post<ApiResponse<ProductTypeData>>('/owner/product-types', payload);
+    return data.data;
+  },
+
+  updateProductType: async (id: string, payload: { name?: string; description?: string; defaultSizeSchemaId?: string; isActive?: boolean }): Promise<ProductTypeData> => {
+    const { data } = await apiClient.patch<ApiResponse<ProductTypeData>>(`/owner/product-types/${id}`, payload);
+    return data.data;
+  },
+
+  deleteProductType: async (id: string): Promise<void> => {
+    await apiClient.delete(`/owner/product-types/${id}`);
+  },
+
+  // Size Schemas
+  listSchemas: async (status?: string): Promise<SizeSchemaData[]> => {
+    const { data } = await apiClient.get<ApiResponse<SizeSchemaData[]>>(`/owner/size-schemas${status ? `?status=${status}` : ''}`);
+    return data.data;
+  },
+
+  getSchema: async (id: string): Promise<SizeSchemaData> => {
+    const { data } = await apiClient.get<ApiResponse<SizeSchemaData>>(`/owner/size-schemas/${id}`);
+    return data.data;
+  },
+
+  createSchema: async (payload: { code: string; name: string; description?: string; schemaType?: string; definition: any; instances?: any[] }): Promise<SizeSchemaData> => {
+    const { data } = await apiClient.post<ApiResponse<SizeSchemaData>>('/owner/size-schemas', payload);
+    return data.data;
+  },
+
+  updateSchema: async (id: string, payload: { name?: string; description?: string; status?: string; definition?: any }): Promise<SizeSchemaData> => {
+    const { data } = await apiClient.patch<ApiResponse<SizeSchemaData>>(`/owner/size-schemas/${id}`, payload);
+    return data.data;
+  },
+
+  activateSchema: async (id: string): Promise<void> => {
+    await apiClient.post(`/owner/size-schemas/${id}/activate`);
+  },
+
+  deprecateSchema: async (id: string): Promise<void> => {
+    await apiClient.post(`/owner/size-schemas/${id}/deprecate`);
+  },
+
+  deleteSchema: async (id: string): Promise<void> => {
+    await apiClient.delete(`/owner/size-schemas/${id}`);
+  },
+
+  listCharts: async (schemaId?: string): Promise<SizeChartData[]> => {
+    const { data } = await apiClient.get<ApiResponse<SizeChartData[]>>(`/owner/size-schemas/charts/list${schemaId ? `?schemaId=${schemaId}` : ''}`);
+    return data.data;
+  },
+
+  getChart: async (chartId: string): Promise<SizeChartData> => {
+    const { data } = await apiClient.get<ApiResponse<SizeChartData>>(`/owner/size-schemas/charts/${chartId}`);
+    return data.data;
+  },
+
+  createSizeChart: async (payload: { sizeSchemaId: string; productId?: string; title?: string; rows?: any[] }): Promise<SizeChartData> => {
+    const { data } = await apiClient.post<ApiResponse<SizeChartData>>('/owner/size-schemas/charts', payload);
+    return data.data;
+  },
+
+  deleteSizeChart: async (chartId: string): Promise<void> => {
+    await apiClient.delete(`/owner/size-schemas/charts/${chartId}`);
   },
 };

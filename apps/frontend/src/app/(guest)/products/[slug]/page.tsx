@@ -22,7 +22,8 @@ import {
   AlertCircle,
   ShoppingBag,
   Sparkles,
-  Package
+  Package,
+  Ruler
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,12 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
 import { CustomDateRangePicker } from './custom-date-picker';
 import { format } from 'date-fns';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -57,10 +64,7 @@ export default function GuestProductDetailPage() {
 
   const product = (rawProduct && typeof rawProduct === 'object' && 'data' in rawProduct ? (rawProduct as any).data : rawProduct) as GuestProductDetail | undefined;
 
-  const [activeImage, setActiveImage] = useState(0);
-  const [selectedVariantIdx, setSelectedVariantIdx] = useState(0);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
-  
+
   // Custom date selection state
   const [date, setDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
     from: undefined,
@@ -85,18 +89,12 @@ export default function GuestProductDetailPage() {
     onError: () => setAvailabilityResult(null),
   });
 
-  // Auto-resolve size if free, measurement-only, or singleton
-  useEffect(() => {
-    if (product?.productSize) {
-      if (product.productSize.mode === 'free') {
-        setSelectedSize(product.productSize.freeSizeType === 'adjustable' ? 'Adjustable' : 'Free Size');
-      } else if (product.productSize.mode === 'measurement' && (!product.productSize.availableSizes || product.productSize.availableSizes.length === 0)) {
-        setSelectedSize('Made to Measure');
-      } else if (product.productSize.availableSizes?.length === 1) {
-        setSelectedSize(product.productSize.availableSizes[0]);
-      }
-    }
-  }, [product?.productSize]);
+
+
+  const [activeImage, setActiveImage] = useState(0);
+  const [selectedColorId, setSelectedColorId] = useState<string | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
 
   // Analytics: Track product view once per page load
   const hasTrackedView = useRef(false);
@@ -128,9 +126,42 @@ export default function GuestProductDetailPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date.from, date.to, product?.id]);
 
-  const selectedVariant = product?.variants?.[selectedVariantIdx];
+  // 1. Group by unique colors to display the colour swatches
+  const uniqueColors = useMemo(() => {
+    if (!product?.variants) return [];
+    const colorsMap = new Map();
+    product.variants.forEach((v) => {
+      if (v.mainColor && !colorsMap.has(v.mainColor.id)) {
+        colorsMap.set(v.mainColor.id, v.mainColor);
+      }
+    });
+    return Array.from(colorsMap.values());
+  }, [product]);
+
+  // 2. Initial state hydration
+  useEffect(() => {
+    if (uniqueColors.length > 0 && !selectedColorId) {
+      setSelectedColorId(uniqueColors[0].id);
+    }
+  }, [uniqueColors, selectedColorId]);
+
+  // 3. Filter variants belonging to the selected colour
+  const colorVariants = useMemo(() => {
+    if (!product?.variants || !selectedColorId) return [];
+    return product.variants.filter((v) => v.mainColor?.id === selectedColorId);
+  }, [product, selectedColorId]);
+
+  // 4. Auto-select a valid sizing variant when color changes
+  useEffect(() => {
+    if (colorVariants.length > 0 && (!selectedVariantId || !colorVariants.some(v => v.id === selectedVariantId))) {
+      setSelectedVariantId(colorVariants[0].id);
+    }
+  }, [colorVariants, selectedVariantId]);
+
+  const selectedVariant = product?.variants?.find((v) => v.id === selectedVariantId);
   const pricing = product?.pricing;
   const services = product?.services;
+  const sizing = product?.sizing; // new schema-driven sizing
 
   const allImages = useMemo(() => {
     if (!product?.variants) return [];
@@ -143,14 +174,15 @@ export default function GuestProductDetailPage() {
     );
   }, [product]);
 
-  const handleVariantSelect = (idx: number) => {
-    setSelectedVariantIdx(idx);
-    const variant = product?.variants?.[idx];
-    if (variant?.images?.[0]) {
-      const imgIdx = allImages.findIndex((img) => img.variantId === variant.id && img.isFeatured);
+  const handleColorSelect = (colorId: string) => {
+    setSelectedColorId(colorId);
+    const primaryVariantForColor = product?.variants?.find(v => v.mainColor?.id === colorId);
+    
+    if (primaryVariantForColor?.images?.[0]) {
+      const imgIdx = allImages.findIndex((img) => img.variantId === primaryVariantForColor.id && img.isFeatured);
       if (imgIdx !== -1) setActiveImage(imgIdx);
       else {
-        const firstImg = allImages.findIndex((img) => img.variantId === variant.id);
+        const firstImg = allImages.findIndex((img) => img.variantId === primaryVariantForColor.id);
         if (firstImg !== -1) setActiveImage(firstImg);
       }
     }
@@ -177,9 +209,8 @@ export default function GuestProductDetailPage() {
   const backupFee = addBackup && services?.backupSizeEnabled ? (services.backupSizeFee || 0) : 0;
   const totalPrice = rentalPrice + depositAmount + tryOnFee + backupFee;
 
-  const hasSizes = (product?.productSize?.availableSizes?.length ?? 0) > 0;
-  const isSizeRequired = (product?.productSize?.mode === 'standard' || product?.productSize?.mode === 'multi_part') && hasSizes;
-  const isSizeValid = !isSizeRequired || selectedSize !== null;
+  const hasSizes = colorVariants.some(v => v.sizeInstance !== null);
+  const isSizeValid = !hasSizes || selectedVariantId !== null;
 
   const isFormValid = !!date.from && !!date.to && days > 0 && isSizeValid;
   const isAvailable = availabilityResult?.available !== false;
@@ -212,7 +243,7 @@ export default function GuestProductDetailPage() {
       startDate: format(date.from, 'yyyy-MM-dd'),
       endDate: format(date.to, 'yyyy-MM-dd'),
       durationDays: days,
-      selectedSize: selectedSize || undefined,
+      selectedSize: selectedVariant?.sizeInstance?.displayLabel || undefined,
       serviceMap: {
         tryOn: addTryOn,
         backupSize: addBackup ? selectedBackupSize : null,
@@ -391,78 +422,78 @@ export default function GuestProductDetailPage() {
               </div>
             </motion.div>
 
-            {/* Variants */}
-            {(product.variants?.length ?? 0) > 0 && (
+            {/* Variants (Colors) */}
+            {uniqueColors.length > 0 && (
               <motion.div variants={fadeInUp} className="mb-10">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Color Selected</h3>
-                  <span className="text-sm font-medium text-black">{selectedVariant?.mainColor?.name}</span>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Color</h3>
+                  <span className="text-sm font-medium text-black">
+                    {uniqueColors.find(c => c.id === selectedColorId)?.name || 'Default'}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {product.variants.map((variant, idx) => (
+                  {uniqueColors.map((color) => (
                     <button
-                      key={variant.id}
-                      onClick={() => handleVariantSelect(idx)}
+                      key={color.id}
+                      onClick={() => handleColorSelect(color.id)}
                       className={cn(
                         'flex h-14 w-14 items-center justify-center rounded-full border-2 transition-all duration-300',
-                        selectedVariantIdx === idx ? 'border-black scale-110 shadow-md' : 'border-transparent hover:scale-105 hover:bg-neutral-100'
+                        selectedColorId === color.id ? 'border-black scale-110 shadow-md' : 'border-transparent hover:scale-105 hover:bg-neutral-100'
                       )}
                     >
-                      <span className="block h-10 w-10 rounded-full border border-black/10 shadow-inner" style={{ backgroundColor: variant.mainColor?.hexCode || '#ccc' }} />
+                      <span className="block h-10 w-10 rounded-full border border-black/10 shadow-inner" style={{ backgroundColor: color.hexCode || '#ccc' }} />
                     </button>
                   ))}
                 </div>
               </motion.div>
             )}
 
-            {/* Sizes */}
-            {product.productSize && (product.productSize.mode === 'standard' || product.productSize.mode === 'multi_part') && (product.productSize.availableSizes?.length > 0) && (
+            {/* Sizing (Schema Driven) */}
+            {sizing && colorVariants.some(v => v.sizeInstance !== null) && (
               <motion.div variants={fadeInUp} className="mb-10">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Select Size</h3>
-                  {product.productSize.sizeChartUrl && (
-                    <a href={product.productSize.sizeChartUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-black underline underline-offset-4 hover:text-black/70">
+                  {sizing.sizeCharts && sizing.sizeCharts.length > 0 && (
+                    <button onClick={() => setSizeGuideOpen(true)} className="text-xs font-semibold text-black underline underline-offset-4 hover:text-black/70">
                       Size Guide
-                    </a>
+                    </button>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {product.productSize.availableSizes.map((sizeOpt) => (
-                    <button
-                      key={sizeOpt}
-                      onClick={() => setSelectedSize(sizeOpt)}
-                      className={cn(
-                        'flex min-w-[3.5rem] items-center justify-center rounded-xl border-2 px-4 py-2.5 text-sm font-semibold transition-all duration-300',
-                        selectedSize === sizeOpt 
-                          ? 'border-black bg-black text-white shadow-md' 
-                          : 'border-black/10 bg-white text-black hover:border-black/30'
-                      )}
-                    >
-                      {sizeOpt}
-                    </button>
-                  ))}
-                </div>
+                
+                {/* Free Mode rendering logic replaced by schema.ui.selectorType check (defaults to grid if missing) */}
+                {sizing.schema.definition && (sizing.schema.definition as any).ui?.selectorType === 'dropdown' && colorVariants.length > 12 ? (
+                  <select 
+                    value={selectedVariantId || ''} 
+                    onChange={(e) => setSelectedVariantId(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold focus:border-black focus:ring-1 focus:ring-black"
+                  >
+                    {colorVariants.map(v => (
+                      <option key={v.id} value={v.id}>{v.sizeInstance?.displayLabel}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {colorVariants.map((v) => (
+                      <button
+                        key={v.id}
+                        onClick={() => setSelectedVariantId(v.id)}
+                        className={cn(
+                          'flex min-w-[3.5rem] items-center justify-center rounded-xl border-2 px-4 py-3 text-sm font-semibold transition-all duration-300',
+                          selectedVariantId === v.id 
+                            ? 'border-black bg-black text-white shadow-md' 
+                            : 'border-black/10 bg-white text-black hover:border-black/30'
+                        )}
+                      >
+                        {v.sizeInstance?.displayLabel || 'Default'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
                 {!isSizeValid && (
                    <p className="mt-2 text-xs font-medium text-red-500 animate-pulse tracking-wide">
                      Please select a size to continue
                    </p>
-                )}
-              </motion.div>
-            )}
-
-            {/* Free Mode Badge (if no available sizes array) */}
-            {product.productSize?.mode === 'free' && (
-              <motion.div variants={fadeInUp} className="mb-10">
-                <div className="mb-3">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Size</h3>
-                </div>
-                <span className="inline-flex rounded-xl border-2 border-black/10 bg-neutral-50 px-5 py-2.5 text-sm font-semibold text-black">
-                   {product.productSize.freeSizeType === 'adjustable' ? 'Adjustable / Drawstring' : 'One Size Fits All'}
-                </span>
-                {product.productSize.sizeChartUrl && (
-                  <a href={product.productSize.sizeChartUrl} target="_blank" rel="noreferrer" className="ml-4 text-xs font-semibold text-black underline underline-offset-4 hover:text-black/70">
-                    Sizing Ref
-                  </a>
                 )}
               </motion.div>
             )}
@@ -584,57 +615,7 @@ export default function GuestProductDetailPage() {
                  </div>
                )}
 
-               {/* Fit & Measurements */}
-               {product.productSize && ((product.productSize.measurements && product.productSize.measurements.length > 0) || (product.productSize.parts && product.productSize.parts.length > 0)) && (
-                 <div className="border-b border-black/10 py-5">
-                    <button onClick={() => toggleAccordion('fit')} className="flex w-full items-center justify-between text-left font-bold uppercase tracking-widest text-black">
-                      Fit & Measurements
-                      {openAccordion === 'fit' ? <Minus className="h-4 w-4 opacity-50" /> : <Plus className="h-4 w-4 opacity-50" />}
-                    </button>
-                    <AnimatePresence>
-                      {openAccordion === 'fit' && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                           <div className="pt-5 space-y-6">
-                             
-                             {/* Top Layer Measurements */}
-                             {product.productSize.measurements && product.productSize.measurements.length > 0 && (
-                               <div className="rounded-xl border border-black/5 bg-neutral-50/50 p-4">
-                                 <div className="grid grid-cols-1 gap-y-3 sm:grid-cols-2 sm:gap-x-4 px-2">
-                                   {product.productSize.measurements.map(m => (
-                                      <div key={m.id} className="flex items-center justify-between border-b mx-2 border-black/5 pb-2 last:border-0 last:pb-0 sm:last:border-b sm:last:pb-2">
-                                        <span className="text-sm font-medium text-muted-foreground">{m.label}</span>
-                                        <span className="text-sm font-bold text-black">{m.value} <span className="text-xs text-muted-foreground font-normal">{m.unit}</span></span>
-                                      </div>
-                                   ))}
-                                 </div>
-                               </div>
-                             )}
 
-                             {/* Multi-Part Measurements */}
-                             {product.productSize.parts && product.productSize.parts.length > 0 && (
-                               <div className="space-y-4">
-                                  {product.productSize.parts.map(part => (
-                                    <div key={part.id} className="rounded-xl border border-black/5 bg-neutral-50/50 p-4">
-                                       <h4 className="mb-3 text-xs font-bold uppercase tracking-widest text-black underline underline-offset-4 decoration-black/20">{part.partName}</h4>
-                                       <div className="grid grid-cols-1 gap-y-3 sm:grid-cols-2 sm:gap-x-4 px-2">
-                                         {part.measurements?.map(m => (
-                                            <div key={m.id} className="flex items-center justify-between border-b mx-2 border-black/5 pb-2 last:border-0 last:pb-0 sm:last:border-b sm:last:pb-2">
-                                              <span className="text-sm font-medium text-muted-foreground">{m.label}</span>
-                                              <span className="text-sm font-bold text-black">{m.value} <span className="text-xs text-muted-foreground font-normal">{m.unit}</span></span>
-                                            </div>
-                                         ))}
-                                       </div>
-                                    </div>
-                                  ))}
-                               </div>
-                             )}
-
-                           </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                 </div>
-               )}
 
                {/* FAQs */}
                {product.faqs?.length > 0 && (
@@ -700,6 +681,63 @@ export default function GuestProductDetailPage() {
            </div>
          </div>
       </motion.div>
+
+      {/* Size Guide Modal Overlay */}
+      {product?.sizing?.sizeCharts && product.sizing.sizeCharts.length > 0 && (
+        <Dialog open={sizeGuideOpen} onOpenChange={setSizeGuideOpen}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Ruler className="h-5 w-5 text-muted-foreground" />
+                Size Guide & Measurements
+              </DialogTitle>
+            </DialogHeader>
+            <div className="mt-4 space-y-8 max-h-[70vh] overflow-y-auto">
+              {product.sizing.sizeCharts.map(chart => (
+                <div key={chart.id} className="overflow-x-auto rounded-xl border border-black/5 bg-neutral-50/50">
+                  <div className="bg-muted px-4 py-3 border-b border-border">
+                    <h4 className="text-xs font-bold uppercase tracking-widest text-black flex items-center gap-2">
+                      {chart.title}
+                    </h4>
+                  </div>
+                  <div className="p-0">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-black/5 bg-black/5">
+                          <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Size</th>
+                          {chart.rows?.[0] && Object.keys(chart.rows[0].measurements || {}).map(key => (
+                            <th key={key} className="px-4 py-3 text-left font-semibold text-muted-foreground capitalize">
+                              {key.replace(/_/g, ' ')}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chart.rows?.map(row => (
+                          <tr key={row.id} className="border-b border-black/5 last:border-0 hover:bg-black/5 transition-colors">
+                            <td className="px-4 py-4 font-bold text-black border-r border-black/5 bg-black/5">{row.sizeLabel}</td>
+                            {Object.values(row.measurements || {}).map((val: any, i) => (
+                              <td key={i} className="px-4 py-4 font-medium text-black/70">{String(val) || '-'}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="mt-4 p-4 rounded-lg bg-orange-50 border border-orange-100 flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-orange-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-orange-800 font-medium leading-relaxed">
+                Measurements refer to body size, not garment dimensions. Need help? Contact our styling team for a personalized recommendation.
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   );
 }

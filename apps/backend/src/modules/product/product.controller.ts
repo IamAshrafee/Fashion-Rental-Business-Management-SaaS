@@ -25,7 +25,6 @@ import {
   ReorderDto,
   SetPricingDto,
   SetServicesDto,
-  SetSizeDto,
   CreateFaqDto,
   UpdateFaqDto,
   CreateDetailHeaderDto,
@@ -320,18 +319,6 @@ export class ProductOwnerController {
     @Body() dto: SetServicesDto,
   ) {
     return this.productService.update(tenant.id, productId, { services: dto });
-  }
-
-  // --- Size ---
-
-  @Post(':id/size')
-  @Roles('owner', 'manager')
-  async setSize(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') productId: string,
-    @Body() dto: SetSizeDto,
-  ) {
-    return this.productService.update(tenant.id, productId, { size: dto });
   }
 
   // --- FAQs ---

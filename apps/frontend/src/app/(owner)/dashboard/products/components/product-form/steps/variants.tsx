@@ -1,6 +1,7 @@
 'use client';
 
 import { useFormContext, useFieldArray } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { ProductFormValues } from '../schema';
 import {
   FormField,
@@ -23,6 +24,7 @@ import { Plus, Trash2, ChevronDown, ImageIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useColors } from '../../../hooks/use-product-apis';
+import { sizingApi } from '@/lib/api/products';
 import { FieldTip } from '@/components/shared/field-tip';
 import { ImageUploader } from '@/components/shared/image-uploader';
 import { cn } from '@/lib/utils';
@@ -37,6 +39,22 @@ export function VariantsMediaStep() {
     control,
     name: 'variants',
   });
+
+  // Resolve sizing
+  const productTypeId = watch('productTypeId');
+  const sizeSchemaOverrideId = watch('sizeSchemaOverrideId');
+  const { data: productTypes = [] } = useQuery({
+    queryKey: ['product-types'],
+    queryFn: sizingApi.listProductTypes,
+  });
+  const selectedType = productTypes.find((t: any) => t.id === productTypeId);
+  const activeSchemaId = sizeSchemaOverrideId || selectedType?.defaultSizeSchema?.id;
+  const { data: activeSchema } = useQuery({
+    queryKey: ['size-schema-detail', activeSchemaId],
+    queryFn: () => sizingApi.getSchema(activeSchemaId!),
+    enabled: !!activeSchemaId,
+  });
+  const sizeInstances = activeSchema?.instances || [];
 
   // Track which variant cards have their images section expanded
   const [expandedImages, setExpandedImages] = useState<Record<number, boolean>>(() => {
@@ -141,6 +159,44 @@ export function VariantsMediaStep() {
                       </FormItem>
                     )}
                   />
+
+                  {sizeInstances.length > 0 && (
+                    <FormField
+                      control={control}
+                      name={`variants.${index}.sizeInstanceIds`}
+                      render={({ field }) => (
+                        <FormItem className="sm:col-span-2">
+                          <FormLabel>Sizes <FieldTip tip="Select all sizes available for this color variant." /></FormLabel>
+                          <div className="flex flex-wrap gap-2">
+                            {sizeInstances.map((inst: any) => {
+                              const isSelected = field.value?.includes(inst.id);
+                              return (
+                                <button
+                                  type="button"
+                                  key={inst.id}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      field.onChange(field.value.filter((id: string) => id !== inst.id));
+                                    } else {
+                                      field.onChange([...(field.value || []), inst.id]);
+                                    }
+                                  }}
+                                  className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${
+                                    isSelected 
+                                      ? 'bg-primary text-primary-foreground border-primary' 
+                                      : 'bg-background text-foreground hover:bg-muted'
+                                  }`}
+                                >
+                                  {inst.displayLabel}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormField
                     control={control}
@@ -263,7 +319,7 @@ export function VariantsMediaStep() {
           className="w-full border-dashed min-h-[48px]"
           onClick={() => {
             const newIndex = fields.length;
-            append({ name: '', mainColorId: '', identicalColorIds: [], images: [] });
+            append({ name: '', mainColorId: '', sizeInstanceIds: [], identicalColorIds: [], images: [] });
             setExpandedImages(prev => ({ ...prev, [newIndex]: true }));
           }}
         >

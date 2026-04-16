@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { productApi } from '@/lib/api/products';
+import { productApi, sizingApi } from '@/lib/api/products';
 import { toast } from 'sonner';
 
 export function useCategories() {
@@ -255,4 +255,177 @@ export function useUpdateProductStatus() {
       toast.error(message);
     },
   });
+}
+
+// ─── Sizing Hooks ──────────────────────────────────────────────────────────────
+
+export function useProductTypes() {
+  return useQuery({
+    queryKey: ['owner-product-types'],
+    queryFn: () => sizingApi.listProductTypes(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useProductTypeMutations() {
+  const queryClient = useQueryClient();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['owner-product-types'] });
+  };
+
+  const createProductType = useMutation({
+    mutationFn: (payload: { name: string; description?: string; defaultSizeSchemaId?: string }) =>
+      sizingApi.createProductType(payload),
+    onSuccess: () => {
+      toast.success('Product Type created');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to create Product Type');
+    },
+  });
+
+  const updateProductType = useMutation({
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; description?: string; defaultSizeSchemaId?: string; isActive?: boolean }) =>
+      sizingApi.updateProductType(id, payload),
+    onSuccess: () => {
+      toast.success('Product Type updated');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to update Product Type');
+    },
+  });
+
+  const deleteProductType = useMutation({
+    mutationFn: (id: string) => sizingApi.deleteProductType(id),
+    onSuccess: () => {
+      toast.success('Product Type deleted');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to delete Product Type');
+    },
+  });
+
+  return { createProductType, updateProductType, deleteProductType };
+}
+
+export function useSizeSchemas() {
+  return useQuery({
+    queryKey: ['owner-size-schemas'],
+    queryFn: () => sizingApi.listSchemas(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSizeSchemaMutations() {
+  const queryClient = useQueryClient();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['owner-size-schemas'] });
+  };
+
+  const createSchema = useMutation({
+    mutationFn: (payload: { code: string; name: string; description?: string; schemaType?: string; definition: any; instances?: any[] }) =>
+      sizingApi.createSchema(payload),
+    onSuccess: () => {
+      toast.success('Size Schema created');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to create Size Schema');
+    },
+  });
+
+  const updateSchema = useMutation({
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; description?: string; status?: string; definition?: any }) =>
+      sizingApi.updateSchema(id, payload),
+    onSuccess: () => {
+      toast.success('Size Schema updated');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to update Size Schema');
+    },
+  });
+
+  const activateSchema = useMutation({
+    mutationFn: (id: string) => sizingApi.activateSchema(id),
+    onSuccess: () => {
+      toast.success('Size Schema activated (Now available for product types)');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to activate Size Schema');
+    },
+  });
+
+  const deprecateSchema = useMutation({
+    mutationFn: (id: string) => sizingApi.deprecateSchema(id),
+    onSuccess: () => {
+      toast.success('Size Schema deprecated (Hidden from new product types)');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to deprecate Size Schema');
+    },
+  });
+
+  const deleteSchema = useMutation({
+    mutationFn: (id: string) => sizingApi.deleteSchema(id),
+    onSuccess: () => {
+      toast.success('Size Schema deleted');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to delete Size Schema');
+    },
+  });
+
+  return { createSchema, updateSchema, activateSchema, deprecateSchema, deleteSchema };
+}
+
+export function useSizeCharts(schemaId?: string) {
+  return useQuery({
+    queryKey: ['owner-size-charts', schemaId],
+    queryFn: () => sizingApi.listCharts(schemaId),
+    enabled: !!schemaId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSizeChartMutations() {
+  const queryClient = useQueryClient();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['owner-size-charts'] });
+    queryClient.invalidateQueries({ queryKey: ['owner-size-schemas'] });
+  };
+
+  const createChart = useMutation({
+    mutationFn: (payload: { sizeSchemaId: string; productId?: string; title?: string; rows?: any[] }) =>
+      sizingApi.createSizeChart(payload),
+    onSuccess: () => {
+      toast.success('Size Guide saved successfully');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to save Size Guide');
+    },
+  });
+
+  const deleteChart = useMutation({
+    mutationFn: (id: string) => sizingApi.deleteSizeChart(id),
+    onSuccess: () => {
+      toast.success('Size Guide deleted');
+      invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to delete Size Guide');
+    },
+  });
+
+  return { createChart, deleteChart };
 }

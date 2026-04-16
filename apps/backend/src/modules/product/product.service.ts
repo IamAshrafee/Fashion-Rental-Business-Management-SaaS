@@ -38,6 +38,8 @@ export class ProductService {
           description: dto.description,
           categoryId: dto.categoryId,
           subcategoryId: dto.subcategoryId || null,
+          productTypeId: dto.productTypeId || null,
+          sizeSchemaOverrideId: dto.sizeSchemaOverrideId || null,
           status: (dto.status as 'draft' | 'published') || 'draft',
           purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
           purchasePrice: dto.purchasePrice ?? null,
@@ -105,62 +107,7 @@ export class ProductService {
         });
       }
 
-      // 5. Create size
-      if (dto.size) {
-        const productSize = await tx.productSize.create({
-          data: {
-            tenantId,
-            productId: product.id,
-            mode: dto.size.mode as any /* eslint-disable-line @typescript-eslint/no-explicit-any */,
-            freeSizeType: dto.size.freeSizeType as any /* eslint-disable-line @typescript-eslint/no-explicit-any */ ?? null,
-            availableSizes: dto.size.availableSizes ?? [],
-            sizeChartUrl: dto.size.sizeChartUrl ?? null,
-            mainDisplaySize: dto.size.mainDisplaySize ?? null,
-          },
-        });
-
-        // Measurements (for 'measurement' mode)
-        if (dto.size.measurements?.length) {
-          await tx.sizeMeasurement.createMany({
-            data: dto.size.measurements.map((m, i) => ({
-              productSizeId: productSize.id,
-              label: m.label,
-              value: m.value,
-              unit: m.unit || 'inch',
-              sequence: i,
-            })),
-          });
-        }
-
-        // Parts (for 'multi_part' mode)
-        if (dto.size.parts?.length) {
-          for (let i = 0; i < dto.size.parts.length; i++) {
-            const part = dto.size.parts[i];
-            const created = await tx.sizePart.create({
-              data: {
-                productSizeId: productSize.id,
-                partName: part.partName,
-                sequence: i,
-              },
-            });
-
-            if (part.measurements?.length) {
-              await tx.sizeMeasurement.createMany({
-                data: part.measurements.map((m, j) => ({
-                  productSizeId: productSize.id,
-                  partId: created.id,
-                  label: m.label,
-                  value: m.value,
-                  unit: m.unit || 'inch',
-                  sequence: j,
-                })),
-              });
-            }
-          }
-        }
-      }
-
-      // 6. Create FAQs
+      // 5. Create FAQs
       if (dto.faqs?.length) {
         await tx.productFaq.createMany({
           data: dto.faqs.map((faq, i) => ({
@@ -224,6 +171,8 @@ export class ProductService {
     if (dto.itemCountry !== undefined) data.itemCountry = dto.itemCountry;
     if (dto.itemCountryPublic !== undefined) data.itemCountryPublic = dto.itemCountryPublic;
     if (dto.targetRentals !== undefined) data.targetRentals = dto.targetRentals;
+    if (dto.productTypeId !== undefined) data.productTypeId = dto.productTypeId || null;
+    if (dto.sizeSchemaOverrideId !== undefined) data.sizeSchemaOverrideId = dto.sizeSchemaOverrideId || null;
 
     return this.prisma.$transaction(async (tx) => {
       // Update product
@@ -251,9 +200,6 @@ export class ProductService {
       }
       if (dto.services) {
         await this.upsertServices(tx, tenantId, productId, dto.services);
-      }
-      if (dto.size) {
-        await this.replaceSize(tx, tenantId, productId, dto.size);
       }
 
       // Replace FAQs if provided (bulk replace strategy)
@@ -1018,14 +964,23 @@ export class ProductService {
       },
       pricing: true,
       services: true,
-      productSize: {
+      productType: {
         include: {
-          measurements: { orderBy: { sequence: 'asc' as const } },
-          parts: {
-            orderBy: { sequence: 'asc' as const },
+          defaultSizeSchema: {
             include: {
-              measurements: { orderBy: { sequence: 'asc' as const } },
+              instances: { orderBy: { sortOrder: 'asc' as const } },
+              sizeCharts: {
+                include: { rows: { orderBy: { sortOrder: 'asc' as const } } },
+              },
             },
+          },
+        },
+      },
+      sizeSchemaOverride: {
+        include: {
+          instances: { orderBy: { sortOrder: 'asc' as const } },
+          sizeCharts: {
+            include: { rows: { orderBy: { sortOrder: 'asc' as const } } },
           },
         },
       },
@@ -1038,6 +993,7 @@ export class ProductService {
               color: { select: { id: true, name: true, hexCode: true } },
             },
           },
+          sizes: { include: { sizeInstance: true } },
           images: {
             orderBy: { sequence: 'asc' as const },
           },
@@ -1087,18 +1043,38 @@ export class ProductService {
   }
 
   private mapProductDetail(product: any) {
+    // Resolve active schema: product override → product type default
+    const activeSchema = product.sizeSchemaOverride ?? product.productType?.defaultSizeSchema ?? null;
+
     return {
       ...product,
       events: product.events?.map((pe: any) => pe.event) || [],
       variants: product.variants?.map((v: any) => ({
         ...v,
         identicalColors: v.identicalColors?.map((vc: any) => vc.color) || [],
+        sizes: v.sizes?.map((s: any) => s.sizeInstance) || [],
       })),
       details: product.detailHeaders?.map((h: any) => ({
         id: h.id,
         header: h.headerName,
         entries: h.entries || [],
       })),
+      // Resolved sizing payload
+      sizing: activeSchema ? {
+        schema: {
+          id: activeSchema.id,
+          code: activeSchema.code,
+          name: activeSchema.name,
+          definition: activeSchema.definition,
+        },
+        instances: activeSchema.instances || [],
+        sizeCharts: activeSchema.sizeCharts || [],
+      } : null,
+      productType: product.productType ? {
+        id: product.productType.id,
+        name: product.productType.name,
+        slug: product.productType.slug,
+      } : null,
     };
   }
 
@@ -1186,66 +1162,5 @@ export class ProductService {
         tryOnCreditToRental: services.tryOnCreditToRental ?? undefined,
       },
     });
-  }
-
-  private async replaceSize(tx: any, tenantId: string, productId: string, size: any) {
-    // Delete existing size data
-    const existing = await tx.productSize.findUnique({ where: { productId } });
-    if (existing) {
-      await tx.sizeMeasurement.deleteMany({ where: { productSizeId: existing.id } });
-      await tx.sizePart.deleteMany({ where: { productSizeId: existing.id } });
-      await tx.productSize.delete({ where: { id: existing.id } });
-    }
-
-    // Recreate
-    const productSize = await tx.productSize.create({
-      data: {
-        tenantId,
-        productId,
-        mode: size.mode,
-        freeSizeType: size.freeSizeType ?? null,
-        availableSizes: size.availableSizes ?? [],
-        sizeChartUrl: size.sizeChartUrl ?? null,
-        mainDisplaySize: size.mainDisplaySize ?? null,
-      },
-    });
-
-    if (size.measurements?.length) {
-      await tx.sizeMeasurement.createMany({
-        data: size.measurements.map((m: any, i: number) => ({
-          productSizeId: productSize.id,
-          label: m.label,
-          value: m.value,
-          unit: m.unit || 'inch',
-          sequence: i,
-        })),
-      });
-    }
-
-    if (size.parts?.length) {
-      for (let i = 0; i < size.parts.length; i++) {
-        const part = size.parts[i];
-        const created = await tx.sizePart.create({
-          data: {
-            productSizeId: productSize.id,
-            partName: part.partName,
-            sequence: i,
-          },
-        });
-
-        if (part.measurements?.length) {
-          await tx.sizeMeasurement.createMany({
-            data: part.measurements.map((m: any, j: number) => ({
-              productSizeId: productSize.id,
-              partId: created.id,
-              label: m.label,
-              value: m.value,
-              unit: m.unit || 'inch',
-              sequence: j,
-            })),
-          });
-        }
-      }
-    }
   }
 }

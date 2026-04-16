@@ -64,39 +64,16 @@ export interface GuestProductDetail {
     tryOnDurationHours: number | null;
     tryOnCreditToRental: boolean;
   } | null;
-  productSize: {
-    id: string;
-    mode: string;
-    freeSizeType: string | null;
-    availableSizes: string[];
-    sizeChartUrl: string | null;
-    mainDisplaySize: string | null;
-    measurements: Array<{
-      id: string;
-      label: string;
-      value: string;
-      unit: string;
-      sequence: number;
-    }>;
-    parts: Array<{
-      id: string;
-      partName: string;
-      sequence: number;
-      measurements: Array<{
-        id: string;
-        label: string;
-        value: string;
-        unit: string;
-        sequence: number;
-      }>;
-    }>;
-  } | null;
+  productType: import('./products').ProductTypeData | null;
+  sizeSchemaOverride: import('./products').SizeSchemaData | null;
+  sizing: import('./products').SizingPayload | null;
   variants: Array<{
     id: string;
     variantName: string | null;
     sequence: number;
     mainColor: { id: string; name: string; hexCode: string | null };
     identicalColors: Array<{ id: string; name: string; hexCode: string | null }>;
+    sizeInstance: import('./products').SizeInstanceData | null;
     images: Array<{
       id: string;
       url: string;

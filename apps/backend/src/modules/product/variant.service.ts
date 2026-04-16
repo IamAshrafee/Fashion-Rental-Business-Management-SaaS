@@ -34,9 +34,24 @@ export class VariantService {
         variantName: dto.variantName || null,
         mainColorId: dto.mainColorId,
         sequence,
+        sizes: {
+          create: dto.sizeInstanceIds 
+            ? (await this.prisma.sizeInstance.findMany({
+                where: { id: { in: dto.sizeInstanceIds } },
+                select: { id: true }
+              })).map(si => ({
+                tenantId,
+                sizeInstanceId: si.id,
+                stockLevel: 1,
+              }))
+            : [],
+        },
       },
       include: {
         mainColor: { select: { id: true, name: true, hexCode: true } },
+        sizes: {
+          include: { sizeInstance: true }
+        }
       },
     });
 
@@ -77,6 +92,31 @@ export class VariantService {
         mainColor: { select: { id: true, name: true, hexCode: true } },
       },
     });
+
+    // Update sizes if provided
+    if (dto.sizeInstanceIds !== undefined) {
+      await this.prisma.variantSize.deleteMany({ where: { variantId } });
+      const validIds = dto.sizeInstanceIds.filter((id) => id && id.length > 5);
+      
+      if (validIds.length > 0) {
+        // Double check against DB to prevent foreign key violations from cached 'ghost' IDs
+        const existingSizes = await this.prisma.sizeInstance.findMany({
+          where: { id: { in: validIds } },
+          select: { id: true }
+        });
+        
+        if (existingSizes.length > 0) {
+          await this.prisma.variantSize.createMany({
+            data: existingSizes.map((si) => ({
+              tenantId,
+              variantId,
+              sizeInstanceId: si.id,
+              stockLevel: 1,
+            }))
+          });
+        }
+      }
+    }
 
     // Update identical colors if provided
     if (dto.identicalColorIds !== undefined) {

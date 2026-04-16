@@ -4,7 +4,6 @@ import {
   PricingMode,
   LateFeeType,
   ShippingMode,
-  SizeMode,
 } from '@closetrent/types';
 
 export const productFormSchema = z.object({
@@ -28,6 +27,7 @@ export const productFormSchema = z.object({
       z.object({
         id: z.string().optional(), // Used for edit, or temp ID for DnD
         name: z.string().optional(),
+        sizeInstanceIds: z.array(z.string()).default([]),
         mainColorId: z.string().min(1, 'Main color is required'),
         identicalColorIds: z.array(z.string()).min(1, 'At least one identical color is required'),
         images: z
@@ -63,40 +63,9 @@ export const productFormSchema = z.object({
   shippingMode: z.enum(['free', 'flat', 'area_based'] as [ShippingMode, ...ShippingMode[]]).default('free'),
   flatShippingFee: z.number().optional(),
 
-  // Step 5: Size
-  sizeMode: z.enum(['standard', 'measurement', 'multi_part', 'free'] as [SizeMode, ...SizeMode[]]).default('standard'),
-  // Standard mode
-  availableSizes: z.array(z.string()).default([]),
-  mainDisplaySize: z.string().optional(),
-  // Free mode
-  freeSizeType: z.enum(['free_size', 'adjustable', 'no_size']).optional(),
-  // Measurement mode
-  measurements: z
-    .array(
-      z.object({
-        label: z.string().min(1, 'Label is required'),
-        value: z.number().min(0, 'Value is required'),
-        unit: z.string().default('inch'),
-      })
-    )
-    .optional(),
-  // Multi-part mode
-  parts: z
-    .array(
-      z.object({
-        partName: z.string().min(1, 'Part name is required'),
-        measurements: z.array(
-          z.object({
-            label: z.string().min(1, 'Label is required'),
-            value: z.number().min(0, 'Value is required'),
-            unit: z.string().default('inch'),
-          })
-        ).default([]),
-      })
-    )
-    .optional(),
-  sizeChartUrl: z.string().optional(),
-  sizeChartImage: z.any().optional(), // File object for size chart upload
+  // Step 5: Size (schema-driven)
+  productTypeId: z.string().optional(),
+  sizeSchemaOverrideId: z.string().optional(),
 
   // Step 6: Services
   securityDeposit: z.number().optional(),

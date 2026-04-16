@@ -20,13 +20,13 @@ import { useToast } from '@/hooks/use-toast';
 /* ─── Validation field groups for each step ────────────────────────────── */
 const STEP_FIELDS: Record<number, string[]> = {
   0: ['name', 'categoryId', 'status'],
-  1: ['variants'],
-  2: [
+  1: ['sizeMode', 'measurements', 'details', 'faqs'],
+  2: ['variants'],
+  3: [
     'pricingMode', 'rentalPrice', 'includedDays', 'pricePerDay',
     'retailPrice', 'rentalPercentage', 'minPrice', 'maxDiscount',
     'securityDeposit', 'cleaningFee',
   ],
-  3: ['sizeMode', 'measurements', 'details', 'faqs'],
   4: [], // Review — full validation on submit
 };
 
@@ -86,8 +86,8 @@ export function ProductFormWizard() {
 
   /* ── Step validation + navigation ─────────────────────────────────── */
   const validateCurrentStep = useCallback(async (): Promise<boolean> => {
-    // Step 1 (Variants & Media) — also check images manually
-    if (currentStep === 1) {
+    // Step 2 (Variants & Media) — also check images manually
+    if (currentStep === 2) {
       const variants = form.getValues('variants');
       let hasImageError = false;
       variants.forEach((v, i) => {
@@ -239,9 +239,9 @@ export function ProductFormWizard() {
   const renderStep = () => {
     switch (currentStep) {
       case 0: return <BasicInfoStep />;
-      case 1: return <VariantsMediaStep />;
-      case 2: return <PricingServicesStep />;
-      case 3: return <SizeDetailsStep />;
+      case 1: return <SizeDetailsStep />;
+      case 2: return <VariantsMediaStep />;
+      case 3: return <PricingServicesStep />;
       case 4: return <ReviewStep onGoToStep={(step) => { setCurrentStep(step); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />;
       default: return null;
     }

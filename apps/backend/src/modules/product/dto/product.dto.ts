@@ -50,43 +50,7 @@ export class SetServicesDto {
   @IsOptional() @IsBoolean() tryOnCreditToRental?: boolean;
 }
 
-// --- Size DTOs ---
-export class SizeMeasurementDto {
-  @IsString() label!: string;
-  @IsString() value!: string;
-  @IsOptional() @IsString() unit?: string;
-}
 
-export class SizePartDto {
-  @IsString() partName!: string;
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => SizeMeasurementDto)
-  measurements!: SizeMeasurementDto[];
-}
-
-export class SetSizeDto {
-  @IsEnum(['standard', 'measurement', 'multi_part', 'free'])
-  mode!: string;
-
-  @IsOptional() @IsArray() @IsString({ each: true }) availableSizes?: string[];
-  @IsOptional() @IsString() sizeChartUrl?: string;
-  @IsOptional() @IsString() mainDisplaySize?: string;
-  @IsOptional() @IsEnum(['free_size', 'adjustable', 'no_size']) freeSizeType?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => SizeMeasurementDto)
-  measurements?: SizeMeasurementDto[];
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => SizePartDto)
-  parts?: SizePartDto[];
-}
 
 // --- FAQ DTOs ---
 export class CreateFaqDto {
@@ -131,6 +95,11 @@ export class CreateVariantDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  sizeInstanceIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   identicalColorIds?: string[];
 
   @IsOptional() @IsInt() @Min(0) sequence?: number;
@@ -139,6 +108,10 @@ export class CreateVariantDto {
 export class UpdateVariantDto {
   @IsOptional() @IsString() variantName?: string;
   @IsOptional() @IsString() mainColorId?: string;
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  sizeInstanceIds?: string[];
 
   @IsOptional()
   @IsArray()
@@ -202,7 +175,9 @@ export class CreateProductDto {
 
   @IsOptional() @ValidateNested() @Type(() => SetPricingDto) pricing?: SetPricingDto;
   @IsOptional() @ValidateNested() @Type(() => SetServicesDto) services?: SetServicesDto;
-  @IsOptional() @ValidateNested() @Type(() => SetSizeDto) size?: SetSizeDto;
+
+  @IsOptional() @IsString() productTypeId?: string;
+  @IsOptional() @IsString() sizeSchemaOverrideId?: string;
 
   @IsOptional()
   @IsArray()
@@ -237,7 +212,9 @@ export class UpdateProductDto {
 
   @IsOptional() @ValidateNested() @Type(() => SetPricingDto) pricing?: SetPricingDto;
   @IsOptional() @ValidateNested() @Type(() => SetServicesDto) services?: SetServicesDto;
-  @IsOptional() @ValidateNested() @Type(() => SetSizeDto) size?: SetSizeDto;
+
+  @IsOptional() @IsString() productTypeId?: string;
+  @IsOptional() @IsString() sizeSchemaOverrideId?: string;
 
   @IsOptional()
   @IsArray()

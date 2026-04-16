@@ -45,26 +45,8 @@ function buildUpdatePayload(data: ProductFormValues) {
       shippingFee: data.flatShippingFee,
     },
 
-    size: {
-      mode: data.sizeMode,
-      availableSizes: (data.sizeMode === 'standard' || data.sizeMode === 'multi_part') ? data.availableSizes : undefined,
-      mainDisplaySize: (data.sizeMode === 'standard' || data.sizeMode === 'multi_part') ? data.mainDisplaySize : undefined,
-      freeSizeType: data.sizeMode === 'free' ? data.freeSizeType : undefined,
-      measurements: (data.sizeMode === 'measurement' || data.sizeMode === 'standard' || data.sizeMode === 'free') ? data.measurements?.map((m) => ({
-        label: m.label,
-        value: String(m.value),
-        unit: m.unit,
-      })) : undefined,
-      parts: data.sizeMode === 'multi_part' ? data.parts?.map((p) => ({
-        partName: p.partName,
-        measurements: p.measurements?.map((m) => ({
-          label: m.label,
-          value: String(m.value),
-          unit: m.unit,
-        })) ?? [],
-      })) : undefined,
-      sizeChartUrl: data.sizeChartUrl,
-    },
+    productTypeId: data.productTypeId,
+    sizeSchemaOverrideId: data.sizeSchemaOverrideId,
 
     services: {
       depositAmount: data.securityDeposit,
@@ -145,6 +127,7 @@ export function useUpdateProduct(
           await productApi.updateVariant(productId, fv.id, {
             variantName: fv.name,
             mainColorId: fv.mainColorId,
+            sizeInstanceIds: fv.sizeInstanceIds || [],
             identicalColorIds: fv.identicalColorIds,
           });
           variantId = fv.id;
@@ -154,6 +137,7 @@ export function useUpdateProduct(
           const created = await productApi.addVariant(productId, {
             variantName: fv.name,
             mainColorId: fv.mainColorId,
+            sizeInstanceIds: fv.sizeInstanceIds || [],
             identicalColorIds: fv.identicalColorIds,
           });
           variantId = created.id;
