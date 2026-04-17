@@ -36,7 +36,6 @@ const NAV_ITEMS: NavItem[] = [
   { title: 'Customers', href: '/dashboard/customers', icon: Users },
   { title: 'Sales Analytics', href: '/dashboard/analytics', icon: BarChart3 },
   { title: 'Traffic & Funnel', href: '/dashboard/traffic', icon: Activity },
-  { title: 'Billing', href: '/dashboard/billing', icon: CreditCard },
   { title: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 

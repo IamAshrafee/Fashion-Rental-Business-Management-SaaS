@@ -833,6 +833,27 @@ export class AdminService {
   }
 
   /**
+   * Get all global subscription payments.
+   */
+  async getGlobalPayments() {
+    const payments = await this.prisma.subscriptionPayment.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        tenant: {
+          select: { id: true, businessName: true, subdomain: true },
+        },
+        recorder: {
+          select: { id: true, fullName: true, email: true },
+        },
+        invoice: {
+          select: { id: true, invoiceNo: true, status: true },
+        },
+      },
+    });
+    return { success: true, data: payments };
+  }
+
+  /**
    * Get payment history for a tenant.
    */
   async getPaymentHistory(tenantId: string, params: { page: number; limit: number }) {

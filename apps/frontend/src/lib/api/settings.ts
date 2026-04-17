@@ -69,6 +69,11 @@ export const settingsApi = {
     return data;
   },
 
+  getBillingHistory: async () => {
+    const { data } = await apiClient.get<ApiResponse<any>>('/tenant/billing-history');
+    return data;
+  },
+
   // Branding — Logo Upload
   uploadLogo: async (file: File) => {
     const formData = new FormData();

@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { BillingHistoryTable } from './billing-history';
 
 export default function SubscriptionSettingsPage() {
   const { data: response, isLoading } = useSubscription();
@@ -46,8 +47,11 @@ export default function SubscriptionSettingsPage() {
   // Compute resource usage percentages
   const productUsage = usage?.products;
   const staffUsage = usage?.staff;
+  const orderUsage = usage?.orders;
+  
   const productPercent = productUsage && productUsage.limit ? Math.round((productUsage.current / productUsage.limit) * 100) : 0;
   const staffPercent = staffUsage && staffUsage.limit ? Math.round((staffUsage.current / staffUsage.limit) * 100) : 0;
+  const orderPercent = orderUsage && orderUsage.limit ? Math.round((orderUsage.current / orderUsage.limit) * 100) : 0;
 
   // Computed status display
   const computed = subscription?.computed;
@@ -166,14 +170,34 @@ export default function SubscriptionSettingsPage() {
             )}
           </div>
           
+          <div className="space-y-2 relative">
+            <div className="flex justify-between text-sm">
+              <span className="font-medium text-foreground">Monthly Orders</span>
+              <span className="text-muted-foreground">
+                {orderUsage ? `${orderUsage.current}` : '—'} / {currentPlan.maxOrders || 'Unlimited'}
+              </span>
+            </div>
+            <Progress
+              value={currentPlan.maxOrders ? orderPercent : 0}
+              className="h-2 w-full"
+            />
+            {orderUsage && currentPlan.maxOrders && orderPercent >= 80 && (
+              <p className="text-xs text-amber-600">You&apos;re approaching your monthly order limit.</p>
+            )}
+          </div>
+          
         </div>
       </div>
       
       <div className="flex gap-4 pt-6 border-t mt-8">
-        <Button disabled>Upgrade Plan</Button>
-        <Button variant="outline" disabled>View Invoices</Button>
-        <p className="text-xs text-muted-foreground self-center ml-2">Plan upgrades and billing portal coming soon.</p>
+        <Button asChild>
+          <a href={`mailto:admin@closetrent.com?subject=Upgrade Plan Request - ${currentPlan.name}`}>
+            Contact us to Upgrade
+          </a>
+        </Button>
       </div>
+
+      <BillingHistoryTable />
     </div>
   );
 }

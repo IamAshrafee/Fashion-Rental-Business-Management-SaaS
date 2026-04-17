@@ -9,7 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 /**
  * Resources that can be checked against subscription plan limits.
  */
-export type PlanResource = 'products' | 'staff';
+export type PlanResource = 'products' | 'staff' | 'orders';
 
 /**
  * Subscription status result with computed fields.
@@ -47,6 +47,7 @@ export class SubscriptionService {
             priceMonthly: true,
             priceAnnual: true,
             maxProducts: true,
+            maxOrders: true,
             maxStaff: true,
             customDomain: true,
             smsEnabled: true,
@@ -118,6 +119,18 @@ export class SubscriptionService {
         limit = subscription.plan.maxStaff;
         break;
       }
+      case 'orders': {
+        // Enforce monthly maxOrders limit
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        
+        current = await this.prisma.booking.count({
+          where: { tenantId, createdAt: { gte: startOfMonth } },
+        });
+        limit = subscription.plan.maxOrders;
+        break;
+      }
       default:
         return { allowed: true, current: 0, limit: null };
     }
@@ -164,7 +177,7 @@ export class SubscriptionService {
         isInGracePeriod: false,
         isExpired: false,
         daysRemaining: -1,
-        status: 'free',
+        status: 'free_tier',
       };
     }
 
@@ -239,6 +252,30 @@ export class SubscriptionService {
       };
     }
 
+    // Free Tier explicit check
+    if (status === 'free_tier') {
+      return {
+        isActive: true,
+        isInTrial: false,
+        isInGracePeriod: false,
+        isExpired: false,
+        daysRemaining: -1,
+        status: 'free_tier',
+      };
+    }
+
+    // Suspended explicit check
+    if (status === 'suspended') {
+      return {
+        isActive: false,
+        isInTrial: false,
+        isInGracePeriod: false,
+        isExpired: true,
+        daysRemaining: 0,
+        status: 'suspended',
+      };
+    }
+
     // Cancelled or past_due
     return {
       isActive: status === 'past_due',
@@ -248,5 +285,22 @@ export class SubscriptionService {
       daysRemaining: 0,
       status,
     };
+  }
+
+  /**
+   * Get billing history for a tenant.
+   */
+  async getBillingHistory(tenantId: string) {
+    const payments = await this.prisma.subscriptionPayment.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        invoice: {
+          select: { id: true, invoiceNo: true, status: true },
+        },
+      },
+    });
+
+    return { success: true, data: payments };
   }
 }

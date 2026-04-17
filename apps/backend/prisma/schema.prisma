@@ -193,6 +193,9 @@ enum SubscriptionStatus {
   past_due
   cancelled
   trial
+  free_tier
+  grace_period
+  suspended
 }
 
 enum BillingCycle {
@@ -219,16 +222,16 @@ enum LoginEventType {
 // ============================================================================
 
 model User {
-  id           String     @id @default(uuid())
-  fullName     String     @map("full_name")
-  email        String?    @unique
+  id           String    @id @default(uuid())
+  fullName     String    @map("full_name")
+  email        String?   @unique
   phone        String?
-  passwordHash String     @map("password_hash")
-  role         UserRole   @default(owner)
-  isActive     Boolean    @default(true) @map("is_active")
-  lastLoginAt  DateTime?  @map("last_login_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  passwordHash String    @map("password_hash")
+  role         UserRole  @default(owner)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   ownedTenants        Tenant[]
   tenantUsers         TenantUser[]
@@ -236,10 +239,10 @@ model User {
   sessions            Session[]
   loginHistory        LoginHistory[]
   damageReports       DamageReport[]
-  deletedProducts     Product[]              @relation("ProductDeletedBy")
-  recordedPayments    SubscriptionPayment[]  @relation("PaymentsRecordedBy")
-  createdPromoCodes   PromoCode[]            @relation("PromoCodesCreatedBy")
-  subscriptionActions SubscriptionHistory[]  @relation("HistoryPerformedBy")
+  deletedProducts     Product[]             @relation("ProductDeletedBy")
+  recordedPayments    SubscriptionPayment[] @relation("PaymentsRecordedBy")
+  createdPromoCodes   PromoCode[]           @relation("PromoCodesCreatedBy")
+  subscriptionActions SubscriptionHistory[] @relation("HistoryPerformedBy")
 
   @@index([phone])
   @@map("users")
@@ -261,29 +264,30 @@ model Color {
 }
 
 model SubscriptionPlan {
-  id             String   @id @default(uuid())
-  name           String
-  slug           String   @unique
-  description    String?                                         // Marketing description
-  features       Json?                                           // ["Feature 1", "Feature 2", ...]
-  badge          String?                                         // e.g. "Most Popular", "Best Value"
-  priceMonthly   Int      @default(0) @map("price_monthly")      // Paisa (ADR-04)
-  priceAnnual    Int?     @map("price_annual")                   // Paisa (ADR-04)
-  trialDays      Int      @default(0) @map("trial_days")         // 0 = no trial
-  maxProducts    Int?     @map("max_products")
-  maxStaff       Int      @default(0) @map("max_staff")
-  customDomain   Boolean  @default(false) @map("custom_domain")
-  smsEnabled     Boolean  @default(false) @map("sms_enabled")
-  analyticsFull     Boolean  @default(false) @map("analytics_full")
-  removeBranding    Boolean  @default(false) @map("remove_branding")
-  isActive          Boolean  @default(true) @map("is_active")
-  displayOrder      Int      @default(0) @map("display_order")
+  id               String   @id @default(uuid())
+  name             String
+  slug             String   @unique
+  description      String? // Marketing description
+  features         Json? // ["Feature 1", "Feature 2", ...]
+  badge            String? // e.g. "Most Popular", "Best Value"
+  priceMonthly     Int      @default(0) @map("price_monthly") // Paisa (ADR-04)
+  priceAnnual      Int?     @map("price_annual") // Paisa (ADR-04)
+  trialDays        Int      @default(0) @map("trial_days") // 0 = no trial
+  maxProducts      Int?     @map("max_products")
+  maxOrders        Int?     @map("max_orders")
+  maxStaff         Int      @default(0) @map("max_staff")
+  customDomain     Boolean  @default(false) @map("custom_domain")
+  smsEnabled       Boolean  @default(false) @map("sms_enabled")
+  analyticsFull    Boolean  @default(false) @map("analytics_full")
+  removeBranding   Boolean  @default(false) @map("remove_branding")
+  isActive         Boolean  @default(true) @map("is_active")
+  displayOrder     Int      @default(0) @map("display_order")
   // Resource Governance Limits (null = unlimited)
-  maxApiCallsDaily  Int?     @map("max_api_calls_daily")   // Daily API request quota per tenant
-  maxStorageMb      Int?     @map("max_storage_mb")        // MaxStorage in MB for product images
-  maxRpm            Int      @default(120) @map("max_rpm") // Max requests per minute (noisy neighbor)
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  maxApiCallsDaily Int?     @map("max_api_calls_daily") // Daily API request quota per tenant
+  maxStorageMb     Int?     @map("max_storage_mb") // MaxStorage in MB for product images
+  maxRpm           Int      @default(120) @map("max_rpm") // Max requests per minute (noisy neighbor)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   tenants       Tenant[]
   subscriptions Subscription[]
@@ -320,8 +324,8 @@ model Tenant {
   planId         String?      @map("plan_id")
   logoUrl        String?      @map("logo_url")
   faviconUrl     String?      @map("favicon_url")
-  referralSource String?      @map("referral_source")  // Marketing channel tracking
-  promoCodeId    String?      @map("promo_code_id")    // Promo used at registration
+  referralSource String?      @map("referral_source") // Marketing channel tracking
+  promoCodeId    String?      @map("promo_code_id") // Promo used at registration
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
@@ -362,24 +366,24 @@ model Tenant {
 // One row per tenant per day (upserted hourly via @@unique constraint).
 // 90 days of history retained (~50 tenants x 90 rows = 4,500 rows -- trivial).
 model TenantUsageSnapshot {
-  id              String   @id @default(uuid())
-  tenantId        String   @map("tenant_id")
-  snapshotDate    DateTime @map("snapshot_date") @db.Date // The day this snapshot covers
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  snapshotDate DateTime @map("snapshot_date") @db.Date // The day this snapshot covers
 
   // API Metrics -- aggregated from Redis counters
-  apiRequestCount     Int @default(0) @map("api_request_count")
-  avgResponseTimeMs   Int @default(0) @map("avg_response_time_ms")
-  p95ResponseTimeMs   Int @default(0) @map("p95_response_time_ms") // Peak latency sample
-  errorCount          Int @default(0) @map("error_count")           // 4xx + 5xx count
-  totalBandwidthKb    Int @default(0) @map("total_bandwidth_kb")    // Response body sizes in KB
-  peakRpm             Int @default(0) @map("peak_rpm")              // Highest RPM observed
+  apiRequestCount   Int @default(0) @map("api_request_count")
+  avgResponseTimeMs Int @default(0) @map("avg_response_time_ms")
+  p95ResponseTimeMs Int @default(0) @map("p95_response_time_ms") // Peak latency sample
+  errorCount        Int @default(0) @map("error_count") // 4xx + 5xx count
+  totalBandwidthKb  Int @default(0) @map("total_bandwidth_kb") // Response body sizes in KB
+  peakRpm           Int @default(0) @map("peak_rpm") // Highest RPM observed
 
   // Resource Metrics -- computed by daily resource scan job
-  productCount    Int @default(0) @map("product_count")
-  bookingCount    Int @default(0) @map("booking_count")
-  customerCount   Int @default(0) @map("customer_count")
-  staffCount      Int @default(0) @map("staff_count")
-  storageUsedMb   Int @default(0) @map("storage_used_mb") // Sum of product image file sizes
+  productCount  Int @default(0) @map("product_count")
+  bookingCount  Int @default(0) @map("booking_count")
+  customerCount Int @default(0) @map("customer_count")
+  staffCount    Int @default(0) @map("staff_count")
+  storageUsedMb Int @default(0) @map("storage_used_mb") // Sum of product image file sizes
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -387,60 +391,59 @@ model TenantUsageSnapshot {
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, snapshotDate])
-  @@index([snapshotDate])                       // Fast range scans for dashboard time ranges
+  @@index([snapshotDate]) // Fast range scans for dashboard time ranges
   @@index([tenantId, snapshotDate(sort: Desc)]) // Fast per-tenant history fetch
   @@map("tenant_usage_snapshots")
 }
 
-
 model StoreSettings {
-  id                    String   @id @default(uuid())
-  tenantId              String   @unique @map("tenant_id")
-  primaryColor          String   @default("#6366F1") @map("primary_color")
-  secondaryColor        String?  @map("secondary_color")
-  tagline               String?
-  about                 String?
-  phone                 String?
-  whatsapp              String?
-  email                 String?
-  address               String?
-  facebookUrl           String?  @map("facebook_url")
-  instagramUrl          String?  @map("instagram_url")
-  tiktokUrl             String?  @map("tiktok_url")
-  youtubeUrl            String?  @map("youtube_url")
-  defaultLanguage       String   @default("en") @map("default_language")
-  timezone              String   @default("UTC")
-  country               String   @default("BD")
-  currencyCode          String   @default("BDT") @map("currency_code")
-  currencySymbol        String   @default("৳") @map("currency_symbol")
-  currencyPosition      String   @default("before") @map("currency_position")
-  numberFormat          String   @default("south_asian") @map("number_format")
-  dateFormat            String   @default("DD/MM/YYYY") @map("date_format")
-  timeFormat            String   @default("12h") @map("time_format")
-  weekStart             String   @default("saturday") @map("week_start")
-  smsEnabled            Boolean  @default(true) @map("sms_enabled")
-  bkashNumber           String?  @map("bkash_number")
-  nagadNumber           String?  @map("nagad_number")
-  sslcommerzStoreId     String?  @map("sslcommerz_store_id")
-  sslcommerzStorePass   String?  @map("sslcommerz_store_pass")
-  sslcommerzSandbox     Boolean  @default(true) @map("sslcommerz_sandbox")
-  defaultCourier        String?  @map("default_courier")
-  courierApiKey         String?  @map("courier_api_key")
-  courierSecretKey      String?  @map("courier_secret_key")
-  pickupAddress         String?  @map("pickup_address")
-  pickupCity            String?  @map("pickup_city")
+  id                  String  @id @default(uuid())
+  tenantId            String  @unique @map("tenant_id")
+  primaryColor        String  @default("#6366F1") @map("primary_color")
+  secondaryColor      String? @map("secondary_color")
+  tagline             String?
+  about               String?
+  phone               String?
+  whatsapp            String?
+  email               String?
+  address             String?
+  facebookUrl         String? @map("facebook_url")
+  instagramUrl        String? @map("instagram_url")
+  tiktokUrl           String? @map("tiktok_url")
+  youtubeUrl          String? @map("youtube_url")
+  defaultLanguage     String  @default("en") @map("default_language")
+  timezone            String  @default("UTC")
+  country             String  @default("BD")
+  currencyCode        String  @default("BDT") @map("currency_code")
+  currencySymbol      String  @default("৳") @map("currency_symbol")
+  currencyPosition    String  @default("before") @map("currency_position")
+  numberFormat        String  @default("south_asian") @map("number_format")
+  dateFormat          String  @default("DD/MM/YYYY") @map("date_format")
+  timeFormat          String  @default("12h") @map("time_format")
+  weekStart           String  @default("saturday") @map("week_start")
+  smsEnabled          Boolean @default(true) @map("sms_enabled")
+  bkashNumber         String? @map("bkash_number")
+  nagadNumber         String? @map("nagad_number")
+  sslcommerzStoreId   String? @map("sslcommerz_store_id")
+  sslcommerzStorePass String? @map("sslcommerz_store_pass")
+  sslcommerzSandbox   Boolean @default(true) @map("sslcommerz_sandbox")
+  defaultCourier      String? @map("default_courier")
+  courierApiKey       String? @map("courier_api_key")
+  courierSecretKey    String? @map("courier_secret_key")
+  pickupAddress       String? @map("pickup_address")
+  pickupCity          String? @map("pickup_city")
 
   // Pathao-specific credentials (dedicated columns instead of pipe-delimited)
-  pathaoClientId        String?  @map("pathao_client_id")
-  pathaoClientSecret    String?  @map("pathao_client_secret")
-  pathaoUsername        String?  @map("pathao_username")
-  pathaoPassword        String?  @map("pathao_password")
-  pathaoStoreId         Int?     @map("pathao_store_id")
-  pathaoSandbox         Boolean  @default(false) @map("pathao_sandbox")
+  pathaoClientId     String? @map("pathao_client_id")
+  pathaoClientSecret String? @map("pathao_client_secret")
+  pathaoUsername     String? @map("pathao_username")
+  pathaoPassword     String? @map("pathao_password")
+  pathaoStoreId      Int?    @map("pathao_store_id")
+  pathaoSandbox      Boolean @default(false) @map("pathao_sandbox")
 
   // Pickup scheduling — district-based lead days
-  pickupLeadDays        Int?     @default(2) @map("pickup_lead_days")
-  pickupLeadDaysConfig  Json?    @map("pickup_lead_days_config") @db.JsonB
+  pickupLeadDays       Int?  @default(2) @map("pickup_lead_days")
+  pickupLeadDaysConfig Json? @map("pickup_lead_days_config") @db.JsonB
 
   maxConcurrentSessions Int      @default(5) @map("max_concurrent_sessions")
   bufferDays            Int      @default(0) @map("buffer_days")
@@ -542,45 +545,45 @@ model LoginHistory {
 // ============================================================================
 
 model Product {
-  id                    String                @id @default(uuid())
-  tenantId              String                @map("tenant_id")
-  name                  String
-  slug                  String
-  description           String?
-  categoryId            String                @map("category_id")
-  subcategoryId         String?               @map("subcategory_id")
-  productTypeId         String?               @map("product_type_id")
-  sizeSchemaOverrideId  String?               @map("size_schema_override_id")
-  status                ProductStatus         @default(draft)
-  isAvailable           Boolean               @default(true) @map("is_available")
-  availableFrom         DateTime?             @map("available_from") @db.Date
-  unavailableReason     String?               @map("unavailable_reason")
-  purchaseDate          DateTime?             @map("purchase_date") @db.Date
-  purchasePrice         Int?                  @map("purchase_price")
-  purchasePricePublic   Boolean               @default(false) @map("purchase_price_public")
-  itemCountry           String?               @map("item_country")
-  itemCountryPublic     Boolean               @default(false) @map("item_country_public")
-  targetRentals         Int?                  @map("target_rentals")
-  totalBookings         Int                   @default(0) @map("total_bookings")
-  totalRevenue          Int                   @default(0) @map("total_revenue")
-  popularityScore       Int                   @default(0) @map("popularity_score")
-  searchVector          Unsupported("tsvector")? @map("search_vector")
-  createdAt             DateTime              @default(now()) @map("created_at")
-  updatedAt             DateTime              @updatedAt @map("updated_at")
-  deletedAt             DateTime?             @map("deleted_at")
-  deletedByUserId       String?               @map("deleted_by_user_id")
+  id                   String                   @id @default(uuid())
+  tenantId             String                   @map("tenant_id")
+  name                 String
+  slug                 String
+  description          String?
+  categoryId           String                   @map("category_id")
+  subcategoryId        String?                  @map("subcategory_id")
+  productTypeId        String?                  @map("product_type_id")
+  sizeSchemaOverrideId String?                  @map("size_schema_override_id")
+  status               ProductStatus            @default(draft)
+  isAvailable          Boolean                  @default(true) @map("is_available")
+  availableFrom        DateTime?                @map("available_from") @db.Date
+  unavailableReason    String?                  @map("unavailable_reason")
+  purchaseDate         DateTime?                @map("purchase_date") @db.Date
+  purchasePrice        Int?                     @map("purchase_price")
+  purchasePricePublic  Boolean                  @default(false) @map("purchase_price_public")
+  itemCountry          String?                  @map("item_country")
+  itemCountryPublic    Boolean                  @default(false) @map("item_country_public")
+  targetRentals        Int?                     @map("target_rentals")
+  totalBookings        Int                      @default(0) @map("total_bookings")
+  totalRevenue         Int                      @default(0) @map("total_revenue")
+  popularityScore      Int                      @default(0) @map("popularity_score")
+  searchVector         Unsupported("tsvector")? @map("search_vector")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  deletedAt            DateTime?                @map("deleted_at")
+  deletedByUserId      String?                  @map("deleted_by_user_id")
 
-  tenant             Tenant               @relation(fields: [tenantId], references: [id])
-  deletedBy          User?                @relation("ProductDeletedBy", fields: [deletedByUserId], references: [id])
-  category           Category             @relation(fields: [categoryId], references: [id])
-  subcategory        Subcategory?         @relation(fields: [subcategoryId], references: [id])
-  productType        ProductType?         @relation(fields: [productTypeId], references: [id])
-  sizeSchemaOverride SizeSchema?          @relation("ProductSchemaOverride", fields: [sizeSchemaOverrideId], references: [id])
+  tenant             Tenant                @relation(fields: [tenantId], references: [id])
+  deletedBy          User?                 @relation("ProductDeletedBy", fields: [deletedByUserId], references: [id])
+  category           Category              @relation(fields: [categoryId], references: [id])
+  subcategory        Subcategory?          @relation(fields: [subcategoryId], references: [id])
+  productType        ProductType?          @relation(fields: [productTypeId], references: [id])
+  sizeSchemaOverride SizeSchema?           @relation("ProductSchemaOverride", fields: [sizeSchemaOverrideId], references: [id])
   variants           ProductVariant[]
   events             ProductEvent[]
-  pricing            ProductPricing?      // Legacy — kept during migration
-  services           ProductServices?     // Legacy — kept during migration
-  pricingProfile     PricingProfile?      // Pricing Engine v2
+  pricing            ProductPricing? // Legacy — kept during migration
+  services           ProductServices? // Legacy — kept during migration
+  pricingProfile     PricingProfile? // Pricing Engine v2
   faqs               ProductFaq[]
   detailHeaders      ProductDetailHeader[]
   bookingItems       BookingItem[]
@@ -599,14 +602,14 @@ model Product {
 }
 
 model ProductVariant {
-  id             String   @id @default(uuid())
-  tenantId       String   @map("tenant_id")
-  productId      String   @map("product_id")
-  variantName    String?  @map("variant_name")
-  mainColorId    String   @map("main_color_id")
-  sequence       Int      @default(0)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  productId   String   @map("product_id")
+  variantName String?  @map("variant_name")
+  mainColorId String   @map("main_color_id")
+  sequence    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   product         Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
   mainColor       Color          @relation("MainColor", fields: [mainColorId], references: [id])
@@ -620,11 +623,11 @@ model ProductVariant {
 }
 
 model VariantSize {
-  id             String   @id @default(uuid())
-  tenantId       String   @map("tenant_id")
-  variantId      String   @map("variant_id")
-  sizeInstanceId String   @map("size_instance_id")
-  stockLevel     Int      @default(1) @map("stock_level")
+  id             String @id @default(uuid())
+  tenantId       String @map("tenant_id")
+  variantId      String @map("variant_id")
+  sizeInstanceId String @map("size_instance_id")
+  stockLevel     Int    @default(1) @map("stock_level")
 
   tenant       Tenant         @relation(fields: [tenantId], references: [id])
   variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
@@ -669,13 +672,13 @@ model ProductImage {
 }
 
 model ProductDetailHeader {
-  id         String               @id @default(uuid())
-  tenantId   String               @map("tenant_id")
-  productId  String               @map("product_id")
-  headerName String               @map("header_name")
-  sequence   Int                  @default(0)
-  createdAt  DateTime             @default(now()) @map("created_at")
-  updatedAt  DateTime             @updatedAt @map("updated_at")
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  productId  String   @map("product_id")
+  headerName String   @map("header_name")
+  sequence   Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   product Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
   entries ProductDetailEntry[]
@@ -698,29 +701,29 @@ model ProductDetailEntry {
 }
 
 model ProductPricing {
-  id                 String       @id @default(uuid())
-  tenantId           String       @map("tenant_id")
-  productId          String       @unique @map("product_id")
+  id                 String        @id @default(uuid())
+  tenantId           String        @map("tenant_id")
+  productId          String        @unique @map("product_id")
   mode               PricingMode
-  rentalPrice        Int?         @map("rental_price")
-  includedDays       Int?         @map("included_days")
-  pricePerDay        Int?         @map("price_per_day")
-  minimumDays        Int?         @default(1) @map("minimum_days")
-  retailPrice        Int?         @map("retail_price")
-  rentalPercentage   Decimal?     @map("rental_percentage") @db.Decimal(5, 2)
-  calculatedPrice    Int?         @map("calculated_price")
-  priceOverride      Int?         @map("price_override")
-  minInternalPrice   Int?         @map("min_internal_price")
-  maxDiscountPrice   Int?         @map("max_discount_price")
-  extendedRentalRate Int?         @map("extended_rental_rate")
-  lateFeeType        LateFeeType? @map("late_fee_type")
-  lateFeeAmount      Int?         @map("late_fee_amount")
-  lateFeePercentage  Decimal?     @map("late_fee_percentage") @db.Decimal(5, 2)
-  maxLateFee         Int?         @map("max_late_fee")
+  rentalPrice        Int?          @map("rental_price")
+  includedDays       Int?          @map("included_days")
+  pricePerDay        Int?          @map("price_per_day")
+  minimumDays        Int?          @default(1) @map("minimum_days")
+  retailPrice        Int?          @map("retail_price")
+  rentalPercentage   Decimal?      @map("rental_percentage") @db.Decimal(5, 2)
+  calculatedPrice    Int?          @map("calculated_price")
+  priceOverride      Int?          @map("price_override")
+  minInternalPrice   Int?          @map("min_internal_price")
+  maxDiscountPrice   Int?          @map("max_discount_price")
+  extendedRentalRate Int?          @map("extended_rental_rate")
+  lateFeeType        LateFeeType?  @map("late_fee_type")
+  lateFeeAmount      Int?          @map("late_fee_amount")
+  lateFeePercentage  Decimal?      @map("late_fee_percentage") @db.Decimal(5, 2)
+  maxLateFee         Int?          @map("max_late_fee")
   shippingMode       ShippingMode? @map("shipping_mode")
-  shippingFee        Int?         @map("shipping_fee")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
+  shippingFee        Int?          @map("shipping_fee")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -753,145 +756,145 @@ model ProductServices {
 // ============================================================================
 
 model PricingProfile {
-  id                    String              @id @default(uuid())
-  tenantId              String              @map("tenant_id")
-  productId             String              @unique @map("product_id")
-  currency              String              @default("BDT") @db.Char(3)
-  timezone              String              @default("Asia/Dhaka")
-  durationMode          DurationMode        @default(CALENDAR_DAYS) @map("duration_mode")
-  billingRounding       BillingRounding     @default(CEIL) @map("billing_rounding")
-  activePolicyVersionId String?             @map("active_policy_version_id")
-  createdAt             DateTime            @default(now()) @map("created_at")
-  updatedAt             DateTime            @updatedAt @map("updated_at")
+  id                    String          @id @default(uuid())
+  tenantId              String          @map("tenant_id")
+  productId             String          @unique @map("product_id")
+  currency              String          @default("BDT") @db.Char(3)
+  timezone              String          @default("Asia/Dhaka")
+  durationMode          DurationMode    @default(CALENDAR_DAYS) @map("duration_mode")
+  billingRounding       BillingRounding @default(CEIL) @map("billing_rounding")
+  activePolicyVersionId String?         @map("active_policy_version_id")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
 
-  product               Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
-  policyVersions        PricePolicyVersion[]
+  product        Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  policyVersions PricePolicyVersion[]
 
   @@index([tenantId])
   @@map("pricing_profiles")
 }
 
 model PricePolicyVersion {
-  id                String              @id @default(uuid())
-  pricingProfileId  String              @map("pricing_profile_id")
-  version           Int
-  status            PolicyVersionStatus @default(DRAFT)
-  effectiveFrom     DateTime?           @map("effective_from") @db.Timestamptz
-  effectiveTo       DateTime?           @map("effective_to") @db.Timestamptz
-  publishedAt       DateTime?           @map("published_at") @db.Timestamptz
-  snapshotConfig    Json?               @map("snapshot_config") @db.JsonB
-  lateFeePolicy     Json?               @map("late_fee_policy") @db.JsonB
-  presentationConfig Json?              @map("presentation_config") @db.JsonB
-  createdBy         String?             @map("created_by")
-  createdAt         DateTime            @default(now()) @map("created_at")
+  id                 String              @id @default(uuid())
+  pricingProfileId   String              @map("pricing_profile_id")
+  version            Int
+  status             PolicyVersionStatus @default(DRAFT)
+  effectiveFrom      DateTime?           @map("effective_from") @db.Timestamptz
+  effectiveTo        DateTime?           @map("effective_to") @db.Timestamptz
+  publishedAt        DateTime?           @map("published_at") @db.Timestamptz
+  snapshotConfig     Json?               @map("snapshot_config") @db.JsonB
+  lateFeePolicy      Json?               @map("late_fee_policy") @db.JsonB
+  presentationConfig Json?               @map("presentation_config") @db.JsonB
+  createdBy          String?             @map("created_by")
+  createdAt          DateTime            @default(now()) @map("created_at")
 
-  pricingProfile    PricingProfile      @relation(fields: [pricingProfileId], references: [id], onDelete: Cascade)
-  ratePlans         RatePlan[]
-  priceComponents   PriceComponent[]
-  quotes            Quote[]
-  bookings          Booking[]
+  pricingProfile  PricingProfile   @relation(fields: [pricingProfileId], references: [id], onDelete: Cascade)
+  ratePlans       RatePlan[]
+  priceComponents PriceComponent[]
+  quotes          Quote[]
+  bookings        Booking[]
 
   @@index([pricingProfileId, status, version(sort: Desc)])
   @@map("price_policy_versions")
 }
 
 model RatePlan {
-  id                String          @id @default(uuid())
-  policyVersionId   String          @map("policy_version_id")
-  type              RatePlanType
-  priority          Int             @default(100)
-  config            Json            @db.JsonB
-  createdAt         DateTime        @default(now()) @map("created_at")
+  id              String       @id @default(uuid())
+  policyVersionId String       @map("policy_version_id")
+  type            RatePlanType
+  priority        Int          @default(100)
+  config          Json         @db.JsonB
+  createdAt       DateTime     @default(now()) @map("created_at")
 
-  policyVersion     PricePolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
-  conditionSet      ConditionSet?
+  policyVersion PricePolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  conditionSet  ConditionSet?
 
   @@index([policyVersionId, priority(sort: Desc)])
   @@map("rate_plans")
 }
 
 model PriceComponent {
-  id                String              @id @default(uuid())
-  policyVersionId   String              @map("policy_version_id")
-  type              ComponentType
-  priority          Int                 @default(100)
-  visibility        ComponentVisibility @default(CUSTOMER)
-  chargeTiming      ChargeTiming        @default(AT_BOOKING) @map("charge_timing")
-  refundable        Boolean             @default(false)
-  exclusiveGroup    String?             @map("exclusive_group")
-  config            Json                @db.JsonB
-  createdAt         DateTime            @default(now()) @map("created_at")
+  id              String              @id @default(uuid())
+  policyVersionId String              @map("policy_version_id")
+  type            ComponentType
+  priority        Int                 @default(100)
+  visibility      ComponentVisibility @default(CUSTOMER)
+  chargeTiming    ChargeTiming        @default(AT_BOOKING) @map("charge_timing")
+  refundable      Boolean             @default(false)
+  exclusiveGroup  String?             @map("exclusive_group")
+  config          Json                @db.JsonB
+  createdAt       DateTime            @default(now()) @map("created_at")
 
-  policyVersion     PricePolicyVersion  @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
-  conditionSet      ConditionSet?
+  policyVersion PricePolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  conditionSet  ConditionSet?
 
   @@index([policyVersionId, priority(sort: Desc)])
   @@map("price_components")
 }
 
 model ConditionSet {
-  id                String          @id @default(uuid())
-  ratePlanId        String?         @unique @map("rate_plan_id")
-  componentId       String?         @unique @map("component_id")
+  id          String  @id @default(uuid())
+  ratePlanId  String? @unique @map("rate_plan_id")
+  componentId String? @unique @map("component_id")
 
-  ratePlan          RatePlan?       @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
-  component         PriceComponent? @relation(fields: [componentId], references: [id], onDelete: Cascade)
-  conditions        Condition[]
+  ratePlan   RatePlan?       @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  component  PriceComponent? @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  conditions Condition[]
 
   @@map("condition_sets")
 }
 
 model Condition {
-  id                String              @id @default(uuid())
-  conditionSetId    String              @map("condition_set_id")
-  field             String              // e.g. 'date_range', 'dow', 'customer_tier', 'channel', 'location', 'duration_days'
-  operator          ConditionOperator
-  value             Json                @db.JsonB
+  id             String            @id @default(uuid())
+  conditionSetId String            @map("condition_set_id")
+  field          String // e.g. 'date_range', 'dow', 'customer_tier', 'channel', 'location', 'duration_days'
+  operator       ConditionOperator
+  value          Json              @db.JsonB
 
-  conditionSet      ConditionSet        @relation(fields: [conditionSetId], references: [id], onDelete: Cascade)
+  conditionSet ConditionSet @relation(fields: [conditionSetId], references: [id], onDelete: Cascade)
 
   @@index([conditionSetId])
   @@map("conditions")
 }
 
 model Quote {
-  id                 String            @id @default(uuid())
-  tenantId           String            @map("tenant_id")
-  productId          String            @map("product_id")
-  variantId          String?           @map("variant_id")
-  policyVersionId    String            @map("policy_version_id")
-  startAt            DateTime          @map("start_at") @db.Timestamptz
-  endAt              DateTime          @map("end_at") @db.Timestamptz
-  customerContext    Json?             @map("customer_context") @db.JsonB
-  selectedAddons     Json?             @map("selected_addons") @db.JsonB
-  inputsHash         String            @map("inputs_hash")
-  currency           String            @default("BDT") @db.Char(3)
-  billableDays       Int               @map("billable_days")
-  subtotalMinor      Int               @map("subtotal_minor")
-  depositMinor       Int               @map("deposit_minor")
-  totalDueNowMinor   Int               @map("total_due_now_minor")
-  totalDueLaterMinor Int               @map("total_due_later_minor")
-  expiresAt          DateTime          @map("expires_at") @db.Timestamptz
-  createdAt          DateTime          @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  productId          String   @map("product_id")
+  variantId          String?  @map("variant_id")
+  policyVersionId    String   @map("policy_version_id")
+  startAt            DateTime @map("start_at") @db.Timestamptz
+  endAt              DateTime @map("end_at") @db.Timestamptz
+  customerContext    Json?    @map("customer_context") @db.JsonB
+  selectedAddons     Json?    @map("selected_addons") @db.JsonB
+  inputsHash         String   @map("inputs_hash")
+  currency           String   @default("BDT") @db.Char(3)
+  billableDays       Int      @map("billable_days")
+  subtotalMinor      Int      @map("subtotal_minor")
+  depositMinor       Int      @map("deposit_minor")
+  totalDueNowMinor   Int      @map("total_due_now_minor")
+  totalDueLaterMinor Int      @map("total_due_later_minor")
+  expiresAt          DateTime @map("expires_at") @db.Timestamptz
+  createdAt          DateTime @default(now()) @map("created_at")
 
-  policyVersion      PricePolicyVersion @relation(fields: [policyVersionId], references: [id])
-  lineItems          QuoteLineItem[]
+  policyVersion PricePolicyVersion @relation(fields: [policyVersionId], references: [id])
+  lineItems     QuoteLineItem[]
 
   @@index([tenantId, inputsHash])
   @@map("quotes")
 }
 
 model QuoteLineItem {
-  id             String              @id @default(uuid())
-  quoteId        String              @map("quote_id")
-  type           String              // e.g. 'BASE_RENTAL', 'CLEANING_FEE', 'DEPOSIT', 'DISCOUNT'
-  label          String
-  amountMinor    Int                 @map("amount_minor")
-  refundable     Boolean             @default(false)
-  visibility     ComponentVisibility @default(CUSTOMER)
-  metadata       Json?               @db.JsonB
+  id          String              @id @default(uuid())
+  quoteId     String              @map("quote_id")
+  type        String // e.g. 'BASE_RENTAL', 'CLEANING_FEE', 'DEPOSIT', 'DISCOUNT'
+  label       String
+  amountMinor Int                 @map("amount_minor")
+  refundable  Boolean             @default(false)
+  visibility  ComponentVisibility @default(CUSTOMER)
+  metadata    Json?               @db.JsonB
 
-  quote          Quote               @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@index([quoteId])
   @@map("quote_line_items")
@@ -902,14 +905,14 @@ model QuoteLineItem {
 // ============================================================================
 
 model ProductType {
-  id                   String      @id @default(uuid())
-  tenantId             String      @map("tenant_id")
-  name                 String
-  slug                 String
-  description          String?     @db.VarChar(255)
-  defaultSizeSchemaId  String?     @map("default_size_schema_id")
-  createdAt            DateTime    @default(now()) @map("created_at")
-  updatedAt            DateTime    @updatedAt @map("updated_at")
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  name                String
+  slug                String
+  description         String?  @db.VarChar(255)
+  defaultSizeSchemaId String?  @map("default_size_schema_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   defaultSizeSchema SizeSchema? @relation(fields: [defaultSizeSchemaId], references: [id])
   products          Product[]
@@ -921,20 +924,20 @@ model ProductType {
 }
 
 model SizeSchema {
-  id         String           @id @default(uuid())
-  tenantId   String           @map("tenant_id")
-  code       String
-  name       String
-  description String?         @db.VarChar(255)
-  schemaType String           @default("STANDARD") @map("schema_type")
-  status     SizeSchemaStatus @default(draft)
-  definition Json             @default("{}") @db.JsonB
-  createdAt  DateTime         @default(now()) @map("created_at")
-  updatedAt  DateTime         @updatedAt @map("updated_at")
+  id          String           @id @default(uuid())
+  tenantId    String           @map("tenant_id")
+  code        String
+  name        String
+  description String?          @db.VarChar(255)
+  schemaType  String           @default("STANDARD") @map("schema_type")
+  status      SizeSchemaStatus @default(draft)
+  definition  Json             @default("{}") @db.JsonB
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
 
   instances              SizeInstance[]
   productTypes           ProductType[]
-  productSchemaOverrides Product[]    @relation("ProductSchemaOverride")
+  productSchemaOverrides Product[]      @relation("ProductSchemaOverride")
   sizeCharts             SizeChart[]
 
   @@unique([tenantId, code])
@@ -952,7 +955,7 @@ model SizeInstance {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  sizeSchema   SizeSchema       @relation(fields: [sizeSchemaId], references: [id])
+  sizeSchema   SizeSchema    @relation(fields: [sizeSchemaId], references: [id])
   variantSizes VariantSize[]
 
   @@unique([sizeSchemaId, normalizedKey])
@@ -981,11 +984,11 @@ model SizeChart {
 }
 
 model SizeChartRow {
-  id              String @id @default(uuid())
-  sizeChartId     String @map("size_chart_id")
-  sizeLabel       String @map("size_label")
-  measurements    Json   @default("{}") @db.JsonB
-  sortOrder       Int    @default(0) @map("sort_order")
+  id           String @id @default(uuid())
+  sizeChartId  String @map("size_chart_id")
+  sizeLabel    String @map("size_label")
+  measurements Json   @default("{}") @db.JsonB
+  sortOrder    Int    @default(0) @map("sort_order")
 
   sizeChart SizeChart @relation(fields: [sizeChartId], references: [id], onDelete: Cascade)
 
@@ -998,15 +1001,15 @@ model SizeChartRow {
 // ============================================================================
 
 model Category {
-  id           String        @id @default(uuid())
-  tenantId     String        @map("tenant_id")
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
   name         String
   slug         String
   icon         String?
-  displayOrder Int           @default(0) @map("display_order")
-  isActive     Boolean       @default(true) @map("is_active")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   tenant        Tenant        @relation(fields: [tenantId], references: [id])
   subcategories Subcategory[]
@@ -1028,8 +1031,8 @@ model Subcategory {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
-  category Category @relation(fields: [categoryId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  category Category  @relation(fields: [categoryId], references: [id])
   products Product[]
 
   @@unique([categoryId, slug])
@@ -1039,14 +1042,14 @@ model Subcategory {
 }
 
 model Event {
-  id           String         @id @default(uuid())
-  tenantId     String         @map("tenant_id")
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
   name         String
   slug         String
-  displayOrder Int            @default(0) @map("display_order")
-  isActive     Boolean        @default(true) @map("is_active")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   tenant   Tenant         @relation(fields: [tenantId], references: [id])
   products ProductEvent[]
@@ -1155,7 +1158,7 @@ model Booking {
   grandTotal           Int           @map("grand_total")
   totalPaid            Int           @default(0) @map("total_paid")
   discountAmount       Int           @default(0) @map("discount_amount")
-  discountType         String?       @map("discount_type")   // 'flat' | 'percentage'
+  discountType         String?       @map("discount_type") // 'flat' | 'percentage'
   discountReason       String?       @map("discount_reason")
   deliveryName         String        @map("delivery_name")
   deliveryPhone        String        @map("delivery_phone")
@@ -1341,16 +1344,16 @@ model Review {
 // ============================================================================
 
 model Notification {
-  id        String   @id @default(uuid())
-  tenantId  String   @map("tenant_id")
-  userId    String?  @map("user_id")
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  userId    String?   @map("user_id")
   type      String
   title     String
   message   String
   data      Json?
-  isRead    Boolean  @default(false) @map("is_read")
+  isRead    Boolean   @default(false) @map("is_read")
   readAt    DateTime? @map("read_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -1384,14 +1387,14 @@ model AuditLog {
 }
 
 model FailedJob {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   queue     String
-  jobName   String   @map("job_name")
+  jobName   String    @map("job_name")
   payload   Json
   error     String
-  failedAt  DateTime @map("failed_at")
+  failedAt  DateTime  @map("failed_at")
   retriedAt DateTime? @map("retried_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([queue])
   @@index([failedAt])
@@ -1405,18 +1408,18 @@ model FailedJob {
 model SubscriptionPayment {
   id          String   @id @default(uuid())
   tenantId    String   @map("tenant_id")
-  amount      Int                                    // Paisa (ADR-04)
-  method      String                                 // 'bkash', 'nagad', 'bank_transfer', 'cash'
-  reference   String?                                // Transaction ID or receipt number
+  amount      Int // Paisa (ADR-04)
+  method      String // 'bkash', 'nagad', 'bank_transfer', 'cash'
+  reference   String? // Transaction ID or receipt number
   notes       String?
   periodStart DateTime @map("period_start")
   periodEnd   DateTime @map("period_end")
-  recordedBy  String   @map("recorded_by")           // Admin user ID
+  recordedBy  String   @map("recorded_by") // Admin user ID
   createdAt   DateTime @default(now()) @map("created_at")
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
-  recorder  User     @relation("PaymentsRecordedBy", fields: [recordedBy], references: [id])
-  invoice   Invoice?
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  recorder User     @relation("PaymentsRecordedBy", fields: [recordedBy], references: [id])
+  invoice  Invoice?
 
   @@index([tenantId])
   @@index([recordedBy])
@@ -1424,18 +1427,18 @@ model SubscriptionPayment {
 }
 
 model Invoice {
-  id          String    @id @default(uuid())
-  tenantId    String    @map("tenant_id")
-  paymentId   String?   @unique @map("payment_id")
-  invoiceNo   String    @unique @map("invoice_no")     // INV-2026-0001
-  amount      Int                                       // Paisa (ADR-04)
-  status      String    @default("unpaid")              // unpaid, paid, void
-  dueDate     DateTime  @map("due_date")
-  paidAt      DateTime? @map("paid_at")
-  lineItems   Json      @map("line_items")              // [{desc, qty, rate, amount}]
-  notes       String?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  paymentId String?   @unique @map("payment_id")
+  invoiceNo String    @unique @map("invoice_no") // INV-2026-0001
+  amount    Int // Paisa (ADR-04)
+  status    String    @default("unpaid") // unpaid, paid, void
+  dueDate   DateTime  @map("due_date")
+  paidAt    DateTime? @map("paid_at")
+  lineItems Json      @map("line_items") // [{desc, qty, rate, amount}]
+  notes     String?
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   tenant  Tenant               @relation(fields: [tenantId], references: [id])
   payment SubscriptionPayment? @relation(fields: [paymentId], references: [id])
@@ -1447,15 +1450,15 @@ model Invoice {
 
 model PromoCode {
   id           String    @id @default(uuid())
-  code         String    @unique                       // 'LAUNCH2026'
-  linkedPlanId String?   @map("linked_plan_id")        // Auto-assign this plan
-  trialDays    Int?      @map("trial_days")            // Override default trial
-  discountPct  Int?      @map("discount_pct")          // For future use
-  maxUses      Int?      @map("max_uses")              // null = unlimited
+  code         String    @unique // 'LAUNCH2026'
+  linkedPlanId String?   @map("linked_plan_id") // Auto-assign this plan
+  trialDays    Int?      @map("trial_days") // Override default trial
+  discountPct  Int?      @map("discount_pct") // For future use
+  maxUses      Int?      @map("max_uses") // null = unlimited
   currentUses  Int       @default(0) @map("current_uses")
   isActive     Boolean   @default(true) @map("is_active")
   expiresAt    DateTime? @map("expires_at")
-  createdBy    String    @map("created_by")            // Admin user ID
+  createdBy    String    @map("created_by") // Admin user ID
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -1471,11 +1474,11 @@ model SubscriptionHistory {
   tenantId     String   @map("tenant_id")
   oldPlanId    String?  @map("old_plan_id")
   newPlanId    String   @map("new_plan_id")
-  action       String                                   // 'created', 'upgraded', 'downgraded', 'renewed', 'extended', 'cancelled'
-  billingCycle String?  @map("billing_cycle")           // 'monthly', 'annual'
+  action       String // 'created', 'upgraded', 'downgraded', 'renewed', 'extended', 'cancelled'
+  billingCycle String?  @map("billing_cycle") // 'monthly', 'annual'
   reason       String?
-  performedBy  String   @map("performed_by")            // Admin or 'system'
-  metadata     Json?                                    // Extra context
+  performedBy  String   @map("performed_by") // Admin or 'system'
+  metadata     Json? // Extra context
   createdAt    DateTime @default(now()) @map("created_at")
 
   tenant  Tenant            @relation(fields: [tenantId], references: [id])
@@ -1493,19 +1496,19 @@ model SubscriptionHistory {
 // ============================================================================
 
 model StorefrontEvent {
-  id          String   @id @default(uuid())
-  tenantId    String   @map("tenant_id")
-  sessionId   String   @map("session_id") // UUID stored in the buyer's browser
-  eventType   String   @map("event_type") // 'product_view', 'add_to_cart', 'remove_from_cart', 'checkout_started'
-  
-  productId   String?  @map("product_id")
-  variantId   String?  @map("variant_id")
-  
-  metadata    Json?    // Optional: source url, time spent on page, cart value, etc.
-  
-  ipAddress   String?  @map("ip_address") // Crucial for bot protection
-  userAgent   String?  @map("user_agent")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id        String @id @default(uuid())
+  tenantId  String @map("tenant_id")
+  sessionId String @map("session_id") // UUID stored in the buyer's browser
+  eventType String @map("event_type") // 'product_view', 'add_to_cart', 'remove_from_cart', 'checkout_started'
+
+  productId String? @map("product_id")
+  variantId String? @map("variant_id")
+
+  metadata Json? // Optional: source url, time spent on page, cart value, etc.
+
+  ipAddress String?  @map("ip_address") // Crucial for bot protection
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
 
   tenant  Tenant   @relation(fields: [tenantId], references: [id])
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)

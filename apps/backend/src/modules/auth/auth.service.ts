@@ -186,7 +186,7 @@ export class AuthService {
           data: {
             tenantId: tenant.id,
             planId: targetPlan.id,
-            status: 'active',
+            status: isFree ? 'free_tier' : (targetPlan.trialDays > 0 ? 'trial' : 'active'),
             billingCycle: 'monthly',
             currentPeriodStart: now,
             currentPeriodEnd: periodEnd,

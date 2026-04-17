@@ -204,10 +204,21 @@ export class TenantController {
   @Get('resource-usage')
   @Roles('owner')
   async getResourceUsage(@CurrentTenant() tenant: TenantContext) {
-    const [products, staff] = await Promise.all([
+    const [products, staff, orders] = await Promise.all([
       this.subscriptionService.checkPlanLimit(tenant.id, 'products'),
       this.subscriptionService.checkPlanLimit(tenant.id, 'staff'),
+      this.subscriptionService.checkPlanLimit(tenant.id, 'orders'),
     ]);
-    return { products, staff };
+    return { products, staff, orders };
+  }
+
+  /**
+   * GET /api/v1/tenant/billing-history
+   * Get the history of subscription payments/invoices.
+   */
+  @Get('billing-history')
+  @Roles('owner')
+  async getBillingHistory(@CurrentTenant() tenant: TenantContext) {
+    return this.subscriptionService.getBillingHistory(tenant.id);
   }
 }

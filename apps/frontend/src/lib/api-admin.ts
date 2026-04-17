@@ -185,6 +185,11 @@ export const adminApi = {
     return res.data;
   },
 
+  async getGlobalPayments(params?: { page?: number; limit?: number }): Promise<PaginatedResponse<SubscriptionPayment>> {
+    const res = await admin.get('/admin/revenue/payments', { params });
+    return res.data;
+  },
+
   // --- Invoices ---
   async generateInvoice(
     tenantId: string,

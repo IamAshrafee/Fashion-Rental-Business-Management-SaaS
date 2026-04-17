@@ -139,6 +139,11 @@ export class AdminController {
   // BILLING — SUBSCRIPTION PAYMENTS
   // =========================================================================
 
+  @Get('revenue/payments')
+  async getGlobalPayments() {
+    return this.adminService.getGlobalPayments();
+  }
+
   @Post('tenants/:id/payments')
   async recordPayment(
     @Param('id') id: string,
