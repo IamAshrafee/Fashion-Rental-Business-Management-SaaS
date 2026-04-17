@@ -64,6 +64,11 @@ export interface GuestProductDetail {
     tryOnDurationHours: number | null;
     tryOnCreditToRental: boolean;
   } | null;
+  headlinePricing?: {
+    price: number;
+    label: string;
+    mode?: string;
+  };
   productType: import('./products').ProductTypeData | null;
   sizeSchemaOverride: import('./products').SizeSchemaData | null;
   sizing: import('./products').SizingPayload | null;
@@ -158,12 +163,17 @@ export interface AvailabilityMonth {
 
 export interface DateRangeCheck {
   available: boolean;
-  rentalDays: number;
-  rentalPrice: number;
-  extendedDays: number;
-  extendedCost: number;
-  totalRentalPrice: number;
-  deposit: number;
+  rentalDays?: number;
+  pricing?: {
+    baseRental: number;
+    extendedDays: number;
+    extendedCost: number;
+    deposit: number;
+    cleaningFee: number;
+    shippingFee: number;
+    total: number;
+  };
+  reason?: string;
   [key: string]: unknown;
 }
 

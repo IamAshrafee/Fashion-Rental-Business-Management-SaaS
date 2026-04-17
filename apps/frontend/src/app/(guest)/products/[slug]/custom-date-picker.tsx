@@ -63,7 +63,7 @@ export function CustomDateRangePicker({ date, setDate, className, minDate = new 
       <PopoverTrigger asChild>
         <button
           className={cn(
-            "flex w-full items-center justify-between rounded-xl border border-black/10 bg-white/50 p-4 text-left shadow-sm backdrop-blur-sm transition-all hover:bg-white focus:outline-none focus:ring-2 focus:ring-black",
+            "flex w-full items-center justify-between rounded-xl border-2 border-black/5 bg-white p-5 text-left shadow-sm transition-all hover:border-black/20 focus:outline-none focus:border-black",
             className
           )}
         >
@@ -87,7 +87,7 @@ export function CustomDateRangePicker({ date, setDate, className, minDate = new 
         </button>
       </PopoverTrigger>
       
-      <PopoverContent className="w-auto p-4 rounded-2xl shadow-xl border-black/5" align="start">
+      <PopoverContent className="w-auto p-6 rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] border-black/5" align="start">
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <button 
@@ -122,7 +122,7 @@ export function CustomDateRangePicker({ date, setDate, className, minDate = new 
                 <div key={day.toString()} className="h-9 w-9 relative">
                   {(inRange || isSelected(day)) && (
                      <div className={cn(
-                       "absolute inset-0 bg-primary/10",
+                       "absolute inset-0 bg-black/5",
                        isStart && !isEnd && date?.to ? "rounded-l-full" : "",
                        isEnd && !isStart ? "rounded-r-full" : "",
                        isStart && !date?.to ? "rounded-full" : ""

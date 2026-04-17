@@ -1,22 +1,23 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ProductCard } from '@/components/guest/ui/product-card';
-import { FilterSidebar } from '@/components/guest/ui/filter-sidebar';
-import { SlidersHorizontal, ChevronDown, Loader2 } from 'lucide-react';
+import { ShopUtilityBar } from '@/components/guest/ui/shop-utility-bar';
+import { ShopFilterDrawer } from '@/components/guest/ui/shop-filter-drawer';
+import { SlidersHorizontal } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import {
   getGuestProducts,
   getProductFilters,
   type GuestProductsQuery,
-  type FilterCounts,
 } from '@/lib/api/guest-products';
 
 export default function GuestProductsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Derive filter state from URL search params
   const currentPage = Number(searchParams?.get('page') || '1');
@@ -24,12 +25,14 @@ export default function GuestProductsPage() {
   const currentCategory = searchParams?.get('category') || undefined;
   const currentEvent = searchParams?.get('event') || undefined;
   const currentColor = searchParams?.get('color') || undefined;
-  const currentMinPrice = searchParams?.get('minPrice')
-    ? Number(searchParams.get('minPrice'))
-    : undefined;
-  const currentMaxPrice = searchParams?.get('maxPrice')
-    ? Number(searchParams.get('maxPrice'))
-    : undefined;
+  const currentMinPrice = searchParams?.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined;
+  const currentMaxPrice = searchParams?.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined;
+
+  // Calculate active filter count for the drawer (excluding category & sort)
+  let activeFilterCount = 0;
+  if (currentEvent) activeFilterCount++;
+  if (currentColor) activeFilterCount++;
+  if (currentMinPrice || currentMaxPrice) activeFilterCount++;
 
   // Build query object
   const query: GuestProductsQuery = {
@@ -44,11 +47,7 @@ export default function GuestProductsPage() {
   };
 
   // Fetch products
-  const {
-    data: productsData,
-    isLoading,
-    isError,
-  } = useQuery({
+  const { data: productsData, isLoading, isError } = useQuery({
     queryKey: ['guest-products', query],
     queryFn: () => getGuestProducts(query),
   });
@@ -57,40 +56,25 @@ export default function GuestProductsPage() {
   const { data: filtersData } = useQuery({
     queryKey: ['guest-product-filters'],
     queryFn: getProductFilters,
-    staleTime: 60_000, // cache for 1 min
+    staleTime: 60_000,
   });
 
   // URL updater
-  const updateParams = useCallback(
-    (updates: Record<string, string | undefined>) => {
-      const params = new URLSearchParams(searchParams?.toString() || '');
-      for (const [key, value] of Object.entries(updates)) {
-        if (value === undefined || value === '') {
-          params.delete(key);
-        } else {
-          params.set(key, value);
-        }
+  const updateParams = useCallback((updates: Record<string, string | undefined>) => {
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === undefined || value === '') {
+        params.delete(key);
+      } else {
+        params.set(key, value);
       }
-      // Reset to page 1 when filters change (unless we're specifically setting page)
-      if (!('page' in updates)) {
-        params.delete('page');
-      }
-      router.push(`/products?${params.toString()}`, { scroll: false });
-    },
-    [searchParams, router],
-  );
+    }
+    if (!('page' in updates)) params.delete('page');
+    router.push(`/products?${params.toString()}`, { scroll: false });
+  }, [searchParams, router]);
 
-  const handleSortChange = (value: string) => {
-    updateParams({ sort: value });
-  };
-
-  const handleFilterChange = (
-    key: string,
-    value: string | undefined,
-  ) => {
-    updateParams({ [key]: value });
-  };
-
+  const handleSortChange = (value: string) => updateParams({ sort: value });
+  const handleFilterChange = (key: string, value: string | undefined) => updateParams({ [key]: value });
   const handleLoadMore = () => {
     if (productsData && currentPage < productsData.meta.pages) {
       updateParams({ page: String(currentPage + 1) });
@@ -101,156 +85,157 @@ export default function GuestProductsPage() {
   const meta = productsData?.meta;
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Page Header */}
-      <div className="mb-8 flex flex-col items-center justify-between gap-4 md:flex-row">
-        <div>
-          <h1 className="font-display text-3xl font-bold tracking-tight text-gray-900">
-            All Products
+    <div className="flex min-h-[calc(100vh-100px)] flex-col bg-[#FCFCFC] relative pb-24 md:pb-0">
+      {/* Mobile Floating Filter/Sort Pill */}
+      {!drawerOpen && (
+        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center md:hidden animate-in slide-in-from-bottom-10 fade-in duration-500">
+          <button 
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="flex items-center gap-2 whitespace-nowrap rounded-full bg-slate-900 px-6 py-3.5 text-sm font-semibold tracking-wide text-white shadow-2xl transition-transform hover:scale-105"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filter & Sort
+            {activeFilterCount > 0 && (
+              <span className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-slate-900">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Utility Bar with Top Drawer */}
+      <ShopUtilityBar
+        categories={filtersData?.categories || []}
+        activeCategory={currentCategory}
+        currentSort={currentSort}
+        onFilterChange={handleFilterChange}
+        onSortChange={handleSortChange}
+        onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
+        drawerOpen={drawerOpen}
+        activeFilterCount={activeFilterCount}
+      />
+      
+      {/* Drawer Overlay Backdrop */}
+      {drawerOpen && (
+        <div 
+          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px] transition-opacity duration-300 animate-in fade-in"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {/* Mega-menu style Top Drawer / Mobile Bottom Sheet */}
+      {drawerOpen && (
+        <div className="relative z-50 w-full">
+          <div className="fixed inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white shadow-[0_-10px_40px_rgba(0,0,0,0.15)] animate-in slide-in-from-bottom-full duration-300 md:absolute md:inset-x-0 md:top-0 md:bottom-auto md:max-h-[70vh] md:w-full md:rounded-none md:shadow-xl md:slide-in-from-top-4" style={{
+            clipPath: 'inset(0 -100px -100px -100px)' 
+          }}>
+            <ShopFilterDrawer
+              isOpen={drawerOpen}
+              onClose={() => setDrawerOpen(false)}
+              filters={filtersData || null}
+              activeEvent={currentEvent}
+              activeColor={currentColor}
+              activeMinPrice={currentMinPrice}
+              activeMaxPrice={currentMaxPrice}
+              currentSort={currentSort}
+              onFilterChange={handleFilterChange}
+              onSortChange={handleSortChange}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 sm:px-6 lg:px-8">
+        
+        {/* Page Header */}
+        <div className="mb-10 text-center">
+          <h1 className="font-display text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
+            {currentCategory 
+              ? filtersData?.categories.find(c => c.slug === currentCategory)?.name || 'Collection'
+              : 'The Collection'}
           </h1>
           {meta && (
-            <p className="text-sm text-gray-500">
-              Showing {products.length} of {meta.total} results
+            <p className="mt-3 text-sm tracking-wide text-slate-500 uppercase">
+              {meta.total} {meta.total === 1 ? 'piece' : 'pieces'} curated for you
             </p>
           )}
         </div>
 
-        <div className="flex w-full items-center justify-between gap-4 md:w-auto">
-          <button
-            type="button"
-            onClick={() => setMobileFilterOpen(true)}
-            className="flex items-center gap-2 border border-black bg-white px-4 py-2 text-sm font-medium uppercase tracking-wider text-black transition-colors hover:bg-black hover:text-white md:hidden"
-          >
-            <SlidersHorizontal className="h-4 w-4" /> Filters
-          </button>
-
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Sort by:</span>
-            <div className="relative">
-              <select
-                className="appearance-none rounded-none border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm text-gray-900 outline-none focus:border-black focus:ring-0"
-                value={currentSort}
-                onChange={(e) => handleSortChange(e.target.value)}
-              >
-                <option value="newest">Newest Arrivals</option>
-                <option value="price_asc">Price: Low to High</option>
-                <option value="price_desc">Price: High to Low</option>
-                <option value="popularity">Most Popular</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-            </div>
+        {/* Active Filter Chips */}
+        {(currentEvent || currentColor || currentMinPrice || currentMaxPrice) && (
+          <div className="mb-8 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-slate-500">Active Filters:</span>
+            {currentEvent && (
+              <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                {filtersData?.events?.find(e => e.slug === currentEvent)?.name || currentEvent}
+                <button type="button" onClick={() => handleFilterChange('event', undefined)} className="text-slate-400 hover:text-slate-900">×</button>
+              </span>
+            )}
+            {currentColor && (
+              <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                {currentColor}
+                <button type="button" onClick={() => handleFilterChange('color', undefined)} className="text-slate-400 hover:text-slate-900">×</button>
+              </span>
+            )}
+            {(currentMinPrice || currentMaxPrice) && (
+               <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                 {currentMinPrice ? `৳${currentMinPrice}` : '৳0'} - {currentMaxPrice ? `৳${currentMaxPrice}` : 'Max'}
+                 <button type="button" onClick={() => { handleFilterChange('minPrice', undefined); handleFilterChange('maxPrice', undefined); }} className="text-slate-400 hover:text-slate-900">×</button>
+               </span>
+            )}
+            <button
+              type="button"
+              onClick={() => updateParams({ event: undefined, color: undefined, minPrice: undefined, maxPrice: undefined })}
+              className="ml-2 text-xs font-medium text-slate-500 underline transition-colors hover:text-slate-900"
+            >
+              Clear All
+            </button>
           </div>
-        </div>
-      </div>
+        )}
 
-      <div className="flex flex-col md:flex-row md:gap-8">
-        {/* Sidebar wrapper */}
-        <FilterSidebar
-          mobileOpen={mobileFilterOpen}
-          setMobileOpen={setMobileFilterOpen}
-          filters={filtersData || null}
-          activeCategory={currentCategory}
-          activeEvent={currentEvent}
-          activeColor={currentColor}
-          activeMinPrice={currentMinPrice}
-          activeMaxPrice={currentMaxPrice}
-          onFilterChange={handleFilterChange}
-        />
+        {/* Grid Area */}
+        <div className="flex-1 mt-2">
+          {isLoading && (
+            <div className="grid grid-cols-2 gap-x-2 gap-y-6 md:gap-x-4 md:gap-y-8 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-6 lg:gap-y-10">
+              {[...Array(12)].map((_, i) => (
+                <div key={i} className="flex flex-col gap-3">
+                  <div className="animate-pulse bg-slate-100 aspect-[4/5] rounded-xl w-full" />
+                  <div className="flex flex-col gap-2 px-1 py-1">
+                    <div className="animate-pulse bg-slate-100 rounded h-3 w-3/4" />
+                    <div className="animate-pulse bg-slate-100 rounded h-2.5 w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-        {/* Products Grid */}
-        <div className="flex-1">
-          {/* Active filter pills */}
-          {(currentCategory || currentEvent || currentColor) && (
-            <div className="mb-6 flex flex-wrap gap-2">
-              {currentCategory && (
-                <span className="flex items-center gap-1 rounded-full border border-black bg-black px-3 py-1.5 text-xs font-medium text-white">
-                  {currentCategory}
-                  <button
-                    type="button"
-                    onClick={() => handleFilterChange('category', undefined)}
-                    className="ml-1 hover:text-gray-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-              {currentEvent && (
-                <span className="flex items-center gap-1 rounded-full border border-black bg-black px-3 py-1.5 text-xs font-medium text-white">
-                  {currentEvent}
-                  <button
-                    type="button"
-                    onClick={() => handleFilterChange('event', undefined)}
-                    className="ml-1 hover:text-gray-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-              {currentColor && (
-                <span className="flex items-center gap-1 rounded-full border border-black bg-black px-3 py-1.5 text-xs font-medium text-white">
-                  {currentColor}
-                  <button
-                    type="button"
-                    onClick={() => handleFilterChange('color', undefined)}
-                    className="ml-1 hover:text-gray-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() =>
-                  updateParams({
-                    category: undefined,
-                    event: undefined,
-                    color: undefined,
-                    minPrice: undefined,
-                    maxPrice: undefined,
-                  })
-                }
-                className="text-xs font-medium text-gray-500 underline hover:text-black"
+          {isError && (
+            <div className="flex min-h-[40vh] py-20 flex-col items-center justify-center text-center">
+              <p className="mb-2 text-lg font-medium tracking-tight text-slate-900">Failed to load connection</p>
+              <p className="text-sm text-slate-500">Please try refreshing the collection.</p>
+            </div>
+          )}
+
+          {!isLoading && !isError && products.length === 0 && (
+            <div className="flex min-h-[40vh] py-20 flex-col items-center justify-center text-center animate-in fade-in duration-500">
+              <p className="mb-2 text-lg font-medium tracking-tight text-slate-900">No pieces found</p>
+              <p className="text-sm text-slate-500 max-w-sm mb-6">Try adjusting your filters or search terms to uncover more styles.</p>
+              <button 
+                type="button" 
+                onClick={() => updateParams({ category: undefined, event: undefined, color: undefined, minPrice: undefined, maxPrice: undefined })} 
+                className="rounded-full bg-slate-900 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
               >
-                Clear All
+                Clear all filters
               </button>
             </div>
           )}
 
-          {/* Loading State */}
-          {isLoading && (
-            <div className="flex min-h-[40vh] items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-            </div>
-          )}
-
-          {/* Error State */}
-          {isError && (
-            <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
-              <p className="mb-2 text-lg font-medium text-gray-900">
-                Failed to load products
-              </p>
-              <p className="text-sm text-gray-500">
-                Please try refreshing the page.
-              </p>
-            </div>
-          )}
-
-          {/* Empty State */}
-          {!isLoading && !isError && products.length === 0 && (
-            <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
-              <p className="mb-2 text-lg font-medium text-gray-900">
-                No products found
-              </p>
-              <p className="text-sm text-gray-500">
-                Try changing your filters or search terms.
-              </p>
-            </div>
-          )}
-
-          {/* Product Grid */}
           {!isLoading && products.length > 0 && (
             <>
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-6">
+              <div className="grid grid-cols-2 gap-x-2 gap-y-6 md:gap-x-4 md:gap-y-8 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-6 lg:gap-y-10 animate-in fade-in duration-500">
                 {products.map((product) => (
                   <ProductCard
                     key={product.id}
@@ -268,15 +253,7 @@ export default function GuestProductsPage() {
                     }
                     variants={
                       product.defaultVariant?.mainColor
-                        ? [
-                            {
-                              id: product.defaultVariant.id,
-                              name: product.defaultVariant.mainColor.name,
-                              colorHex:
-                                product.defaultVariant.mainColor.hexCode ||
-                                undefined,
-                            },
-                          ]
+                        ? [{ id: product.defaultVariant.id, name: product.defaultVariant.mainColor.name, colorHex: product.defaultVariant.mainColor.hexCode || undefined }]
                         : []
                     }
                     isAvailable={product.isAvailable}
@@ -284,24 +261,16 @@ export default function GuestProductsPage() {
                 ))}
               </div>
 
-              {/* Load More / Pagination */}
               {meta && currentPage < meta.pages && (
-                <div className="mt-12 text-center">
+                <div className="mt-16 text-center">
                   <button
                     type="button"
                     onClick={handleLoadMore}
-                    className="inline-block border border-black bg-transparent px-8 py-3 text-sm font-semibold uppercase tracking-wider text-black transition-colors hover:bg-black hover:text-white"
+                    className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-8 py-3 text-sm font-medium tracking-wide text-slate-900 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300"
                   >
-                    Load More ({meta.total - products.length} remaining)
+                    Discover More ({meta.total - products.length})
                   </button>
                 </div>
-              )}
-
-              {/* Page indicator */}
-              {meta && meta.pages > 1 && (
-                <p className="mt-4 text-center text-xs text-gray-400">
-                  Page {meta.page} of {meta.pages}
-                </p>
               )}
             </>
           )}
