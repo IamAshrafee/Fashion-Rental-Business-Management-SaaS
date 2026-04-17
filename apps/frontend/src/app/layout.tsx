@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Inter, Outfit } from 'next/font/google';
+import { Inter, Outfit, Cormorant_Garamond } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 
@@ -12,6 +12,13 @@ const inter = Inter({
 const outfit = Outfit({
   subsets: ['latin'],
   variable: '--font-outfit',
+  display: 'swap',
+});
+
+const cormorantGaramond = Cormorant_Garamond({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700'],
+  variable: '--font-cormorant',
   display: 'swap',
 });
 
@@ -32,7 +39,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${outfit.variable} font-sans antialiased`}
+        className={`${inter.variable} ${outfit.variable} ${cormorantGaramond.variable} font-sans antialiased`}
       >
         <Providers>{children}</Providers>
       </body>
