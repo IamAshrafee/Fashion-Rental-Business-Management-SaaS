@@ -14,6 +14,7 @@ import {
   MaxLength,
   MinLength,
   IsNumber,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -64,6 +65,7 @@ export class CartItemDto {
 
 export class ValidateCartDto {
   @IsArray()
+  @ArrayMaxSize(20) // H5 FIX: Prevent excessively large cart validations
   @ValidateNested({ each: true })
   @Type(() => CartItemDto)
   items!: CartItemDto[];
@@ -202,6 +204,7 @@ export class CreateBookingDto {
   delivery!: DeliveryAddressDto;
 
   @IsArray()
+  @ArrayMaxSize(20) // H5 FIX: Prevent excessively large bookings
   @ValidateNested({ each: true })
   @Type(() => BookingItemDto)
   items!: BookingItemDto[];

@@ -584,6 +584,70 @@ export function PricingServicesStep() {
 
       <Separator />
 
+      {/* ── Section 3.5: Shipping Charges (C2 FIX) ──────────────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <Package className="h-5 w-5 text-primary" />
+          <h3 className="text-lg font-semibold">Shipping Charges</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          How delivery costs are handled for this product
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          {([
+            { value: 'free', label: 'Free Shipping', desc: 'No delivery charge' },
+            { value: 'flat', label: 'Flat Fee', desc: 'Fixed delivery charge' },
+            { value: 'area_based', label: 'Area-Based', desc: 'Varies by location' },
+          ] as const).map((opt) => {
+            const isActive = (watch('shippingMode') || 'free') === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setValue('shippingMode', opt.value as any, { shouldDirty: true })}
+                className={cn(
+                  'flex flex-col items-start gap-1 rounded-xl border-2 p-3.5 text-left transition-all',
+                  isActive
+                    ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
+                    : 'border-border hover:border-primary/40',
+                )}
+              >
+                <p className="font-semibold text-sm">{opt.label}</p>
+                <p className="text-xs text-muted-foreground">{opt.desc}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        {watch('shippingMode') === 'flat' && (
+          <div className="p-4 rounded-lg border bg-muted/20">
+            <div className="space-y-2 max-w-[200px]">
+              <Label className="text-sm font-medium">Flat Shipping Fee</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
+                <Input
+                  type="number"
+                  className="pl-7"
+                  min={0}
+                  placeholder="e.g. 150"
+                  value={watch('flatShippingFee') || ''}
+                  onChange={(e) => setValue('flatShippingFee', Number(e.target.value), { shouldDirty: true })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {watch('shippingMode') === 'area_based' && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-700">
+            <Info className="h-4 w-4 shrink-0" />
+            <p className="text-xs">Area-based shipping is configured in Store Settings → Delivery Zones.</p>
+          </div>
+        )}
+      </div>
+
+      <Separator />
       {/* ── Section 4: Late Fee Policy ─────────────────────────────────── */}
       <div>
         <div className="flex items-center gap-2 mb-1">

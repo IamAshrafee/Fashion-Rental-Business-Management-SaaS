@@ -69,6 +69,14 @@ export class PaymentService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
+    // L1 FIX: Guard against overpayment
+    const remaining = booking.grandTotal - booking.totalPaid;
+    if (dto.amount > remaining) {
+      throw new BadRequestException(
+        `Payment amount (${dto.amount}) exceeds remaining balance (${remaining})`,
+      );
+    }
+
     // Prevent duplicate transaction IDs
     if (dto.transactionId) {
       const existing = await this.prisma.payment.findFirst({

@@ -88,15 +88,20 @@ export class CustomerService {
     if (existing) {
       // Update with any new data provided
       const updateData: Record<string, unknown> = {};
+      // Name and contact fields always update
       if (data.fullName) updateData.fullName = data.fullName;
       if (data.altPhone) updateData.altPhone = data.altPhone;
       if (data.email) updateData.email = data.email;
-      if (data.addressLine1) updateData.addressLine1 = data.addressLine1;
-      if (data.addressLine2) updateData.addressLine2 = data.addressLine2;
-      if (data.city) updateData.city = data.city;
-      if (data.state) updateData.state = data.state;
-      if (data.postalCode) updateData.postalCode = data.postalCode;
-      if (data.country) updateData.country = data.country;
+
+      // H3 FIX: Address fields only update when currently NULL/empty
+      // This prevents repeat customers from having their stored address
+      // silently overwritten by each booking's delivery address
+      if (data.addressLine1 && !existing.addressLine1) updateData.addressLine1 = data.addressLine1;
+      if (data.addressLine2 && !existing.addressLine2) updateData.addressLine2 = data.addressLine2;
+      if (data.city && !existing.city) updateData.city = data.city;
+      if (data.state && !existing.state) updateData.state = data.state;
+      if (data.postalCode && !existing.postalCode) updateData.postalCode = data.postalCode;
+      if (data.country && !existing.country) updateData.country = data.country;
 
       if (Object.keys(updateData).length > 0) {
         return this.prisma.customer.update({

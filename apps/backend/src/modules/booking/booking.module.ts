@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { CustomerModule } from '../customer/customer.module';
 import { BookingService } from './booking.service';
+import { BookingSchedulerService } from './booking-scheduler.service';
 import {
   BookingGuestController,
   BookingOwnerController,
@@ -19,16 +21,17 @@ import { PricingEngineModule } from '../pricing-engine/pricing-engine.module'; /
  * Depends on:
  * - PrismaModule for database access
  * - CustomerModule for find-or-create customer by phone
+ * - ScheduleModule for automated overdue detection (M6)
  * - EventEmitterModule (global, imported in AppModule)
  */
 @Module({
-  imports: [PrismaModule, CustomerModule, PricingEngineModule],
+  imports: [PrismaModule, CustomerModule, PricingEngineModule, ScheduleModule.forRoot()],
   controllers: [
     BookingGuestController,
     BookingOwnerController,
     DateBlockController,
   ],
-  providers: [BookingService],
+  providers: [BookingService, BookingSchedulerService],
   exports: [BookingService],
 })
 export class BookingModule {}

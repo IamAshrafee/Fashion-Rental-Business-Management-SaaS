@@ -21,6 +21,11 @@ The primary transaction entity. Created when a guest completes checkout.
 | `total_deposit` | INTEGER | No | `0` | Sum of item deposits |
 | `grand_total` | INTEGER | No | — | subtotal + fees + shipping + deposit |
 | `total_paid` | INTEGER | No | `0` | Amount paid so far |
+| `discount_amount` | INTEGER | Yes | `NULL` | Discount amount applied |
+| `discount_type` | VARCHAR | Yes | `NULL` | percentage, fixed |
+| `discount_reason` | VARCHAR | Yes | `NULL` | Reason for discount |
+
+> **L4 Note — Discount Behavior**: Percentage discounts apply to `subtotal + total_fees` only where subtotal is sum of base rental. Shipping fees and deposits are intentionally excluded from discount calculation as they are pass-through costs.
 | `delivery_name` | VARCHAR(200) | No | — | Customer name at checkout |
 | `delivery_phone` | VARCHAR(20) | No | — | Customer phone |
 | `delivery_alt_phone` | VARCHAR(20) | Yes | `NULL` | Alternate phone |
@@ -42,6 +47,7 @@ The primary transaction entity. Created when a guest completes checkout.
 | `delivered_at` | TIMESTAMP | Yes | `NULL` | When delivered |
 | `returned_at` | TIMESTAMP | Yes | `NULL` | When returned |
 | `completed_at` | TIMESTAMP | Yes | `NULL` | When fully completed |
+| `cancelled_at` | TIMESTAMP | Yes | `NULL` | When cancelled (L3 FIX: was missing from docs) |
 | `deleted_at` | TIMESTAMP | Yes | `NULL` | Soft delete timestamp |
 | `created_at` | TIMESTAMP | No | `NOW()` | Order placed time |
 | `updated_at` | TIMESTAMP | No | `NOW()` | Last updated |

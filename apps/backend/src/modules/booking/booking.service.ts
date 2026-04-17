@@ -121,6 +121,13 @@ export class BookingService {
       },
     });
 
+    // C1 FIX: Load buffer days so the calendar shows buffer-padded blocks
+    const storeSettings = await this.prisma.storeSettings.findUnique({
+      where: { tenantId },
+      select: { bufferDays: true },
+    });
+    const bufferDays = storeSettings?.bufferDays ?? 0;
+
     const dateMap: Record<string, string> = {};
 
     for (const block of blocks) {
@@ -178,21 +185,36 @@ export class BookingService {
       return { available: false, reason: 'Start date must be before end date' };
     }
 
-    // Check overlapping date blocks
+    // C1 FIX: Load buffer days and expand the check range
+    const storeSettings = await this.prisma.storeSettings.findUnique({
+      where: { tenantId },
+      select: { bufferDays: true },
+    });
+    const bufferDays = storeSettings?.bufferDays ?? 0;
+
+    // Expand the requested range by buffer days to account for DateBlock padding
+    const bufferedStart = new Date(start);
+    const bufferedEnd = new Date(end);
+    if (bufferDays > 0) {
+      bufferedStart.setDate(bufferedStart.getDate() - bufferDays);
+      bufferedEnd.setDate(bufferedEnd.getDate() + bufferDays);
+    }
+
+    // Check overlapping date blocks using buffered range
     const conflict = await this.prisma.dateBlock.findFirst({
       where: {
         tenantId,
         productId,
-        startDate: { lte: end },
-        endDate: { gte: start },
+        startDate: { lte: bufferedEnd },
+        endDate: { gte: bufferedStart },
       },
       select: { startDate: true, endDate: true },
     });
 
     if (conflict) {
-      // Find next available date after the conflict
+      // Find next available date after the conflict (account for buffer)
       const conflictEnd = new Date(conflict.endDate);
-      conflictEnd.setDate(conflictEnd.getDate() + 1);
+      conflictEnd.setDate(conflictEnd.getDate() + 1 + bufferDays);
 
       return {
         available: false,
@@ -216,6 +238,14 @@ export class BookingService {
         tryOn: false,
       }
     );
+
+    // M3 FIX: Guard against products with no pricing configured
+    if (pricing.baseRental === 0 && pricing.itemTotal === 0) {
+      return {
+        available: false,
+        reason: 'Product pricing not configured',
+      };
+    }
 
     return {
       available: true,
@@ -456,6 +486,19 @@ export class BookingService {
         const sizeInfo = cartItem.selectedSize || null;
 
         // Create booking item
+        // M1 FIX: Credit try-on fee toward rental when tryOnCreditToRental is enabled
+        const productServices = await tx.productServices.findUnique({
+          where: { productId: item.productId },
+          select: { tryOnCreditToRental: true },
+        });
+        let effectiveTryOnFee = item.tryOnFee;
+        let adjustedItemTotal = item.itemTotal;
+        if (effectiveTryOnFee > 0 && productServices?.tryOnCreditToRental === true) {
+          // Try-on fee is credited toward the rental, reducing the itemTotal
+          adjustedItemTotal = Math.max(0, item.itemTotal - effectiveTryOnFee);
+          effectiveTryOnFee = 0; // Fee was credited, so effective charge is 0
+        }
+
         await tx.bookingItem.create({
           data: {
             tenantId,
@@ -478,8 +521,8 @@ export class BookingService {
             cleaningFee: item.cleaningFee,
             backupSize: cartItem.backupSize ?? null,
             backupSizeFee: item.backupSizeFee,
-            tryOnFee: item.tryOnFee,
-            itemTotal: item.itemTotal,
+            tryOnFee: effectiveTryOnFee,
+            itemTotal: adjustedItemTotal,
             lateFee: 0,
             lateDays: 0,
           },
@@ -894,7 +937,7 @@ export class BookingService {
           },
         }),
         this.prisma.booking.aggregate({
-          _sum: { grandTotal: true },
+          _sum: { grandTotal: true, totalDeposit: true }, // M2 FIX: also sum deposits to exclude from revenue
           where: {
             tenantId,
             deletedAt: null,
@@ -948,7 +991,7 @@ export class BookingService {
       todayDeliveries,
       totalActive,
       recentBookings,
-      revenueThisMonth: revenueAgg._sum.grandTotal || 0,
+      revenueThisMonth: Math.max(0, (revenueAgg._sum.grandTotal || 0) - (revenueAgg._sum.totalDeposit || 0)),
       revenueChart,
       topProducts,
     };
@@ -1161,7 +1204,18 @@ export class BookingService {
         items: {
           include: {
             product: {
-              include: { pricing: true },
+              include: {
+                pricing: true,
+                // M5 FIX: Also load pricing profile for new engine late fees
+                pricingProfile: {
+                  include: {
+                    policyVersions: {
+                      where: { status: 'ACTIVE' },
+                      take: 1,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -1184,20 +1238,31 @@ export class BookingService {
 
       if (lateDays <= 0) continue;
 
-      const pricing = item.product?.pricing;
       let lateFee = 0;
 
-      if (pricing?.lateFeeType === 'fixed' && pricing.lateFeeAmount) {
-        lateFee = pricing.lateFeeAmount * lateDays;
-      } else if (pricing?.lateFeeType === 'percentage' && pricing.lateFeePercentage) {
-        // Percentage of base rental per day
-        const pct = Number(pricing.lateFeePercentage) / 100;
-        lateFee = Math.ceil(item.baseRental * pct * lateDays);
-      }
+      // M5 FIX: Try new pricing engine's late fee policy first
+      const activeVersion = (item.product as any)?.pricingProfile?.policyVersions?.[0];
+      if (activeVersion?.lateFeePolicy) {
+        // Use pricing engine's computeLateFee
+        lateFee = this.pricingEngineService.computeLateFee(
+          activeVersion.lateFeePolicy,
+          item.baseRental,
+          lateDays,
+        );
+      } else {
+        // Fall back to legacy ProductPricing late fee
+        const pricing = item.product?.pricing;
+        if (pricing?.lateFeeType === 'fixed' && pricing.lateFeeAmount) {
+          lateFee = pricing.lateFeeAmount * lateDays;
+        } else if (pricing?.lateFeeType === 'percentage' && pricing.lateFeePercentage) {
+          const pct = Number(pricing.lateFeePercentage) / 100;
+          lateFee = Math.ceil(item.baseRental * pct * lateDays);
+        }
 
-      // Cap late fee
-      if (pricing?.maxLateFee && lateFee > pricing.maxLateFee) {
-        lateFee = pricing.maxLateFee;
+        // Cap late fee (legacy)
+        if (pricing?.maxLateFee && lateFee > pricing.maxLateFee) {
+          lateFee = pricing.maxLateFee;
+        }
       }
 
       updates.push(
@@ -1313,7 +1378,7 @@ export class BookingService {
   ): Promise<CartItemResult> {
     const errors: string[] = [];
 
-    // Load product with pricing and services
+    // Load product with pricing, services, and size schema (H1+H2 FIX)
     const product = await tx.product.findFirst({
       where: { id: item.productId, tenantId, deletedAt: null },
       include: {
@@ -1324,6 +1389,17 @@ export class BookingService {
           include: {
             mainColor: { select: { name: true } },
             images: { where: { isFeatured: true }, take: 1 },
+          },
+        },
+        // H1+H2: Load active size schema for validation
+        sizeSchemaOverride: {
+          include: { instances: { select: { id: true } } },
+        },
+        productType: {
+          include: {
+            defaultSizeSchema: {
+              include: { instances: { select: { id: true } } },
+            },
           },
         },
       },
@@ -1370,15 +1446,48 @@ export class BookingService {
     if (start < today) errors.push('Start date cannot be in the past');
     if (start > end) errors.push('End date must be after start date');
 
+    // H1+H2 FIX: Validate selectedSize and backupSize against the product's size schema
+    const activeSchema = (product as any).sizeSchemaOverride ?? (product as any).productType?.defaultSizeSchema ?? null;
+    const validSizeIds = activeSchema?.instances?.map((i: any) => i.id) ?? [];
+
+    if (item.selectedSize && validSizeIds.length > 0) {
+      if (!validSizeIds.includes(item.selectedSize)) {
+        errors.push('Selected size is not available for this product');
+      }
+    }
+    if (item.backupSize) {
+      if (validSizeIds.length > 0 && !validSizeIds.includes(item.backupSize)) {
+        errors.push('Backup size is not available for this product');
+      }
+      if (item.backupSize === item.selectedSize) {
+        errors.push('Backup size must differ from selected size');
+      }
+    }
+
+    // C1 FIX: Load buffer days for availability check expansion
+    const storeSettings = await tx.storeSettings.findUnique({
+      where: { tenantId },
+      select: { bufferDays: true },
+    });
+    const bufferDays = storeSettings?.bufferDays ?? 0;
+
     // Check availability (if dates are valid)
     let isAvailable = errors.length === 0;
     if (isAvailable) {
+      // Expand check range by buffer days to match how DateBlocks are created
+      const bufferedStart = new Date(start);
+      const bufferedEnd = new Date(end);
+      if (bufferDays > 0) {
+        bufferedStart.setDate(bufferedStart.getDate() - bufferDays);
+        bufferedEnd.setDate(bufferedEnd.getDate() + bufferDays);
+      }
+
       const conflict = await tx.dateBlock.findFirst({
         where: {
           tenantId,
           productId: item.productId,
-          startDate: { lte: end },
-          endDate: { gte: start },
+          startDate: { lte: bufferedEnd },
+          endDate: { gte: bufferedStart },
         },
       });
       if (conflict) {
@@ -1529,7 +1638,9 @@ export class BookingService {
       if (!isNaN(lastSeq)) sequence = lastSeq + 1;
     }
 
-    const padded = String(sequence).padStart(4, '0');
+    // L2 FIX: Dynamic padding — auto-expand beyond 4 digits when >9999 bookings/year
+    const padLength = Math.max(4, String(sequence).length);
+    const padded = String(sequence).padStart(padLength, '0');
     return `${prefix}${padded}`;
   }
 

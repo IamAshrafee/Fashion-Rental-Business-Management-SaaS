@@ -219,7 +219,7 @@ export class PricingEngineService {
   ) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      select: { purchasePrice: true, tenantId: true },
+      select: { purchasePrice: true, tenantId: true, pricing: { select: { shippingMode: true, shippingFee: true } } },
     });
 
     try {
@@ -242,6 +242,10 @@ export class PricingEngineService {
       const backupItem = result.lineItems.find((li) => li.type === 'BACKUP_SIZE');
       const tryOnItem = result.lineItems.find((li) => li.type === 'TRY_ON');
 
+      // C2 FIX: Overlay shipping fee from ProductPricing instead of hardcoding 0
+      const pricing = product?.pricing;
+      const shippingFee = pricing?.shippingMode === 'flat' ? (pricing?.shippingFee ?? 0) : 0;
+
       return {
         rentalDays: result.billableDays,
         baseRental: baseRentalItem?.amountMinor ?? 0,
@@ -251,7 +255,7 @@ export class PricingEngineService {
         cleaningFee: cleaningItem?.amountMinor ?? 0,
         backupSizeFee: backupItem?.amountMinor ?? 0,
         tryOnFee: tryOnItem?.amountMinor ?? 0,
-        shippingFee: 0,
+        shippingFee,
         itemTotal: result.subtotalMinor,
         policyVersionId: result.policyVersionId,
       };
@@ -281,28 +285,12 @@ export class PricingEngineService {
     }
 
     // CALENDAR_DAYS: count the days in the range (inclusive)
-    const rawDays = diffMs / msPerDay;
-    let days: number;
+    // C3 FIX: Use floor + 1 to match booking service's inclusive counting
+    // e.g., Apr 15 to Apr 17 = floor(2) + 1 = 3 calendar days
+    const rawDays = Math.floor(diffMs / msPerDay) + 1;
 
-    switch (rounding) {
-      case 'CEIL':
-        days = Math.ceil(rawDays);
-        break;
-      case 'FLOOR':
-        days = Math.floor(rawDays);
-        break;
-      case 'NEAREST':
-        days = Math.round(rawDays);
-        break;
-      default:
-        days = Math.ceil(rawDays);
-    }
-
-    // +1 because calendar days are inclusive (Apr 20 to Apr 22 = 3 days)
-    // But only when using Date-only (no time). When using timestamps,
-    // the diff already accounts for it properly.
     // For safety, ensure minimum of 1
-    return Math.max(1, days === 0 ? 1 : days);
+    return Math.max(1, rawDays);
   }
 
   // =========================================================================
