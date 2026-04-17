@@ -9,6 +9,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CustomerService } from '../customer/customer.service';
+import { PricingEngineService } from '../pricing-engine/pricing-engine.service';
 import { BookingStatus, CancelledBy, DamageLevel, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import type { ProductPricing, ProductServices } from '@prisma/client';
 import {
@@ -80,6 +81,7 @@ export class BookingService {
     private readonly prisma: PrismaService,
     private readonly customerService: CustomerService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly pricingEngineService: PricingEngineService,
   ) {}
 
   // =========================================================================
@@ -203,12 +205,17 @@ export class BookingService {
     }
 
     // Calculate pricing
-    const pricing = this.calculatePricingForDates(product.pricing, product.services, {
-      startDate,
-      endDate,
-      backupSize: undefined,
-      tryOn: false,
-    });
+    const pricing = await this.calculatePricingForDates(
+      product.id,
+      product.pricing,
+      product.services,
+      {
+        startDate,
+        endDate,
+        backupSize: undefined,
+        tryOn: false,
+      }
+    );
 
     return {
       available: true,
@@ -1381,7 +1388,12 @@ export class BookingService {
     }
 
     // Calculate pricing (even if unavailable — so user sees expected price)
-    const pricing = this.calculatePricingForDates(product.pricing, product.services, item);
+    const pricing = await this.calculatePricingForDates(
+      product.id,
+      product.pricing,
+      product.services,
+      item,
+    );
 
     return {
       productId: item.productId,
@@ -1400,11 +1412,22 @@ export class BookingService {
    * Calculates all price components for a date range.
    * ALL money values are integers (ADR-04).
    */
-  private calculatePricingForDates(
+  private async calculatePricingForDates(
+    productId: string,
     pricing: ProductPricing | null,
     services: ProductServices | null,
     item: { startDate: string; endDate: string; backupSize?: string; tryOn?: boolean },
-  ): PricingSnapshot {
+  ): Promise<PricingSnapshot> {
+    // 1. Try resolving using determinative pricing engine v2
+    const enginePricing = await this.pricingEngineService.computeLegacyPricing(
+      productId,
+      item.startDate,
+      item.endDate,
+      { backupSize: item.backupSize, tryOn: item.tryOn }
+    );
+    if (enginePricing) return enginePricing;
+
+    // 2. Fallback backward compatibility calculation if legacy product
     const start = new Date(item.startDate);
     const end = new Date(item.endDate);
     const rentalDays =

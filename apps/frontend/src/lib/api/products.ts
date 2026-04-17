@@ -443,6 +443,32 @@ export const productApi = {
   deleteEvent: async (id: string): Promise<void> => {
     await apiClient.delete(`/owner/events/${id}`);
   },
+
+  // ─── Pricing Engine v2 ─────────────────────────────────────────────────────
+
+  /**
+   * GET /api/products/:productId/pricing
+   */
+  getPricing: async (productId: string): Promise<Record<string, unknown> | null> => {
+    const { data } = await apiClient.get<ApiResponse<Record<string, unknown> | null>>(`/products/${productId}/pricing`);
+    return data.data;
+  },
+
+  /**
+   * POST /api/products/:productId/pricing
+   */
+  savePricing: async (productId: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(`/products/${productId}/pricing`, payload);
+    return data.data;
+  },
+
+  /**
+   * POST /api/products/:productId/pricing/simulate
+   */
+  simulatePricing: async (productId: string, payload: { startAt: string; endAt: string; selectedAddons?: string[] }): Promise<Record<string, unknown>> => {
+    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(`/products/${productId}/pricing/simulate`, payload);
+    return data.data;
+  },
 };
 
 // ─── Sizing Module API ──────────────────────────────────────────────────────

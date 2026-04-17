@@ -30,6 +30,7 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { SizeSchemaModule } from './modules/size-schema/size-schema.module';
 import { SizeInstanceModule } from './modules/size-instance/size-instance.module';
 import { ProductTypeModule } from './modules/product-type/product-type.module';
+import { PricingEngineModule } from './modules/pricing-engine/pricing-engine.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { ProductTypeModule } from './modules/product-type/product-type.module';
     SizeSchemaModule,
     SizeInstanceModule,
     ProductTypeModule,
+    PricingEngineModule,
   ],
   providers: [
     // Global metering interceptor — captures per-tenant API metrics on every request.

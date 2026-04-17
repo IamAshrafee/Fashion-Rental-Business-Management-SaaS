@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import {
   ProductStatus,
-  PricingMode,
-  LateFeeType,
   ShippingMode,
 } from '@closetrent/types';
 
@@ -45,21 +43,21 @@ export const productFormSchema = z.object({
     )
     .min(1, 'At least one variant is required'),
 
-  // Step 4: Pricing
-  pricingMode: z.enum(['one_time', 'per_day', 'percentage'] as [PricingMode, ...PricingMode[]]).default('one_time'),
-  rentalPrice: z.number().optional(), // required if one_time or per_day
-  includedDays: z.number().int().optional(), // required if one_time or percentage
-  pricePerDay: z.number().optional(), // required if per_day
-  minimumDays: z.number().int().default(1),
-  retailPrice: z.number().optional(), // required if percentage
-  rentalPercentage: z.number().optional(), // required if percentage
-  minPrice: z.number().optional(),
-  maxDiscount: z.number().optional(),
-  extendedRentalRate: z.number().optional(),
-  lateFeeType: z.enum(['fixed', 'percentage'] as [LateFeeType, ...LateFeeType[]]).default('fixed'),
-  lateFeePerDay: z.number().optional(), // fixed amount per day
-  lateFeePercentage: z.number().optional(), // percentage per day (when type=percentage)
-  maxLateFeeCap: z.number().optional(), // cap on total late fees
+  // Step 4: Pricing — Pricing Engine v2
+  ratePlanType: z.enum(['PER_DAY', 'FLAT_PERIOD', 'TIERED_DAILY', 'WEEKLY_MONTHLY', 'PERCENT_RETAIL']).optional(),
+  ratePlanConfig: z.record(z.unknown()).optional(), // Validated per rate plan type at submit
+  pricingComponents: z.array(z.object({
+    type: z.string(),
+    config: z.record(z.unknown()),
+  })).default([]),
+
+  // Late fee policy
+  lateFeeEnabled: z.boolean().default(false),
+  lateFeeGraceHours: z.number().int().optional(),
+  lateFeeAmountMinor: z.number().int().optional(),
+  lateFeeCapMinor: z.number().int().optional(),
+
+  // Shipping (kept from legacy — not part of pricing engine)
   shippingMode: z.enum(['free', 'flat', 'area_based'] as [ShippingMode, ...ShippingMode[]]).default('free'),
   flatShippingFee: z.number().optional(),
 
@@ -67,17 +65,7 @@ export const productFormSchema = z.object({
   productTypeId: z.string().optional(),
   sizeSchemaOverrideId: z.string().optional(),
 
-  // Step 6: Services
-  securityDeposit: z.number().optional(),
-  cleaningFee: z.number().optional(),
-  enableBackupSize: z.boolean().default(false),
-  backupSizeFee: z.number().optional(),
-  enableTryOn: z.boolean().default(false),
-  tryOnFee: z.number().optional(),
-  tryOnDuration: z.number().int().optional(), // In DAYS (converted to hours in submit hook)
-  creditTryOnFee: z.boolean().default(false),
-
-  // Step 7: Details & FAQ
+  // Step 6: Details & FAQ
   details: z
     .array(
       z.object({
@@ -100,15 +88,50 @@ export const productFormSchema = z.object({
     )
     .optional(),
 }).superRefine((data, ctx) => {
-  if (data.pricingMode === 'one_time') {
-    if (data.rentalPrice == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rental price required', path: ['rentalPrice'] });
-    if (data.includedDays == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Included days required', path: ['includedDays'] });
-  } else if (data.pricingMode === 'per_day') {
-    if (data.pricePerDay == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Price per day required', path: ['pricePerDay'] });
-  } else if (data.pricingMode === 'percentage') {
-    if (data.retailPrice == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Retail price required', path: ['retailPrice'] });
-    if (data.rentalPercentage == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rental percentage required', path: ['rentalPercentage'] });
-    if (data.includedDays == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Included days required', path: ['includedDays'] });
+  // Pricing validation: rate plan type is required
+  if (!data.ratePlanType) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please select a pricing model', path: ['ratePlanType'] });
+    return;
+  }
+
+  const config = data.ratePlanConfig;
+  if (!config) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pricing configuration is required', path: ['ratePlanConfig'] });
+    return;
+  }
+
+  // Validate per rate plan type
+  switch (data.ratePlanType) {
+    case 'PER_DAY':
+      if (!config.unitPriceMinor || Number(config.unitPriceMinor) <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Price per day is required', path: ['ratePlanConfig'] });
+      }
+      break;
+    case 'FLAT_PERIOD':
+      if (!config.flatPriceMinor || Number(config.flatPriceMinor) <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Package price is required', path: ['ratePlanConfig'] });
+      }
+      if (!config.includedDays || Number(config.includedDays) <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Included days is required', path: ['ratePlanConfig'] });
+      }
+      break;
+    case 'TIERED_DAILY': {
+      const tiers = config.tiers as Array<{ pricePerDayMinor: number }> | undefined;
+      if (!tiers?.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'At least one pricing tier is required', path: ['ratePlanConfig'] });
+      }
+      break;
+    }
+    case 'WEEKLY_MONTHLY':
+      if (!config.dailyPriceMinor || Number(config.dailyPriceMinor) <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Daily rate is required', path: ['ratePlanConfig'] });
+      }
+      break;
+    case 'PERCENT_RETAIL':
+      if (!config.percent || Number(config.percent) <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rental percentage is required', path: ['ratePlanConfig'] });
+      }
+      break;
   }
 });
 

@@ -109,28 +109,17 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
 
   // Pricing label
   const pricingLabel = (() => {
-    switch (data.pricingMode) {
-      case 'one_time':
-        return `৳${data.rentalPrice || 0} for ${data.includedDays || '?'} days`;
-      case 'per_day':
-        return `৳${data.pricePerDay || 0}/day (min ${data.minimumDays || 1} days)`;
-      case 'percentage': {
-        const calc = Math.round((data.retailPrice || 0) * (data.rentalPercentage || 0) / 100);
-        return `${data.rentalPercentage || 0}% of ৳${data.retailPrice || 0} = ৳${calc}`;
-      }
-      default:
-        return 'Not configured';
+    if (!data.ratePlanType || !data.ratePlanConfig) return 'Not configured';
+    const config = data.ratePlanConfig as any;
+    switch (data.ratePlanType) {
+      case 'FLAT_PERIOD': return `৳${config.flatPriceMinor || 0} for ${config.includedDays || '?'} days`;
+      case 'PER_DAY': return `৳${config.unitPriceMinor || 0}/day (min ${config.minDays || 1}d)`;
+      case 'TIERED_DAILY': return `Tiered (${config.tiers?.length || 0} tiers)`;
+      case 'WEEKLY_MONTHLY': return `৳${config.dailyPriceMinor || 0}/d | ৳${config.weeklyPriceMinor || 0}/w`;
+      case 'PERCENT_RETAIL': return `${config.percent || 0}% of retail`;
     }
+    return data.ratePlanType;
   })();
-
-  // Cost breakdown
-  const rentalAmount = (() => {
-    if (data.pricingMode === 'one_time') return data.rentalPrice || 0;
-    if (data.pricingMode === 'per_day') return (data.pricePerDay || 0) * (data.minimumDays || 1);
-    if (data.pricingMode === 'percentage') return Math.round((data.retailPrice || 0) * (data.rentalPercentage || 0) / 100);
-    return 0;
-  })();
-  const totalCustomerPays = rentalAmount + (data.securityDeposit || 0) + (data.cleaningFee || 0) + (data.shippingMode === 'flat' ? (data.flatShippingFee || 0) : 0);
 
   // Warnings (recommendations, not errors)
   const basicWarnings: string[] = [];
@@ -144,8 +133,9 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
   });
 
   const pricingWarnings: string[] = [];
-  if (!data.securityDeposit) pricingWarnings.push('No security deposit — consider adding one to protect against damage.');
-  if (!data.lateFeePerDay && !data.lateFeePercentage) pricingWarnings.push('No late fee configured — customers may delay returns.');
+  const hasDeposit = (data.pricingComponents || []).some(c => c.type === 'DEPOSIT');
+  if (!hasDeposit) pricingWarnings.push('No security deposit — consider adding one to protect against damage.');
+  if (!data.lateFeeEnabled) pricingWarnings.push('No late fee configured — customers may delay returns.');
 
   const sizeWarnings: string[] = [];
   if (!data.productTypeId) {
@@ -192,29 +182,23 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
       )}
 
       {/* Cost Breakdown Card */}
-      {rentalAmount > 0 && (
+      {data.ratePlanType && (
         <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
           <CardContent className="pt-5 pb-4">
             <h3 className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3">
-              Customer Cost Breakdown
+              Pricing Configuration
             </h3>
             <div className="space-y-1.5 text-sm">
-              <Row label="Rental" value={`৳${rentalAmount.toLocaleString()}`} />
-              {(data.securityDeposit ?? 0) > 0 && (
-                <Row label="Security Deposit (refundable)" value={`৳${data.securityDeposit?.toLocaleString()}`} />
-              )}
-              {(data.cleaningFee ?? 0) > 0 && (
-                <Row label="Cleaning Fee" value={`৳${data.cleaningFee?.toLocaleString()}`} />
+              <Row label="Rate Plan" value={pricingLabel} />
+              {data.pricingComponents?.map((comp, idx) => (
+                <Row key={idx} label={comp.type.replace(/_/g, ' ')} value={`৳${comp.config?.amountMinor || 0}${comp.type === 'DEPOSIT' ? ' (refundable)' : ''}`} />
+              ))}
+              {data.lateFeeEnabled && (
+                <Row label="Late Fee" value={`৳${data.lateFeeAmountMinor || 0}/day (after ${data.lateFeeGraceHours}h)`} />
               )}
               {data.shippingMode === 'flat' && (data.flatShippingFee ?? 0) > 0 && (
                 <Row label="Shipping" value={`৳${data.flatShippingFee?.toLocaleString()}`} />
               )}
-              <div className="border-t pt-1.5 mt-1.5">
-                <div className="flex justify-between items-center font-semibold">
-                  <span>Total at Checkout</span>
-                  <span className="text-lg text-primary">৳{totalCustomerPays.toLocaleString()}</span>
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -288,14 +272,14 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
         {/* ── Pricing & Fees ───────────────────────────────── */}
         <ReviewCard title="Pricing & Fees" icon={DollarSign} step={3} onGoToStep={onGoToStep} warnings={pricingWarnings}>
           <Row
-            label="Mode"
+            label="Rate Plan Type"
             value={
               <Badge variant="outline" className="capitalize">
-                {data.pricingMode?.replace('_', ' ')}
+                {data.ratePlanType?.replace('_', ' ') || 'Not Set'}
               </Badge>
             }
           />
-          <Row label="Rental Price" value={pricingLabel} />
+          <Row label="Base Price" value={pricingLabel} />
           {data.shippingMode && (
             <Row
               label="Shipping"
@@ -308,27 +292,14 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
               }
             />
           )}
-          {data.extendedRentalRate && <Row label="Extended Rate" value={`৳${data.extendedRentalRate}/day`} />}
-          {data.lateFeeType === 'fixed' && data.lateFeePerDay && (
-            <Row label="Late Fee" value={`৳${data.lateFeePerDay}/day (Fixed)`} />
-          )}
-          {data.lateFeeType === 'percentage' && data.lateFeePercentage && (
-            <Row label="Late Fee" value={`${data.lateFeePercentage}%/day`} />
-          )}
-          {data.maxLateFeeCap && <Row label="Max Late Fee Cap" value={`৳${data.maxLateFeeCap}`} />}
           
           <div className="border-t mt-2 pt-2">
-            <Row label="Security Deposit" value={data.securityDeposit ? `৳${data.securityDeposit}` : 'None'} />
-            <Row label="Cleaning Fee" value={data.cleaningFee ? `৳${data.cleaningFee}` : 'None'} />
-            <Row label="Backup Size" value={data.enableBackupSize ? `Yes (৳${data.backupSizeFee || 0})` : 'No'} />
-            <Row
-              label="Try-On"
-              value={
-                data.enableTryOn
-                  ? `Yes (৳${data.tryOnFee || 0}, ${data.tryOnDuration || '?'} days${data.creditTryOnFee ? ', credited' : ''})`
-                  : 'No'
-              }
-            />
+            {data.pricingComponents?.filter(c => c.type === 'DEPOSIT').map((c, i) => (
+              <Row key={i} label="Security Deposit" value={`৳${c.config?.amountMinor || 0}`} />
+            ))}
+            {data.pricingComponents?.filter(c => c.type !== 'DEPOSIT').map((c, i) => (
+              <Row key={i} label={c.type.replace(/_/g, ' ')} value={`৳${c.config?.amountMinor || 0}`} />
+            ))}
           </div>
         </ReviewCard>
 

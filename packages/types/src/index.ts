@@ -330,3 +330,4 @@ export * from './analytics';
 export * from './customer';
 export * from './settings';
 export * from './events';
+export * from './pricing';

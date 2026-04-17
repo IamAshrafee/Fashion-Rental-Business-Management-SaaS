@@ -50,24 +50,16 @@ function mapProductToFormValues(product: any): ProductFormValues {
     })) ?? [{ name: '', mainColorId: '', identicalColorIds: [], images: [], sizeInstanceIds: [] }],
 
     // ── Pricing ────────────────────────────────────────────────
-    pricingMode: pricing?.mode ?? 'one_time',
-    rentalPrice: pricing?.rentalPrice ?? undefined,
-    includedDays: pricing?.includedDays ?? undefined,
-    pricePerDay: pricing?.pricePerDay ?? undefined,
-    minimumDays: pricing?.minimumDays ?? 1,
-    retailPrice: pricing?.retailPrice ?? undefined,
-    rentalPercentage: pricing?.rentalPercentage != null
-      ? Number(pricing.rentalPercentage)
-      : undefined,
-    minPrice: pricing?.minInternalPrice ?? undefined,
-    maxDiscount: pricing?.maxDiscountPrice ?? undefined,
-    extendedRentalRate: pricing?.extendedRentalRate ?? undefined,
-    lateFeeType: pricing?.lateFeeType ?? 'fixed',
-    lateFeePerDay: pricing?.lateFeeAmount ?? undefined,
-    lateFeePercentage: pricing?.lateFeePercentage != null
-      ? Number(pricing.lateFeePercentage)
-      : undefined,
-    maxLateFeeCap: pricing?.maxLateFee ?? undefined,
+    ratePlanType: pricing?.ratePlanType as 'PER_DAY' | 'FLAT_PERIOD' | 'TIERED_DAILY' | 'WEEKLY_MONTHLY' | 'PERCENT_RETAIL' | undefined,
+    ratePlanConfig: pricing?.ratePlanConfig ?? undefined,
+    pricingComponents: pricing?.components?.map((c: any) => ({
+      type: c.type,
+      config: c.config,
+    })) ?? [],
+    lateFeeEnabled: pricing?.lateFeePolicy?.enabled ?? false,
+    lateFeeGraceHours: pricing?.lateFeePolicy?.graceHours ?? undefined,
+    lateFeeAmountMinor: pricing?.lateFeePolicy?.amountMinor ?? undefined,
+    lateFeeCapMinor: pricing?.lateFeePolicy?.totalCapMinor ?? undefined,
     shippingMode: pricing?.shippingMode ?? 'free',
     flatShippingFee: pricing?.shippingFee ?? undefined,
 
@@ -92,19 +84,6 @@ function mapProductToFormValues(product: any): ProductFormValues {
       })) ?? [],
     })) ?? [],
     sizeChartUrl: size?.sizeChartUrl ?? undefined,
-
-    // ── Services ───────────────────────────────────────────────
-    securityDeposit: services?.depositAmount ?? undefined,
-    cleaningFee: services?.cleaningFee ?? undefined,
-    enableBackupSize: services?.backupSizeEnabled ?? false,
-    backupSizeFee: services?.backupSizeFee ?? undefined,
-    enableTryOn: services?.tryOnEnabled ?? false,
-    tryOnFee: services?.tryOnFee ?? undefined,
-    // Convert hours → days for the form
-    tryOnDuration: services?.tryOnDurationHours != null
-      ? Math.round(services.tryOnDurationHours / 24)
-      : undefined,
-    creditTryOnFee: services?.tryOnCreditToRental ?? false,
 
     // ── Details & FAQ ──────────────────────────────────────────
     details: product.detailHeaders?.map((h: any) => ({

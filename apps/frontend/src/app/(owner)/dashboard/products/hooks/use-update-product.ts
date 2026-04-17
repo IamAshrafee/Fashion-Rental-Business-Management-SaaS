@@ -10,8 +10,7 @@ interface OriginalVariant {
 }
 
 /**
- * Builds the flat Update DTO from form values (same structure as useSubmitProduct
- * but used for PATCH instead of POST).
+ * Builds the flat Update DTO from form values (excluding pricing)
  */
 function buildUpdatePayload(data: ProductFormValues) {
   return {
@@ -26,38 +25,14 @@ function buildUpdatePayload(data: ProductFormValues) {
     itemCountry: data.itemCountry,
     itemCountryPublic: data.showCountry,
     targetRentals: data.targetRentals,
-
-    pricing: {
-      mode: data.pricingMode,
-      rentalPrice: data.rentalPrice,
-      includedDays: data.includedDays,
-      pricePerDay: data.pricePerDay,
-      retailPrice: data.retailPrice,
-      rentalPercentage: data.rentalPercentage,
-      minInternalPrice: data.minPrice,
-      maxDiscountPrice: data.maxDiscount,
-      extendedRentalRate: data.extendedRentalRate,
-      lateFeeType: data.lateFeeType,
-      lateFeeAmount: data.lateFeeType === 'fixed' ? data.lateFeePerDay : undefined,
-      lateFeePercentage: data.lateFeeType === 'percentage' ? data.lateFeePercentage : undefined,
-      maxLateFee: data.maxLateFeeCap,
-      shippingMode: data.shippingMode,
-      shippingFee: data.flatShippingFee,
-    },
-
     productTypeId: data.productTypeId,
     sizeSchemaOverrideId: data.sizeSchemaOverrideId,
 
-    services: {
-      depositAmount: data.securityDeposit,
-      cleaningFee: data.cleaningFee,
-      backupSizeEnabled: data.enableBackupSize,
-      backupSizeFee: data.backupSizeFee,
-      tryOnEnabled: data.enableTryOn,
-      tryOnFee: data.tryOnFee,
-      // Convert days → hours for backend
-      tryOnDurationHours: data.tryOnDuration != null ? data.tryOnDuration * 24 : undefined,
-      tryOnCreditToRental: data.creditTryOnFee,
+    // Legacy shipping 
+    pricing: {
+      mode: 'one_time' as const,
+      shippingMode: data.shippingMode,
+      shippingFee: data.flatShippingFee,
     },
 
     faqs: data.faqs?.map((faq) => ({
@@ -99,6 +74,37 @@ export function useUpdateProduct(
       toast.loading('Updating product info...', { id: 'update-product' });
       const payload = buildUpdatePayload(data);
       await productApi.updateProduct(productId, payload);
+
+      // ── 1b. Update Pricing Engine profiles ────────────────────
+      if (data.ratePlanType && data.ratePlanConfig) {
+        toast.loading('Updating pricing...', { id: 'update-product' });
+
+        const components = (data.pricingComponents || []).map((comp) => ({
+          type: comp.type === 'ADDON_BACKUP' || comp.type === 'ADDON_TRYON' ? 'ADDON' : comp.type,
+          config: comp.config,
+          chargeTiming: 'AT_BOOKING',
+          refundable: comp.type === 'DEPOSIT',
+        }));
+
+        const lateFeePolicy = data.lateFeeEnabled
+          ? {
+              enabled: true,
+              graceHours: data.lateFeeGraceHours || 24,
+              mode: 'PER_DAY' as const,
+              amountMinor: data.lateFeeAmountMinor || 0,
+              totalCapMinor: data.lateFeeCapMinor || undefined,
+            }
+          : { enabled: false, graceHours: 0, mode: 'PER_DAY' as const };
+
+        await productApi.savePricing(productId, {
+          ratePlan: {
+            type: data.ratePlanType,
+            config: data.ratePlanConfig,
+          },
+          components,
+          lateFeePolicy,
+        });
+      }
 
       // ── 2. Variant diffing ────────────────────────────────────
       const originalVariants: OriginalVariant[] = originalProduct?.variants ?? [];

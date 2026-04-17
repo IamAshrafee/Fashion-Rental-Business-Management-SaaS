@@ -7,6 +7,7 @@ import {
   BookingOwnerController,
   DateBlockController,
 } from './booking.controller';
+import { PricingEngineModule } from '../pricing-engine/pricing-engine.module'; // Added PricingEngineModule
 
 /**
  * Booking Module — P07 Booking & Availability Engine.
@@ -21,7 +22,7 @@ import {
  * - EventEmitterModule (global, imported in AppModule)
  */
 @Module({
-  imports: [PrismaModule, CustomerModule],
+  imports: [PrismaModule, CustomerModule, PricingEngineModule],
   controllers: [
     BookingGuestController,
     BookingOwnerController,

@@ -939,6 +939,20 @@ export class ProductService {
       services: {
         select: { depositAmount: true },
       },
+      pricingProfile: {
+        include: {
+          policyVersions: {
+            where: { status: 'ACTIVE' },
+            take: 1,
+            include: {
+              ratePlans: {
+                orderBy: { priority: 'desc' },
+                take: 1
+              }
+            }
+          }
+        }
+      },
       variants: {
         orderBy: { sequence: 'asc' as const },
         take: 1,
@@ -964,6 +978,18 @@ export class ProductService {
       },
       pricing: true,
       services: true,
+      pricingProfile: {
+        include: {
+          policyVersions: {
+            where: { status: 'ACTIVE' },
+            take: 1,
+            include: {
+              ratePlans: true,
+              priceComponents: true
+            }
+          }
+        }
+      },
       productType: {
         include: {
           defaultSizeSchema: {
@@ -1013,10 +1039,37 @@ export class ProductService {
     } as const;
   }
 
-  private mapProductCard(product: any) {
+  private computeHeadlinePrice(product: any): { price: number; label: string; mode: string } | null {
+    const activeVersion = product.pricingProfile?.policyVersions?.[0];
+    if (activeVersion && activeVersion.ratePlans?.length > 0) {
+      const ratePlan = activeVersion.ratePlans[0]; // Already sorted by priority desc
+      const config = ratePlan.config;
+      switch (ratePlan.type) {
+        case 'PER_DAY':
+          return { price: config.unitPriceMinor || 0, label: '/day', mode: 'PER_DAY' };
+        case 'FLAT_PERIOD':
+          return { price: config.flatPriceMinor || 0, label: `/${config.includedDays} days`, mode: 'FLAT_PERIOD' };
+        case 'TIERED_DAILY':
+          return { price: config.tiers?.[0]?.pricePerDayMinor || 0, label: '/day', mode: 'TIERED_DAILY' };
+        case 'WEEKLY_MONTHLY':
+          return { price: config.dailyPriceMinor || config.weeklyPriceMinor || config.monthlyPriceMinor || 0, label: '', mode: 'WEEKLY_MONTHLY' };
+        case 'PERCENT_RETAIL':
+          return { price: 0, label: `${config.percent}% of retail`, mode: 'PERCENT_RETAIL' };
+      }
+    }
+    
+    // Fallback to legacy
     const p = product.pricing;
+    if (!p) return null;
+    const price = p.priceOverride || (p.mode === 'one_time' ? p.rentalPrice : p.mode === 'per_day' ? p.pricePerDay : p.calculatedPrice) || p.rentalPrice;
+    return { price, label: '', mode: p.mode || '' };
+  }
+
+  private mapProductCard(product: any) {
     const defaultVariant = product.variants?.[0];
     const featuredImage = defaultVariant?.images?.[0];
+
+    const headline = this.computeHeadlinePrice(product);
 
     return {
       id: product.id,
@@ -1025,10 +1078,10 @@ export class ProductService {
       category: product.category,
       subcategory: product.subcategory,
       events: product.events?.map((pe: any) => pe.event) || [],
-      rentalPrice: this.getEffectivePrice(p),
-      pricingMode: p?.mode || null,
-      includedDays: p?.includedDays || null,
-      depositAmount: product.services?.depositAmount || 0,
+      rentalPrice: headline?.price || 0,
+      pricingMode: headline?.mode || null,
+      includedDays: product.pricing?.includedDays || null, // Keep legacy or rely on headline label in Frontend
+      depositAmount: this.computeDeposit(product),
       isAvailable: product.isAvailable,
       totalBookings: product.totalBookings,
       defaultVariant: defaultVariant
@@ -1040,6 +1093,17 @@ export class ProductService {
         : null,
       variantCount: product._count?.variants || 0,
     };
+  }
+
+  private computeDeposit(product: any): number {
+    const activeVersion = product.pricingProfile?.policyVersions?.[0];
+    if (activeVersion && activeVersion.priceComponents?.length > 0) {
+      const depositComponent = activeVersion.priceComponents.find((c: any) => c.type === 'DEPOSIT');
+      if (depositComponent && depositComponent.config?.pricing?.mode === 'FLAT') {
+        return depositComponent.config.pricing.amountMinor;
+      }
+    }
+    return product.services?.depositAmount || 0;
   }
 
   private mapProductDetail(product: any) {
@@ -1075,6 +1139,8 @@ export class ProductService {
         name: product.productType.name,
         slug: product.productType.slug,
       } : null,
+      // Pass the computed legacy info mapped from new engine
+      headlinePricing: this.computeHeadlinePrice(product)
     };
   }
 

@@ -23,9 +23,8 @@ const STEP_FIELDS: Record<number, string[]> = {
   1: ['sizeMode', 'measurements', 'details', 'faqs'],
   2: ['variants'],
   3: [
-    'pricingMode', 'rentalPrice', 'includedDays', 'pricePerDay',
-    'retailPrice', 'rentalPercentage', 'minPrice', 'maxDiscount',
-    'securityDeposit', 'cleaningFee',
+    'ratePlanType', 'ratePlanConfig', 'pricingComponents',
+    'shippingMode', 'flatShippingFee',
   ],
   4: [], // Review — full validation on submit
 };

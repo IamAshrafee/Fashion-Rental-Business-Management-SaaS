@@ -55,10 +55,66 @@ enum SizeSchemaStatus {
   deprecated
 }
 
+// --- Legacy pricing enums (kept for backward compat during migration) ---
 enum PricingMode {
   one_time
   per_day
   percentage
+}
+
+// --- Pricing Engine v2 enums ---
+enum RatePlanType {
+  PER_DAY
+  FLAT_PERIOD
+  TIERED_DAILY
+  WEEKLY_MONTHLY
+  PERCENT_RETAIL
+}
+
+enum ComponentType {
+  FEE
+  DEPOSIT
+  DISCOUNT
+  ADDON
+  SURCHARGE
+}
+
+enum ComponentVisibility {
+  CUSTOMER
+  STAFF_ONLY
+}
+
+enum ChargeTiming {
+  AT_BOOKING
+  AT_PICKUP
+  AT_RETURN
+  POST_RETURN
+}
+
+enum PolicyVersionStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum DurationMode {
+  CALENDAR_DAYS
+  NIGHTS
+}
+
+enum BillingRounding {
+  CEIL
+  FLOOR
+  NEAREST
+}
+
+enum ConditionOperator {
+  EQ
+  IN
+  GTE
+  LTE
+  BETWEEN
+  OVERLAPS
 }
 
 enum LateFeeType {
@@ -522,8 +578,9 @@ model Product {
   sizeSchemaOverride SizeSchema?          @relation("ProductSchemaOverride", fields: [sizeSchemaOverrideId], references: [id])
   variants           ProductVariant[]
   events             ProductEvent[]
-  pricing            ProductPricing?
-  services           ProductServices?
+  pricing            ProductPricing?      // Legacy — kept during migration
+  services           ProductServices?     // Legacy — kept during migration
+  pricingProfile     PricingProfile?      // Pricing Engine v2
   faqs               ProductFaq[]
   detailHeaders      ProductDetailHeader[]
   bookingItems       BookingItem[]
@@ -689,6 +746,155 @@ model ProductServices {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@map("product_services")
+}
+
+// ============================================================================
+// PRICING ENGINE v2 — Composable, Versioned Pricing
+// ============================================================================
+
+model PricingProfile {
+  id                    String              @id @default(uuid())
+  tenantId              String              @map("tenant_id")
+  productId             String              @unique @map("product_id")
+  currency              String              @default("BDT") @db.Char(3)
+  timezone              String              @default("Asia/Dhaka")
+  durationMode          DurationMode        @default(CALENDAR_DAYS) @map("duration_mode")
+  billingRounding       BillingRounding     @default(CEIL) @map("billing_rounding")
+  activePolicyVersionId String?             @map("active_policy_version_id")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  product               Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  policyVersions        PricePolicyVersion[]
+
+  @@index([tenantId])
+  @@map("pricing_profiles")
+}
+
+model PricePolicyVersion {
+  id                String              @id @default(uuid())
+  pricingProfileId  String              @map("pricing_profile_id")
+  version           Int
+  status            PolicyVersionStatus @default(DRAFT)
+  effectiveFrom     DateTime?           @map("effective_from") @db.Timestamptz
+  effectiveTo       DateTime?           @map("effective_to") @db.Timestamptz
+  publishedAt       DateTime?           @map("published_at") @db.Timestamptz
+  snapshotConfig    Json?               @map("snapshot_config") @db.JsonB
+  lateFeePolicy     Json?               @map("late_fee_policy") @db.JsonB
+  presentationConfig Json?              @map("presentation_config") @db.JsonB
+  createdBy         String?             @map("created_by")
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  pricingProfile    PricingProfile      @relation(fields: [pricingProfileId], references: [id], onDelete: Cascade)
+  ratePlans         RatePlan[]
+  priceComponents   PriceComponent[]
+  quotes            Quote[]
+  bookings          Booking[]
+
+  @@index([pricingProfileId, status, version(sort: Desc)])
+  @@map("price_policy_versions")
+}
+
+model RatePlan {
+  id                String          @id @default(uuid())
+  policyVersionId   String          @map("policy_version_id")
+  type              RatePlanType
+  priority          Int             @default(100)
+  config            Json            @db.JsonB
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  policyVersion     PricePolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  conditionSet      ConditionSet?
+
+  @@index([policyVersionId, priority(sort: Desc)])
+  @@map("rate_plans")
+}
+
+model PriceComponent {
+  id                String              @id @default(uuid())
+  policyVersionId   String              @map("policy_version_id")
+  type              ComponentType
+  priority          Int                 @default(100)
+  visibility        ComponentVisibility @default(CUSTOMER)
+  chargeTiming      ChargeTiming        @default(AT_BOOKING) @map("charge_timing")
+  refundable        Boolean             @default(false)
+  exclusiveGroup    String?             @map("exclusive_group")
+  config            Json                @db.JsonB
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  policyVersion     PricePolicyVersion  @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  conditionSet      ConditionSet?
+
+  @@index([policyVersionId, priority(sort: Desc)])
+  @@map("price_components")
+}
+
+model ConditionSet {
+  id                String          @id @default(uuid())
+  ratePlanId        String?         @unique @map("rate_plan_id")
+  componentId       String?         @unique @map("component_id")
+
+  ratePlan          RatePlan?       @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  component         PriceComponent? @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  conditions        Condition[]
+
+  @@map("condition_sets")
+}
+
+model Condition {
+  id                String              @id @default(uuid())
+  conditionSetId    String              @map("condition_set_id")
+  field             String              // e.g. 'date_range', 'dow', 'customer_tier', 'channel', 'location', 'duration_days'
+  operator          ConditionOperator
+  value             Json                @db.JsonB
+
+  conditionSet      ConditionSet        @relation(fields: [conditionSetId], references: [id], onDelete: Cascade)
+
+  @@index([conditionSetId])
+  @@map("conditions")
+}
+
+model Quote {
+  id                 String            @id @default(uuid())
+  tenantId           String            @map("tenant_id")
+  productId          String            @map("product_id")
+  variantId          String?           @map("variant_id")
+  policyVersionId    String            @map("policy_version_id")
+  startAt            DateTime          @map("start_at") @db.Timestamptz
+  endAt              DateTime          @map("end_at") @db.Timestamptz
+  customerContext    Json?             @map("customer_context") @db.JsonB
+  selectedAddons     Json?             @map("selected_addons") @db.JsonB
+  inputsHash         String            @map("inputs_hash")
+  currency           String            @default("BDT") @db.Char(3)
+  billableDays       Int               @map("billable_days")
+  subtotalMinor      Int               @map("subtotal_minor")
+  depositMinor       Int               @map("deposit_minor")
+  totalDueNowMinor   Int               @map("total_due_now_minor")
+  totalDueLaterMinor Int               @map("total_due_later_minor")
+  expiresAt          DateTime          @map("expires_at") @db.Timestamptz
+  createdAt          DateTime          @default(now()) @map("created_at")
+
+  policyVersion      PricePolicyVersion @relation(fields: [policyVersionId], references: [id])
+  lineItems          QuoteLineItem[]
+
+  @@index([tenantId, inputsHash])
+  @@map("quotes")
+}
+
+model QuoteLineItem {
+  id             String              @id @default(uuid())
+  quoteId        String              @map("quote_id")
+  type           String              // e.g. 'BASE_RENTAL', 'CLEANING_FEE', 'DEPOSIT', 'DISCOUNT'
+  label          String
+  amountMinor    Int                 @map("amount_minor")
+  refundable     Boolean             @default(false)
+  visibility     ComponentVisibility @default(CUSTOMER)
+  metadata       Json?               @db.JsonB
+
+  quote          Quote               @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("quote_line_items")
 }
 
 // ============================================================================
@@ -938,6 +1144,7 @@ model Booking {
   tenantId             String        @map("tenant_id")
   bookingNumber        String        @map("booking_number")
   customerId           String        @map("customer_id")
+  policyVersionId      String?       @map("policy_version_id") // Pricing Engine v2: frozen pricing snapshot
   status               BookingStatus @default(pending)
   paymentMethod        PaymentMethod @map("payment_method")
   paymentStatus        PaymentStatus @default(unpaid) @map("payment_status")
@@ -983,18 +1190,20 @@ model Booking {
   createdAt            DateTime      @default(now()) @map("created_at")
   updatedAt            DateTime      @updatedAt @map("updated_at")
 
-  tenant     Tenant        @relation(fields: [tenantId], references: [id])
-  customer   Customer      @relation(fields: [customerId], references: [id])
-  items      BookingItem[]
-  payments   Payment[]
-  dateBlocks DateBlock[]
-  reviews    Review[]
+  tenant        Tenant              @relation(fields: [tenantId], references: [id])
+  customer      Customer            @relation(fields: [customerId], references: [id])
+  policyVersion PricePolicyVersion? @relation(fields: [policyVersionId], references: [id])
+  items         BookingItem[]
+  payments      Payment[]
+  dateBlocks    DateBlock[]
+  reviews       Review[]
 
   @@unique([tenantId, bookingNumber])
   @@index([tenantId, status])
   @@index([tenantId, courierStatus])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([customerId])
+  @@index([policyVersionId])
   @@map("bookings")
 }
 

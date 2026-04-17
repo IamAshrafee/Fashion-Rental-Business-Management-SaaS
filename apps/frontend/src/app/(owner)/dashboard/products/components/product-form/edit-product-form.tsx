@@ -20,11 +20,9 @@ const TAB_FIELDS: Record<EditTabId, string[]> = {
   basic: ['name', 'description', 'categoryId', 'subcategoryId', 'events', 'status', 'purchaseDate', 'purchasePrice', 'itemCountry', 'targetRentals'],
   media: ['variants'],
   pricing: [
-    'pricingMode', 'rentalPrice', 'includedDays', 'pricePerDay', 'minimumDays',
-    'retailPrice', 'rentalPercentage', 'minPrice', 'maxDiscount',
-    'extendedRentalRate', 'lateFeeType', 'lateFeePerDay', 'lateFeePercentage', 'maxLateFeeCap',
+    'ratePlanType', 'ratePlanConfig', 'pricingComponents',
+    'lateFeeEnabled', 'lateFeeGraceHours', 'lateFeeAmountMinor', 'lateFeeCapMinor',
     'shippingMode', 'flatShippingFee',
-    'securityDeposit', 'cleaningFee', 'enableBackupSize', 'backupSizeFee', 'enableTryOn', 'tryOnFee', 'tryOnDuration'
   ],
   size_details: [
     'sizeMode', 'availableSizes', 'mainDisplaySize', 'freeSizeType', 'measurements', 'parts', 'sizeChartUrl',
