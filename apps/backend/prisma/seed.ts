@@ -11,7 +11,7 @@ const ADMIN_USER = {
   fullName: 'Platform Admin',
   email: 'admin@closetrent.com',
   phone: '+8801700000000',
-  password: '0',
+  password: 'Aa123456',
   role: UserRole.saas_admin,
 };
 
