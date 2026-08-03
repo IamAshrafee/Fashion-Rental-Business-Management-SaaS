@@ -13,7 +13,49 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { AvailabilityPolicyScope, InventoryLocationType } from '@prisma/client';
+import {
+  AvailabilityPolicyScope,
+  InventoryLocationType,
+  StockConditionGrade,
+  StockUnitDisposition,
+  StockUnitOperationalState,
+} from '@prisma/client';
+
+export class InventoryItemsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 25;
+
+  @IsOptional()
+  @IsUUID()
+  locationId?: string;
+
+  @IsOptional()
+  @IsEnum(StockUnitDisposition)
+  disposition?: StockUnitDisposition;
+
+  @IsOptional()
+  @IsEnum(StockUnitOperationalState)
+  operationalState?: StockUnitOperationalState;
+
+  @IsOptional()
+  @IsEnum(StockConditionGrade)
+  condition?: StockConditionGrade;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+}
 
 export class CreateInventoryLocationDto {
   @IsString()

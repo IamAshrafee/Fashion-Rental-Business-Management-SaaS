@@ -25,7 +25,7 @@ export class InventoryAssignmentService {
     const [assigned, eligible] = await Promise.all([
       this.prisma.stockUnitAssignment.findMany({
         where: { tenantId, reservationId: reservation.id, releasedAt: null },
-        include: { stockUnit: true },
+        include: { stockUnit: { include: { location: true } } },
         orderBy: { assignedAt: 'asc' },
       }),
       this.prisma.stockUnit.findMany({
@@ -66,6 +66,7 @@ export class InventoryAssignmentService {
           },
         },
         orderBy: { assetCode: 'asc' },
+        include: { location: true },
       }),
     ]);
 
@@ -212,7 +213,7 @@ export class InventoryAssignmentService {
 
         return tx.stockUnitAssignment.findMany({
           where: { tenantId, reservationId: reservation.id, releasedAt: null },
-          include: { stockUnit: true },
+          include: { stockUnit: { include: { location: true } } },
           orderBy: { assignedAt: 'asc' },
         });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

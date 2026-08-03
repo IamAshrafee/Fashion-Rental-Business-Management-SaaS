@@ -105,7 +105,7 @@ export interface FulfillmentAssignment {
     condition: string;
     operationalState: string;
     disposition: string;
-    locationLabel: string | null;
+    location: { id: string; code: string; name: string };
   };
 }
 
@@ -119,6 +119,8 @@ export interface FulfillmentRequirement {
   status: FulfillmentRequirementStatus;
   productId: string | null;
   variantSizeId: string | null;
+  sourceLocationId: string;
+  sourceLocation: { id: string; code: string; name: string };
   quantity: number;
   assignedQuantity: number;
   handedOutQuantity: number;

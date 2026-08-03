@@ -368,6 +368,7 @@ export class StockUnitInspectionService {
     const unit = await this.prisma.stockUnit.findFirst({
       where: { id: stockUnitId, tenantId, deletedAt: null },
       include: {
+        location: true,
         variantSize: {
           include: {
             sizeInstance: true,

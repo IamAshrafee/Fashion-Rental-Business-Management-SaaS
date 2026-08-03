@@ -52,16 +52,8 @@ export class InventoryCalendarQueryDto {
 }
 
 export class ConfigureVariantSizeInventoryDto {
-  @IsOptional()
   @IsEnum(InventoryTrackingMode)
-  trackingMode?: InventoryTrackingMode;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(100_000)
-  pooledQuantity?: number;
+  trackingMode!: InventoryTrackingMode;
 
   @IsOptional()
   @IsString()

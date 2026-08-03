@@ -483,7 +483,7 @@ export const productApi = {
     return data.data;
   },
 
-  configureInventory: async (variantSizeId: string, payload: { trackingMode?: InventoryTrackingMode; pooledQuantity?: number; reason?: string }): Promise<void> => {
+  configureInventory: async (variantSizeId: string, payload: { trackingMode: InventoryTrackingMode; reason?: string }): Promise<void> => {
     await apiClient.patch(`/owner/variant-sizes/${variantSizeId}/inventory`, payload);
   },
 
@@ -532,12 +532,23 @@ export interface ProductInventorySize {
   variantSizeId: string;
   sizeInstance: SizeInstanceData;
   trackingMode: InventoryTrackingMode;
-  pooledQuantity: number;
   inventoryVersion: number;
   totalCapacity: number;
   reservedQuantity: number;
   availableQuantity: number;
-  unitCounts: { active: number; maintenance: number; retired: number; lost: number };
+  pools: Array<{
+    id: string;
+    location: { id: string; code: string; name: string; isDefault: boolean };
+    onHandQuantity: number;
+    reorderThreshold: number | null;
+    reservedQuantity: number;
+  }>;
+  unitCounts: Array<{
+    locationId: string;
+    disposition: StockUnit['disposition'];
+    operationalState: StockUnit['operationalState'];
+    quantity: number;
+  }>;
 }
 
 export interface ProductInventory {
@@ -561,7 +572,8 @@ export interface StockUnit {
   condition: 'NEW' | 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'DAMAGED';
   disposition: 'ACTIVE' | 'QUARANTINED' | 'LOST' | 'RETIRED';
   operationalState: 'AVAILABLE' | 'PREPARING' | 'READY' | 'OUT_FOR_RENTAL' | 'AWAITING_INSPECTION' | 'CLEANING' | 'WASHING' | 'REPAIRING' | 'IN_TRANSFER';
-  locationLabel: string | null;
+  locationId: string;
+  location: { id: string; code: string; name: string };
   notes: string | null;
   componentStates?: Array<{ id: string; presence: 'PRESENT' | 'MISSING' | 'DAMAGED' | 'NOT_APPLICABLE' }>;
   issues?: Array<{ id: string; status: string; isAvailabilityBlocking: boolean }>;
@@ -569,10 +581,10 @@ export interface StockUnit {
 }
 
 export interface CreateStockUnitInput {
+  locationId: string;
   assetCode: string;
   barcode?: string;
   condition?: StockUnit['condition'];
-  locationLabel?: string;
   notes?: string;
 }
 

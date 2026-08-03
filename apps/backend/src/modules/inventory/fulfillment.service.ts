@@ -1137,7 +1137,7 @@ export class FulfillmentService {
       reservation: {
         include: {
           assignments: {
-            include: { stockUnit: true },
+            include: { stockUnit: { include: { location: true } } },
             orderBy: { assignedAt: 'asc' as const },
           },
         },
@@ -1150,6 +1150,7 @@ export class FulfillmentService {
           variant: { select: { id: true, variantName: true } },
         },
       },
+      sourceLocation: { select: { id: true, code: true, name: true } },
       compositionRule: true,
       versions: { orderBy: { version: 'desc' as const } },
       substitutions: { orderBy: { createdAt: 'desc' as const } },

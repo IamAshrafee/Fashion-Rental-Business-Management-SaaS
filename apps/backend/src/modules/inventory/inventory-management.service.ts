@@ -50,8 +50,14 @@ export class InventoryManagementService {
               select: {
                 id: true,
                 trackingMode: true,
-                pooledQuantity: true,
                 inventoryVersion: true,
+                inventoryPools: {
+                  where: { location: { isActive: true } },
+                  include: {
+                    location: { select: { id: true, code: true, name: true, isDefault: true } },
+                  },
+                  orderBy: { location: { name: 'asc' } },
+                },
                 sizeInstance: {
                   select: {
                     id: true,
@@ -77,13 +83,14 @@ export class InventoryManagementService {
           variant.sizes
             .sort((left, right) => left.sizeInstance.sortOrder - right.sizeInstance.sortOrder)
             .map(async (sku) => {
-              const [unitCounts, reservationAggregate] = await Promise.all([
+              const [unitCounts, reservationByLocation] = await Promise.all([
                 this.prisma.stockUnit.groupBy({
-                  by: ['status'],
+                  by: ['locationId', 'disposition', 'operationalState'],
                   where: { tenantId, variantSizeId: sku.id, deletedAt: null },
                   _count: { _all: true },
                 }),
-                this.prisma.inventoryReservation.aggregate({
+                this.prisma.inventoryReservation.groupBy({
+                  by: ['sourceLocationId'],
                   where: {
                     tenantId,
                     variantSizeId: sku.id,
@@ -99,31 +106,57 @@ export class InventoryManagementService {
                 }),
               ]);
 
-              const counts = Object.fromEntries(
-                unitCounts.map((entry) => [entry.status, entry._count._all]),
-              ) as Partial<Record<StockUnitStatus, number>>;
-              const activeUnits = counts.ACTIVE ?? 0;
-              const reservedQuantity = reservationAggregate._sum.quantity ?? 0;
+              const activeUnits = unitCounts
+                .filter((entry) => entry.disposition === StockUnitDisposition.ACTIVE)
+                .reduce((sum, entry) => sum + entry._count._all, 0);
+              const operationallyAvailableUnits = unitCounts
+                .filter(
+                  (entry) =>
+                    entry.disposition === StockUnitDisposition.ACTIVE &&
+                    entry.operationalState === StockUnitOperationalState.AVAILABLE,
+                )
+                .reduce((sum, entry) => sum + entry._count._all, 0);
+              const reservedQuantity = reservationByLocation.reduce(
+                (sum, entry) => sum + (entry._sum.quantity ?? 0),
+                0,
+              );
+              const pooledCapacity = sku.inventoryPools.reduce(
+                (sum, pool) => sum + pool.onHandQuantity,
+                0,
+              );
               const totalCapacity =
                 sku.trackingMode === InventoryTrackingMode.POOLED
-                  ? sku.pooledQuantity
+                  ? pooledCapacity
                   : activeUnits;
+              const currentlyUsableCapacity =
+                sku.trackingMode === InventoryTrackingMode.POOLED
+                  ? pooledCapacity
+                  : operationallyAvailableUnits;
 
               return {
                 variantSizeId: sku.id,
                 sizeInstance: sku.sizeInstance,
                 trackingMode: sku.trackingMode,
-                pooledQuantity: sku.pooledQuantity,
                 inventoryVersion: sku.inventoryVersion,
                 totalCapacity,
                 reservedQuantity,
-                availableQuantity: Math.max(0, totalCapacity - reservedQuantity),
-                unitCounts: {
-                  active: activeUnits,
-                  maintenance: counts.MAINTENANCE ?? 0,
-                  retired: counts.RETIRED ?? 0,
-                  lost: counts.LOST ?? 0,
-                },
+                availableQuantity: Math.max(0, currentlyUsableCapacity - reservedQuantity),
+                pools: sku.inventoryPools.map((pool) => ({
+                  id: pool.id,
+                  location: pool.location,
+                  onHandQuantity: pool.onHandQuantity,
+                  reorderThreshold: pool.reorderThreshold,
+                  reservedQuantity:
+                    reservationByLocation.find(
+                      (entry) => entry.sourceLocationId === pool.locationId,
+                    )?._sum.quantity ?? 0,
+                })),
+                unitCounts: unitCounts.map((entry) => ({
+                  locationId: entry.locationId,
+                  disposition: entry.disposition,
+                  operationalState: entry.operationalState,
+                  quantity: entry._count._all,
+                })),
               };
             }),
         ),
@@ -139,14 +172,9 @@ export class InventoryManagementService {
     dto: ConfigureVariantSizeInventoryDto,
     actorUserId?: string,
   ) {
-    if (dto.trackingMode === undefined && dto.pooledQuantity === undefined) {
-      throw new BadRequestException('Provide trackingMode or pooledQuantity');
-    }
-
     return this.prisma.$transaction(async (tx) => {
       const sku = await this.getVariantSize(tx, tenantId, variantSizeId);
-      const nextMode = dto.trackingMode ?? sku.trackingMode;
-      const nextQuantity = dto.pooledQuantity ?? sku.pooledQuantity;
+      const nextMode = dto.trackingMode;
 
       if (nextMode !== sku.trackingMode) {
         const activeReservations = await tx.inventoryReservation.count({
@@ -182,12 +210,15 @@ export class InventoryManagementService {
         }
       }
 
-      if (nextMode === InventoryTrackingMode.POOLED) {
-        const peakReserved = await this.getPeakReservedQuantity(tx, tenantId, variantSizeId);
-        if (nextQuantity < peakReserved) {
+      if (nextMode === InventoryTrackingMode.SERIALIZED) {
+        const pooledStock = await tx.inventoryPool.aggregate({
+          where: { tenantId, variantSizeId },
+          _sum: { onHandQuantity: true },
+        });
+        if ((pooledStock._sum.onHandQuantity ?? 0) > 0) {
           throw new ConflictException({
-            code: 'QUANTITY_BELOW_RESERVED_CAPACITY',
-            message: `Quantity cannot be lower than peak reserved demand (${peakReserved})`,
+            code: 'TRACKING_MODE_HAS_POOLED_STOCK',
+            message: 'Move or count pooled stock down to zero before enabling serialized tracking',
           });
         }
       }
@@ -196,33 +227,22 @@ export class InventoryManagementService {
         where: { id: variantSizeId },
         data: {
           trackingMode: nextMode,
-          pooledQuantity: nextQuantity,
-          stockLevel: nextQuantity,
           inventoryVersion: { increment: 1 },
         },
         include: { sizeInstance: true },
       });
 
-      if (nextQuantity !== sku.pooledQuantity || nextMode !== sku.trackingMode) {
-        const quantityDelta = nextQuantity - sku.pooledQuantity;
-        const movementType =
-          quantityDelta > 0
-            ? InventoryMovementType.POOLED_ADDITION
-            : quantityDelta < 0
-              ? InventoryMovementType.POOLED_REDUCTION
-              : InventoryMovementType.ADMIN_CORRECTION;
-
+      if (nextMode !== sku.trackingMode) {
         await tx.inventoryMovement.create({
           data: {
             tenantId,
             variantSizeId,
-            movementType,
-            quantityDelta,
+            movementType: InventoryMovementType.ADMIN_CORRECTION,
+            quantityDelta: 0,
             beforeState: this.json({
               trackingMode: sku.trackingMode,
-              pooledQuantity: sku.pooledQuantity,
             }),
-            afterState: this.json({ trackingMode: nextMode, pooledQuantity: nextQuantity }),
+            afterState: this.json({ trackingMode: nextMode }),
             reason: dto.reason?.trim() || 'Inventory configuration updated',
             actorUserId: actorUserId ?? null,
           },

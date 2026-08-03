@@ -120,7 +120,7 @@ export interface InventoryServiceOrder {
   status: InventoryServiceOrderStatus;
   isAvailabilityBlocking: boolean;
   providerName: string | null;
-  locationLabel: string | null;
+  serviceLocation: { id: string; code: string; name: string; locationType: string };
   requestedAt: string;
   scheduledStartAt: string | null;
   startedAt: string | null;
@@ -155,7 +155,8 @@ export interface StockUnitOperations {
     condition: StockConditionGrade;
     disposition: StockUnitDisposition;
     operationalState: StockUnitOperationalState;
-    locationLabel: string | null;
+    locationId: string;
+    location: { id: string; code: string; name: string };
     purchaseDate: string | null;
     purchasePrice: number | null;
     notes: string | null;
@@ -247,7 +248,7 @@ export const inventoryOperationsApi = {
   resolveIssue: async (issueId: string, payload: { resolutionNotes: string; waive?: boolean; idempotencyKey?: string }): Promise<StockUnitIssue> =>
     unwrap(await apiClient.post<ApiResponse<StockUnitIssue>>(`/owner/inventory/issues/${issueId}/resolve`, payload)),
 
-  createServiceOrder: async (stockUnitId: string, payload: { serviceType: InventoryServiceOrderType; issueId?: string; sourceInspectionId?: string; isAvailabilityBlocking?: boolean; providerName?: string; locationLabel?: string; scheduledStartAt?: string; expectedCompletionAt?: string; cost?: number; notes?: string; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>
+  createServiceOrder: async (stockUnitId: string, payload: { serviceType: InventoryServiceOrderType; issueId?: string; sourceInspectionId?: string; isAvailabilityBlocking?: boolean; providerName?: string; serviceLocationId?: string; scheduledStartAt?: string; expectedCompletionAt?: string; cost?: number; notes?: string; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>
     unwrap(await apiClient.post<ApiResponse<InventoryServiceOrder>>(`/owner/inventory/stock-units/${stockUnitId}/service-orders`, payload)),
 
   startServiceOrder: async (serviceOrderId: string, payload: { note?: string; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>

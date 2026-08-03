@@ -22,6 +22,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
   CreateInventoryLocationDto,
+  InventoryItemsQueryDto,
   SetInventoryPoolQuantityDto,
   UpdateInventoryLocationDto,
   UpsertAvailabilityPolicyDto,
@@ -29,6 +30,7 @@ import {
 import { AvailabilityPolicyService } from './availability-policy.service';
 import { InventoryLocationService } from './inventory-location.service';
 import { InventoryPoolService } from './inventory-pool.service';
+import { InventoryDashboardService } from './inventory-dashboard.service';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string };
@@ -41,7 +43,29 @@ export class InventoryFoundationController {
     private readonly locations: InventoryLocationService,
     private readonly pools: InventoryPoolService,
     private readonly policies: AvailabilityPolicyService,
+    private readonly dashboard: InventoryDashboardService,
   ) {}
+
+  @Get('overview')
+  @Roles('owner', 'manager', 'staff')
+  overview(@CurrentTenant() tenant: TenantContext) {
+    return this.dashboard.overview(tenant.id);
+  }
+
+  @Get('items')
+  @Roles('owner', 'manager', 'staff')
+  listItems(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: InventoryItemsQueryDto,
+  ) {
+    return this.dashboard.listItems(tenant.id, query);
+  }
+
+  @Get('operations')
+  @Roles('owner', 'manager', 'staff')
+  operations(@CurrentTenant() tenant: TenantContext) {
+    return this.dashboard.operations(tenant.id);
+  }
 
   @Get('locations')
   @Roles('owner', 'manager', 'staff')
