@@ -301,6 +301,10 @@ export class AddNoteDto {
 // ============================================================================
 
 export class CreateDamageReportDto {
+  @IsOptional()
+  @IsUUID()
+  stockUnitIssueId?: string;
+
   @IsEnum(DAMAGE_LEVELS)
   damageLevel!: DamageLevelType;
 

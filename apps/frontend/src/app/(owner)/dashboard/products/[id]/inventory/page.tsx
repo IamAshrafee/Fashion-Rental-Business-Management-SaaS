@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Boxes, CalendarDays, History, Loader2, PackagePlus, Save, Trash2, Wrench } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Boxes, CalendarDays, History, Loader2, PackagePlus, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   productApi,
@@ -150,16 +150,6 @@ function SerializedUnits({ productId, sku }: { productId: string; sku: ProductIn
     onError: (error: unknown) => toast.error(apiErrorMessage(error, 'Could not register unit')),
   });
 
-  const lifecycle = useMutation({
-    mutationFn: ({ unitId, action }: { unitId: string; action: 'maintenance' | 'restore' }) =>
-      productApi.changeStockUnitLifecycle(unitId, action, action === 'maintenance' ? 'Sent to maintenance from inventory workspace' : 'Returned to active inventory'),
-    onSuccess: async () => {
-      await refresh();
-      toast.success('Unit status updated');
-    },
-    onError: (error: unknown) => toast.error(apiErrorMessage(error, 'Could not update unit')),
-  });
-
   return (
     <div className="space-y-3 border-t pt-4">
       <div className="flex items-center justify-between gap-3">
@@ -196,17 +186,17 @@ function SerializedUnits({ productId, sku }: { productId: string; sku: ProductIn
       ) : unitsQuery.data?.length ? (
         <div className="overflow-hidden rounded-md border">
           <Table>
-            <TableHeader><TableRow><TableHead>Asset</TableHead><TableHead>Status</TableHead><TableHead>Condition</TableHead><TableHead>Location</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Asset</TableHead><TableHead>Disposition</TableHead><TableHead>Operational state</TableHead><TableHead>Condition</TableHead><TableHead>Location</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
             <TableBody>
               {unitsQuery.data.map((unit) => (
                 <TableRow key={unit.id}>
                   <TableCell className="font-mono text-xs">{unit.assetCode}</TableCell>
-                  <TableCell><Badge variant={statusVariant(unit.status)}>{unit.status}</Badge></TableCell>
+                  <TableCell><Badge variant={statusVariant(unit.status)}>{unit.disposition}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{unit.operationalState.replaceAll('_', ' ')}</Badge></TableCell>
                   <TableCell>{unit.condition}</TableCell>
                   <TableCell>{unit.locationLabel || '—'}</TableCell>
                   <TableCell className="text-right">
-                    {unit.status === 'ACTIVE' && <Button size="sm" variant="outline" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ unitId: unit.id, action: 'maintenance' })}><Wrench className="mr-1 h-3 w-3" />Maintenance</Button>}
-                    {unit.status === 'MAINTENANCE' && <Button size="sm" variant="outline" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ unitId: unit.id, action: 'restore' })}>Restore</Button>}
+                    <Button size="sm" variant="outline" asChild><Link href={`/dashboard/products/${productId}/inventory/${unit.id}`}>Manage <ArrowRight className="ml-1 h-3 w-3" /></Link></Button>
                   </TableCell>
                 </TableRow>
               ))}

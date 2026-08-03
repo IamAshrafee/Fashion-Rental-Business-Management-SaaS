@@ -9,6 +9,8 @@ import {
   InventoryTrackingMode,
   Prisma,
   StockConditionGrade,
+  StockUnitDisposition,
+  StockUnitOperationalState,
   StockUnitStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -19,10 +21,14 @@ import {
   InventoryCalendarQueryDto,
   UpdateStockUnitDto,
 } from './dto/inventory.dto';
+import { StockUnitLifecycleService } from './stock-unit-lifecycle.service';
 
 @Injectable()
 export class InventoryManagementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly lifecycle: StockUnitLifecycleService,
+  ) {}
 
   async getProductInventory(tenantId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
@@ -232,6 +238,18 @@ export class InventoryManagementService {
       orderBy: [{ status: 'asc' }, { assetCode: 'asc' }],
       include: {
         blocks: { where: { endDate: { gte: this.startOfToday() } }, orderBy: { startDate: 'asc' } },
+        componentStates: {
+          include: { setComponentDefinition: true },
+          orderBy: { setComponentDefinition: { displayOrder: 'asc' } },
+        },
+        issues: {
+          where: { status: { in: ['OPEN', 'IN_SERVICE'] } },
+          orderBy: { createdAt: 'desc' },
+        },
+        serviceOrders: {
+          where: { status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] } },
+          orderBy: { createdAt: 'desc' },
+        },
         assignments: {
           where: { releasedAt: null },
           include: { reservation: { select: { bookingId: true, blockedStartDate: true, blockedEndDate: true } } },
@@ -295,7 +313,7 @@ export class InventoryManagementService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const unit = await this.getStockUnit(tx, tenantId, stockUnitId);
-        if (unit.status === StockUnitStatus.RETIRED) {
+        if (unit.disposition === StockUnitDisposition.RETIRED) {
           throw new ConflictException('Retired units cannot be edited');
         }
 
@@ -340,45 +358,29 @@ export class InventoryManagementService {
     reason: string,
     actorUserId?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      const unit = await this.getStockUnit(tx, tenantId, stockUnitId);
-      const next = this.resolveLifecycle(action);
-
-      if (next === StockUnitStatus.RETIRED || next === StockUnitStatus.LOST) {
-        const futureAssignments = await tx.stockUnitAssignment.count({
-          where: {
-            tenantId,
-            stockUnitId,
-            releasedAt: null,
-            blockedEndDate: { gte: this.startOfToday() },
-          },
-        });
-        if (futureAssignments > 0) {
-          throw new ConflictException('Unit has active or future booking assignments');
-        }
+    const targets: Record<
+      typeof action,
+      {
+        disposition?: StockUnitDisposition;
+        operationalState?: StockUnitOperationalState;
       }
-
-      const movementType = this.resolveLifecycleMovement(unit.status, next);
-      const updated = await tx.stockUnit.update({
-        where: { id: stockUnitId },
-        data: {
-          status: next,
-          retiredAt: next === StockUnitStatus.RETIRED ? new Date() : null,
-        },
-      });
-      await tx.inventoryMovement.create({
-        data: {
-          tenantId,
-          variantSizeId: unit.variantSizeId,
-          stockUnitId,
-          movementType,
-          beforeState: this.json({ status: unit.status }),
-          afterState: this.json({ status: next }),
-          reason: reason.trim(),
-          actorUserId: actorUserId ?? null,
-        },
-      });
-      return updated;
+    > = {
+      maintenance: { operationalState: StockUnitOperationalState.REPAIRING },
+      restore: {
+        disposition: StockUnitDisposition.ACTIVE,
+        operationalState: StockUnitOperationalState.AWAITING_INSPECTION,
+      },
+      retire: { disposition: StockUnitDisposition.RETIRED },
+      lost: { disposition: StockUnitDisposition.LOST },
+    };
+    const target = targets[action];
+    return this.lifecycle.transition({
+      tenantId,
+      stockUnitId,
+      actorUserId,
+      reason,
+      targetDisposition: target.disposition,
+      targetOperationalState: target.operationalState,
     });
   }
 
@@ -570,28 +572,6 @@ export class InventoryManagementService {
       exists = Boolean(await this.prisma.stockUnit.findFirst({ where: { id: dto.stockUnitId, tenantId, deletedAt: null }, select: { id: true } }));
     }
     if (!exists) throw new NotFoundException('Inventory block target not found');
-  }
-
-  private resolveLifecycle(action: 'maintenance' | 'restore' | 'retire' | 'lost'): StockUnitStatus {
-    const statuses: Record<typeof action, StockUnitStatus> = {
-      maintenance: StockUnitStatus.MAINTENANCE,
-      restore: StockUnitStatus.ACTIVE,
-      retire: StockUnitStatus.RETIRED,
-      lost: StockUnitStatus.LOST,
-    };
-    return statuses[action];
-  }
-
-  private resolveLifecycleMovement(
-    previous: StockUnitStatus,
-    next: StockUnitStatus,
-  ): InventoryMovementType {
-    if (next === StockUnitStatus.MAINTENANCE) return InventoryMovementType.MAINTENANCE_STARTED;
-    if (next === StockUnitStatus.RETIRED) return InventoryMovementType.UNIT_RETIRED;
-    if (next === StockUnitStatus.LOST) return InventoryMovementType.UNIT_LOST;
-    if (previous === StockUnitStatus.MAINTENANCE) return InventoryMovementType.MAINTENANCE_ENDED;
-    if (previous === StockUnitStatus.LOST) return InventoryMovementType.UNIT_RECOVERED;
-    return InventoryMovementType.ADMIN_CORRECTION;
   }
 
   private rethrowUniqueConflict(error: unknown): never {

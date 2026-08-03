@@ -1,0 +1,85 @@
+import { ConflictException } from '@nestjs/common';
+import {
+  InventoryServiceOrderStatus,
+  InventoryServiceOrderType,
+} from '@prisma/client';
+import { InventoryServiceOrderService } from '../inventory-service-order.service';
+
+describe('InventoryServiceOrderService', () => {
+  it('requires a completion inspection after repair work', async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'service-1' }]),
+      inventoryServiceOrder: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'service-1',
+          tenantId: 'tenant-1',
+          stockUnitId: 'unit-1',
+          serviceType: InventoryServiceOrderType.REPAIR,
+          status: InventoryServiceOrderStatus.IN_PROGRESS,
+          inventoryBlockId: 'block-1',
+          cost: null,
+        }),
+      },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const lifecycle = { transitionInTransaction: jest.fn() };
+    const service = new InventoryServiceOrderService(prisma as never, lifecycle as never);
+
+    await expect(
+      service.complete(
+        'tenant-1',
+        'service-1',
+        {
+          completionOutcome: 'Repair finished',
+          requiresInspection: false,
+        },
+        'user-1',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(lifecycle.transitionInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('cancels started work, removes its block, reopens its issue, and requires inspection', async () => {
+    const order = {
+      id: 'service-1',
+      tenantId: 'tenant-1',
+      stockUnitId: 'unit-1',
+      issueId: 'issue-1',
+      serviceType: InventoryServiceOrderType.CLEANING,
+      status: InventoryServiceOrderStatus.IN_PROGRESS,
+      inventoryBlockId: 'block-1',
+      notes: null,
+    };
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'service-1' }]),
+      inventoryServiceOrder: {
+        findFirst: jest.fn().mockResolvedValue(order),
+        update: jest.fn().mockResolvedValue({ ...order, status: InventoryServiceOrderStatus.CANCELLED }),
+      },
+      inventoryBlock: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      stockUnitIssue: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const lifecycle = { transitionInTransaction: jest.fn().mockResolvedValue({}) };
+    const service = new InventoryServiceOrderService(prisma as never, lifecycle as never);
+
+    await service.cancel(
+      'tenant-1',
+      'service-1',
+      { reason: 'Provider unavailable', idempotencyKey: 'cancel-1' },
+      'user-1',
+    );
+
+    expect(tx.inventoryBlock.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'block-1', tenantId: 'tenant-1' },
+    });
+    expect(tx.stockUnitIssue.updateMany).toHaveBeenCalled();
+    expect(lifecycle.transitionInTransaction).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        targetOperationalState: 'AWAITING_INSPECTION',
+        serviceOrderId: 'service-1',
+      }),
+    );
+  });
+});

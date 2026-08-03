@@ -558,9 +558,14 @@ export interface StockUnit {
   assetCode: string;
   barcode: string | null;
   status: 'ACTIVE' | 'MAINTENANCE' | 'RETIRED' | 'LOST';
-  condition: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'DAMAGED';
+  condition: 'NEW' | 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'DAMAGED';
+  disposition: 'ACTIVE' | 'QUARANTINED' | 'LOST' | 'RETIRED';
+  operationalState: 'AVAILABLE' | 'PREPARING' | 'READY' | 'OUT_FOR_RENTAL' | 'AWAITING_INSPECTION' | 'CLEANING' | 'WASHING' | 'REPAIRING' | 'IN_TRANSFER';
   locationLabel: string | null;
   notes: string | null;
+  componentStates?: Array<{ id: string; presence: 'PRESENT' | 'MISSING' | 'DAMAGED' | 'NOT_APPLICABLE' }>;
+  issues?: Array<{ id: string; status: string; isAvailabilityBlocking: boolean }>;
+  serviceOrders?: Array<{ id: string; status: string; isAvailabilityBlocking: boolean }>;
 }
 
 export interface CreateStockUnitInput {

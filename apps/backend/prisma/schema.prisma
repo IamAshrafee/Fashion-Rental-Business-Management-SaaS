@@ -176,10 +176,118 @@ enum StockUnitStatus {
 }
 
 enum StockConditionGrade {
+  NEW
   EXCELLENT
   GOOD
   FAIR
+  POOR
   DAMAGED
+}
+
+enum StockUnitDisposition {
+  ACTIVE
+  QUARANTINED
+  LOST
+  RETIRED
+}
+
+enum StockUnitOperationalState {
+  AVAILABLE
+  PREPARING
+  READY
+  OUT_FOR_RENTAL
+  AWAITING_INSPECTION
+  CLEANING
+  WASHING
+  REPAIRING
+  IN_TRANSFER
+}
+
+enum StockUnitInspectionType {
+  PRE_RENTAL
+  RETURN
+  PERIODIC
+  SERVICE_COMPLETION
+}
+
+enum StockUnitInspectionStatus {
+  DRAFT
+  COMPLETED
+  SUPERSEDED
+}
+
+enum StockUnitInspectionDecision {
+  AVAILABLE
+  CLEANING
+  WASHING
+  REPAIR
+  QUARANTINE
+  LOST
+  RETIRE
+}
+
+enum InspectionCheckResult {
+  PASS
+  FAIL
+  NOT_APPLICABLE
+}
+
+enum StockUnitIssueSeverity {
+  INFO
+  MINOR
+  MODERATE
+  SEVERE
+  CRITICAL
+}
+
+enum StockUnitIssueStatus {
+  OPEN
+  IN_SERVICE
+  RESOLVED
+  WAIVED
+}
+
+enum StockUnitIssueResponsibility {
+  UNKNOWN
+  CUSTOMER
+  BUSINESS
+  NORMAL_WEAR
+  THIRD_PARTY
+}
+
+enum InventoryServiceOrderType {
+  PREPARATION
+  CLEANING
+  WASHING
+  REPAIR
+  ALTERATION
+  MAINTENANCE
+}
+
+enum InventoryServiceOrderStatus {
+  REQUESTED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum StockUnitComponentPresence {
+  PRESENT
+  MISSING
+  DAMAGED
+  NOT_APPLICABLE
+}
+
+enum InventoryMediaPurpose {
+  UNIT_REFERENCE
+  PRE_RENTAL
+  POST_RETURN
+  DAMAGE
+  SERVICE
+  CHECKLIST
+  OTHER
 }
 
 enum InventoryReservationStatus {
@@ -280,19 +388,27 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  ownedTenants           Tenant[]
-  tenantUsers            TenantUser[]
-  auditLogs              AuditLog[]
-  sessions               Session[]
-  loginHistory           LoginHistory[]
-  damageReports          DamageReport[]
-  deletedProducts        Product[]             @relation("ProductDeletedBy")
-  recordedPayments       SubscriptionPayment[] @relation("PaymentsRecordedBy")
-  createdPromoCodes      PromoCode[]           @relation("PromoCodesCreatedBy")
-  subscriptionActions    SubscriptionHistory[] @relation("HistoryPerformedBy")
-  createdInventoryBlocks InventoryBlock[]      @relation("InventoryBlockCreatedBy")
-  inventoryMovements     InventoryMovement[]   @relation("InventoryMovementActor")
-  stockUnitAssignments   StockUnitAssignment[] @relation("StockUnitAssignedBy")
+  ownedTenants             Tenant[]
+  tenantUsers              TenantUser[]
+  auditLogs                AuditLog[]
+  sessions                 Session[]
+  loginHistory             LoginHistory[]
+  damageReports            DamageReport[]
+  deletedProducts          Product[]                   @relation("ProductDeletedBy")
+  recordedPayments         SubscriptionPayment[]       @relation("PaymentsRecordedBy")
+  createdPromoCodes        PromoCode[]                 @relation("PromoCodesCreatedBy")
+  subscriptionActions      SubscriptionHistory[]       @relation("HistoryPerformedBy")
+  createdInventoryBlocks   InventoryBlock[]            @relation("InventoryBlockCreatedBy")
+  inventoryMovements       InventoryMovement[]         @relation("InventoryMovementActor")
+  stockUnitAssignments     StockUnitAssignment[]       @relation("StockUnitAssignedBy")
+  stockUnitLifecycleEvents StockUnitLifecycleEvent[]   @relation("StockUnitLifecycleActor")
+  stockUnitInspections     StockUnitInspection[]       @relation("StockUnitInspectionActor")
+  reportedStockUnitIssues  StockUnitIssue[]            @relation("StockUnitIssueReporter")
+  resolvedStockUnitIssues  StockUnitIssue[]            @relation("StockUnitIssueResolver")
+  requestedServiceOrders   InventoryServiceOrder[]     @relation("ServiceOrderRequester")
+  completedServiceOrders   InventoryServiceOrder[]     @relation("ServiceOrderCompleter")
+  createdSetComponents     SkuSetComponentDefinition[] @relation("SetComponentCreator")
+  inventoryMediaUploads    InventoryMediaAttachment[]  @relation("InventoryMediaUploader")
 
   @@index([phone])
   @@map("users")
@@ -379,32 +495,40 @@ model Tenant {
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  owner                 User                   @relation(fields: [ownerUserId], references: [id])
-  plan                  SubscriptionPlan?      @relation(fields: [planId], references: [id])
-  promoCode             PromoCode?             @relation(fields: [promoCodeId], references: [id])
-  storeSettings         StoreSettings?
-  subscription          Subscription?
-  tenantUsers           TenantUser[]
-  products              Product[]
-  categories            Category[]
-  subcategories         Subcategory[]
-  variantSizes          VariantSize[]
-  events                Event[]
-  bookings              Booking[]
-  customers             Customer[]
-  notifications         Notification[]
-  auditLogs             AuditLog[]
-  sessions              Session[]
-  subscriptionPayments  SubscriptionPayment[]
-  invoices              Invoice[]
-  subscriptionHistory   SubscriptionHistory[]
-  storefrontEvents      StorefrontEvent[]
-  usageSnapshots        TenantUsageSnapshot[]
-  stockUnits            StockUnit[]
-  inventoryReservations InventoryReservation[]
-  inventoryMovements    InventoryMovement[]
-  inventoryBlocks       InventoryBlock[]
-  stockUnitAssignments  StockUnitAssignment[]
+  owner                     User                        @relation(fields: [ownerUserId], references: [id])
+  plan                      SubscriptionPlan?           @relation(fields: [planId], references: [id])
+  promoCode                 PromoCode?                  @relation(fields: [promoCodeId], references: [id])
+  storeSettings             StoreSettings?
+  subscription              Subscription?
+  tenantUsers               TenantUser[]
+  products                  Product[]
+  categories                Category[]
+  subcategories             Subcategory[]
+  variantSizes              VariantSize[]
+  events                    Event[]
+  bookings                  Booking[]
+  customers                 Customer[]
+  notifications             Notification[]
+  auditLogs                 AuditLog[]
+  sessions                  Session[]
+  subscriptionPayments      SubscriptionPayment[]
+  invoices                  Invoice[]
+  subscriptionHistory       SubscriptionHistory[]
+  storefrontEvents          StorefrontEvent[]
+  usageSnapshots            TenantUsageSnapshot[]
+  stockUnits                StockUnit[]
+  inventoryReservations     InventoryReservation[]
+  inventoryMovements        InventoryMovement[]
+  inventoryBlocks           InventoryBlock[]
+  stockUnitAssignments      StockUnitAssignment[]
+  stockUnitLifecycleEvents  StockUnitLifecycleEvent[]
+  stockUnitInspections      StockUnitInspection[]
+  stockUnitIssues           StockUnitIssue[]
+  inventoryServiceOrders    InventoryServiceOrder[]
+  setComponentDefinitions   SkuSetComponentDefinition[]
+  stockUnitComponentStates  StockUnitComponentState[]
+  inventoryInspectionChecks StockUnitInspectionCheck[]
+  inventoryMediaAttachments InventoryMediaAttachment[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -690,14 +814,15 @@ model VariantSize {
   pooledQuantity   Int                   @default(1) @map("pooled_quantity")
   inventoryVersion Int                   @default(0) @map("inventory_version")
 
-  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
-  variant               ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  sizeInstance          SizeInstance           @relation(fields: [sizeInstanceId], references: [id])
-  stockUnits            StockUnit[]
-  inventoryReservations InventoryReservation[]
-  inventoryMovements    InventoryMovement[]
-  inventoryBlocks       InventoryBlock[]
-  bookingItems          BookingItem[]
+  tenant                  Tenant                      @relation(fields: [tenantId], references: [id])
+  variant                 ProductVariant              @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  sizeInstance            SizeInstance                @relation(fields: [sizeInstanceId], references: [id])
+  stockUnits              StockUnit[]
+  inventoryReservations   InventoryReservation[]
+  inventoryMovements      InventoryMovement[]
+  inventoryBlocks         InventoryBlock[]
+  bookingItems            BookingItem[]
+  setComponentDefinitions SkuSetComponentDefinition[]
 
   @@unique([variantId, sizeInstanceId])
   @@index([variantId])
@@ -1318,6 +1443,8 @@ model BookingItem {
   variantSize          VariantSize?          @relation(fields: [variantSizeId], references: [id], onDelete: SetNull)
   damageReport         DamageReport?
   inventoryReservation InventoryReservation?
+  stockUnitInspections StockUnitInspection[]
+  stockUnitIssues      StockUnitIssue[]
 
   @@index([bookingId])
   @@index([productId])
@@ -1329,6 +1456,7 @@ model DamageReport {
   id                  String      @id @default(uuid())
   tenantId            String      @map("tenant_id")
   bookingItemId       String      @unique @map("booking_item_id")
+  stockUnitIssueId    String?     @unique @map("stock_unit_issue_id")
   damageLevel         DamageLevel @map("damage_level")
   description         String
   estimatedRepairCost Int?        @map("estimated_repair_cost")
@@ -1339,8 +1467,9 @@ model DamageReport {
   createdAt           DateTime    @default(now()) @map("created_at")
   updatedAt           DateTime    @updatedAt @map("updated_at")
 
-  bookingItem BookingItem @relation(fields: [bookingItemId], references: [id])
-  reporter    User        @relation(fields: [reportedBy], references: [id])
+  bookingItem    BookingItem     @relation(fields: [bookingItemId], references: [id])
+  reporter       User            @relation(fields: [reportedBy], references: [id])
+  stockUnitIssue StockUnitIssue? @relation(fields: [stockUnitIssueId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@map("damage_reports")
@@ -1367,32 +1496,41 @@ model DateBlock {
 }
 
 model StockUnit {
-  id            String              @id @default(uuid())
-  tenantId      String              @map("tenant_id")
-  variantSizeId String              @map("variant_size_id")
-  assetCode     String              @map("asset_code")
-  barcode       String?
-  status        StockUnitStatus     @default(ACTIVE)
-  condition     StockConditionGrade @default(GOOD)
-  locationLabel String?             @map("location_label")
-  purchaseDate  DateTime?           @map("purchase_date") @db.Date
-  purchasePrice Int?                @map("purchase_price")
-  notes         String?
-  retiredAt     DateTime?           @map("retired_at")
-  deletedAt     DateTime?           @map("deleted_at")
-  createdAt     DateTime            @default(now()) @map("created_at")
-  updatedAt     DateTime            @updatedAt @map("updated_at")
+  id               String                    @id @default(uuid())
+  tenantId         String                    @map("tenant_id")
+  variantSizeId    String                    @map("variant_size_id")
+  assetCode        String                    @map("asset_code")
+  barcode          String?
+  status           StockUnitStatus           @default(ACTIVE)
+  disposition      StockUnitDisposition      @default(ACTIVE)
+  operationalState StockUnitOperationalState @default(AVAILABLE) @map("operational_state")
+  condition        StockConditionGrade       @default(GOOD)
+  locationLabel    String?                   @map("location_label")
+  purchaseDate     DateTime?                 @map("purchase_date") @db.Date
+  purchasePrice    Int?                      @map("purchase_price")
+  notes            String?
+  retiredAt        DateTime?                 @map("retired_at")
+  deletedAt        DateTime?                 @map("deleted_at")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
 
-  tenant      Tenant                @relation(fields: [tenantId], references: [id])
-  variantSize VariantSize           @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
-  assignments StockUnitAssignment[]
-  movements   InventoryMovement[]
-  blocks      InventoryBlock[]
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id])
+  variantSize      VariantSize                @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  assignments      StockUnitAssignment[]
+  movements        InventoryMovement[]
+  blocks           InventoryBlock[]
+  lifecycleEvents  StockUnitLifecycleEvent[]
+  inspections      StockUnitInspection[]
+  issues           StockUnitIssue[]
+  serviceOrders    InventoryServiceOrder[]
+  componentStates  StockUnitComponentState[]
+  mediaAttachments InventoryMediaAttachment[]
 
   @@unique([tenantId, assetCode])
   @@unique([tenantId, barcode])
   @@index([variantSizeId])
   @@index([tenantId, variantSizeId, status])
+  @@index([tenantId, variantSizeId, disposition, operationalState])
   @@map("stock_units")
 }
 
@@ -1442,10 +1580,13 @@ model StockUnitAssignment {
   releasedAt       DateTime? @map("released_at")
   releaseReason    String?   @map("release_reason")
 
-  tenant         Tenant               @relation(fields: [tenantId], references: [id])
-  reservation    InventoryReservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
-  stockUnit      StockUnit            @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
-  assignedByUser User?                @relation("StockUnitAssignedBy", fields: [assignedByUserId], references: [id])
+  tenant          Tenant                    @relation(fields: [tenantId], references: [id])
+  reservation     InventoryReservation      @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  stockUnit       StockUnit                 @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  assignedByUser  User?                     @relation("StockUnitAssignedBy", fields: [assignedByUserId], references: [id])
+  lifecycleEvents StockUnitLifecycleEvent[]
+  inspections     StockUnitInspection[]
+  issues          StockUnitIssue[]
 
   @@index([reservationId, releasedAt])
   @@index([tenantId, stockUnitId, blockedStartDate, blockedEndDate])
@@ -1492,12 +1633,14 @@ model InventoryBlock {
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 
-  tenant        Tenant          @relation(fields: [tenantId], references: [id])
-  product       Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  variantSize   VariantSize?    @relation(fields: [variantSizeId], references: [id], onDelete: Cascade)
-  stockUnit     StockUnit?      @relation(fields: [stockUnitId], references: [id], onDelete: Cascade)
-  createdByUser User?           @relation("InventoryBlockCreatedBy", fields: [createdByUserId], references: [id])
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id])
+  product       Product?               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant       ProductVariant?        @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  variantSize   VariantSize?           @relation(fields: [variantSizeId], references: [id], onDelete: Cascade)
+  stockUnit     StockUnit?             @relation(fields: [stockUnitId], references: [id], onDelete: Cascade)
+  createdByUser User?                  @relation("InventoryBlockCreatedBy", fields: [createdByUserId], references: [id])
+  serviceOrder  InventoryServiceOrder?
+  inspection    StockUnitInspection?
 
   @@index([tenantId, productId, startDate, endDate])
   @@index([tenantId, variantId, startDate, endDate])
@@ -1505,6 +1648,290 @@ model InventoryBlock {
   @@index([tenantId, stockUnitId, startDate, endDate])
   @@index([createdByUserId])
   @@map("inventory_blocks")
+}
+
+model StockUnitLifecycleEvent {
+  id                   String                    @id @default(uuid())
+  tenantId             String                    @map("tenant_id")
+  stockUnitId          String                    @map("stock_unit_id")
+  assignmentId         String?                   @map("assignment_id")
+  inspectionId         String?                   @map("inspection_id")
+  serviceOrderId       String?                   @map("service_order_id")
+  issueId              String?                   @map("issue_id")
+  actorUserId          String?                   @map("actor_user_id")
+  fromDisposition      StockUnitDisposition      @map("from_disposition")
+  toDisposition        StockUnitDisposition      @map("to_disposition")
+  fromOperationalState StockUnitOperationalState @map("from_operational_state")
+  toOperationalState   StockUnitOperationalState @map("to_operational_state")
+  reason               String
+  metadata             Json?                     @db.JsonB
+  idempotencyKey       String?                   @map("idempotency_key")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id])
+  stockUnit    StockUnit              @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  assignment   StockUnitAssignment?   @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  inspection   StockUnitInspection?   @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  serviceOrder InventoryServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  issue        StockUnitIssue?        @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  actor        User?                  @relation("StockUnitLifecycleActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, stockUnitId, createdAt(sort: Desc)])
+  @@index([assignmentId])
+  @@index([inspectionId])
+  @@index([serviceOrderId])
+  @@index([issueId])
+  @@index([actorUserId])
+  @@map("stock_unit_lifecycle_events")
+}
+
+model StockUnitInspection {
+  id                       String                       @id @default(uuid())
+  tenantId                 String                       @map("tenant_id")
+  stockUnitId              String                       @map("stock_unit_id")
+  bookingItemId            String?                      @map("booking_item_id")
+  assignmentId             String?                      @map("assignment_id")
+  serviceOrderId           String?                      @map("service_order_id")
+  inventoryBlockId         String?                      @unique @map("inventory_block_id")
+  inspectionType           StockUnitInspectionType      @map("inspection_type")
+  status                   StockUnitInspectionStatus    @default(DRAFT)
+  conditionBefore          StockConditionGrade          @map("condition_before")
+  conditionAfter           StockConditionGrade?         @map("condition_after")
+  decision                 StockUnitInspectionDecision?
+  notes                    String?
+  customerLiabilityNote    String?                      @map("customer_liability_note")
+  inspectedByUserId        String                       @map("inspected_by_user_id")
+  completedAt              DateTime?                    @map("completed_at")
+  amendsInspectionId       String?                      @map("amends_inspection_id")
+  createIdempotencyKey     String?                      @map("create_idempotency_key")
+  completionIdempotencyKey String?                      @map("completion_idempotency_key")
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+
+  tenant              Tenant                     @relation(fields: [tenantId], references: [id])
+  stockUnit           StockUnit                  @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  bookingItem         BookingItem?               @relation(fields: [bookingItemId], references: [id], onDelete: SetNull)
+  assignment          StockUnitAssignment?       @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  serviceOrder        InventoryServiceOrder?     @relation("ServiceCompletionInspection", fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  inventoryBlock      InventoryBlock?            @relation(fields: [inventoryBlockId], references: [id], onDelete: SetNull)
+  inspectedBy         User                       @relation("StockUnitInspectionActor", fields: [inspectedByUserId], references: [id])
+  amendsInspection    StockUnitInspection?       @relation("InspectionAmendments", fields: [amendsInspectionId], references: [id], onDelete: SetNull)
+  amendments          StockUnitInspection[]      @relation("InspectionAmendments")
+  checks              StockUnitInspectionCheck[]
+  issues              StockUnitIssue[]
+  sourceServiceOrders InventoryServiceOrder[]    @relation("ServiceOrderSourceInspection")
+  lifecycleEvents     StockUnitLifecycleEvent[]
+  mediaAttachments    InventoryMediaAttachment[]
+
+  @@unique([tenantId, createIdempotencyKey])
+  @@unique([tenantId, completionIdempotencyKey])
+  @@index([tenantId, stockUnitId, createdAt(sort: Desc)])
+  @@index([bookingItemId])
+  @@index([assignmentId])
+  @@index([serviceOrderId])
+  @@index([inspectedByUserId])
+  @@index([amendsInspectionId])
+  @@map("stock_unit_inspections")
+}
+
+model StockUnitInspectionCheck {
+  id                       String                @id @default(uuid())
+  tenantId                 String                @map("tenant_id")
+  inspectionId             String                @map("inspection_id")
+  setComponentDefinitionId String?               @map("set_component_definition_id")
+  labelSnapshot            String                @map("label_snapshot")
+  expectedQuantity         Int                   @default(1) @map("expected_quantity")
+  observedQuantity         Int?                  @map("observed_quantity")
+  result                   InspectionCheckResult
+  notes                    String?
+  createdAt                DateTime              @default(now()) @map("created_at")
+
+  tenant                 Tenant                     @relation(fields: [tenantId], references: [id])
+  inspection             StockUnitInspection        @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  setComponentDefinition SkuSetComponentDefinition? @relation(fields: [setComponentDefinitionId], references: [id], onDelete: SetNull)
+  mediaAttachments       InventoryMediaAttachment[]
+
+  @@index([tenantId, inspectionId])
+  @@index([setComponentDefinitionId])
+  @@map("stock_unit_inspection_checks")
+}
+
+model StockUnitIssue {
+  id                       String                       @id @default(uuid())
+  tenantId                 String                       @map("tenant_id")
+  stockUnitId              String                       @map("stock_unit_id")
+  inspectionId             String?                      @map("inspection_id")
+  bookingItemId            String?                      @map("booking_item_id")
+  assignmentId             String?                      @map("assignment_id")
+  issueType                String                       @map("issue_type")
+  severity                 StockUnitIssueSeverity
+  status                   StockUnitIssueStatus         @default(OPEN)
+  responsibility           StockUnitIssueResponsibility @default(UNKNOWN)
+  description              String
+  isAvailabilityBlocking   Boolean                      @default(true) @map("is_availability_blocking")
+  estimatedCost            Int?                         @map("estimated_cost")
+  customerCharge           Int?                         @map("customer_charge")
+  reportedByUserId         String                       @map("reported_by_user_id")
+  resolvedByUserId         String?                      @map("resolved_by_user_id")
+  resolvedAt               DateTime?                    @map("resolved_at")
+  resolutionNotes          String?                      @map("resolution_notes")
+  resolutionIdempotencyKey String?                      @map("resolution_idempotency_key")
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id])
+  stockUnit        StockUnit                  @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  inspection       StockUnitInspection?       @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  bookingItem      BookingItem?               @relation(fields: [bookingItemId], references: [id], onDelete: SetNull)
+  assignment       StockUnitAssignment?       @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  reportedBy       User                       @relation("StockUnitIssueReporter", fields: [reportedByUserId], references: [id])
+  resolvedBy       User?                      @relation("StockUnitIssueResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  serviceOrders    InventoryServiceOrder[]
+  lifecycleEvents  StockUnitLifecycleEvent[]
+  mediaAttachments InventoryMediaAttachment[]
+  damageReport     DamageReport?
+
+  @@unique([tenantId, resolutionIdempotencyKey])
+  @@index([tenantId, stockUnitId, status])
+  @@index([inspectionId])
+  @@index([bookingItemId])
+  @@index([assignmentId])
+  @@index([reportedByUserId])
+  @@index([resolvedByUserId])
+  @@map("stock_unit_issues")
+}
+
+model InventoryServiceOrder {
+  id                       String                      @id @default(uuid())
+  tenantId                 String                      @map("tenant_id")
+  stockUnitId              String                      @map("stock_unit_id")
+  issueId                  String?                     @map("issue_id")
+  sourceInspectionId       String?                     @map("source_inspection_id")
+  inventoryBlockId         String?                     @unique @map("inventory_block_id")
+  serviceType              InventoryServiceOrderType   @map("service_type")
+  status                   InventoryServiceOrderStatus @default(REQUESTED)
+  isAvailabilityBlocking   Boolean                     @default(true) @map("is_availability_blocking")
+  providerName             String?                     @map("provider_name")
+  locationLabel            String?                     @map("location_label")
+  requestedByUserId        String                      @map("requested_by_user_id")
+  completedByUserId        String?                     @map("completed_by_user_id")
+  requestedAt              DateTime                    @default(now()) @map("requested_at")
+  scheduledStartAt         DateTime?                   @map("scheduled_start_at")
+  startedAt                DateTime?                   @map("started_at")
+  expectedCompletionAt     DateTime?                   @map("expected_completion_at")
+  completedAt              DateTime?                   @map("completed_at")
+  cost                     Int?
+  notes                    String?
+  completionOutcome        String?                     @map("completion_outcome")
+  createIdempotencyKey     String?                     @map("create_idempotency_key")
+  completionIdempotencyKey String?                     @map("completion_idempotency_key")
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  updatedAt                DateTime                    @updatedAt @map("updated_at")
+
+  tenant                Tenant                     @relation(fields: [tenantId], references: [id])
+  stockUnit             StockUnit                  @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  issue                 StockUnitIssue?            @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  sourceInspection      StockUnitInspection?       @relation("ServiceOrderSourceInspection", fields: [sourceInspectionId], references: [id], onDelete: SetNull)
+  completionInspections StockUnitInspection[]      @relation("ServiceCompletionInspection")
+  inventoryBlock        InventoryBlock?            @relation(fields: [inventoryBlockId], references: [id], onDelete: SetNull)
+  requestedBy           User                       @relation("ServiceOrderRequester", fields: [requestedByUserId], references: [id])
+  completedBy           User?                      @relation("ServiceOrderCompleter", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  lifecycleEvents       StockUnitLifecycleEvent[]
+  mediaAttachments      InventoryMediaAttachment[]
+
+  @@unique([tenantId, createIdempotencyKey])
+  @@unique([tenantId, completionIdempotencyKey])
+  @@index([tenantId, stockUnitId, status])
+  @@index([issueId])
+  @@index([sourceInspectionId])
+  @@index([requestedByUserId])
+  @@index([completedByUserId])
+  @@index([tenantId, expectedCompletionAt])
+  @@map("inventory_service_orders")
+}
+
+model SkuSetComponentDefinition {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  variantSizeId       String   @map("variant_size_id")
+  name                String
+  requiredQuantity    Int      @default(1) @map("required_quantity")
+  inspectionGuidance  String?  @map("inspection_guidance")
+  absenceBlocksRental Boolean  @default(true) @map("absence_blocks_rental")
+  displayOrder        Int      @default(0) @map("display_order")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdByUserId     String?  @map("created_by_user_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id])
+  variantSize      VariantSize                @relation(fields: [variantSizeId], references: [id], onDelete: Cascade)
+  createdBy        User?                      @relation("SetComponentCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  unitStates       StockUnitComponentState[]
+  inspectionChecks StockUnitInspectionCheck[]
+
+  @@unique([variantSizeId, name])
+  @@index([tenantId, variantSizeId, isActive])
+  @@index([createdByUserId])
+  @@map("sku_set_component_definitions")
+}
+
+model StockUnitComponentState {
+  id                       String                     @id @default(uuid())
+  tenantId                 String                     @map("tenant_id")
+  stockUnitId              String                     @map("stock_unit_id")
+  setComponentDefinitionId String                     @map("set_component_definition_id")
+  presence                 StockUnitComponentPresence @default(PRESENT)
+  presentQuantity          Int                        @default(1) @map("present_quantity")
+  condition                StockConditionGrade?
+  notes                    String?
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+  createdAt                DateTime                   @default(now()) @map("created_at")
+
+  tenant                 Tenant                    @relation(fields: [tenantId], references: [id])
+  stockUnit              StockUnit                 @relation(fields: [stockUnitId], references: [id], onDelete: Cascade)
+  setComponentDefinition SkuSetComponentDefinition @relation(fields: [setComponentDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([stockUnitId, setComponentDefinitionId])
+  @@index([tenantId, stockUnitId])
+  @@index([setComponentDefinitionId])
+  @@map("stock_unit_component_states")
+}
+
+model InventoryMediaAttachment {
+  id                String                @id @default(uuid())
+  tenantId          String                @map("tenant_id")
+  stockUnitId       String?               @map("stock_unit_id")
+  inspectionId      String?               @map("inspection_id")
+  inspectionCheckId String?               @map("inspection_check_id")
+  issueId           String?               @map("issue_id")
+  serviceOrderId    String?               @map("service_order_id")
+  purpose           InventoryMediaPurpose
+  url               String
+  objectKey         String?               @map("object_key")
+  mimeType          String?               @map("mime_type")
+  caption           String?
+  isPublicApproved  Boolean               @default(false) @map("is_public_approved")
+  uploadedByUserId  String                @map("uploaded_by_user_id")
+  capturedAt        DateTime?             @map("captured_at")
+  createdAt         DateTime              @default(now()) @map("created_at")
+
+  tenant          Tenant                    @relation(fields: [tenantId], references: [id])
+  stockUnit       StockUnit?                @relation(fields: [stockUnitId], references: [id], onDelete: Cascade)
+  inspection      StockUnitInspection?      @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionCheck StockUnitInspectionCheck? @relation(fields: [inspectionCheckId], references: [id], onDelete: Cascade)
+  issue           StockUnitIssue?           @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  serviceOrder    InventoryServiceOrder?    @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  uploadedBy      User                      @relation("InventoryMediaUploader", fields: [uploadedByUserId], references: [id])
+
+  @@index([tenantId, stockUnitId, createdAt(sort: Desc)])
+  @@index([inspectionId])
+  @@index([inspectionCheckId])
+  @@index([issueId])
+  @@index([serviceOrderId])
+  @@index([uploadedByUserId])
+  @@map("inventory_media_attachments")
 }
 
 model Payment {

@@ -35,6 +35,14 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'StockUnitAssignment',
   'InventoryMovement',
   'InventoryBlock',
+  'StockUnitLifecycleEvent',
+  'StockUnitInspection',
+  'StockUnitInspectionCheck',
+  'StockUnitIssue',
+  'InventoryServiceOrder',
+  'SkuSetComponentDefinition',
+  'StockUnitComponentState',
+  'InventoryMediaAttachment',
 ];
 
 /**

@@ -1075,11 +1075,26 @@ export class BookingService {
       );
     }
 
+    if (dto.stockUnitIssueId) {
+      const issue = await this.prisma.stockUnitIssue.findFirst({
+        where: {
+          id: dto.stockUnitIssueId,
+          tenantId,
+          bookingItemId: itemId,
+        },
+        select: { id: true },
+      });
+      if (!issue) {
+        throw new NotFoundException('Damage issue was not found for this booking item');
+      }
+    }
+
     const report = await this.prisma.damageReport.upsert({
       where: { bookingItemId: itemId },
       create: {
         tenantId,
         bookingItemId: itemId,
+        stockUnitIssueId: dto.stockUnitIssueId ?? null,
         damageLevel: dto.damageLevel as DamageLevel,
         description: dto.description,
         estimatedRepairCost: dto.estimatedRepairCost ?? null,
@@ -1089,6 +1104,7 @@ export class BookingService {
         reportedBy,
       },
       update: {
+        stockUnitIssueId: dto.stockUnitIssueId ?? null,
         damageLevel: dto.damageLevel as DamageLevel,
         description: dto.description,
         estimatedRepairCost: dto.estimatedRepairCost ?? null,

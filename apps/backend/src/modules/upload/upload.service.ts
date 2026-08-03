@@ -23,8 +23,10 @@ interface UploadResult {
 export class UploadService implements OnModuleInit {
   private readonly logger = new Logger(UploadService.name);
   private bucketReady = false;
+  private privateBucketReady = false;
   private readonly minioClient: Minio.Client;
   private readonly bucket: string;
+  private readonly privateBucket: string;
   private readonly publicUrl: string;
   private readonly maxSizeMb: number;
   private readonly imageQuality: number;
@@ -47,6 +49,7 @@ export class UploadService implements OnModuleInit {
     };
 
     this.bucket = storageConfig?.bucket || 'closetrent-dev';
+    this.privateBucket = `${this.bucket}-private`;
     this.publicUrl = storageConfig?.publicUrl || `http://localhost:9000/${this.bucket}`;
 
     try {
@@ -84,6 +87,7 @@ export class UploadService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     if (this.minioClient) {
       await this.ensureBucket();
+      await this.ensurePrivateBucket();
     }
   }
 
@@ -342,6 +346,56 @@ export class UploadService implements OnModuleInit {
     return { urls };
   }
 
+  async uploadInventoryPhotos(
+    tenantId: string,
+    stockUnitId: string,
+    files: Express.Multer.File[],
+  ): Promise<{
+    files: Array<{ url: string; objectKey: string; mimeType: string }>;
+  }> {
+    this.ensureMinioAvailable();
+    if (!files.length) throw new BadRequestException('At least one inventory photo is required');
+    if (files.length > 10) throw new BadRequestException('Maximum 10 inventory photos allowed');
+
+    const unit = await this.prisma.stockUnit.findFirst({
+      where: { id: stockUnitId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!unit) throw new NotFoundException('Stock unit not found');
+
+    await this.ensurePrivateBucket();
+    const uploaded: Array<{ url: string; objectKey: string; mimeType: string }> = [];
+    for (const file of files) {
+      this.validateFile(file);
+      const hash = uuidv4().slice(0, 12);
+      const key = `tenant-${tenantId}/inventory/${stockUnitId}/item_${hash}.webp`;
+      const buffer = await sharp(file.buffer)
+        .resize(1600, null, { withoutEnlargement: true })
+        .webp({ quality: this.imageQuality })
+        .toBuffer();
+      await this.minioClient.putObject(this.privateBucket, key, buffer, buffer.length, {
+        'Content-Type': 'image/webp',
+      });
+      uploaded.push({
+        url: `private://${this.privateBucket}/${key}`,
+        objectKey: key,
+        mimeType: 'image/webp',
+      });
+    }
+    return { files: uploaded };
+  }
+
+  async getInventoryMediaUrl(tenantId: string, objectKey: string) {
+    this.ensureMinioAvailable();
+    const requiredPrefix = `tenant-${tenantId}/inventory/`;
+    if (!objectKey.startsWith(requiredPrefix) || objectKey.includes('..')) {
+      throw new NotFoundException('Inventory media was not found');
+    }
+    await this.ensurePrivateBucket();
+    const url = await this.minioClient.presignedGetObject(this.privateBucket, objectKey, 15 * 60);
+    return { url, expiresInSeconds: 15 * 60 };
+  }
+
   // =========================================================================
   // PRIVATE HELPERS
   // =========================================================================
@@ -379,6 +433,21 @@ export class UploadService implements OnModuleInit {
       this.bucketReady = true;
     } catch (err) {
       this.logger.warn(`Bucket check failed: ${err}`);
+    }
+  }
+
+  private async ensurePrivateBucket(): Promise<void> {
+    if (this.privateBucketReady) return;
+    try {
+      const exists = await this.minioClient.bucketExists(this.privateBucket);
+      if (!exists) {
+        await this.minioClient.makeBucket(this.privateBucket);
+        this.logger.log(`Created private bucket: ${this.privateBucket}`);
+      }
+      this.privateBucketReady = true;
+    } catch (error) {
+      this.logger.error('Failed to initialize private inventory media bucket', error);
+      throw new ServiceUnavailableException('Private storage service is not available');
     }
   }
 

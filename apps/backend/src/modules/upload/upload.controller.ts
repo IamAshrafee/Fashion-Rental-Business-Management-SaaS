@@ -11,6 +11,8 @@ import {
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
+  Get,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
@@ -109,5 +111,26 @@ export class UploadController {
     @Body('bookingItemId') bookingItemId: string,
   ) {
     return this.uploadService.uploadDamagePhotos(tenant.id, bookingItemId, files);
+  }
+
+  @Post('inventory-photos')
+  @Roles('owner', 'manager', 'staff')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FilesInterceptor('files', 10))
+  async uploadInventoryPhotos(
+    @CurrentTenant() tenant: TenantContext,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('stockUnitId') stockUnitId: string,
+  ) {
+    return this.uploadService.uploadInventoryPhotos(tenant.id, stockUnitId, files);
+  }
+
+  @Get('inventory-media-url')
+  @Roles('owner', 'manager', 'staff')
+  async getInventoryMediaUrl(
+    @CurrentTenant() tenant: TenantContext,
+    @Query('objectKey') objectKey: string,
+  ) {
+    return this.uploadService.getInventoryMediaUrl(tenant.id, objectKey);
   }
 }

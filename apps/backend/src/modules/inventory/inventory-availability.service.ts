@@ -283,9 +283,22 @@ export class InventoryAvailabilityService {
       where: {
         tenantId,
         variantSizeId,
+        disposition: 'ACTIVE',
         status: 'ACTIVE',
         condition: { not: 'DAMAGED' },
         deletedAt: null,
+        issues: {
+          none: {
+            isAvailabilityBlocking: true,
+            status: { in: ['OPEN', 'IN_SERVICE'] },
+          },
+        },
+        componentStates: {
+          none: {
+            setComponentDefinition: { isActive: true, absenceBlocksRental: true },
+            presence: { in: ['MISSING', 'DAMAGED'] },
+          },
+        },
         blocks: {
           none: {
             startDate: { lte: blockedEnd },

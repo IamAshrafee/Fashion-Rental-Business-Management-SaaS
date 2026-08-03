@@ -22,9 +22,22 @@ export class InventoryAssignmentService {
         where: {
           tenantId,
           variantSizeId: reservation.variantSize.id,
+          disposition: 'ACTIVE',
           status: 'ACTIVE',
           condition: { not: 'DAMAGED' },
           deletedAt: null,
+          issues: {
+            none: {
+              isAvailabilityBlocking: true,
+              status: { in: ['OPEN', 'IN_SERVICE'] },
+            },
+          },
+          componentStates: {
+            none: {
+              setComponentDefinition: { isActive: true, absenceBlocksRental: true },
+              presence: { in: ['MISSING', 'DAMAGED'] },
+            },
+          },
           blocks: {
             none: {
               startDate: { lte: reservation.blockedEndDate },
@@ -96,9 +109,22 @@ export class InventoryAssignmentService {
             id: { in: sortedIds },
             tenantId,
             variantSizeId: reservation.variantSize.id,
+            disposition: 'ACTIVE',
             status: 'ACTIVE',
             condition: { not: 'DAMAGED' },
             deletedAt: null,
+            issues: {
+              none: {
+                isAvailabilityBlocking: true,
+                status: { in: ['OPEN', 'IN_SERVICE'] },
+              },
+            },
+            componentStates: {
+              none: {
+                setComponentDefinition: { isActive: true, absenceBlocksRental: true },
+                presence: { in: ['MISSING', 'DAMAGED'] },
+              },
+            },
           },
           select: { id: true, assetCode: true },
         });
