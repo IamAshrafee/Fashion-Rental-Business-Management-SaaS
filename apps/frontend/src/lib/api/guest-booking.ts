@@ -14,6 +14,12 @@ export interface CartValidationRequest {
     selectedSize?: string;
     backupSize?: string;
     tryOn?: boolean;
+    compositionSelections?: Array<{
+      compositionRuleId: string;
+      productId?: string;
+      variantSizeId?: string;
+      quantity?: number;
+    }>;
   }>;
 }
 
@@ -33,6 +39,17 @@ export interface CartValidationResponse {
     itemTotal: number;
     shippingFee: number;
     errors?: string[];
+    fulfillmentRequirements?: Array<{
+      requirementKey: string;
+      role: string;
+      productId: string;
+      variantSizeId: string;
+      quantity: number;
+      productName: string;
+      variantName: string | null;
+      sizeLabel: string;
+      priceAdjustment: number;
+    }>;
   }>;
   summary: {
     subtotal: number;
@@ -76,6 +93,12 @@ export interface CheckoutPayload {
     selectedSize?: string;
     backupSize?: string;
     tryOn?: boolean;
+    compositionSelections?: Array<{
+      compositionRuleId: string;
+      productId?: string;
+      variantSizeId?: string;
+      quantity?: number;
+    }>;
   }>;
   paymentMethod: 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
   bkashTransactionId?: string;

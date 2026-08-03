@@ -43,6 +43,13 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'SkuSetComponentDefinition',
   'StockUnitComponentState',
   'InventoryMediaAttachment',
+  'ProductCompositionRule',
+  'ProductCompositionAlternative',
+  'FulfillmentRequirement',
+  'FulfillmentRequirementVersion',
+  'FulfillmentSelectionSnapshot',
+  'FulfillmentSubstitution',
+  'FulfillmentRequirementEvent',
 ];
 
 /**

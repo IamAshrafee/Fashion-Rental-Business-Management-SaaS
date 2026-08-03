@@ -34,6 +34,12 @@ export interface CreateBookingPayload {
     selectedSize?: string;
     backupSize?: string;
     tryOn?: boolean;
+    compositionSelections?: Array<{
+      compositionRuleId: string;
+      productId?: string;
+      variantSizeId?: string;
+      quantity?: number;
+    }>;
     /** Per-item price override (manual booking only) */
     priceOverride?: number;
   }>;
@@ -157,11 +163,19 @@ export interface BookingDetailItem {
     trackingMode: 'POOLED' | 'SERIALIZED';
     sizeInstance: { displayLabel: string };
   } | null;
-  inventoryReservation?: {
+  inventoryReservations?: Array<{
     id: string;
     status: string;
     assignments: InventoryAssignment[];
-  } | null;
+  }>;
+  fulfillmentRequirements?: Array<{
+    id: string;
+    role: string;
+    status: string;
+    productNameSnapshot: string;
+    sizeSnapshot: string | null;
+    quantity: number;
+  }>;
   damageReport: {
     id: string;
     damageLevel: string;
@@ -280,6 +294,12 @@ export interface ValidateCartPayload {
     selectedSize?: string;
     backupSize?: string;
     tryOn?: boolean;
+    compositionSelections?: Array<{
+      compositionRuleId: string;
+      productId?: string;
+      variantSizeId?: string;
+      quantity?: number;
+    }>;
   }>;
 }
 
@@ -297,6 +317,17 @@ export interface ValidatedCartItem {
   itemTotal: number;
   shippingFee: number;
   errors?: string[];
+  fulfillmentRequirements?: Array<{
+    requirementKey: string;
+    role: string;
+    productId: string;
+    variantSizeId: string;
+    quantity: number;
+    productName: string;
+    variantName: string | null;
+    sizeLabel: string;
+    priceAdjustment: number;
+  }>;
 }
 
 export interface ValidateCartResponse {

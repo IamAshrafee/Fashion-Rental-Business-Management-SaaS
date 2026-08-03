@@ -72,6 +72,33 @@ export class CartItemDto {
   @IsOptional()
   @IsBoolean()
   tryOn?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => BookingCompositionSelectionDto)
+  compositionSelections?: BookingCompositionSelectionDto[];
+}
+
+export class BookingCompositionSelectionDto {
+  @IsUUID()
+  compositionRuleId!: string;
+
+  @IsOptional()
+  @IsUUID()
+  productId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  variantSizeId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity?: number;
 }
 
 export class ValidateCartDto {

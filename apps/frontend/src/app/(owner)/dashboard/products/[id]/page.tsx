@@ -9,7 +9,7 @@ import {
   Eye, EyeOff, MoreVertical, Tag, Calendar, MapPin, Ruler,
   HelpCircle, Info, ChevronDown, ChevronRight, Star,
   DollarSign, Clock, Shield, Sparkles, Package, TrendingUp,
-  Check, X, ImageIcon, Settings, Grid3X3
+  Check, X, ImageIcon, Settings, Grid3X3, Boxes
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -740,6 +740,11 @@ export default function ProductDetailPage() {
           <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" asChild>
             <Link href={`/dashboard/products/${id}/inventory`}>
               <Package className="h-3 w-3 mr-1" /> Inventory
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" asChild>
+            <Link href={`/dashboard/products/${id}/composition`}>
+              <Boxes className="h-3 w-3 mr-1" /> Bundle
             </Link>
           </Button>
           <DropdownMenu>

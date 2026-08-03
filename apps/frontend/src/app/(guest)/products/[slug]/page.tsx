@@ -8,10 +8,12 @@ import { useLocale } from '@/hooks/use-locale';
 import { useAnalytics } from '@/providers/analytics-provider';
 import {
   getProductBySlug,
-  checkDateRange,
   type DateRangeCheck,
   type GuestProductDetail,
 } from '@/lib/api/guest-products';
+import { validateCart } from '@/lib/api/guest-booking';
+import { fulfillmentApi } from '@/lib/api/fulfillment';
+import { BundleConfigurator, type BundleSelection } from './bundle-configurator';
 import {
   ChevronRight,
   Share2,
@@ -64,6 +66,11 @@ export default function GuestProductDetailPage() {
   });
 
   const product = (rawProduct && typeof rawProduct === 'object' && 'data' in rawProduct ? (rawProduct as any).data : rawProduct) as GuestProductDetail | undefined;
+  const compositionQuery = useQuery({
+    queryKey: ['guest-product-composition', product?.id],
+    queryFn: () => fulfillmentApi.listGuestComposition(product!.id),
+    enabled: !!product?.id,
+  });
 
 
   // Custom date selection state
@@ -77,12 +84,42 @@ export default function GuestProductDetailPage() {
   const [selectedBackupSize, setSelectedBackupSize] = useState('M');
   const [openAccordion, setOpenAccordion] = useState<string | null>('description');
   const [availabilityResult, setAvailabilityResult] = useState<DateRangeCheck | null>(null);
+  const [compositionSelections, setCompositionSelections] = useState<BundleSelection[]>([]);
+  const [validatedBundleSummary, setValidatedBundleSummary] = useState<Array<{ ruleId: string; label: string; productName: string; sizeLabel?: string; quantity: number; priceAdjustment: number }>>([]);
 
   const toggleAccordion = (id: string) => setOpenAccordion((prev) => (prev === id ? null : id));
 
   const availabilityMutation = useMutation({
-    mutationFn: (params: { productId: string; variantSizeId: string; startDate: string; endDate: string }) =>
-      checkDateRange(params.productId, params.variantSizeId, params.startDate, params.endDate),
+    mutationFn: async (params: { productId: string; variantId: string; variantSizeId: string; startDate: string; endDate: string }) => {
+      const result = await validateCart({ items: [{
+        ...params,
+        quantity: 1,
+        compositionSelections: compositionSelections.map(({ label: _label, ...selection }) => selection),
+      }] });
+      const item = result.items[0];
+      setValidatedBundleSummary((item.fulfillmentRequirements || []).filter((requirement) => requirement.role !== 'MAIN').map((requirement) => ({
+        ruleId: requirement.requirementKey,
+        label: requirement.productName,
+        productName: requirement.productName,
+        sizeLabel: requirement.sizeLabel,
+        quantity: requirement.quantity,
+        priceAdjustment: requirement.priceAdjustment,
+      })));
+      return {
+        available: result.valid && item.available,
+        reason: item.errors?.join(' '),
+        rentalDays: item.rentalDays,
+        pricing: {
+          baseRental: item.rentalPrice,
+          extendedDays: item.extendedDays,
+          extendedCost: item.extendedCost,
+          deposit: item.deposit,
+          cleaningFee: item.cleaningFee,
+          shippingFee: item.shippingFee,
+          total: item.itemTotal + item.shippingFee,
+        },
+      } satisfies DateRangeCheck;
+    },
     onSuccess: (data: any) => {
       const unwrapped = data && typeof data === 'object' && 'data' in data && 'success' in data ? data.data : data;
       setAvailabilityResult(unwrapped);
@@ -116,10 +153,11 @@ export default function GuestProductDetailPage() {
 
   useEffect(() => {
     setAvailabilityResult(null);
-    if (date.from && date.to && product?.id && selectedVariantSizeId) {
+    if (date.from && date.to && product?.id && selectedVariantSizeId && !compositionQuery.isLoading) {
       if (date.to > date.from) {
         availabilityMutation.mutate({
           productId: product.id,
+          variantId: selectedVariantId || '',
           variantSizeId: selectedVariantSizeId,
           startDate: format(date.from, 'yyyy-MM-dd'),
           endDate: format(date.to, 'yyyy-MM-dd'),
@@ -127,7 +165,7 @@ export default function GuestProductDetailPage() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date.from, date.to, product?.id, selectedVariantSizeId]);
+  }, [date.from, date.to, product?.id, selectedVariantId, selectedVariantSizeId, compositionSelections, compositionQuery.isLoading, compositionQuery.dataUpdatedAt]);
 
   // 1. Group by unique colors to display the colour swatches
   const uniqueColors = useMemo(() => {
@@ -238,8 +276,14 @@ export default function GuestProductDetailPage() {
   const isSizeValid = hasSizes && selectedVariantSizeId !== null;
 
   const isFormValid = !!date.from && !!date.to && days > 0 && isSizeValid;
+  const compositionRules = compositionQuery.data || [];
+  const compositionValid = compositionRules.every((rule) =>
+    rule.role !== 'REQUIRED_COMPONENT' ||
+    rule.skuResolution !== 'CUSTOMER_SELECTED' ||
+    compositionSelections.some((selection) => selection.compositionRuleId === rule.id && selection.variantSizeId),
+  );
   const isAvailable = availabilityResult?.available !== false;
-  const canAddToCart = isFormValid && isAvailable && !availabilityMutation.isPending;
+  const canAddToCart = isFormValid && compositionValid && isAvailable && !compositionQuery.isLoading && !availabilityMutation.isPending;
 
   const handleAddToCart = () => {
     if (!canAddToCart || !product || !date.from || !date.to) return;
@@ -271,6 +315,8 @@ export default function GuestProductDetailPage() {
       endDate: format(date.to, 'yyyy-MM-dd'),
       durationDays: days,
       selectedSize: selectedVariantSize?.sizeInstance.displayLabel,
+      compositionSelections,
+      bundleSummary: validatedBundleSummary,
       serviceMap: {
         tryOn: addTryOn,
         backupSize: addBackup ? selectedBackupSize : null,
@@ -564,6 +610,9 @@ export default function GuestProductDetailPage() {
                   )}
                 </div>
               )}
+
+              {/* Extra Services */}
+              <BundleConfigurator rules={compositionRules} selections={compositionSelections} onChange={setCompositionSelections} />
 
               {/* Extra Services */}
               {(services?.tryOnEnabled || services?.backupSizeEnabled) && (

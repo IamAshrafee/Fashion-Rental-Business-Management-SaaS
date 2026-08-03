@@ -38,6 +38,8 @@ import apiClient from '@/lib/api-client';
 import { customerApi } from '@/lib/api/customers';
 import { productApi, type ProductServicesData } from '@/lib/api/products';
 import { bookingApi, type ValidateCartResponse } from '@/lib/api/bookings';
+import { fulfillmentApi } from '@/lib/api/fulfillment';
+import { BundleConfigurator, type BundleSelection } from '@/app/(guest)/products/[slug]/bundle-configurator';
 import type { ApiResponse, Customer } from '@closetrent/types';
 
 // ─── Extended customer type (the list endpoint returns full model) ──────────
@@ -121,6 +123,7 @@ interface BookingItemLine {
   // Service info for display
   hasTryOn: boolean;
   hasBackupSize: boolean;
+  compositionSelections?: BundleSelection[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -249,6 +252,12 @@ export function ManualBookingForm() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isLoadingSize, setIsLoadingSize] = useState(false);
+  const [compositionSelections, setCompositionSelections] = useState<BundleSelection[]>([]);
+  const compositionQuery = useQuery({
+    queryKey: ['manual-booking-composition', selectedProduct?.id],
+    queryFn: () => fulfillmentApi.listComposition(selectedProduct!.id),
+    enabled: !!selectedProduct?.id,
+  });
 
   // Refs for click-outside
   const productDropdownRef = useRef<HTMLDivElement>(null);
@@ -352,6 +361,7 @@ export function ManualBookingForm() {
       setTryOn(false);
       setItemPriceOverride('');
       setAvailabilityResult(null);
+      setCompositionSelections([]);
     }
     if (q.length < 2) { setSearchResults([]); setShowProductDropdown(false); return; }
     setIsSearching(true);
@@ -378,6 +388,7 @@ export function ManualBookingForm() {
     setBackupSize('');
     setTryOn(false);
     setItemPriceOverride('');
+    setCompositionSelections([]);
 
     // Fetch full product detail for size config + services
     setIsLoadingSize(true);
@@ -478,6 +489,15 @@ export function ManualBookingForm() {
       toast.error('Product is not available for the selected dates.');
       return;
     }
+    const unresolvedRequiredComponent = (compositionQuery.data || []).some((rule) =>
+      rule.role === 'REQUIRED_COMPONENT' &&
+      rule.skuResolution === 'CUSTOMER_SELECTED' &&
+      !compositionSelections.some((selection) => selection.compositionRuleId === rule.id && selection.variantSizeId),
+    );
+    if (unresolvedRequiredComponent) {
+      toast.error('Select every required package component before adding this product.');
+      return;
+    }
 
     // Duplicate check
     const isDuplicate = cartItems.some(
@@ -525,6 +545,7 @@ export function ManualBookingForm() {
       deposit: availabilityResult?.pricing?.deposit ?? 0,
       hasTryOn,
       hasBackupSize,
+      compositionSelections,
     }]);
 
     // Reset selection
@@ -540,6 +561,7 @@ export function ManualBookingForm() {
     setProductSearch('');
     setSearchResults([]);
     setAvailabilityResult(null);
+    setCompositionSelections([]);
     setValidatedCart(null);
   };
 
@@ -569,6 +591,7 @@ export function ManualBookingForm() {
           selectedSize: item.selectedSize,
           backupSize: item.backupSize,
           tryOn: item.tryOn,
+          compositionSelections: item.compositionSelections?.map(({ label: _label, ...selection }) => selection),
         })),
       });
 
@@ -673,6 +696,7 @@ export function ManualBookingForm() {
         backupSize: item.backupSize,
         tryOn: item.tryOn,
         priceOverride: item.priceOverride,
+        compositionSelections: item.compositionSelections?.map(({ label: _label, ...selection }) => selection),
       })),
       paymentMethod: values.paymentMethod,
       customerNotes: values.customerNotes || undefined,
@@ -1167,6 +1191,12 @@ export function ManualBookingForm() {
                             />
                           </div>
                         </div>
+
+                        <BundleConfigurator
+                          rules={compositionQuery.data || []}
+                          selections={compositionSelections}
+                          onChange={setCompositionSelections}
+                        />
 
                         {/* Service toggles: Try-on + Backup Size */}
                         {(selectedProduct.services?.tryOnEnabled || selectedProduct.services?.backupSizeEnabled) && (

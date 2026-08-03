@@ -50,7 +50,7 @@ import {
 } from '@/lib/api/inventory-operations';
 
 const CONDITIONS: StockConditionGrade[] = ['NEW', 'EXCELLENT', 'GOOD', 'FAIR', 'POOR', 'DAMAGED'];
-const INSPECTION_TYPES: StockUnitInspectionType[] = ['INTAKE', 'PRE_RENTAL', 'RETURN', 'PERIODIC', 'SERVICE_COMPLETION'];
+const INSPECTION_TYPES: StockUnitInspectionType[] = ['PRE_RENTAL', 'RETURN', 'PERIODIC', 'SERVICE_COMPLETION'];
 const DECISIONS: StockUnitInspectionDecision[] = ['AVAILABLE', 'CLEANING', 'WASHING', 'REPAIR', 'QUARANTINE', 'LOST', 'RETIRE'];
 const SERVICE_TYPES: InventoryServiceOrderType[] = ['PREPARATION', 'CLEANING', 'WASHING', 'REPAIR', 'ALTERATION', 'MAINTENANCE'];
 const PRESENCE_OPTIONS: StockUnitComponentPresence[] = ['PRESENT', 'MISSING', 'DAMAGED', 'NOT_APPLICABLE'];

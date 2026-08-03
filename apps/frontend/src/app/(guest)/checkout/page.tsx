@@ -110,6 +110,7 @@ export default function GuestCheckoutPage() {
           endDate: i.endDate,
           tryOn: i.serviceMap?.tryOn || false,
           backupSize: i.serviceMap?.backupSize || undefined,
+          compositionSelections: i.compositionSelections?.map(({ label: _label, ...selection }) => selection),
         })),
         paymentMethod,
         bkashTransactionId: paymentMethod === 'bkash' ? transactionId : undefined,

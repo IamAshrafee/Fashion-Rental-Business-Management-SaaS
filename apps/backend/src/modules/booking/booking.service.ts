@@ -14,6 +14,7 @@ import { BookingStatus, CancelledBy, DamageLevel, PaymentMethod, PaymentStatus, 
 import type { ProductPricing, ProductServices } from '@prisma/client';
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service';
 import { InventoryReservationService } from '../inventory/inventory-reservation.service';
+import { FulfillmentService, RequirementProposal } from '../inventory/fulfillment.service';
 import {
   CreateBookingDto,
   ValidateCartDto,
@@ -89,6 +90,7 @@ export class BookingService {
     private readonly pricingEngineService: PricingEngineService,
     private readonly inventoryAvailability: InventoryAvailabilityService,
     private readonly inventoryReservations: InventoryReservationService,
+    private readonly fulfillment: FulfillmentService,
   ) {}
 
   // =========================================================================
@@ -172,20 +174,84 @@ export class BookingService {
    * Called before checkout to show accurate prices and detect conflicts.
    */
   async validateCart(tenantId: string, dto: ValidateCartDto) {
-    const results: CartItemResult[] = [];
-    let anyUnavailable = false;
+    const { results, proposalsByItem } = await this.prisma.$transaction(async (tx) => {
+      const results: CartItemResult[] = [];
+      const proposalsByItem: RequirementProposal[][] = [];
+      const checks: Array<{
+        itemIndex: number;
+        proposal: RequirementProposal;
+        blockedStart: string;
+        blockedEnd: string;
+        remainingQuantity: number;
+        available: boolean;
+        reason?: string;
+      }> = [];
 
-    for (const item of dto.items) {
-      const result = await this.validateSingleItem(tenantId, item);
-      results.push(result);
-      if (!result.available) anyUnavailable = true;
-    }
+      for (const [itemIndex, item] of dto.items.entries()) {
+        const result = await this.validateSingleItemTx(tx, tenantId, item);
+        let proposals: RequirementProposal[] = [];
+        try {
+          proposals = await this.fulfillment.expandProposal(tx, {
+            tenantId,
+            productId: item.productId,
+            variantSizeId: item.variantSizeId,
+            quantity: item.quantity,
+            selections: item.compositionSelections,
+          });
+          result.itemTotal += proposals.reduce((sum, proposal) => sum + proposal.priceAdjustment, 0);
+          for (const proposal of proposals) {
+            const availability = await this.inventoryAvailability.check({
+              tenantId,
+              productId: proposal.productId,
+              variantSizeId: proposal.variantSizeId,
+              startDate: item.startDate,
+              endDate: item.endDate,
+              quantity: proposal.quantity,
+            }, tx);
+            checks.push({
+              itemIndex,
+              proposal,
+              blockedStart: availability.effectiveBlockedRange.start,
+              blockedEnd: availability.effectiveBlockedRange.end,
+              remainingQuantity: availability.remainingQuantity,
+              available: availability.available,
+              reason: availability.reason,
+            });
+          }
+        } catch (error) {
+          result.available = false;
+          result.errors = [...(result.errors ?? []), error instanceof Error ? error.message : 'Product composition is invalid'];
+        }
+        results.push(result);
+        proposalsByItem.push(proposals);
+      }
+
+      for (const check of checks) {
+        const combinedDemand = checks
+          .filter((candidate) =>
+            candidate.proposal.variantSizeId === check.proposal.variantSizeId &&
+            candidate.blockedStart <= check.blockedEnd &&
+            candidate.blockedEnd >= check.blockedStart,
+          )
+          .reduce((sum, candidate) => sum + candidate.proposal.quantity, 0);
+        if (!check.available || combinedDemand > check.remainingQuantity) {
+          const result = results[check.itemIndex];
+          result.available = false;
+          result.errors = [
+            ...(result.errors ?? []),
+            check.reason ?? `${check.proposal.productName} does not have enough inventory for the full bundle`,
+          ];
+        }
+      }
+      return { results, proposalsByItem };
+    });
+    const anyUnavailable = results.some((item) => !item.available);
 
     const summary = this.computeSummary(results);
 
     return {
       valid: !anyUnavailable,
-      items: results.map((item) => ({
+      items: results.map((item, itemIndex) => ({
         productId: item.productId,
         variantSizeId: item.variantSizeId,
         quantity: item.quantity,
@@ -201,6 +267,17 @@ export class BookingService {
         itemTotal: item.itemTotal,
         shippingFee: item.shippingFee,
         errors: item.errors,
+        fulfillmentRequirements: proposalsByItem[itemIndex].map((proposal) => ({
+          requirementKey: proposal.requirementKey,
+          role: proposal.role,
+          productId: proposal.productId,
+          variantSizeId: proposal.variantSizeId,
+          quantity: proposal.quantity,
+          productName: proposal.productName,
+          variantName: proposal.variantName,
+          sizeLabel: proposal.sizeLabel,
+          priceAdjustment: proposal.priceAdjustment,
+        })),
       })),
       summary: {
         subtotal: summary.subtotal,
@@ -251,11 +328,17 @@ export class BookingService {
     // The deterministic SKU locks and reservation writes share one serializable
     // transaction, so concurrent requests cannot both consume the same capacity.
     const booking = await this.runSerializableTransaction(async (tx) => {
-      await this.inventoryReservations.lockVariantSizes(
-        tx,
-        tenantId,
-        dto.items.map((item) => item.variantSizeId),
-      );
+      const fulfillmentProposals: RequirementProposal[][] = [];
+      for (const item of dto.items) {
+        fulfillmentProposals.push(await this.fulfillment.expandProposal(tx, {
+          tenantId,
+          productId: item.productId,
+          variantSizeId: item.variantSizeId,
+          quantity: item.quantity,
+          selections: item.compositionSelections,
+        }));
+      }
+      await this.fulfillment.lockProposalSkus(tx, tenantId, fulfillmentProposals.flat());
 
       // Step 2: Validate all items INSIDE the transaction
       const validatedItems: CartItemResult[] = [];
@@ -293,6 +376,9 @@ export class BookingService {
             `Price override applied for "${result.productName}": ৳${originalBaseRental} → ৳${item.priceOverride}`,
           );
         }
+
+        result.itemTotal += fulfillmentProposals[validatedItems.length]
+          .reduce((sum, proposal) => sum + proposal.priceAdjustment, 0);
 
         validatedItems.push(result);
       }
@@ -432,17 +518,16 @@ export class BookingService {
           },
         });
 
-        await this.inventoryReservations.create(tx, {
+        await this.fulfillment.createRequirements(tx, {
           tenantId,
           bookingId: newBooking.id,
           bookingItemId: bookingItem.id,
-          productId: item.productId,
-          variantSizeId: item.variantSizeId,
-          quantity: item.quantity,
           startDate: cartItem.startDate,
           endDate: cartItem.endDate,
-          status: dto.autoConfirm ? 'CONFIRMED' : 'PENDING',
+          reservationStatus: dto.autoConfirm ? 'CONFIRMED' : 'PENDING',
           expiresAt: pendingReservationExpiresAt,
+          proposals: fulfillmentProposals[itemIndex],
+          itemRevenue: adjustedItemTotal,
         });
       }
 
@@ -656,13 +741,29 @@ export class BookingService {
           include: {
             damageReport: true,
             variantSize: { include: { sizeInstance: true } },
-            inventoryReservation: {
+            inventoryReservations: {
               include: {
                 assignments: {
                   where: { releasedAt: null },
                   include: { stockUnit: true },
                 },
+                fulfillmentRequirement: true,
               },
+            },
+            fulfillmentRequirements: {
+              include: {
+                compositionRule: true,
+                reservation: {
+                  include: {
+                    assignments: {
+                      where: { releasedAt: null },
+                      include: { stockUnit: true },
+                    },
+                  },
+                },
+                events: { orderBy: { createdAt: 'desc' } },
+              },
+              orderBy: { createdAt: 'asc' },
             },
           },
         },
@@ -943,6 +1044,12 @@ export class BookingService {
           data: { blockType: 'booking' },
         });
       }
+      await this.fulfillment.assertAndTransitionBooking(
+        tx,
+        tenantId,
+        bookingId,
+        newStatus,
+      );
       await this.inventoryReservations.transitionForBooking(
         tx,
         tenantId,
@@ -1012,6 +1119,13 @@ export class BookingService {
 
       // Release date blocks
       await tx.dateBlock.deleteMany({ where: { bookingId, tenantId } });
+      await this.fulfillment.assertAndTransitionBooking(
+        tx,
+        tenantId,
+        bookingId,
+        'cancelled',
+        dto.reason,
+      );
       await this.inventoryReservations.transitionForBooking(
         tx,
         tenantId,

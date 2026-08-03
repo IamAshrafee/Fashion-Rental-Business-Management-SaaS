@@ -17,6 +17,21 @@ export interface CartItem {
   endDate: string;         // YYYY-MM-DD
   durationDays: number;
   selectedSize?: string;   // The size selected by customer
+  compositionSelections?: Array<{
+    compositionRuleId: string;
+    productId?: string;
+    variantSizeId?: string;
+    quantity?: number;
+    label?: string;
+  }>;
+  bundleSummary?: Array<{
+    ruleId: string;
+    label: string;
+    productName: string;
+    sizeLabel?: string;
+    quantity: number;
+    priceAdjustment: number;
+  }>;
   serviceMap: { 
     tryOn: boolean;
     backupSize?: string | null; 

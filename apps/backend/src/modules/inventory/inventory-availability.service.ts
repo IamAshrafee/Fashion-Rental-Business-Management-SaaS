@@ -16,6 +16,7 @@ export interface InventoryAvailabilityInput {
   endDate: string | Date;
   quantity?: number;
   enforcePublished?: boolean;
+  excludeReservationId?: string;
 }
 
 export interface InventoryAvailabilityResult {
@@ -185,6 +186,7 @@ export class InventoryAvailabilityService {
       db.inventoryReservation.aggregate({
         where: {
           tenantId: input.tenantId,
+          ...(input.excludeReservationId ? { id: { not: input.excludeReservationId } } : {}),
           variantSizeId: sku.id,
           blockedStartDate: { lte: blockedEnd },
           blockedEndDate: { gte: blockedStart },

@@ -10,6 +10,7 @@ interface CreateReservationInput {
   tenantId: string;
   bookingId: string;
   bookingItemId: string;
+  fulfillmentRequirementId: string;
   productId: string;
   variantSizeId: string;
   quantity: number;
@@ -81,6 +82,7 @@ export class InventoryReservationService {
         tenantId: input.tenantId,
         bookingId: input.bookingId,
         bookingItemId: input.bookingItemId,
+        fulfillmentRequirementId: input.fulfillmentRequirementId,
         productId: input.productId,
         variantSizeId: input.variantSizeId,
         quantity: input.quantity,
@@ -163,7 +165,12 @@ export class InventoryReservationService {
   async expirePending(tx: Prisma.TransactionClient, now = new Date()): Promise<number> {
     const expired = await tx.inventoryReservation.findMany({
       where: { status: 'PENDING', expiresAt: { not: null, lte: now } },
-      select: { id: true },
+      select: {
+        id: true,
+        tenantId: true,
+        fulfillmentRequirementId: true,
+        fulfillmentRequirement: { select: { status: true, quantity: true } },
+      },
     });
     if (expired.length === 0) return 0;
 
@@ -171,6 +178,24 @@ export class InventoryReservationService {
       where: { id: { in: expired.map((item) => item.id) }, status: 'PENDING' },
       data: { status: 'EXPIRED', releasedAt: now, releaseReason: 'Pending hold expired' },
     });
+    const requirementIds = expired.flatMap((item) => item.fulfillmentRequirementId ? [item.fulfillmentRequirementId] : []);
+    if (requirementIds.length) {
+      await tx.fulfillmentRequirement.updateMany({
+        where: { id: { in: requirementIds } },
+        data: { status: 'CANCELLED' },
+      });
+      await tx.fulfillmentRequirementEvent.createMany({
+        data: expired.flatMap((item) => item.fulfillmentRequirementId ? [{
+          tenantId: item.tenantId,
+          requirementId: item.fulfillmentRequirementId,
+          eventType: 'CANCELLED' as const,
+          quantity: item.fulfillmentRequirement.quantity,
+          fromStatus: item.fulfillmentRequirement.status,
+          toStatus: 'CANCELLED' as const,
+          reason: 'Pending inventory hold expired',
+        }] : []),
+      });
+    }
     return expired.length;
   }
 }

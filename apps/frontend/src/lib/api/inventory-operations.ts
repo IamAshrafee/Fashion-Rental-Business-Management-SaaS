@@ -13,17 +13,17 @@ export type StockUnitOperationalState =
   | 'WASHING'
   | 'REPAIRING'
   | 'IN_TRANSFER';
-export type StockUnitInspectionType = 'INTAKE' | 'PRE_RENTAL' | 'RETURN' | 'PERIODIC' | 'SERVICE_COMPLETION';
+export type StockUnitInspectionType = 'PRE_RENTAL' | 'RETURN' | 'PERIODIC' | 'SERVICE_COMPLETION';
 export type StockUnitInspectionStatus = 'DRAFT' | 'COMPLETED' | 'SUPERSEDED';
 export type StockUnitInspectionDecision = 'AVAILABLE' | 'CLEANING' | 'WASHING' | 'REPAIR' | 'QUARANTINE' | 'LOST' | 'RETIRE';
 export type InspectionCheckResult = 'PASS' | 'FAIL' | 'NOT_APPLICABLE';
-export type StockUnitIssueSeverity = 'MINOR' | 'MODERATE' | 'SEVERE' | 'CRITICAL';
+export type StockUnitIssueSeverity = 'INFO' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CRITICAL';
 export type StockUnitIssueStatus = 'OPEN' | 'IN_SERVICE' | 'RESOLVED' | 'WAIVED';
-export type StockUnitIssueResponsibility = 'CUSTOMER' | 'BUSINESS' | 'NORMAL_WEAR' | 'UNKNOWN';
+export type StockUnitIssueResponsibility = 'CUSTOMER' | 'BUSINESS' | 'NORMAL_WEAR' | 'THIRD_PARTY' | 'UNKNOWN';
 export type InventoryServiceOrderType = 'PREPARATION' | 'CLEANING' | 'WASHING' | 'REPAIR' | 'ALTERATION' | 'MAINTENANCE';
 export type InventoryServiceOrderStatus = 'REQUESTED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 export type StockUnitComponentPresence = 'PRESENT' | 'MISSING' | 'DAMAGED' | 'NOT_APPLICABLE';
-export type InventoryMediaPurpose = 'PRE_RENTAL' | 'POST_RETURN' | 'ISSUE_EVIDENCE' | 'SERVICE_BEFORE' | 'SERVICE_AFTER' | 'GENERAL';
+export type InventoryMediaPurpose = 'UNIT_REFERENCE' | 'PRE_RENTAL' | 'POST_RETURN' | 'DAMAGE' | 'SERVICE' | 'CHECKLIST' | 'OTHER';
 
 interface PersonSummary { id: string; fullName: string }
 

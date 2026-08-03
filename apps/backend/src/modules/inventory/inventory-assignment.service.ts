@@ -1,15 +1,15 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { InventoryTrackingMode, Prisma } from '@prisma/client';
+import { FulfillmentEventType, FulfillmentRequirementStatus, InventoryTrackingMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class InventoryAssignmentService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listEligibleUnits(tenantId: string, bookingId: string, bookingItemId: string) {
-    const reservation = await this.getReservation(this.prisma, tenantId, bookingId, bookingItemId);
+  async listEligibleUnits(tenantId: string, bookingId: string, bookingItemId: string, requirementId?: string) {
+    const reservation = await this.getReservation(this.prisma, tenantId, bookingId, bookingItemId, requirementId);
     if (reservation.variantSize?.trackingMode !== InventoryTrackingMode.SERIALIZED) {
-      return { reservationId: reservation.id, required: 0, assigned: [], eligible: [] };
+      return { requirement: reservation.fulfillmentRequirement, reservationId: reservation.id, required: 0, assigned: [], eligible: [] };
     }
 
     const [assigned, eligible] = await Promise.all([
@@ -58,6 +58,7 @@ export class InventoryAssignmentService {
     ]);
 
     return {
+      requirement: reservation.fulfillmentRequirement,
       reservationId: reservation.id,
       required: reservation.quantity,
       assigned,
@@ -71,12 +72,13 @@ export class InventoryAssignmentService {
     bookingItemId: string,
     stockUnitIds: string[],
     actorUserId?: string,
+    requirementId?: string,
   ) {
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-        const reservation = await this.getReservation(tx, tenantId, bookingId, bookingItemId);
+        const reservation = await this.getReservation(tx, tenantId, bookingId, bookingItemId, requirementId);
         if (reservation.variantSize?.trackingMode !== InventoryTrackingMode.SERIALIZED) {
           throw new ConflictException('Physical units are only assigned to serialized inventory');
         }
@@ -170,6 +172,27 @@ export class InventoryAssignmentService {
           })),
         });
 
+        const assignedQuantity = existingCount + sortedIds.length;
+        const requirementStatus = assignedQuantity === reservation.quantity
+          ? FulfillmentRequirementStatus.ASSIGNED
+          : FulfillmentRequirementStatus.PARTIALLY_ASSIGNED;
+        await tx.fulfillmentRequirement.update({
+          where: { id: reservation.fulfillmentRequirementId },
+          data: { assignedQuantity, status: requirementStatus },
+        });
+        await tx.fulfillmentRequirementEvent.create({
+          data: {
+            tenantId,
+            requirementId: reservation.fulfillmentRequirementId,
+            eventType: FulfillmentEventType.ASSIGNED,
+            quantity: sortedIds.length,
+            fromStatus: reservation.fulfillmentRequirement.status,
+            toStatus: requirementStatus,
+            reason: 'Physical units assigned to fulfillment requirement',
+            actorUserId: actorUserId ?? null,
+          },
+        });
+
         return tx.stockUnitAssignment.findMany({
           where: { tenantId, reservationId: reservation.id, releasedAt: null },
           include: { stockUnit: true },
@@ -205,21 +228,54 @@ export class InventoryAssignmentService {
     bookingItemId: string,
     assignmentId: string,
     reason: string,
+    actorUserId?: string,
+    requirementId?: string,
   ) {
-    const assignment = await this.prisma.stockUnitAssignment.findFirst({
-      where: {
-        id: assignmentId,
-        tenantId,
-        reservation: { bookingId, bookingItemId },
-        releasedAt: null,
-      },
-    });
-    if (!assignment) throw new NotFoundException('Active stock-unit assignment not found');
-
-    return this.prisma.stockUnitAssignment.update({
-      where: { id: assignmentId },
-      data: { releasedAt: new Date(), releaseReason: reason.trim() },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const assignment = await tx.stockUnitAssignment.findFirst({
+        where: {
+          id: assignmentId,
+          tenantId,
+          reservation: {
+            bookingId,
+            bookingItemId,
+            ...(requirementId ? { fulfillmentRequirementId: requirementId } : {}),
+          },
+          releasedAt: null,
+        },
+        include: { reservation: { include: { fulfillmentRequirement: true } } },
+      });
+      if (!assignment) throw new NotFoundException('Active stock-unit assignment not found');
+      if (assignment.reservation.fulfillmentRequirement.handedOutQuantity > 0) {
+        throw new ConflictException('Handed-out units must be returned or marked lost instead of released');
+      }
+      const updated = await tx.stockUnitAssignment.update({
+        where: { id: assignmentId },
+        data: { releasedAt: new Date(), releaseReason: reason.trim() },
+      });
+      const assignedQuantity = Math.max(0, assignment.reservation.fulfillmentRequirement.assignedQuantity - 1);
+      const status = assignedQuantity > 0
+        ? FulfillmentRequirementStatus.PARTIALLY_ASSIGNED
+        : FulfillmentRequirementStatus.RESERVED;
+      await tx.fulfillmentRequirement.update({
+        where: { id: assignment.reservation.fulfillmentRequirementId },
+        data: { assignedQuantity, status },
+      });
+      await tx.fulfillmentRequirementEvent.create({
+        data: {
+          tenantId,
+          requirementId: assignment.reservation.fulfillmentRequirementId,
+          assignmentId,
+          eventType: FulfillmentEventType.ASSIGNMENT_RELEASED,
+          quantity: 1,
+          fromStatus: assignment.reservation.fulfillmentRequirement.status,
+          toStatus: status,
+          reason: reason.trim(),
+          actorUserId: actorUserId ?? null,
+        },
+      });
+      return updated;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   private async getReservation(
@@ -227,10 +283,18 @@ export class InventoryAssignmentService {
     tenantId: string,
     bookingId: string,
     bookingItemId: string,
+    requirementId?: string,
   ) {
     const reservation = await db.inventoryReservation.findFirst({
-      where: { tenantId, bookingId, bookingItemId },
-      include: { variantSize: true },
+      where: {
+        tenantId,
+        bookingId,
+        bookingItemId,
+        ...(requirementId
+          ? { fulfillmentRequirementId: requirementId }
+          : { fulfillmentRequirement: { requirementKey: 'MAIN' } }),
+      },
+      include: { variantSize: true, fulfillmentRequirement: true },
     });
     if (!reservation) throw new NotFoundException('Inventory reservation not found');
     return reservation;

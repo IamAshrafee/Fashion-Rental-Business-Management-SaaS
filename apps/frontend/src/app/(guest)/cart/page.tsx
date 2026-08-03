@@ -43,6 +43,7 @@ export default function GuestCartPage() {
           selectedSize: undefined,
           backupSize: item.serviceMap.backupSize || undefined,
           tryOn: item.serviceMap.tryOn,
+          compositionSelections: item.compositionSelections?.map(({ label: _label, ...selection }) => selection),
         })),
       });
       setValidation(result);
@@ -188,6 +189,16 @@ export default function GuestCartPage() {
                       {formatPrice(validatedItem?.itemTotal || item.totalPrice)}
                     </span>
                   </div>
+
+                  {/* Dates or date editor */}
+                  {!!item.bundleSummary?.length && (
+                    <div className="mt-2 rounded bg-gray-50 p-2 text-xs text-gray-600">
+                      <p className="mb-1 font-semibold uppercase tracking-wide text-gray-500">Package includes</p>
+                      {item.bundleSummary.map((component) => (
+                        <p key={`${component.ruleId}-${component.productName}`}>{component.quantity}× {component.productName}{component.sizeLabel ? ` · ${component.sizeLabel}` : ''}{component.priceAdjustment ? ` · +${formatPrice(component.priceAdjustment)}` : ''}</p>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Dates or date editor */}
                   {isEditing ? (
