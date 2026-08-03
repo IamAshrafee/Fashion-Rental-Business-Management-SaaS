@@ -1842,12 +1842,13 @@ model InventoryTransferLine {
   createdAt          DateTime                  @default(now()) @map("created_at")
   updatedAt          DateTime                  @updatedAt @map("updated_at")
 
-  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
-  transfer      InventoryTransfer       @relation(fields: [transferId], references: [id], onDelete: Restrict)
-  variantSize   VariantSize             @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
-  inventoryPool InventoryPool?          @relation(fields: [inventoryPoolId], references: [id], onDelete: Restrict)
-  units         InventoryTransferUnit[]
-  movements     InventoryMovement[]
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id])
+  transfer       InventoryTransfer       @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  variantSize    VariantSize             @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  inventoryPool  InventoryPool?          @relation(fields: [inventoryPoolId], references: [id], onDelete: Restrict)
+  units          InventoryTransferUnit[]
+  movements      InventoryMovement[]
+  inventoryBlock InventoryBlock?
 
   @@unique([transferId, variantSizeId, lineKind])
   @@index([tenantId, transferId])
@@ -2306,6 +2307,7 @@ model InventoryBlock {
   stockUnitId     String?            @map("stock_unit_id")
   locationId      String?            @map("location_id")
   inventoryPoolId String?            @map("inventory_pool_id")
+  transferLineId  String?            @unique @map("transfer_line_id")
   quantity        Int?
   startDate       DateTime           @map("start_date") @db.Date
   endDate         DateTime           @map("end_date") @db.Date
@@ -2322,6 +2324,7 @@ model InventoryBlock {
   stockUnit     StockUnit?             @relation(fields: [stockUnitId], references: [id], onDelete: Cascade)
   location      InventoryLocation?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
   inventoryPool InventoryPool?         @relation(fields: [inventoryPoolId], references: [id], onDelete: Cascade)
+  transferLine  InventoryTransferLine? @relation(fields: [transferLineId], references: [id], onDelete: Cascade)
   createdByUser User?                  @relation("InventoryBlockCreatedBy", fields: [createdByUserId], references: [id])
   serviceOrder  InventoryServiceOrder?
   inspection    StockUnitInspection?

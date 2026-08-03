@@ -17,6 +17,8 @@ import { InventoryFoundationController } from './inventory-foundation.controller
 import { InventoryLocationService } from './inventory-location.service';
 import { InventoryPoolService } from './inventory-pool.service';
 import { AvailabilityPolicyService } from './availability-policy.service';
+import { InventoryTransferController } from './inventory-transfer.controller';
+import { InventoryTransferService } from './inventory-transfer.service';
 
 @Module({
   imports: [PrismaModule],
@@ -27,6 +29,7 @@ import { AvailabilityPolicyService } from './availability-policy.service';
     FulfillmentGuestController,
     FulfillmentOwnerController,
     InventoryFoundationController,
+    InventoryTransferController,
   ],
   providers: [
     InventoryAvailabilityService,
@@ -42,6 +45,7 @@ import { AvailabilityPolicyService } from './availability-policy.service';
     InventoryLocationService,
     InventoryPoolService,
     AvailabilityPolicyService,
+    InventoryTransferService,
   ],
   exports: [
     InventoryAvailabilityService,

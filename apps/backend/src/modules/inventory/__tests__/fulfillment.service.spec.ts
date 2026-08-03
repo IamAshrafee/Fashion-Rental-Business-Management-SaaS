@@ -126,6 +126,75 @@ describe('FulfillmentService', () => {
     });
   });
 
+  it('plans every bundle requirement from one common location when capacity exists', async () => {
+    const tx = {
+      inventoryLocation: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'location-1', isDefault: true },
+          { id: 'location-2', isDefault: false },
+        ]),
+      },
+    };
+    availability.check.mockImplementation(({ sourceLocationId, variantSizeId }) => ({
+      available: sourceLocationId === 'location-1',
+      sourceLocationId,
+      variantSizeId,
+      remainingQuantity: 3,
+      availabilityPolicy: { requireSingleLocationForBundle: true },
+    }));
+    const service = new FulfillmentService(
+      {} as never,
+      availability as never,
+      reservations as never,
+      lifecycle as never,
+    );
+    const proposals = [
+      {
+        requirementKey: 'MAIN',
+        role: ProductCompositionRole.MAIN,
+        selectionSource: 'MAIN_PRODUCT',
+        productId: 'product-main',
+        variantSizeId: 'sku-main',
+        quantity: 1,
+        productName: 'Main',
+        variantName: null,
+        sizeLabel: 'M',
+        priceAdjustment: 0,
+      },
+      {
+        requirementKey: 'MAIN/RULE:shoe',
+        role: ProductCompositionRole.REQUIRED_COMPONENT,
+        selectionSource: 'FIXED_RULE',
+        productId: 'product-shoe',
+        variantSizeId: 'sku-shoe',
+        quantity: 1,
+        productName: 'Shoes',
+        variantName: null,
+        sizeLabel: '40',
+        priceAdjustment: 0,
+      },
+    ];
+
+    const plan = await (service as unknown as {
+      planRequirementAvailability: (
+        transaction: unknown,
+        input: Record<string, unknown>,
+      ) => Promise<Map<string, { sourceLocationId: string }>>;
+    }).planRequirementAvailability(tx, {
+      tenantId: 'tenant-1',
+      bookingId: 'booking-1',
+      bookingItemId: 'item-1',
+      startDate: '2026-08-10',
+      endDate: '2026-08-12',
+      reservationStatus: 'PENDING',
+      proposals,
+      itemRevenue: 1000,
+    });
+
+    expect(plan.get('MAIN')?.sourceLocationId).toBe('location-1');
+    expect(plan.get('MAIN/RULE:shoe')?.sourceLocationId).toBe('location-1');
+  });
+
   it('leaves every requirement unchanged when one component cannot extend', async () => {
     const requirements = ['main', 'component'].map((id) => ({
       id,

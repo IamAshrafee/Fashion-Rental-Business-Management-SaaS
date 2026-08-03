@@ -139,17 +139,10 @@ export class FulfillmentService {
     const createdByKey = new Map<string, string>();
     const componentRevenue = input.proposals.slice(1).reduce((sum, proposal) => sum + Math.max(0, proposal.priceAdjustment), 0);
     const mainRevenue = Math.max(0, input.itemRevenue - componentRevenue);
+    const availabilityPlan = await this.planRequirementAvailability(tx, input);
 
     for (const proposal of input.proposals) {
-      const availability = await this.availability.check({
-        tenantId: input.tenantId,
-        productId: proposal.productId,
-        variantSizeId: proposal.variantSizeId,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        quantity: proposal.quantity,
-        enforcePublished: false,
-      }, tx);
+      const availability = availabilityPlan.get(proposal.requirementKey)!;
       if (!availability.available || !availability.sourceLocationId || !availability.availabilityPolicy) {
         throw new ConflictException(
           `${proposal.productName} is unavailable: ${availability.reason ?? 'no fulfillment source can satisfy this requirement'}`,
@@ -808,6 +801,133 @@ export class FulfillmentService {
         depth + 1,
       );
     }
+  }
+
+  private async planRequirementAvailability(
+    tx: Transaction,
+    input: CreateRequirementsInput,
+  ) {
+    type Result = Awaited<ReturnType<InventoryAvailabilityService['check']>>;
+    const groups = new Map<
+      string,
+      { productId: string; variantSizeId: string; quantity: number; proposals: RequirementProposal[] }
+    >();
+    for (const proposal of input.proposals) {
+      const key = `${proposal.productId}:${proposal.variantSizeId}`;
+      const group = groups.get(key);
+      if (group) {
+        group.quantity += proposal.quantity;
+        group.proposals.push(proposal);
+      } else {
+        groups.set(key, {
+          productId: proposal.productId,
+          variantSizeId: proposal.variantSizeId,
+          quantity: proposal.quantity,
+          proposals: [proposal],
+        });
+      }
+    }
+
+    const locations = await tx.inventoryLocation.findMany({
+      where: {
+        tenantId: input.tenantId,
+        isActive: true,
+        canStoreInventory: true,
+        canFulfillRentals: true,
+      },
+      select: { id: true, isDefault: true },
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+    });
+    let bestCommon: { score: number; results: Map<string, Result> } | null = null;
+    for (const location of locations) {
+      const results = new Map<string, Result>();
+      let score = 0;
+      let available = true;
+      for (const [key, group] of groups) {
+        const result = await this.availability.check({
+          tenantId: input.tenantId,
+          productId: group.productId,
+          variantSizeId: group.variantSizeId,
+          sourceLocationId: location.id,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          quantity: group.quantity,
+          enforcePublished: false,
+        }, tx);
+        results.set(key, result);
+        if (!result.available) {
+          available = false;
+          break;
+        }
+        score += result.remainingQuantity - group.quantity;
+      }
+      if (available && (!bestCommon || score > bestCommon.score)) {
+        bestCommon = { score, results };
+      }
+    }
+    if (bestCommon) return this.expandAvailabilityGroups(groups, bestCommon.results);
+
+    const mainProposal = input.proposals.find((proposal) => proposal.requirementKey === 'MAIN')
+      ?? input.proposals[0];
+    const mainAvailability = await this.availability.check({
+      tenantId: input.tenantId,
+      productId: mainProposal.productId,
+      variantSizeId: mainProposal.variantSizeId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      quantity: groups.get(`${mainProposal.productId}:${mainProposal.variantSizeId}`)!.quantity,
+      enforcePublished: false,
+    }, tx);
+    if (
+      !mainAvailability.available ||
+      !mainAvailability.availabilityPolicy ||
+      mainAvailability.availabilityPolicy.requireSingleLocationForBundle
+    ) {
+      throw new ConflictException({
+        code: 'BUNDLE_LOCATION_CONFLICT',
+        message: 'The complete product set is not available from one fulfillment location',
+      });
+    }
+
+    const splitResults = new Map<string, Result>();
+    for (const [key, group] of groups) {
+      const result = key === `${mainProposal.productId}:${mainProposal.variantSizeId}`
+        ? mainAvailability
+        : await this.availability.check({
+            tenantId: input.tenantId,
+            productId: group.productId,
+            variantSizeId: group.variantSizeId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            quantity: group.quantity,
+            enforcePublished: false,
+          }, tx);
+      if (!result.available) {
+        throw new ConflictException(
+          `${group.proposals[0].productName} is unavailable: ${result.reason ?? 'no location can satisfy the requirement'}`,
+        );
+      }
+      splitResults.set(key, result);
+    }
+    return this.expandAvailabilityGroups(groups, splitResults);
+  }
+
+  private expandAvailabilityGroups(
+    groups: Map<
+      string,
+      { productId: string; variantSizeId: string; quantity: number; proposals: RequirementProposal[] }
+    >,
+    results: Map<string, Awaited<ReturnType<InventoryAvailabilityService['check']>>>,
+  ) {
+    const plan = new Map<
+      string,
+      Awaited<ReturnType<InventoryAvailabilityService['check']>>
+    >();
+    for (const [key, group] of groups) {
+      const result = results.get(key)!;
+      for (const proposal of group.proposals) plan.set(proposal.requirementKey, result);
+    }
+    return plan;
   }
 
   private async resolveRule(
