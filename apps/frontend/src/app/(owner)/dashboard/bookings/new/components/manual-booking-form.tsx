@@ -31,16 +31,16 @@ import { Switch } from '@/components/ui/switch';
 import {
   PackageSearch, CheckCircle, Loader2, Plus, Trash2,
   UserCheck, AlertCircle, Calendar, ShoppingBag, ImageIcon,
-  Pencil, Ruler, Tag, CreditCard, Zap, ChevronDown, ChevronUp,
+  Pencil, Ruler, Tag, CreditCard, Zap,
   Percent, DollarSign, Truck,
 } from 'lucide-react';
-import apiClient from '@/lib/api-client';
 import { customerApi } from '@/lib/api/customers';
 import { productApi, type PricingProfileData } from '@/lib/api/products';
 import { bookingApi, type ValidateCartResponse } from '@/lib/api/bookings';
 import { fulfillmentApi } from '@/lib/api/fulfillment';
 import { BundleConfigurator, type BundleSelection } from '@/app/(guest)/products/[slug]/bundle-configurator';
-import type { ApiResponse, Customer } from '@closetrent/types';
+import type { Customer } from '@closetrent/types';
+import { useAuth } from '@/hooks/use-auth';
 
 // ─── Extended customer type (the list endpoint returns full model) ──────────
 /** The backend customer list returns all Prisma columns, but the shared
@@ -58,24 +58,6 @@ interface CustomerForAutoFill extends Customer {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/** Matches the exact shape returned by GET /owner/products (listOwner) */
-interface OwnerProductResult {
-  id: string;
-  name: string;
-  slug: string;
-  status: string;
-  rentalPrice: number;
-  pricingMode: string | null;
-  variants: Array<{
-    id: string;
-    variantName: string | null;
-    mainColor: { name: string; hexCode: string | null };
-    images: Array<{ thumbnailUrl: string }>;
-  }>;
-  category?: { id: string; name: string; slug: string };
-  _count?: { variants: number; bookingItems: number };
-}
-
 /** Flattened product for display in the form */
 interface ProductForForm {
   id: string;
@@ -84,6 +66,7 @@ interface ProductForForm {
   minInternalPrice: number;
   thumbnailUrl: string;
   pricingMode: string;
+  variantCount: number;
   variants: Array<{
     id: string;
     colorName: string;
@@ -149,35 +132,19 @@ interface BookingItemLine {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function mapToFormProduct(raw: OwnerProductResult): ProductForForm {
-  const firstVariant = raw.variants?.[0];
-  const thumb = firstVariant?.images?.[0]?.thumbnailUrl ?? '';
-
-  return {
-    id: raw.id,
-    name: raw.name,
-    rentalPrice: raw.rentalPrice,
-    minInternalPrice: 0,
-    thumbnailUrl: thumb,
-    pricingMode: raw.pricingMode ?? 'FLAT_PERIOD',
-    variants: (raw.variants ?? []).map((v) => ({
-      id: v.id,
-      colorName: v.mainColor?.name ?? 'Default',
-      colorHex: v.mainColor?.hexCode ?? null,
-      thumbnailUrl: v.images?.[0]?.thumbnailUrl ?? '',
-      sizes: [],
-    })),
-  };
-}
-
 async function searchProducts(q: string): Promise<ProductForForm[]> {
   if (!q || q.length < 2) return [];
-  const { data: response } = await apiClient.get<{ data: OwnerProductResult[]; meta: unknown }>(
-    '/owner/products',
-    { params: { search: q, status: 'published', limit: 10 } },
-  );
-  const items = response.data ?? [];
-  return items.map(mapToFormProduct);
+  const response = await productApi.list({ search: q, status: 'published', limit: 10 });
+  return response.data.map((product) => ({
+    id: product.id,
+    name: product.name,
+    rentalPrice: product.rentalPrice,
+    minInternalPrice: 0,
+    thumbnailUrl: product.thumbnailUrl ?? '',
+    pricingMode: product.pricingMode ?? 'FLAT_PERIOD',
+    variantCount: product.variantCount,
+    variants: [],
+  }));
 }
 
 /** Hook: close dropdown on outside click */
@@ -194,7 +161,11 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () =
 }
 
 function formatCurrency(amount: number): string {
-  return `৳${amount.toLocaleString()}`;
+  return new Intl.NumberFormat('en-BD', {
+    style: 'currency',
+    currency: 'BDT',
+    maximumFractionDigits: 2,
+  }).format(amount / 100);
 }
 
 // ─── Zod Schema ────────────────────────────────────────────────────────────────
@@ -240,10 +211,23 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+interface ManualBookingDraft {
+  version: 1;
+  creationKey: string;
+  step: number;
+  form: FormValues;
+  cartItems: BookingItemLine[];
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ManualBookingForm() {
   const router = useRouter();
+  const { tenantId } = useAuth();
+  const creationKey = useRef('');
+  const loadedDraftKey = useRef('');
+  const bookingCreated = useRef(false);
+  const [draftReady, setDraftReady] = useState(false);
   const [step, setStep] = useState(1);
   const [productSearch, setProductSearch] = useState('');
   const [searchResults, setSearchResults] = useState<ProductForForm[]>([]);
@@ -328,6 +312,58 @@ export function ManualBookingForm() {
   const watchDiscountValue = form.watch('discountValue') || 0;
   const watchInitialPaymentEnabled = form.watch('initialPaymentEnabled');
   const watchInitialPaymentAmount = form.watch('initialPaymentAmount') || 0;
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const storageKey = `closetrent:manual-booking:${tenantId}:v1`;
+    if (loadedDraftKey.current === storageKey) return;
+    loadedDraftKey.current = storageKey;
+    creationKey.current = crypto.randomUUID();
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const draft = JSON.parse(stored) as ManualBookingDraft;
+        if (draft.version === 1 && draft.creationKey) {
+          form.reset(draft.form);
+          setCartItems(Array.isArray(draft.cartItems) ? draft.cartItems : []);
+          setStep(draft.step > 1 && draft.cartItems?.length ? 2 : 1);
+          creationKey.current = draft.creationKey;
+          toast.info('Your unfinished booking draft was restored');
+        }
+      }
+    } catch {
+      localStorage.removeItem(storageKey);
+    } finally {
+      setDraftReady(true);
+    }
+  }, [form, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || !draftReady) return;
+    const storageKey = `closetrent:manual-booking:${tenantId}:v1`;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (bookingCreated.current) return;
+        const draft: ManualBookingDraft = {
+          version: 1,
+          creationKey: creationKey.current || crypto.randomUUID(),
+          step,
+          form: form.getValues(),
+          cartItems,
+        };
+        creationKey.current = draft.creationKey;
+        localStorage.setItem(storageKey, JSON.stringify(draft));
+      }, 250);
+    };
+    save();
+    const subscription = form.watch(save);
+    return () => {
+      if (timer) clearTimeout(timer);
+      subscription.unsubscribe();
+    };
+  }, [cartItems, draftReady, form, step, tenantId]);
 
   // ── Customer search ──────────────────────────────────────────────────────
 
@@ -423,7 +459,9 @@ export function ManualBookingForm() {
       setSelectedVariantId(firstVariant?.id ?? '');
       setSelectedVariantSizeId(firstVariant?.sizes[0]?.id ?? '');
     } catch {
-      // Non-critical — size/services just won't be available
+      setSelectedProduct(null);
+      setProductSearch('');
+      toast.error('This product could not be loaded. Please choose it again.');
     } finally {
       setIsLoadingSize(false);
     }
@@ -525,7 +563,9 @@ export function ManualBookingForm() {
 
 
     // Parse price override
-    const parsedOverride = itemPriceOverride ? parseInt(itemPriceOverride, 10) : undefined;
+    const parsedOverride = itemPriceOverride
+      ? Math.round(Number(itemPriceOverride) * 100)
+      : undefined;
     if (parsedOverride !== undefined && isNaN(parsedOverride)) {
       toast.error('Invalid price override value.');
       return;
@@ -649,7 +689,7 @@ export function ManualBookingForm() {
   let discountAmount = 0;
   if (watchDiscountEnabled && watchDiscountValue > 0) {
     if (watchDiscountType === 'flat') {
-      discountAmount = Math.min(watchDiscountValue, rawGrandTotal);
+      discountAmount = Math.min(Math.round(watchDiscountValue * 100), rawGrandTotal);
     } else {
       const pct = Math.min(watchDiscountValue, 100);
       discountAmount = Math.ceil((rawSubtotal + rawTotalFees) * (pct / 100));
@@ -658,13 +698,17 @@ export function ManualBookingForm() {
   }
 
   const grandTotal = rawGrandTotal - discountAmount;
-  const balanceDue = grandTotal - (watchInitialPaymentEnabled ? Math.min(watchInitialPaymentAmount, grandTotal) : 0);
+  const initialPaymentMinor = Math.round(watchInitialPaymentAmount * 100);
+  const balanceDue = grandTotal - (watchInitialPaymentEnabled ? Math.min(initialPaymentMinor, grandTotal) : 0);
 
   // ── Submit ──────────────────────────────────────────────────────────────
 
   const mutation = useMutation({
-    mutationFn: (payload: Parameters<typeof bookingApi.create>[0]) => bookingApi.create(payload),
+    mutationFn: (payload: Parameters<typeof bookingApi.create>[0]) =>
+      bookingApi.create(payload, creationKey.current || (creationKey.current = crypto.randomUUID())),
     onSuccess: (result) => {
+      bookingCreated.current = true;
+      if (tenantId) localStorage.removeItem(`closetrent:manual-booking:${tenantId}:v1`);
       toast.success(`Booking ${result?.bookingNumber} created successfully!`);
       router.push(`/dashboard/bookings/${result?.bookingId}`);
     },
@@ -719,7 +763,9 @@ export function ManualBookingForm() {
     if (values.discountEnabled && (values.discountValue ?? 0) > 0) {
       payload.discount = {
         type: values.discountType || 'flat',
-        value: values.discountValue ?? 0,
+        value: values.discountType === 'percentage'
+          ? values.discountValue ?? 0
+          : Math.round((values.discountValue ?? 0) * 100),
         reason: values.discountReason || undefined,
       };
     }
@@ -727,7 +773,7 @@ export function ManualBookingForm() {
     // Initial payment
     if (values.initialPaymentEnabled && (values.initialPaymentAmount ?? 0) > 0) {
       payload.initialPayment = {
-        amount: values.initialPaymentAmount ?? 0,
+        amount: Math.round((values.initialPaymentAmount ?? 0) * 100),
         method: values.initialPaymentMethod || 'bkash',
         transactionId: values.initialPaymentTxId || undefined,
       };
@@ -1114,7 +1160,7 @@ export function ManualBookingForm() {
                                 <div className="flex-1 min-w-0">
                                   <div className="font-medium truncate">{p.name}</div>
                                   <div className="text-xs text-muted-foreground">
-                                    {p.variants.length} variant{p.variants.length !== 1 ? 's' : ''}
+                                    {p.variantCount} variant{p.variantCount !== 1 ? 's' : ''}
                                   </div>
                                 </div>
                                 <span className="text-muted-foreground font-medium shrink-0">{formatCurrency(p.rentalPrice)}</span>
@@ -1133,6 +1179,7 @@ export function ManualBookingForm() {
                             <Label className="text-xs">Color / Variant *</Label>
                             <Select
                               value={selectedVariantId}
+                              disabled={isLoadingSize}
                               onValueChange={(variantId) => {
                                 setSelectedVariantId(variantId);
                                 const firstSku = selectedProduct.variants.find((variant) => variant.id === variantId)?.sizes[0];
@@ -1255,7 +1302,7 @@ export function ManualBookingForm() {
                                 Min: {formatCurrency(selectedProduct.minInternalPrice)}
                               </span>
                             )}
-                            {itemPriceOverride && parseInt(itemPriceOverride) < selectedProduct.minInternalPrice && selectedProduct.minInternalPrice > 0 && (
+                            {itemPriceOverride && Math.round(Number(itemPriceOverride) * 100) < selectedProduct.minInternalPrice && selectedProduct.minInternalPrice > 0 && (
                               <Badge variant="outline" className="text-[9px] border-yellow-500 text-yellow-600">Below min</Badge>
                             )}
                           </div>
@@ -1671,7 +1718,7 @@ export function ManualBookingForm() {
                           <CreditCard className="h-3 w-3" />
                           Upfront Payment
                         </span>
-                        <span>-{formatCurrency(Math.min(watchInitialPaymentAmount, grandTotal))}</span>
+                        <span>-{formatCurrency(Math.min(initialPaymentMinor, grandTotal))}</span>
                       </div>
                       <div className="flex justify-between text-sm font-medium">
                         <span>Balance Due</span>
@@ -1760,7 +1807,7 @@ export function ManualBookingForm() {
                   {watchInitialPaymentEnabled && watchInitialPaymentAmount > 0 && (
                     <div className="flex justify-between text-xs text-blue-600">
                       <span>Upfront Payment</span>
-                      <span>{formatCurrency(Math.min(watchInitialPaymentAmount, grandTotal))}</span>
+                      <span>{formatCurrency(Math.min(initialPaymentMinor, grandTotal))}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-xs">

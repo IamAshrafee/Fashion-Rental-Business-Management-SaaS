@@ -18,9 +18,8 @@ export type BookingStatus =
 
 export type PaymentStatus = 
   | 'unpaid'
-  | 'partially_paid'
-  | 'paid'
-  | 'refunded';
+  | 'partial'
+  | 'paid';
 
 export type DepositStatus = 
   | 'pending'

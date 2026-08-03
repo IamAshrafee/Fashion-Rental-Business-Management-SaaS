@@ -1,0 +1,176 @@
+import { ConflictException } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { BookingService } from './booking.service';
+import type { CreateBookingDto } from './dto/booking.dto';
+
+const request = {
+  customer: { fullName: 'Nadia Rahman', phone: '01700000000' },
+  delivery: { address: 'Dhanmondi', city: 'Dhaka', country: 'BD' },
+  items: [
+    {
+      productId: 'product-1',
+      variantId: 'variant-1',
+      variantSizeId: 'size-1',
+      quantity: 1,
+      startDate: '2026-08-10',
+      endDate: '2026-08-12',
+    },
+  ],
+  paymentMethod: 'cod',
+} as CreateBookingDto;
+
+function requestHash(value: unknown): string {
+  const canonicalize = (child: unknown): unknown => {
+    if (Array.isArray(child)) return child.map(canonicalize);
+    if (child && typeof child === 'object') {
+      return Object.fromEntries(
+        Object.entries(child)
+          .filter(([, nested]) => nested !== undefined)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, nested]) => [key, canonicalize(nested)]),
+      );
+    }
+    return child;
+  };
+  return createHash('sha256').update(JSON.stringify(canonicalize(value))).digest('hex');
+}
+
+const existingBooking = {
+  id: 'booking-1',
+  creationRequestHash: requestHash(request),
+  bookingNumber: 'BK-1001',
+  status: 'pending',
+  paymentMethod: 'cod',
+  subtotal: 150000,
+  totalFees: 0,
+  shippingFee: 0,
+  totalDeposit: 50000,
+  discountAmount: 0,
+  grandTotal: 200000,
+  customer: { id: 'customer-1', fullName: 'Nadia Rahman', phone: '01700000000' },
+  items: [
+    {
+      id: 'item-1',
+      productId: 'product-1',
+      variantId: 'variant-1',
+      variantSizeId: 'size-1',
+      quantity: 1,
+      productName: 'Red dress',
+      colorName: 'Red',
+      sizeInfo: 'M',
+      startDate: new Date('2026-08-10T00:00:00.000Z'),
+      endDate: new Date('2026-08-12T00:00:00.000Z'),
+      rentalDays: 3,
+      baseRental: 150000,
+      depositAmount: 50000,
+      itemTotal: 200000,
+    },
+  ],
+  payments: [],
+};
+
+function serviceWith(prisma: object, customerService: object = {}) {
+  return new BookingService(
+    prisma as never,
+    customerService as never,
+    { emit: jest.fn() } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+}
+
+describe('BookingService', () => {
+  it('returns the original booking for a matching creation idempotency key', async () => {
+    const prisma = { booking: { findFirst: jest.fn().mockResolvedValue(existingBooking) } };
+    const customerService = { findOrCreateByPhone: jest.fn() };
+
+    const result = await serviceWith(prisma, customerService).createBooking(
+      'tenant-1',
+      request,
+      'manual-booking-draft-1',
+    );
+
+    expect(result).toMatchObject({ bookingId: 'booking-1', bookingNumber: 'BK-1001' });
+    expect(customerService.findOrCreateByPhone).not.toHaveBeenCalled();
+  });
+
+  it('rejects reuse of a booking creation key for different request content', async () => {
+    const prisma = { booking: { findFirst: jest.fn().mockResolvedValue(existingBooking) } };
+    const conflictingRequest = {
+      ...request,
+      customer: { ...request.customer, phone: '01800000000' },
+    } as CreateBookingDto;
+
+    await expect(
+      serviceWith(prisma).createBooking(
+        'tenant-1',
+        conflictingRequest,
+        'manual-booking-draft-1',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('builds the assignment queue and operational projection on the server', async () => {
+    const booking = {
+      id: 'booking-1',
+      status: 'confirmed',
+      createdAt: new Date('2026-08-03T10:00:00.000Z'),
+      customer: { id: 'customer-1', fullName: 'Nadia Rahman', phone: '01700000000' },
+      items: [
+        {
+          id: 'item-1',
+          quantity: 2,
+          startDate: new Date('2026-08-10T00:00:00.000Z'),
+          endDate: new Date('2026-08-12T00:00:00.000Z'),
+          fulfillmentRequirements: [
+            {
+              status: 'PARTIALLY_ASSIGNED',
+              trackingModeSnapshot: 'SERIALIZED',
+              quantity: 2,
+              assignedQuantity: 1,
+              handedOutQuantity: 0,
+              returnedQuantity: 0,
+              lostQuantity: 0,
+            },
+          ],
+        },
+      ],
+      _count: { items: 1 },
+    };
+    const prisma = {
+      booking: {
+        findMany: jest.fn().mockResolvedValue([booking]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    };
+
+    const result = await serviceWith(prisma).getBookingList('tenant-1', {
+      queue: 'ASSIGNMENT',
+      itemDateFrom: '2026-08-10',
+      page: 1,
+      limit: 20,
+    });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'confirmed',
+          AND: [
+            expect.objectContaining({ items: expect.any(Object) }),
+            { items: { some: { endDate: { gte: new Date('2026-08-10') } } } },
+          ],
+        }),
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      }),
+    );
+    expect(result.data[0].operations).toMatchObject({
+      totalQuantity: 2,
+      serializedRequired: 2,
+      serializedAssigned: 1,
+      needsAssignment: true,
+      nextAction: 'ASSIGN_ITEMS',
+    });
+  });
+});

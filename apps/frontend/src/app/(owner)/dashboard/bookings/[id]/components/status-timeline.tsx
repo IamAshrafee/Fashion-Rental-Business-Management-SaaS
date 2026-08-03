@@ -1,7 +1,7 @@
 import { BookingTimelineEvent } from '../../types';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle2, Navigation, Package, DollarSign, PenTool, XCircle, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Package, DollarSign, PenTool, XCircle, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function StatusTimeline({ events }: { events: BookingTimelineEvent[] }) {

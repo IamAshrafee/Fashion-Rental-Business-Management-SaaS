@@ -231,6 +231,8 @@ describe('rental inventory database concurrency', () => {
     const booking = await prisma.booking.create({
       data: {
         tenantId: tenant.id,
+        creationKey: `booking-create-${suffix}`,
+        creationRequestHash: `booking-hash-${suffix}`,
         bookingNumber: `INT-${suffix}`,
         customerId: customer.id,
         status: 'confirmed',
@@ -244,6 +246,25 @@ describe('rental inventory database concurrency', () => {
         deliveryCountry: 'BD',
       },
     });
+    await expect(
+      prisma.booking.create({
+        data: {
+          tenantId: tenant.id,
+          creationKey: `booking-create-${suffix}`,
+          creationRequestHash: `different-booking-hash-${suffix}`,
+          bookingNumber: `INT-DUPLICATE-${suffix}`,
+          customerId: customer.id,
+          paymentMethod: PaymentMethod.cod,
+          subtotal: 1000,
+          grandTotal: 1000,
+          deliveryName: customer.fullName,
+          deliveryPhone: customer.phone,
+          deliveryAddressLine1: 'Integration address',
+          deliveryCity: 'Dhaka',
+          deliveryCountry: 'BD',
+        },
+      }),
+    ).rejects.toBeDefined();
 
     const reservations = [];
     for (const ordinal of [1, 2]) {

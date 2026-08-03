@@ -120,8 +120,20 @@ export interface BookingListItem {
     rentalDays: number;
     itemTotal: number;
     featuredImageUrl?: string;
+    quantity: number;
   }>;
   _count: { items: number };
+  operations: {
+    rentalStartDate: string | null;
+    rentalEndDate: string | null;
+    totalQuantity: number;
+    requirementCount: number;
+    inventoryShortages: number;
+    serializedRequired: number;
+    serializedAssigned: number;
+    needsAssignment: boolean;
+    nextAction: 'REVIEW' | 'ASSIGN_ITEMS' | 'PREPARE_HANDOFF' | 'RECEIVE_RETURN' | 'INSPECT' | 'SETTLE' | 'NONE';
+  };
 }
 
 // ─── Booking Detail (richer than list item) ──────────────────────────────────
@@ -228,7 +240,12 @@ export interface BookingDetailResponse {
   trackingNumber: string | null;
   courierProvider: string | null;
   courierStatus: string | null;
-  courierStatusHistory: any;
+  courierStatusHistory: Array<{
+    status: string;
+    label: string;
+    timestamp: string;
+    source?: string;
+  }> | null;
   pickupRequestedAt: string | null;
   scheduledPickupAt: string | null;
   deliveryLeadDays: number | null;
@@ -340,6 +357,9 @@ export interface DateRangeCheckResponse {
 export interface BookingStats {
   pendingCount: number;
   overdueCount: number;
+  needsAssignmentCount: number;
+  todayHandoffs: number;
+  todayReturns: number;
   todayDeliveries: number;
   totalActive: number;
   recentBookings: Array<{
@@ -356,6 +376,7 @@ export interface BookingListQuery {
   page?: number;
   limit?: number;
   status?: string;
+  queue?: 'REVIEW' | 'ASSIGNMENT' | 'HANDOFF' | 'ACTIVE' | 'RETURN_INSPECTION' | 'OVERDUE' | 'CLOSED';
   search?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -366,6 +387,7 @@ export interface BookingListQuery {
   paymentStatus?: string;
   customerId?: string;
   order?: 'asc' | 'desc';
+  sort?: 'createdAt' | 'grandTotal';
 }
 
 // ─── API Functions ────────────────────────────────────────────────────────────
@@ -376,11 +398,14 @@ export const bookingApi = {
    * Creates a new booking (public endpoint — used for both guest and owner).
    * The owner form uses this directly since the backend handles find-or-create customer.
    */
-  create: async (payload: CreateBookingPayload): Promise<BookingCreatedResponse> => {
+  create: async (payload: CreateBookingPayload, creationKey?: string): Promise<BookingCreatedResponse> => {
     const { data } = await apiClient.post<ApiResponse<BookingCreatedResponse>>(
       '/bookings',
       payload,
-      { withCredentials: true },
+      {
+        withCredentials: true,
+        headers: creationKey ? { 'Idempotency-Key': creationKey } : undefined,
+      },
     );
     if (!data.success) throw new Error(data.message || 'Failed to create booking');
     return data.data;

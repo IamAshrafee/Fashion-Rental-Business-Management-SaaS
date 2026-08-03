@@ -13,6 +13,8 @@ import {
   Prisma,
   ProductCompositionRole,
   StockUnitDisposition,
+  StockUnitInspectionStatus,
+  StockUnitInspectionType,
   StockUnitOperationalState,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -438,6 +440,27 @@ export class FulfillmentService {
     if (bookingStatus === 'returned' || bookingStatus === 'inspected' || bookingStatus === 'completed') {
       const unresolved = requirements.find((item) => item.returnedQuantity + item.lostQuantity !== item.quantity);
       if (unresolved) throw new ConflictException('Every fulfillment component must be returned or resolved as lost first');
+      if (bookingStatus === 'inspected' || bookingStatus === 'completed') {
+        const uninspectedReturnedUnits = await tx.stockUnitAssignment.count({
+          where: {
+            tenantId,
+            reservation: { bookingId },
+            releasedAt: { not: null },
+            stockUnit: { operationalState: StockUnitOperationalState.AWAITING_INSPECTION },
+            inspections: {
+              none: {
+                inspectionType: StockUnitInspectionType.RETURN,
+                status: StockUnitInspectionStatus.COMPLETED,
+              },
+            },
+          },
+        });
+        if (uninspectedReturnedUnits > 0) {
+          throw new ConflictException(
+            'Complete the return inspection for every returned physical item first',
+          );
+        }
+      }
       return;
     }
     if (bookingStatus === 'cancelled') {

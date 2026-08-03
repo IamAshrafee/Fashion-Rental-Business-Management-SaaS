@@ -1426,6 +1426,8 @@ model CustomerTag {
 model Booking {
   id                   String        @id @default(uuid())
   tenantId             String        @map("tenant_id")
+  creationKey          String?       @map("creation_key")
+  creationRequestHash  String?       @map("creation_request_hash")
   bookingNumber        String        @map("booking_number")
   customerId           String        @map("customer_id")
   policyVersionId      String?       @map("policy_version_id") // Pricing Engine v2: frozen pricing snapshot
@@ -1484,6 +1486,7 @@ model Booking {
   FulfillmentRequirement FulfillmentRequirement[]
 
   @@unique([tenantId, bookingNumber])
+  @@unique([tenantId, creationKey])
   @@index([tenantId, status])
   @@index([tenantId, courierStatus])
   @@index([tenantId, createdAt(sort: Desc)])

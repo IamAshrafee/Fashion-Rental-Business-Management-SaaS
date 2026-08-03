@@ -10,10 +10,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CustomerService } from '../customer/customer.service';
 import { PricingEngineService } from '../pricing-engine/pricing-engine.service';
-import { BookingStatus, CancelledBy, DamageLevel, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
+import { BookingStatus, CancelledBy, DamageLevel, FulfillmentRequirementStatus, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service';
 import { InventoryReservationService } from '../inventory/inventory-reservation.service';
 import { FulfillmentService, RequirementProposal } from '../inventory/fulfillment.service';
+import type { LateFeePolicy } from '@closetrent/types';
+import { createHash } from 'crypto';
 import {
   CreateBookingDto,
   ValidateCartDto,
@@ -61,6 +63,35 @@ interface CartSummary {
   shippingFee: number;
   grandTotal: number;
 }
+
+const BOOKING_CREATED_INCLUDE = {
+  customer: { select: { id: true, fullName: true, phone: true } },
+  items: {
+    select: {
+      id: true,
+      productId: true,
+      variantId: true,
+      variantSizeId: true,
+      quantity: true,
+      productName: true,
+      colorName: true,
+      sizeInfo: true,
+      startDate: true,
+      endDate: true,
+      rentalDays: true,
+      baseRental: true,
+      depositAmount: true,
+      itemTotal: true,
+    },
+  },
+  payments: {
+    select: { id: true, amount: true, method: true, status: true },
+  },
+} satisfies Prisma.BookingInclude;
+
+type BookingCreatedRecord = Prisma.BookingGetPayload<{
+  include: typeof BOOKING_CREATED_INCLUDE;
+}>;
 
 // ---------------------------------------------------------------------------
 // Status transition map (ADR-02)
@@ -302,7 +333,22 @@ export class BookingService {
    * 7. Optionally record initial payment
    * 8. Emit booking.created (and booking.confirmed) event
    */
-  async createBooking(tenantId: string, dto: CreateBookingDto) {
+  async createBooking(tenantId: string, dto: CreateBookingDto, rawCreationKey?: string) {
+    const creationKey = rawCreationKey?.trim() || null;
+    const creationRequestHash = creationKey ? this.bookingRequestHash(dto) : null;
+    if (creationKey && creationKey.length > 200) {
+      throw new BadRequestException('Idempotency-Key cannot exceed 200 characters');
+    }
+    if (creationKey) {
+      const existing = await this.prisma.booking.findFirst({
+        where: { tenantId, creationKey },
+        include: BOOKING_CREATED_INCLUDE,
+      });
+      if (existing) {
+        this.assertMatchingBookingRequest(existing, creationRequestHash);
+        return this.toBookingCreatedResponse(existing);
+      }
+    }
     const pendingReservationExpiresAt = dto.autoConfirm
       ? null
       : new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -325,7 +371,9 @@ export class BookingService {
     // Steps 2-7: Validate + create atomically inside a single transaction
     // The deterministic SKU locks and reservation writes share one serializable
     // transaction, so concurrent requests cannot both consume the same capacity.
-    const booking = await this.runSerializableTransaction(async (tx) => {
+    let booking: BookingCreatedRecord | null;
+    try {
+      booking = await this.runSerializableTransaction(async (tx) => {
       const fulfillmentProposals: RequirementProposal[][] = [];
       for (const item of dto.items) {
         fulfillmentProposals.push(await this.fulfillment.expandProposal(tx, {
@@ -420,6 +468,8 @@ export class BookingService {
       const newBooking = await tx.booking.create({
         data: {
           tenantId,
+          creationKey,
+          creationRequestHash,
           bookingNumber,
           customerId: customer.id,
           status: initialStatus,
@@ -535,35 +585,26 @@ export class BookingService {
 
       return tx.booking.findUnique({
         where: { id: newBooking.id },
-        include: {
-          customer: {
-            select: { id: true, fullName: true, phone: true },
-          },
-          items: {
-            select: {
-              id: true,
-              productName: true,
-              colorName: true,
-              sizeInfo: true,
-              startDate: true,
-              endDate: true,
-              rentalDays: true,
-              baseRental: true,
-              depositAmount: true,
-              itemTotal: true,
-            },
-          },
-          payments: {
-            select: {
-              id: true,
-              amount: true,
-              method: true,
-              status: true,
-            },
-          },
-        },
+        include: BOOKING_CREATED_INCLUDE,
       });
-    });
+      });
+    } catch (error) {
+      if (
+        creationKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existing = await this.prisma.booking.findFirst({
+          where: { tenantId, creationKey },
+          include: BOOKING_CREATED_INCLUDE,
+        });
+        if (existing) {
+          this.assertMatchingBookingRequest(existing, creationRequestHash);
+          return this.toBookingCreatedResponse(existing);
+        }
+      }
+      throw error;
+    }
 
     if (!booking) throw new UnprocessableEntityException('Failed to create booking');
 
@@ -593,6 +634,10 @@ export class BookingService {
       `${dto.initialPayment ? ` [initial payment: ৳${dto.initialPayment.amount}]` : ''}`,
     );
 
+    return this.toBookingCreatedResponse(booking);
+  }
+
+  private toBookingCreatedResponse(booking: BookingCreatedRecord) {
     return {
       bookingId: booking.id,
       bookingNumber: booking.bookingNumber,
@@ -613,6 +658,56 @@ export class BookingService {
     };
   }
 
+  private assertMatchingBookingRequest(
+    booking: BookingCreatedRecord,
+    creationRequestHash: string | null,
+  ) {
+    if (!creationRequestHash || booking.creationRequestHash !== creationRequestHash) {
+      throw new ConflictException({
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: 'This booking creation key was already used for another request',
+      });
+    }
+  }
+
+  private bookingRequestHash(dto: CreateBookingDto): string {
+    const canonicalize = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(canonicalize);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(
+          Object.entries(value)
+            .filter(([, child]) => child !== undefined)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, child]) => [key, canonicalize(child)]),
+        );
+      }
+      return value;
+    };
+    return createHash('sha256')
+      .update(JSON.stringify(canonicalize(dto)))
+      .digest('hex');
+  }
+
+  private parseLateFeePolicy(value: Prisma.JsonValue | undefined): LateFeePolicy | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const policy = value as Prisma.JsonObject;
+    if (
+      typeof policy.enabled !== 'boolean' ||
+      typeof policy.graceHours !== 'number' ||
+      !['PER_DAY', 'FLAT', 'PERCENT_BASE'].includes(String(policy.mode))
+    ) {
+      return null;
+    }
+    return {
+      enabled: policy.enabled,
+      graceHours: policy.graceHours,
+      mode: policy.mode as LateFeePolicy['mode'],
+      amountMinor: typeof policy.amountMinor === 'number' ? policy.amountMinor : undefined,
+      percent: typeof policy.percent === 'number' ? policy.percent : undefined,
+      totalCapMinor: typeof policy.totalCapMinor === 'number' ? policy.totalCapMinor : undefined,
+    };
+  }
+
   // =========================================================================
   // BOOKING QUERIES
   // =========================================================================
@@ -626,9 +721,39 @@ export class BookingService {
       tenantId,
       deletedAt: null,
     };
+    const combinedFilters: Prisma.BookingWhereInput[] = [];
 
-    if (query.status) {
-      where.status = query.status as BookingStatus;
+    if (query.status) where.status = query.status;
+    if (query.queue) {
+      const needsSerializedAssignment: Prisma.BookingWhereInput = {
+        items: {
+          some: {
+            fulfillmentRequirements: {
+              some: {
+                trackingModeSnapshot: 'SERIALIZED' as const,
+                status: { in: [
+                  FulfillmentRequirementStatus.PLANNED,
+                  FulfillmentRequirementStatus.RESERVED,
+                  FulfillmentRequirementStatus.PARTIALLY_ASSIGNED,
+                ] },
+              },
+            },
+          },
+        },
+      };
+      if (query.queue === 'REVIEW') where.status = 'pending';
+      if (query.queue === 'ASSIGNMENT') {
+        where.status = 'confirmed';
+        combinedFilters.push(needsSerializedAssignment);
+      }
+      if (query.queue === 'HANDOFF') {
+        where.status = 'confirmed';
+        where.NOT = needsSerializedAssignment;
+      }
+      if (query.queue === 'ACTIVE') where.status = 'delivered';
+      if (query.queue === 'RETURN_INSPECTION') where.status = { in: ['returned', 'inspected'] };
+      if (query.queue === 'OVERDUE') where.status = 'overdue';
+      if (query.queue === 'CLOSED') where.status = { in: ['completed', 'cancelled'] };
     }
     if (query.paymentStatus) {
       where.paymentStatus = query.paymentStatus as PaymentStatus;
@@ -639,15 +764,20 @@ export class BookingService {
     if (query.dateFrom || query.dateTo) {
       where.createdAt = {};
       if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
-      if (query.dateTo) where.createdAt.lte = new Date(query.dateTo);
+      if (query.dateTo) {
+        const exclusiveEnd = new Date(query.dateTo);
+        exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+        where.createdAt.lt = exclusiveEnd;
+      }
     }
-    if (query.search) {
+    const search = query.search?.trim();
+    if (search) {
       where.OR = [
-        { bookingNumber: { contains: query.search, mode: 'insensitive' } },
-        { deliveryName: { contains: query.search, mode: 'insensitive' } },
-        { deliveryPhone: { contains: query.search } },
-        { customer: { fullName: { contains: query.search, mode: 'insensitive' } } },
-        { customer: { phone: { contains: query.search } } },
+        { bookingNumber: { contains: search, mode: 'insensitive' } },
+        { deliveryName: { contains: search, mode: 'insensitive' } },
+        { deliveryPhone: { contains: search } },
+        { customer: { fullName: { contains: search, mode: 'insensitive' } } },
+        { customer: { phone: { contains: search } } },
       ];
     }
 
@@ -662,15 +792,21 @@ export class BookingService {
         // Item must start on or before the range end
         itemFilter.startDate = { lte: new Date(query.itemDateTo) };
       }
-      where.items = { some: itemFilter };
+      combinedFilters.push({ items: { some: itemFilter } });
     }
+    if (combinedFilters.length) where.AND = combinedFilters;
+
+    const order = query.order ?? 'desc';
+    const orderBy: Prisma.BookingOrderByWithRelationInput = query.sort === 'grandTotal'
+      ? { grandTotal: order }
+      : { createdAt: order };
 
     const [bookings, total] = await Promise.all([
       this.prisma.booking.findMany({
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [orderBy, { id: 'asc' }],
         include: {
           customer: {
             select: { id: true, fullName: true, phone: true, email: true },
@@ -686,6 +822,19 @@ export class BookingService {
               rentalDays: true,
               itemTotal: true,
               featuredImageUrl: true,
+              quantity: true,
+              fulfillmentRequirements: {
+                where: { status: { notIn: ['CANCELLED', 'SUPERSEDED'] } },
+                select: {
+                  status: true,
+                  trackingModeSnapshot: true,
+                  quantity: true,
+                  assignedQuantity: true,
+                  handedOutQuantity: true,
+                  returnedQuantity: true,
+                  lostQuantity: true,
+                },
+              },
             },
           },
           _count: { select: { items: true } },
@@ -695,7 +844,47 @@ export class BookingService {
     ]);
 
     return {
-      data: bookings,
+      data: bookings.map((booking) => {
+        const requirements = booking.items.flatMap((item) => item.fulfillmentRequirements);
+        const serialized = requirements.filter((item) => item.trackingModeSnapshot === 'SERIALIZED');
+        const serializedRequired = serialized.reduce((sum, item) => sum + item.quantity, 0);
+        const serializedAssigned = serialized.reduce((sum, item) => sum + item.assignedQuantity, 0);
+        const inventoryShortages = requirements.filter((item) => item.status === 'PLANNED').length;
+        const rentalStartDate = booking.items.reduce<Date | null>(
+          (minimum, item) => !minimum || item.startDate < minimum ? item.startDate : minimum,
+          null,
+        );
+        const rentalEndDate = booking.items.reduce<Date | null>(
+          (maximum, item) => !maximum || item.endDate > maximum ? item.endDate : maximum,
+          null,
+        );
+        const needsAssignment = booking.status === 'confirmed' && serializedAssigned < serializedRequired;
+        const nextAction = booking.status === 'pending'
+          ? 'REVIEW'
+          : booking.status === 'confirmed'
+            ? needsAssignment ? 'ASSIGN_ITEMS' : 'PREPARE_HANDOFF'
+            : booking.status === 'delivered' || booking.status === 'overdue'
+              ? 'RECEIVE_RETURN'
+              : booking.status === 'returned'
+                ? 'INSPECT'
+                : booking.status === 'inspected'
+                  ? 'SETTLE'
+                  : 'NONE';
+        return {
+          ...booking,
+          operations: {
+            rentalStartDate,
+            rentalEndDate,
+            totalQuantity: booking.items.reduce((sum, item) => sum + item.quantity, 0),
+            requirementCount: requirements.length,
+            inventoryShortages,
+            serializedRequired,
+            serializedAssigned,
+            needsAssignment,
+            nextAction,
+          },
+        };
+      }),
       meta: {
         page,
         limit,
@@ -858,13 +1047,46 @@ export class BookingService {
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
 
-    const [pendingCount, overdueCount, todayDeliveries, totalActive, recentBookings, revenueAgg, topProductsRaw, recentRevenueBookings] =
+    const [pendingCount, overdueCount, needsAssignmentCount, todayHandoffs, todayReturns, todayDeliveries, totalActive, recentBookings, revenueAgg, topProductsRaw, recentRevenueBookings] =
       await Promise.all([
         this.prisma.booking.count({
           where: { tenantId, status: 'pending', deletedAt: null },
         }),
         this.prisma.booking.count({
           where: { tenantId, status: 'overdue', deletedAt: null },
+        }),
+        this.prisma.booking.count({
+          where: {
+            tenantId,
+            status: 'confirmed',
+            deletedAt: null,
+            items: {
+              some: {
+                fulfillmentRequirements: {
+                  some: {
+                    trackingModeSnapshot: 'SERIALIZED',
+                    status: { in: ['PLANNED', 'RESERVED', 'PARTIALLY_ASSIGNED'] },
+                  },
+                },
+              },
+            },
+          },
+        }),
+        this.prisma.booking.count({
+          where: {
+            tenantId,
+            status: 'confirmed',
+            deletedAt: null,
+            items: { some: { startDate: { gte: today, lt: tomorrow } } },
+          },
+        }),
+        this.prisma.booking.count({
+          where: {
+            tenantId,
+            status: { in: ['delivered', 'overdue'] },
+            deletedAt: null,
+            items: { some: { endDate: { gte: today, lt: tomorrow } } },
+          },
         }),
         this.prisma.booking.count({
           where: {
@@ -954,6 +1176,9 @@ export class BookingService {
     return {
       pendingCount,
       overdueCount,
+      needsAssignmentCount,
+      todayHandoffs,
+      todayReturns,
       todayDeliveries,
       totalActive,
       recentBookings,
@@ -971,7 +1196,6 @@ export class BookingService {
     tenantId: string,
     bookingId: string,
     newStatus: BookingStatus,
-    extras?: { trackingNumber?: string; courierProvider?: string },
   ) {
     const booking = await this.findBookingOrFail(tenantId, bookingId);
 
@@ -1241,9 +1465,9 @@ export class BookingService {
 
       let lateFee = 0;
 
-      const activeVersion = (item.product as any)?.pricingProfile?.policyVersions?.[0];
+      const activeVersion = item.product?.pricingProfile?.policyVersions[0];
       lateFee = this.pricingEngineService.computeLateFee(
-        activeVersion?.lateFeePolicy ?? null,
+        this.parseLateFeePolicy(activeVersion?.lateFeePolicy),
         item.baseRental,
         lateDays,
       );
@@ -1377,8 +1601,9 @@ export class BookingService {
 
     // Backup size is still a display/service option. Primary inventory identity
     // is always variantSizeId and is validated above.
-    const activeSchema = (product as any).sizeSchemaOverride ?? (product as any).productType?.defaultSizeSchema ?? null;
-    const validSizeIds = activeSchema?.instances?.map((i: any) => i.id) ?? [];
+    const activeSchema =
+      product.sizeSchemaOverride ?? product.productType?.defaultSizeSchema ?? null;
+    const validSizeIds = activeSchema?.instances.map((instance) => instance.id) ?? [];
 
     if (item.backupSize) {
       if (validSizeIds.length > 0 && !validSizeIds.includes(item.backupSize)) {

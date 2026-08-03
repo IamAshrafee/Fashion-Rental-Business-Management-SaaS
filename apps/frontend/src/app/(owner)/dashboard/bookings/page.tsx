@@ -1,123 +1,27 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { PageHeader } from '@/components/shared';
-import { Button } from '@/components/ui/button';
-import { Plus, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, Calendar as CalendarIcon, ClipboardCheck, PackageCheck, Plus } from 'lucide-react';
+import { bookingApi } from '@/lib/api/bookings';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { OwnerListError, OwnerTableSkeleton } from '@/components/owner/workspace';
 import { BookingsDataTable } from './components/bookings-table';
-import { bookingApi, type BookingListQuery } from '@/lib/api/bookings';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { PaginationMeta } from '@closetrent/types';
+import { useBookingListQuery } from './hooks/use-booking-list-query';
 
 export default function BookingsPage() {
-  const [query, setQuery] = useState<BookingListQuery>({ page: 1, limit: 20 });
-
-  const { data, isLoading, isFetching, isError, error } = useQuery({
-    queryKey: ['bookings', 'list', query],
-    queryFn: () => bookingApi.list(query),
-    placeholderData: (prev) => prev,
-  });
-
-  const bookings = data?.data ?? [];
-  const meta: PaginationMeta | undefined = data?.meta;
-
-  // Server-side status filter — when tab changes, update the query to re-fetch
-  const handleStatusChange = (status: string) => {
-    setQuery((prev) => ({
-      ...prev,
-      status: status === 'all' ? undefined : status,
-      page: 1,
-    }));
-  };
-
-  // Server-side search — debounced via the table component
-  const handleSearchChange = (search: string) => {
-    setQuery((prev) => ({
-      ...prev,
-      search: search || undefined,
-      page: 1,
-    }));
-  };
-
-  // Server-side pagination
-  const handlePageChange = (page: number) => {
-    setQuery((prev) => ({ ...prev, page }));
-  };
-
-  // Date range filter
-  const handleDateRangeChange = (dateFrom?: string, dateTo?: string) => {
-    setQuery((prev) => ({
-      ...prev,
-      dateFrom: dateFrom || undefined,
-      dateTo: dateTo || undefined,
-      page: 1,
-    }));
-  };
-
-  // Payment status filter
-  const handlePaymentStatusChange = (paymentStatus?: string) => {
-    setQuery((prev) => ({
-      ...prev,
-      paymentStatus: paymentStatus || undefined,
-      page: 1,
-    }));
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <PageHeader
-          title="Bookings"
-          description="Manage rentals, fulfillments, and track order statuses."
-        />
-        <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/bookings/calendar">
-              <CalendarIcon className="h-4 w-4 mr-2" />
-              Calendar
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link href="/dashboard/bookings/new">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Order
-            </Link>
-          </Button>
-        </div>
-      </div>
-
-      {isLoading && !data ? (
-        <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
-        </div>
-      ) : isError ? (
-        <Alert variant="destructive">
-          <AlertDescription>
-            Failed to load bookings. {(error as Error)?.message || 'Please try again.'}
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <div className="bg-card text-card-foreground">
-          <BookingsDataTable
-            data={bookings}
-            meta={meta}
-            activeStatus={query.status || 'all'}
-            onStatusChange={handleStatusChange}
-            searchValue={query.search || ''}
-            onSearchChange={handleSearchChange}
-            currentPage={query.page || 1}
-            onPageChange={handlePageChange}
-            dateFrom={query.dateFrom}
-            dateTo={query.dateTo}
-            onDateRangeChange={handleDateRangeChange}
-            paymentStatus={query.paymentStatus}
-            onPaymentStatusChange={handlePaymentStatusChange}
-            isFetching={isFetching}
-          />
-        </div>
-      )}
+  const { query, update, clear, isNavigating } = useBookingListQuery();
+  const bookings = useQuery({ queryKey: ['bookings', 'list', query], queryFn: () => bookingApi.list(query), placeholderData: (previous) => previous });
+  const stats = useQuery({ queryKey: ['bookings', 'stats'], queryFn: bookingApi.getStats });
+  return <div className="space-y-6 pb-10">
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-semibold tracking-tight">Rental bookings</h1><p className="text-sm text-muted-foreground">Review requests, assign inventory, hand out rentals, receive returns, and close each job.</p></div><div className="flex gap-2"><Button variant="outline" asChild><Link href="/dashboard/bookings/calendar"><CalendarIcon className="mr-2 size-4" />Calendar</Link></Button><Button asChild><Link href="/dashboard/bookings/new"><Plus className="mr-2 size-4" />Create booking</Link></Button></div></div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Card><CardHeader className="pb-2"><CardTitle className="flex items-center justify-between text-sm font-medium"><span>Awaiting review</span><ClipboardCheck className="size-4 text-muted-foreground" /></CardTitle></CardHeader><CardContent><button className="text-3xl font-semibold" onClick={() => update({ queue: 'REVIEW' })}>{stats.data?.pendingCount ?? '—'}</button></CardContent></Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="flex items-center justify-between text-sm font-medium"><span>Needs item assignment</span><PackageCheck className="size-4 text-muted-foreground" /></CardTitle></CardHeader><CardContent><button className="text-3xl font-semibold" onClick={() => update({ queue: 'ASSIGNMENT' })}>{stats.data?.needsAssignmentCount ?? '—'}</button></CardContent></Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="flex items-center justify-between text-sm font-medium"><span>Handoffs today</span><CalendarIcon className="size-4 text-muted-foreground" /></CardTitle></CardHeader><CardContent><button className="text-3xl font-semibold" onClick={() => update({ queue: 'HANDOFF' })}>{stats.data?.todayHandoffs ?? '—'}</button><p className="text-xs text-muted-foreground">{stats.data?.todayReturns ?? 0} returns due</p></CardContent></Card>
+      <Card className={(stats.data?.overdueCount ?? 0) ? 'border-destructive/50' : ''}><CardHeader className="pb-2"><CardTitle className="flex items-center justify-between text-sm font-medium"><span>Overdue</span><AlertTriangle className="size-4 text-destructive" /></CardTitle></CardHeader><CardContent><button className="text-3xl font-semibold text-destructive" onClick={() => update({ queue: 'OVERDUE' })}>{stats.data?.overdueCount ?? '—'}</button></CardContent></Card>
     </div>
-  );
+    {bookings.isLoading ? <OwnerTableSkeleton columns={6} rows={8} /> : bookings.isError || !bookings.data ? <OwnerListError message="Bookings could not be loaded." onRetry={() => void bookings.refetch()} /> : <BookingsDataTable data={bookings.data.data} meta={bookings.data.meta} query={query} isPending={bookings.isFetching || isNavigating} onChange={update} onClear={clear} />}
+  </div>;
 }

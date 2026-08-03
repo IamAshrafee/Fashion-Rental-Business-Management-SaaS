@@ -391,7 +391,24 @@ export class StockUnitInspectionService {
           orderBy: { setComponentDefinition: { displayOrder: 'asc' } },
         },
         assignments: {
-          where: { releasedAt: null },
+          where: {
+            OR: [
+              { releasedAt: null },
+              {
+                releasedAt: { not: null },
+                reservation: { booking: { status: { in: ['returned', 'inspected'] } } },
+                inspections: {
+                  none: {
+                    inspectionType: StockUnitInspectionType.RETURN,
+                    status: { in: [
+                      StockUnitInspectionStatus.DRAFT,
+                      StockUnitInspectionStatus.COMPLETED,
+                    ] },
+                  },
+                },
+              },
+            ],
+          },
           include: {
             reservation: {
               select: {
@@ -401,6 +418,7 @@ export class StockUnitInspectionService {
                 blockedStartDate: true,
                 blockedEndDate: true,
                 status: true,
+                booking: { select: { status: true } },
               },
             },
           },

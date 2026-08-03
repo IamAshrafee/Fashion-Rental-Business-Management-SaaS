@@ -3,13 +3,13 @@ import {
   Get,
   Post,
   Patch,
-  Delete,
   Body,
   Param,
   Query,
   UseGuards,
   HttpCode,
   HttpStatus,
+  Headers,
   Req,
 } from '@nestjs/common';
 import { Request } from 'express';
@@ -95,8 +95,9 @@ export class BookingGuestController {
   async createBooking(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateBookingDto,
+    @Headers('idempotency-key') creationKey?: string,
   ) {
-    return this.bookingService.createBooking(tenant.id, dto);
+    return this.bookingService.createBooking(tenant.id, dto, creationKey);
   }
 
   /**

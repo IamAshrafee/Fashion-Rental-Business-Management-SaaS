@@ -79,4 +79,35 @@ describe('StockUnitInspectionService', () => {
       ),
     ).rejects.toThrow('Inspection is missing set checks: Dupatta');
   });
+
+  it('keeps a released returned assignment visible until its return inspection is created', async () => {
+    const prisma = {
+      stockUnit: { findFirst: jest.fn().mockResolvedValue({ id: 'unit-1' }) },
+      stockUnitInspection: { findMany: jest.fn().mockResolvedValue([]) },
+      stockUnitIssue: { findMany: jest.fn().mockResolvedValue([]) },
+      stockUnitLifecycleEvent: { findMany: jest.fn().mockResolvedValue([]) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+    };
+    const service = new StockUnitInspectionService(prisma as never, lifecycle as never);
+
+    await service.listForUnit('tenant-1', 'unit-1');
+
+    expect(prisma.stockUnit.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          assignments: expect.objectContaining({
+            where: {
+              OR: expect.arrayContaining([
+                { releasedAt: null },
+                expect.objectContaining({
+                  releasedAt: { not: null },
+                  reservation: { booking: { status: { in: ['returned', 'inspected'] } } },
+                }),
+              ]),
+            },
+          }),
+        }),
+      }),
+    );
+  });
 });

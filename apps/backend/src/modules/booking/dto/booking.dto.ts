@@ -377,12 +377,16 @@ export class BookingQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(500)
+  @Max(100)
   limit?: number = 20;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsIn(BOOKING_STATUSES)
+  status?: (typeof BOOKING_STATUSES)[number];
+
+  @IsOptional()
+  @IsIn(['REVIEW', 'ASSIGNMENT', 'HANDOFF', 'ACTIVE', 'RETURN_INSPECTION', 'OVERDUE', 'CLOSED'])
+  queue?: 'REVIEW' | 'ASSIGNMENT' | 'HANDOFF' | 'ACTIVE' | 'RETURN_INSPECTION' | 'OVERDUE' | 'CLOSED';
 
   @IsOptional()
   @IsString()
@@ -418,7 +422,11 @@ export class BookingQueryDto {
   @IsOptional()
   @IsString()
   @IsIn(['asc', 'desc'])
-  order?: string;
+  order?: 'asc' | 'desc';
+
+  @IsOptional()
+  @IsIn(['createdAt', 'grandTotal'])
+  sort?: 'createdAt' | 'grandTotal';
 }
 
 export class CheckAvailabilityDto {

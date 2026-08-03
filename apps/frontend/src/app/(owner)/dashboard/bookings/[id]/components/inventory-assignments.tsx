@@ -80,6 +80,10 @@ function AssignmentPanel({
     enabled: requirement.variantSize?.trackingMode === 'SERIALIZED' && !!requirement.reservation,
   });
   const remaining = Math.max(0, requirement.quantity - requirement.assignedQuantity);
+  const returnedAssets = (requirement.reservation?.assignments || []).filter(
+    (assignment) =>
+      assignment.releasedAt && assignment.stockUnit.operationalState === 'AWAITING_INSPECTION',
+  );
   const assign = useMutation({
     mutationFn: () =>
       fulfillmentApi.assignUnits(bookingId, requirement.bookingItemId, requirement.id, selected),
@@ -158,6 +162,26 @@ function AssignmentPanel({
                   Release
                 </Button>
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {!!returnedAssets.length && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Returned assets awaiting inspection
+          </p>
+          {returnedAssets.map((assignment) => (
+            <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-orange-200 bg-orange-50/40 p-3">
+              <div>
+                <p className="font-mono text-sm font-medium">{assignment.stockUnit.assetCode}</p>
+                <p className="text-xs text-muted-foreground">Return inspection required before booking settlement</p>
+              </div>
+              <Button size="sm" asChild>
+                <Link href={`/dashboard/products/${requirement.productId}/inventory/${assignment.stockUnit.id}`}>
+                  <ClipboardCheck className="mr-1 size-3.5" />Inspect item
+                </Link>
+              </Button>
             </div>
           ))}
         </div>
@@ -635,7 +659,7 @@ export function InventoryAssignments({ bookingId }: { bookingId: string; items?:
     );
   if (!query.data?.length) return null;
   return (
-    <section className="space-y-4">
+    <section id="fulfillment-workspace" className="scroll-mt-6 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">

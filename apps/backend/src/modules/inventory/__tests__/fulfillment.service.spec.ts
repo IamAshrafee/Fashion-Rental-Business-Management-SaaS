@@ -251,4 +251,64 @@ describe('FulfillmentService', () => {
     expect(tx.fulfillmentRequirement.update).not.toHaveBeenCalled();
     expect(tx.fulfillmentRequirementVersion.create).not.toHaveBeenCalled();
   });
+
+  it('blocks booking inspection while a returned physical item still awaits its return inspection', async () => {
+    const tx = {
+      fulfillmentRequirement: {
+        findMany: jest.fn().mockResolvedValue([
+          { quantity: 1, returnedQuantity: 1, lostQuantity: 0 },
+        ]),
+      },
+      stockUnitAssignment: { count: jest.fn().mockResolvedValue(1) },
+    };
+    const service = new FulfillmentService(
+      {} as never,
+      availability as never,
+      reservations as never,
+      lifecycle as never,
+    );
+
+    await expect(
+      service.assertAndTransitionBooking(
+        tx as never,
+        'tenant-1',
+        'booking-1',
+        'inspected',
+      ),
+    ).rejects.toThrow('Complete the return inspection for every returned physical item first');
+
+    expect(tx.stockUnitAssignment.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        reservation: { bookingId: 'booking-1' },
+        releasedAt: { not: null },
+      }),
+    });
+  });
+
+  it('allows booking inspection after every returned physical item has been inspected', async () => {
+    const tx = {
+      fulfillmentRequirement: {
+        findMany: jest.fn().mockResolvedValue([
+          { quantity: 2, returnedQuantity: 1, lostQuantity: 1 },
+        ]),
+      },
+      stockUnitAssignment: { count: jest.fn().mockResolvedValue(0) },
+    };
+    const service = new FulfillmentService(
+      {} as never,
+      availability as never,
+      reservations as never,
+      lifecycle as never,
+    );
+
+    await expect(
+      service.assertAndTransitionBooking(
+        tx as never,
+        'tenant-1',
+        'booking-1',
+        'inspected',
+      ),
+    ).resolves.toBeUndefined();
+  });
 });

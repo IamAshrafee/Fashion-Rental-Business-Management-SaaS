@@ -806,6 +806,8 @@ CREATE TABLE "customer_tags" (
 CREATE TABLE "bookings" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
+    "creation_key" TEXT,
+    "creation_request_hash" TEXT,
     "booking_number" TEXT NOT NULL,
     "customer_id" TEXT NOT NULL,
     "policy_version_id" TEXT,
@@ -1962,6 +1964,9 @@ CREATE INDEX "bookings_policy_version_id_idx" ON "bookings"("policy_version_id")
 
 -- CreateIndex
 CREATE UNIQUE INDEX "bookings_tenant_id_booking_number_key" ON "bookings"("tenant_id", "booking_number");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "bookings_tenant_id_creation_key_key" ON "bookings"("tenant_id", "creation_key");
 
 -- CreateIndex
 CREATE INDEX "booking_items_booking_id_idx" ON "booking_items"("booking_id");
