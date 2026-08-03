@@ -98,6 +98,16 @@ export class SizeSchemaService {
     }
 
     const data: Record<string, unknown> = {};
+    if (dto.code !== undefined && dto.code !== schema.code) {
+      const newCode = dto.code.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      if (newCode !== schema.code) {
+        const exists = await this.prisma.sizeSchema.findUnique({
+          where: { tenantId_code: { tenantId, code: newCode } },
+        });
+        if (exists) throw new ConflictException(`Schema code "${newCode}" already exists`);
+        data.code = newCode;
+      }
+    }
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.schemaType !== undefined) data.schemaType = dto.schemaType;

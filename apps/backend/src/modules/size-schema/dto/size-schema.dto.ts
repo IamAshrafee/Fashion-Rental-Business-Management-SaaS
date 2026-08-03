@@ -42,6 +42,9 @@ export class CreateSizeInstanceSubsetDto {
 }
 
 export class UpdateSizeSchemaDto {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(50)
+  code?: string;
+
   @IsOptional() @IsString() @MinLength(2) @MaxLength(100)
   name?: string;
 
