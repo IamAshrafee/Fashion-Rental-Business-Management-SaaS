@@ -141,6 +141,20 @@ export class FulfillmentService {
     const mainRevenue = Math.max(0, input.itemRevenue - componentRevenue);
 
     for (const proposal of input.proposals) {
+      const availability = await this.availability.check({
+        tenantId: input.tenantId,
+        productId: proposal.productId,
+        variantSizeId: proposal.variantSizeId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        quantity: proposal.quantity,
+        enforcePublished: false,
+      }, tx);
+      if (!availability.available || !availability.sourceLocationId || !availability.availabilityPolicy) {
+        throw new ConflictException(
+          `${proposal.productName} is unavailable: ${availability.reason ?? 'no fulfillment source can satisfy this requirement'}`,
+        );
+      }
       const requirement = await tx.fulfillmentRequirement.create({
         data: {
           tenantId: input.tenantId,
@@ -155,6 +169,9 @@ export class FulfillmentService {
           status: FulfillmentRequirementStatus.PLANNED,
           productId: proposal.productId,
           variantSizeId: proposal.variantSizeId,
+          sourceLocationId: availability.sourceLocationId,
+          trackingModeSnapshot: availability.trackingMode,
+          availabilityPolicySnapshot: this.json(availability.availabilityPolicy)!,
           quantity: proposal.quantity,
           productNameSnapshot: proposal.productName,
           variantNameSnapshot: proposal.variantName,
@@ -198,6 +215,7 @@ export class FulfillmentService {
         fulfillmentRequirementId: requirement.id,
         productId: proposal.productId,
         variantSizeId: proposal.variantSizeId,
+        sourceLocationId: availability.sourceLocationId,
         quantity: proposal.quantity,
         startDate: input.startDate,
         endDate: input.endDate,
@@ -310,13 +328,14 @@ export class FulfillmentService {
           tenantId,
           productId: requirement.productId!,
           variantSizeId: requirement.variantSizeId!,
+          sourceLocationId: requirement.sourceLocationId,
           startDate: requirement.rentalStartDate,
           endDate: requestedEnd,
           quantity: requirement.quantity,
           enforcePublished: false,
           excludeReservationId: requirement.reservation!.id,
         }, tx);
-        if (!availability.available) {
+        if (!availability.available || !availability.availabilityPolicy) {
           throw new ConflictException(
             `${requirement.productNameSnapshot} cannot be extended: ${availability.reason ?? 'inventory is unavailable'}`,
           );
@@ -366,6 +385,7 @@ export class FulfillmentService {
             rentalEndDate: new Date(availability.rentalRange.end),
             blockedStartDate: new Date(availability.effectiveBlockedRange.start),
             blockedEndDate: new Date(availability.effectiveBlockedRange.end),
+            availabilityPolicySnapshot: this.json(availability.availabilityPolicy),
             status: nextStatus,
           },
         });
@@ -497,7 +517,9 @@ export class FulfillmentService {
         enforcePublished: false,
         excludeReservationId: requirement.reservation?.id,
       }, tx);
-      if (!availability.available) throw new ConflictException(availability.reason ?? 'Substitute inventory is unavailable');
+      if (!availability.available || !availability.sourceLocationId || !availability.availabilityPolicy) {
+        throw new ConflictException(availability.reason ?? 'Substitute inventory is unavailable');
+      }
 
       const targetSku = await this.getSku(tx, tenantId, dto.productId, dto.variantSizeId);
       const nextVersion = requirement.currentVersion + 1;
@@ -508,6 +530,8 @@ export class FulfillmentService {
           data: {
             productId: dto.productId,
             variantSizeId: dto.variantSizeId,
+            sourceLocationId: availability.sourceLocationId,
+            inventoryPoolId: availability.inventoryPoolId,
             rentalStartDate: new Date(availability.rentalRange.start),
             rentalEndDate: new Date(availability.rentalRange.end),
             blockedStartDate: new Date(availability.effectiveBlockedRange.start),
@@ -524,6 +548,8 @@ export class FulfillmentService {
             fulfillmentRequirementId: requirement.id,
             productId: dto.productId,
             variantSizeId: dto.variantSizeId,
+            sourceLocationId: availability.sourceLocationId,
+            inventoryPoolId: availability.inventoryPoolId,
             quantity: requirement.quantity,
             rentalStartDate: new Date(availability.rentalRange.start),
             rentalEndDate: new Date(availability.rentalRange.end),
@@ -577,6 +603,9 @@ export class FulfillmentService {
         data: {
           productId: dto.productId,
           variantSizeId: dto.variantSizeId,
+          sourceLocationId: availability.sourceLocationId,
+          trackingModeSnapshot: availability.trackingMode,
+          availabilityPolicySnapshot: this.json(availability.availabilityPolicy),
           productNameSnapshot: targetSku.variant.product.name,
           variantNameSnapshot: targetSku.variant.variantName,
           sizeSnapshot: targetSku.sizeInstance.displayLabel,

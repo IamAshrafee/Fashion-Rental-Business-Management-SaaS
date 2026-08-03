@@ -1,16 +1,40 @@
 import { BadRequestException } from '@nestjs/common';
 import { InventoryTrackingMode, ProductStatus } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { InventoryAvailabilityService } from '../inventory-availability.service';
 
 describe('InventoryAvailabilityService', () => {
   const prisma = {
     variantSize: { findFirst: jest.fn() },
-    storeSettings: { findUnique: jest.fn() },
-    dateBlock: { findFirst: jest.fn() },
-    inventoryBlock: { findFirst: jest.fn() },
+    inventoryLocation: { findMany: jest.fn() },
+    inventoryPool: { findUnique: jest.fn() },
+    inventoryBlock: { findFirst: jest.fn(), aggregate: jest.fn() },
     inventoryReservation: { aggregate: jest.fn() },
     stockUnit: { count: jest.fn() },
+  };
+  const policy = {
+    preparationBufferMinutes: 1440,
+    deliveryBufferMinutes: 0,
+    returnBufferMinutes: 0,
+    inspectionBufferMinutes: 0,
+    cleaningBufferMinutes: 1440,
+    minimumNoticeMinutes: 0,
+    maximumAdvanceDays: 365,
+    pendingHoldMinutes: 30,
+    allowShortage: false,
+    shortageLimit: 0,
+    requireSingleLocationForBundle: true,
+    allowCrossLocationTransfers: false,
+    transferLeadTimeMinutes: 0,
+    eligibleConditionGrades: ['NEW', 'EXCELLENT', 'GOOD', 'FAIR'],
+    eligibleOperationalStates: ['AVAILABLE'],
+    sources: [],
+  };
+  const policies = {
+    resolve: jest.fn().mockResolvedValue(policy),
+    calculateBlockedRange: jest.fn((start: Date, end: Date) => ({
+      blockedStart: new Date(start.getTime() - 86_400_000),
+      blockedEnd: new Date(end.getTime() + 86_400_000),
+    })),
   };
   let service: InventoryAvailabilityService;
 
@@ -34,11 +58,19 @@ describe('InventoryAvailabilityService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    service = new InventoryAvailabilityService(prisma as unknown as PrismaService);
+    policies.resolve.mockResolvedValue(policy);
+    policies.calculateBlockedRange.mockImplementation((start: Date, end: Date) => ({
+      blockedStart: new Date(start.getTime() - 86_400_000),
+      blockedEnd: new Date(end.getTime() + 86_400_000),
+    }));
+    service = new InventoryAvailabilityService(prisma as never, policies as never);
     prisma.variantSize.findFirst.mockResolvedValue(baseSku);
-    prisma.storeSettings.findUnique.mockResolvedValue({ bufferDays: 1 });
-    prisma.dateBlock.findFirst.mockResolvedValue(null);
+    prisma.inventoryLocation.findMany.mockResolvedValue([
+      { id: 'location-1', code: 'MAIN', name: 'Main', isDefault: true },
+    ]);
+    prisma.inventoryPool.findUnique.mockResolvedValue({ id: 'pool-1', onHandQuantity: 3 });
     prisma.inventoryBlock.findFirst.mockResolvedValue(null);
+    prisma.inventoryBlock.aggregate.mockResolvedValue({ _sum: { quantity: null } });
     prisma.inventoryReservation.aggregate.mockResolvedValue({ _sum: { quantity: 1 } });
     prisma.stockUnit.count.mockResolvedValue(0);
   });
@@ -73,7 +105,7 @@ describe('InventoryAvailabilityService', () => {
     });
 
     expect(result.available).toBe(false);
-    expect(result.reason).toBe('Requested quantity is not available');
+    expect(result.reason).toBe('Requested quantity is not available at this location');
   });
 
   it('uses eligible active physical units as serialized capacity', async () => {
@@ -110,7 +142,7 @@ describe('InventoryAvailabilityService', () => {
     });
 
     expect(result.available).toBe(false);
-    expect(result.reason).toBe('Inventory is blocked for the selected dates');
+    expect(result.reason).toBe('Inventory is blocked at this location for the selected dates');
     expect(prisma.inventoryReservation.aggregate).not.toHaveBeenCalled();
   });
 

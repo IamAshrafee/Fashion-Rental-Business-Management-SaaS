@@ -1,5 +1,12 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { FulfillmentEventType, FulfillmentRequirementStatus, InventoryTrackingMode, Prisma } from '@prisma/client';
+import {
+  FulfillmentEventType,
+  FulfillmentRequirementStatus,
+  InventoryTrackingMode,
+  Prisma,
+  StockConditionGrade,
+  StockUnitOperationalState,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -11,6 +18,9 @@ export class InventoryAssignmentService {
     if (reservation.variantSize?.trackingMode !== InventoryTrackingMode.SERIALIZED) {
       return { requirement: reservation.fulfillmentRequirement, reservationId: reservation.id, required: 0, assigned: [], eligible: [] };
     }
+    const eligibility = this.assignmentEligibility(
+      reservation.fulfillmentRequirement.availabilityPolicySnapshot,
+    );
 
     const [assigned, eligible] = await Promise.all([
       this.prisma.stockUnitAssignment.findMany({
@@ -22,9 +32,11 @@ export class InventoryAssignmentService {
         where: {
           tenantId,
           variantSizeId: reservation.variantSize.id,
+          locationId: reservation.sourceLocationId,
           disposition: 'ACTIVE',
           status: 'ACTIVE',
-          condition: { not: 'DAMAGED' },
+          operationalState: { in: eligibility.operationalStates },
+          condition: { in: eligibility.conditionGrades },
           deletedAt: null,
           issues: {
             none: {
@@ -85,6 +97,9 @@ export class InventoryAssignmentService {
         if (!['PENDING', 'CONFIRMED'].includes(reservation.status)) {
           throw new ConflictException('Inventory reservation is no longer active');
         }
+        const eligibility = this.assignmentEligibility(
+          reservation.fulfillmentRequirement.availabilityPolicySnapshot,
+        );
 
         const sortedIds = [...new Set(stockUnitIds)].sort();
         await tx.$queryRaw(Prisma.sql`
@@ -111,9 +126,11 @@ export class InventoryAssignmentService {
             id: { in: sortedIds },
             tenantId,
             variantSizeId: reservation.variantSize.id,
+            locationId: reservation.sourceLocationId,
             disposition: 'ACTIVE',
             status: 'ACTIVE',
-            condition: { not: 'DAMAGED' },
+            operationalState: { in: eligibility.operationalStates },
+            condition: { in: eligibility.conditionGrades },
             deletedAt: null,
             issues: {
               none: {
@@ -298,5 +315,33 @@ export class InventoryAssignmentService {
     });
     if (!reservation) throw new NotFoundException('Inventory reservation not found');
     return reservation;
+  }
+
+  private assignmentEligibility(snapshot: Prisma.JsonValue) {
+    const value = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? snapshot as Record<string, Prisma.JsonValue>
+      : {};
+    const conditions = Array.isArray(value.eligibleConditionGrades)
+      ? value.eligibleConditionGrades.filter(
+          (item): item is StockConditionGrade =>
+            typeof item === 'string' && Object.values(StockConditionGrade).includes(item as StockConditionGrade),
+        )
+      : [
+          StockConditionGrade.NEW,
+          StockConditionGrade.EXCELLENT,
+          StockConditionGrade.GOOD,
+          StockConditionGrade.FAIR,
+        ];
+    const states = Array.isArray(value.eligibleOperationalStates)
+      ? value.eligibleOperationalStates.filter(
+          (item): item is StockUnitOperationalState =>
+            typeof item === 'string' &&
+            Object.values(StockUnitOperationalState).includes(item as StockUnitOperationalState),
+        )
+      : [StockUnitOperationalState.AVAILABLE];
+    return {
+      conditionGrades: conditions,
+      operationalStates: states,
+    };
   }
 }

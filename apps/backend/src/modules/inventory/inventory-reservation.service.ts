@@ -13,6 +13,7 @@ interface CreateReservationInput {
   fulfillmentRequirementId: string;
   productId: string;
   variantSizeId: string;
+  sourceLocationId: string;
   quantity: number;
   startDate: string | Date;
   endDate: string | Date;
@@ -58,6 +59,7 @@ export class InventoryReservationService {
         tenantId: input.tenantId,
         productId: input.productId,
         variantSizeId: input.variantSizeId,
+        sourceLocationId: input.sourceLocationId,
         startDate: input.startDate,
         endDate: input.endDate,
         quantity: input.quantity,
@@ -85,6 +87,8 @@ export class InventoryReservationService {
         fulfillmentRequirementId: input.fulfillmentRequirementId,
         productId: input.productId,
         variantSizeId: input.variantSizeId,
+        sourceLocationId: input.sourceLocationId,
+        inventoryPoolId: availability.inventoryPoolId,
         quantity: input.quantity,
         rentalStartDate: new Date(availability.rentalRange.start),
         rentalEndDate: new Date(availability.rentalRange.end),

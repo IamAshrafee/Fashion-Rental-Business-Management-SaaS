@@ -273,9 +273,8 @@ export class CreateInventoryServiceOrderDto {
   providerName?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  locationLabel?: string;
+  @IsUUID()
+  serviceLocationId?: string;
 
   @IsOptional()
   @IsDateString()

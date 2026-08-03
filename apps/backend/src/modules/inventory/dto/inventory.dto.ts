@@ -70,6 +70,9 @@ export class ConfigureVariantSizeInventoryDto {
 }
 
 export class CreateStockUnitDto {
+  @IsUUID()
+  locationId!: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -83,11 +86,6 @@ export class CreateStockUnitDto {
   @IsOptional()
   @IsEnum(StockConditionGrade)
   condition?: StockConditionGrade;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  locationLabel?: string;
 
   @IsOptional()
   @IsDateString()
@@ -120,11 +118,6 @@ export class UpdateStockUnitDto {
   @IsOptional()
   @IsEnum(StockConditionGrade)
   condition?: StockConditionGrade;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  locationLabel?: string;
 
   @IsOptional()
   @IsDateString()
@@ -201,4 +194,3 @@ export class ReleaseAssignmentDto {
   @MaxLength(500)
   reason!: string;
 }
-

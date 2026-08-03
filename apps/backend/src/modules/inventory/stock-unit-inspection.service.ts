@@ -278,6 +278,7 @@ export class StockUnitInspectionService {
         tx,
         tenantId,
         inspection.stockUnitId,
+        inspection.stockUnit.locationId,
         inspectionId,
         dto.decision,
         actorUserId,
@@ -605,6 +606,7 @@ export class StockUnitInspectionService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     stockUnitId: string,
+    serviceLocationId: string,
     inspectionId: string,
     decision: StockUnitInspectionDecision,
     actorUserId: string,
@@ -615,6 +617,7 @@ export class StockUnitInspectionService {
       data: {
         tenantId,
         stockUnitId,
+        locationId: serviceLocationId,
         startDate: this.toDateOnly(new Date()),
         endDate: new Date('9999-12-31T00:00:00.000Z'),
         blockType: 'MAINTENANCE',
@@ -626,6 +629,7 @@ export class StockUnitInspectionService {
       data: {
         tenantId,
         stockUnitId,
+        serviceLocationId,
         sourceInspectionId: inspectionId,
         inventoryBlockId: block.id,
         serviceType,

@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import {
-  InventoryTrackingMode,
-  Prisma,
-  ProductStatus,
-} from '@prisma/client';
+import { InventoryTrackingMode, Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  AvailabilityPolicyService,
+  EffectiveAvailabilityPolicy,
+} from './availability-policy.service';
 
 type InventoryDatabase = Prisma.TransactionClient;
 
@@ -12,6 +12,7 @@ export interface InventoryAvailabilityInput {
   tenantId: string;
   productId: string;
   variantSizeId: string;
+  sourceLocationId?: string;
   startDate: string | Date;
   endDate: string | Date;
   quantity?: number;
@@ -24,20 +25,28 @@ export interface InventoryAvailabilityResult {
   variantId: string;
   variantSizeId: string;
   sizeInstanceId: string;
+  sourceLocationId: string | null;
+  sourceLocation: { code: string; name: string } | null;
+  inventoryPoolId: string | null;
   trackingMode: InventoryTrackingMode;
   available: boolean;
   requestedQuantity: number;
   totalCapacity: number;
+  blockedQuantity: number;
   reservedQuantity: number;
   remainingQuantity: number;
   rentalRange: { start: string; end: string };
   effectiveBlockedRange: { start: string; end: string };
+  availabilityPolicy: EffectiveAvailabilityPolicy | null;
   reason?: string;
 }
 
 @Injectable()
 export class InventoryAvailabilityService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly policies: AvailabilityPolicyService,
+  ) {}
 
   async check(
     input: InventoryAvailabilityInput,
@@ -47,19 +56,9 @@ export class InventoryAvailabilityService {
     const quantity = input.quantity ?? 1;
     const rentalStart = this.parseDate(input.startDate, 'startDate');
     const rentalEnd = this.parseDate(input.endDate, 'endDate');
-
+    if (quantity < 1) throw new BadRequestException('quantity must be at least 1');
     if (rentalStart > rentalEnd) {
-      return this.unavailableResult(input, {
-        variantId: '',
-        sizeInstanceId: '',
-        trackingMode: InventoryTrackingMode.POOLED,
-        quantity,
-        rentalStart,
-        rentalEnd,
-        blockedStart: rentalStart,
-        blockedEnd: rentalEnd,
-        reason: 'Start date must be on or before end date',
-      });
+      return this.unavailableResult(input, quantity, rentalStart, rentalEnd, 'Start date must be on or before end date');
     }
 
     const sku = await db.variantSize.findFirst({
@@ -70,11 +69,9 @@ export class InventoryAvailabilityService {
       },
       select: {
         id: true,
-        tenantId: true,
         variantId: true,
         sizeInstanceId: true,
         trackingMode: true,
-        pooledQuantity: true,
         variant: {
           select: {
             product: {
@@ -90,169 +87,79 @@ export class InventoryAvailabilityService {
         },
       },
     });
+    if (!sku) throw new NotFoundException('Variant-size inventory was not found');
 
-    if (!sku) {
-      throw new NotFoundException('Variant-size inventory was not found');
+    const productReason = this.productUnavailableReason(
+      sku.variant.product,
+      rentalStart,
+      input.enforcePublished !== false,
+    );
+    if (productReason) {
+      return this.unavailableResult(input, quantity, rentalStart, rentalEnd, productReason, sku);
     }
 
-    const bufferDays = await this.getBufferDays(db, input.tenantId);
-    const blockedStart = this.addDays(rentalStart, -bufferDays);
-    const blockedEnd = this.addDays(rentalEnd, bufferDays);
-    const product = sku.variant.product;
-
-    if (product.deletedAt) {
-      return this.unavailableResult(input, {
-        ...sku,
-        quantity,
-        rentalStart,
-        rentalEnd,
-        blockedStart,
-        blockedEnd,
-        reason: 'Product is not available',
-      });
-    }
-
-    if (input.enforcePublished !== false && product.status !== ProductStatus.published) {
-      return this.unavailableResult(input, {
-        ...sku,
-        quantity,
-        rentalStart,
-        rentalEnd,
-        blockedStart,
-        blockedEnd,
-        reason: 'Product is not published',
-      });
-    }
-
-    if (!product.isAvailable || (product.availableFrom && product.availableFrom > rentalStart)) {
-      return this.unavailableResult(input, {
-        ...sku,
-        quantity,
-        rentalStart,
-        rentalEnd,
-        blockedStart,
-        blockedEnd,
-        reason: 'Product is currently unavailable',
-      });
-    }
-
-    const [legacyBlock, scopedBlock] = await Promise.all([
-      db.dateBlock.findFirst({
-        where: {
-          tenantId: input.tenantId,
-          productId: input.productId,
-          startDate: { lte: blockedEnd },
-          endDate: { gte: blockedStart },
-        },
-        select: { id: true },
-      }),
-      db.inventoryBlock.findFirst({
-        where: {
-          tenantId: input.tenantId,
-          startDate: { lte: blockedEnd },
-          endDate: { gte: blockedStart },
-          OR: [
-            { productId: input.productId },
-            { variantId: sku.variantId },
-            { variantSizeId: sku.id },
-          ],
-        },
-        select: { id: true },
-      }),
-    ]);
-
-    if (legacyBlock || scopedBlock) {
-      return this.unavailableResult(input, {
-        ...sku,
-        quantity,
-        rentalStart,
-        rentalEnd,
-        blockedStart,
-        blockedEnd,
-        reason: 'Inventory is blocked for the selected dates',
-      });
-    }
-
-    const [totalCapacity, reservationAggregate] = await Promise.all([
-      this.resolveCapacity(
-        db,
-        input.tenantId,
-        sku.id,
-        sku.trackingMode,
-        sku.pooledQuantity,
-        blockedStart,
-        blockedEnd,
-      ),
-      db.inventoryReservation.aggregate({
-        where: {
-          tenantId: input.tenantId,
-          ...(input.excludeReservationId ? { id: { not: input.excludeReservationId } } : {}),
-          variantSizeId: sku.id,
-          blockedStartDate: { lte: blockedEnd },
-          blockedEndDate: { gte: blockedStart },
-          OR: [
-            { status: 'CONFIRMED' },
-            {
-              status: 'PENDING',
-              OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-            },
-          ],
-        },
-        _sum: { quantity: true },
-      }),
-    ]);
-
-    const reservedQuantity = reservationAggregate._sum.quantity ?? 0;
-    const remainingQuantity = Math.max(0, totalCapacity - reservedQuantity);
-    const available = quantity > 0 && remainingQuantity >= quantity;
-
-    return {
-      productId: input.productId,
-      variantId: sku.variantId,
-      variantSizeId: sku.id,
-      sizeInstanceId: sku.sizeInstanceId,
-      trackingMode: sku.trackingMode,
-      available,
-      requestedQuantity: quantity,
-      totalCapacity,
-      reservedQuantity,
-      remainingQuantity,
-      rentalRange: {
-        start: this.formatDate(rentalStart),
-        end: this.formatDate(rentalEnd),
+    const locations = await db.inventoryLocation.findMany({
+      where: {
+        tenantId: input.tenantId,
+        isActive: true,
+        canStoreInventory: true,
+        canFulfillRentals: true,
+        ...(input.sourceLocationId ? { id: input.sourceLocationId } : {}),
       },
-      effectiveBlockedRange: {
-        start: this.formatDate(blockedStart),
-        end: this.formatDate(blockedEnd),
-      },
-      ...(!available ? { reason: 'Requested quantity is not available' } : {}),
-    };
+      select: { id: true, code: true, name: true, isDefault: true },
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+    });
+    if (input.sourceLocationId && locations.length === 0) {
+      throw new NotFoundException('Fulfillment location was not found or is not operational');
+    }
+    if (locations.length === 0) {
+      return this.unavailableResult(
+        input,
+        quantity,
+        rentalStart,
+        rentalEnd,
+        'No active fulfillment location is configured',
+        sku,
+      );
+    }
+
+    const results: InventoryAvailabilityResult[] = [];
+    for (const location of locations) {
+      results.push(
+        await this.checkAtLocation(db, input, sku, location, quantity, rentalStart, rentalEnd),
+      );
+    }
+    return results.sort((left, right) => {
+      if (left.available !== right.available) return left.available ? -1 : 1;
+      return right.remainingQuantity - left.remainingQuantity;
+    })[0];
   }
 
   async getEffectiveBlockedRange(
     tenantId: string,
+    productId: string,
+    variantSizeId: string,
+    sourceLocationId: string,
     startDate: string | Date,
     endDate: string | Date,
     transaction?: InventoryDatabase,
-  ): Promise<{ rentalStart: Date; rentalEnd: Date; blockedStart: Date; blockedEnd: Date }> {
+  ) {
     const db = transaction ?? this.prisma;
     const rentalStart = this.parseDate(startDate, 'startDate');
     const rentalEnd = this.parseDate(endDate, 'endDate');
-    const bufferDays = await this.getBufferDays(db, tenantId);
-
-    return {
-      rentalStart,
-      rentalEnd,
-      blockedStart: this.addDays(rentalStart, -bufferDays),
-      blockedEnd: this.addDays(rentalEnd, bufferDays),
-    };
+    const policy = await this.policies.resolve(
+      db,
+      tenantId,
+      productId,
+      variantSizeId,
+      sourceLocationId,
+    );
+    return { rentalStart, rentalEnd, ...this.policies.calculateBlockedRange(rentalStart, rentalEnd, policy), policy };
   }
 
   parseDate(value: string | Date, fieldName = 'date'): Date {
-    const date = value instanceof Date ? new Date(value) : new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException(`Invalid ${fieldName}`);
-    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) throw new BadRequestException(`Invalid ${fieldName}`);
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   }
 
@@ -260,97 +167,274 @@ export class InventoryAvailabilityService {
     return value.toISOString().slice(0, 10);
   }
 
-  private async getBufferDays(db: InventoryDatabase, tenantId: string): Promise<number> {
-    const settings = await db.storeSettings.findUnique({
-      where: { tenantId },
-      select: { bufferDays: true },
+  private async checkAtLocation(
+    db: InventoryDatabase,
+    input: InventoryAvailabilityInput,
+    sku: {
+      id: string;
+      variantId: string;
+      sizeInstanceId: string;
+      trackingMode: InventoryTrackingMode;
+    },
+    location: { id: string; code: string; name: string },
+    quantity: number,
+    rentalStart: Date,
+    rentalEnd: Date,
+  ): Promise<InventoryAvailabilityResult> {
+    const policy = await this.policies.resolve(
+      db,
+      input.tenantId,
+      input.productId,
+      sku.id,
+      location.id,
+    );
+    const { blockedStart, blockedEnd } = this.policies.calculateBlockedRange(
+      rentalStart,
+      rentalEnd,
+      policy,
+    );
+    const policyReason = this.policyUnavailableReason(policy, rentalStart);
+    if (policyReason) {
+      return this.locationResult(input, sku, location, quantity, rentalStart, rentalEnd, blockedStart, blockedEnd, policy, {
+        totalCapacity: 0,
+        blockedQuantity: 0,
+        reservedQuantity: 0,
+        reason: policyReason,
+      });
+    }
+
+    const pool = sku.trackingMode === InventoryTrackingMode.POOLED
+      ? await db.inventoryPool.findUnique({
+          where: { variantSizeId_locationId: { variantSizeId: sku.id, locationId: location.id } },
+          select: { id: true, onHandQuantity: true },
+        })
+      : null;
+    const fullBlock = await db.inventoryBlock.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        startDate: { lte: blockedEnd },
+        endDate: { gte: blockedStart },
+        quantity: null,
+        AND: [
+          { OR: [{ locationId: null }, { locationId: location.id }] },
+          {
+            OR: [
+              { productId: input.productId },
+              { variantId: sku.variantId },
+              { variantSizeId: sku.id },
+              { locationId: location.id, blockType: 'LOCATION_BLACKOUT' },
+              ...(pool ? [{ inventoryPoolId: pool.id }] : []),
+            ],
+          },
+        ],
+      },
+      select: { id: true },
     });
-    return Math.max(0, settings?.bufferDays ?? 0);
+    if (fullBlock) {
+      return this.locationResult(
+        input,
+        sku,
+        location,
+        quantity,
+        rentalStart,
+        rentalEnd,
+        blockedStart,
+        blockedEnd,
+        policy,
+        {
+          inventoryPoolId: pool?.id ?? null,
+          totalCapacity: 0,
+          blockedQuantity: 0,
+          reservedQuantity: 0,
+          reason: 'Inventory is blocked at this location for the selected dates',
+        },
+      );
+    }
+
+    const [totalCapacity, blockedQuantity, reservationAggregate] = await Promise.all([
+      this.resolveCapacity(
+        db,
+        input.tenantId,
+        sku.id,
+        location.id,
+        sku.trackingMode,
+        pool?.onHandQuantity ?? 0,
+        policy,
+        blockedStart,
+        blockedEnd,
+      ),
+      pool
+        ? db.inventoryBlock.aggregate({
+            where: {
+              tenantId: input.tenantId,
+              inventoryPoolId: pool.id,
+              startDate: { lte: blockedEnd },
+              endDate: { gte: blockedStart },
+              quantity: { not: null },
+            },
+            _sum: { quantity: true },
+          }).then((result) => result._sum.quantity ?? 0)
+        : Promise.resolve(0),
+      db.inventoryReservation.aggregate({
+        where: {
+          tenantId: input.tenantId,
+          sourceLocationId: location.id,
+          ...(input.excludeReservationId ? { id: { not: input.excludeReservationId } } : {}),
+          variantSizeId: sku.id,
+          blockedStartDate: { lte: blockedEnd },
+          blockedEndDate: { gte: blockedStart },
+          OR: [
+            { status: 'CONFIRMED' },
+            { status: 'PENDING', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          ],
+        },
+        _sum: { quantity: true },
+      }),
+    ]);
+
+    const reservedQuantity = reservationAggregate._sum.quantity ?? 0;
+    const effectiveCapacity = Math.max(0, totalCapacity - blockedQuantity);
+    const shortageCapacity = policy.allowShortage ? policy.shortageLimit : 0;
+    const remainingQuantity = Math.max(0, effectiveCapacity + shortageCapacity - reservedQuantity);
+    return this.locationResult(input, sku, location, quantity, rentalStart, rentalEnd, blockedStart, blockedEnd, policy, {
+      inventoryPoolId: pool?.id ?? null,
+      totalCapacity,
+      blockedQuantity,
+      reservedQuantity,
+      reason: remainingQuantity < quantity
+          ? 'Requested quantity is not available at this location'
+          : undefined,
+    });
   }
 
   private async resolveCapacity(
     db: InventoryDatabase,
     tenantId: string,
     variantSizeId: string,
+    locationId: string,
     trackingMode: InventoryTrackingMode,
     pooledQuantity: number,
+    policy: EffectiveAvailabilityPolicy,
     blockedStart: Date,
     blockedEnd: Date,
-  ): Promise<number> {
-    if (trackingMode === InventoryTrackingMode.POOLED) {
-      return Math.max(0, pooledQuantity);
-    }
-
+  ) {
+    if (trackingMode === InventoryTrackingMode.POOLED) return Math.max(0, pooledQuantity);
     return db.stockUnit.count({
       where: {
         tenantId,
         variantSizeId,
+        locationId,
         disposition: 'ACTIVE',
-        status: 'ACTIVE',
-        condition: { not: 'DAMAGED' },
+        operationalState: { in: policy.eligibleOperationalStates },
+        condition: { in: policy.eligibleConditionGrades },
         deletedAt: null,
-        issues: {
-          none: {
-            isAvailabilityBlocking: true,
-            status: { in: ['OPEN', 'IN_SERVICE'] },
-          },
-        },
+        issues: { none: { isAvailabilityBlocking: true, status: { in: ['OPEN', 'IN_SERVICE'] } } },
         componentStates: {
           none: {
             setComponentDefinition: { isActive: true, absenceBlocksRental: true },
             presence: { in: ['MISSING', 'DAMAGED'] },
           },
         },
-        blocks: {
-          none: {
-            startDate: { lte: blockedEnd },
-            endDate: { gte: blockedStart },
-          },
-        },
+        blocks: { none: { startDate: { lte: blockedEnd }, endDate: { gte: blockedStart } } },
       },
     });
   }
 
-  private unavailableResult(
+  private productUnavailableReason(
+    product: { status: ProductStatus; isAvailable: boolean; availableFrom: Date | null; deletedAt: Date | null },
+    rentalStart: Date,
+    enforcePublished: boolean,
+  ) {
+    if (product.deletedAt) return 'Product is not available';
+    if (enforcePublished && product.status !== ProductStatus.published) return 'Product is not published';
+    if (!product.isAvailable || (product.availableFrom && product.availableFrom > rentalStart)) {
+      return 'Product is currently unavailable';
+    }
+    return null;
+  }
+
+  private policyUnavailableReason(policy: EffectiveAvailabilityPolicy, rentalStart: Date) {
+    const start = rentalStart.getTime();
+    const now = Date.now();
+    if (start < now + policy.minimumNoticeMinutes * 60_000) {
+      return 'The rental does not meet the minimum notice period';
+    }
+    if (start > now + policy.maximumAdvanceDays * 86_400_000) {
+      return 'The rental date is beyond the maximum booking window';
+    }
+    return null;
+  }
+
+  private locationResult(
     input: InventoryAvailabilityInput,
-    details: {
-      variantId: string;
-      sizeInstanceId: string;
-      trackingMode: InventoryTrackingMode;
-      quantity: number;
-      rentalStart: Date;
-      rentalEnd: Date;
-      blockedStart: Date;
-      blockedEnd: Date;
-      reason: string;
+    sku: { id: string; variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
+    location: { id: string; code: string; name: string },
+    quantity: number,
+    rentalStart: Date,
+    rentalEnd: Date,
+    blockedStart: Date,
+    blockedEnd: Date,
+    policy: EffectiveAvailabilityPolicy,
+    capacity: {
+      inventoryPoolId?: string | null;
+      totalCapacity: number;
+      blockedQuantity: number;
+      reservedQuantity: number;
+      reason?: string;
     },
   ): InventoryAvailabilityResult {
+    const effectiveCapacity = Math.max(0, capacity.totalCapacity - capacity.blockedQuantity);
+    const shortageCapacity = policy.allowShortage ? policy.shortageLimit : 0;
+    const remainingQuantity = Math.max(0, effectiveCapacity + shortageCapacity - capacity.reservedQuantity);
     return {
       productId: input.productId,
-      variantId: details.variantId,
-      variantSizeId: input.variantSizeId,
-      sizeInstanceId: details.sizeInstanceId,
-      trackingMode: details.trackingMode,
-      available: false,
-      requestedQuantity: details.quantity,
-      totalCapacity: 0,
-      reservedQuantity: 0,
-      remainingQuantity: 0,
-      rentalRange: {
-        start: this.formatDate(details.rentalStart),
-        end: this.formatDate(details.rentalEnd),
-      },
-      effectiveBlockedRange: {
-        start: this.formatDate(details.blockedStart),
-        end: this.formatDate(details.blockedEnd),
-      },
-      reason: details.reason,
+      variantId: sku.variantId,
+      variantSizeId: sku.id,
+      sizeInstanceId: sku.sizeInstanceId,
+      sourceLocationId: location.id,
+      sourceLocation: { code: location.code, name: location.name },
+      inventoryPoolId: capacity.inventoryPoolId ?? null,
+      trackingMode: sku.trackingMode,
+      available: !capacity.reason && remainingQuantity >= quantity,
+      requestedQuantity: quantity,
+      totalCapacity: capacity.totalCapacity,
+      blockedQuantity: capacity.blockedQuantity,
+      reservedQuantity: capacity.reservedQuantity,
+      remainingQuantity,
+      rentalRange: { start: this.formatDate(rentalStart), end: this.formatDate(rentalEnd) },
+      effectiveBlockedRange: { start: this.formatDate(blockedStart), end: this.formatDate(blockedEnd) },
+      availabilityPolicy: policy,
+      ...(capacity.reason ? { reason: capacity.reason } : {}),
     };
   }
 
-  private addDays(value: Date, days: number): Date {
-    const result = new Date(value);
-    result.setUTCDate(result.getUTCDate() + days);
-    return result;
+  private unavailableResult(
+    input: InventoryAvailabilityInput,
+    quantity: number,
+    rentalStart: Date,
+    rentalEnd: Date,
+    reason: string,
+    sku?: { variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
+  ): InventoryAvailabilityResult {
+    return {
+      productId: input.productId,
+      variantId: sku?.variantId ?? '',
+      variantSizeId: input.variantSizeId,
+      sizeInstanceId: sku?.sizeInstanceId ?? '',
+      sourceLocationId: input.sourceLocationId ?? null,
+      sourceLocation: null,
+      inventoryPoolId: null,
+      trackingMode: sku?.trackingMode ?? InventoryTrackingMode.POOLED,
+      available: false,
+      requestedQuantity: quantity,
+      totalCapacity: 0,
+      blockedQuantity: 0,
+      reservedQuantity: 0,
+      remainingQuantity: 0,
+      rentalRange: { start: this.formatDate(rentalStart), end: this.formatDate(rentalEnd) },
+      effectiveBlockedRange: { start: this.formatDate(rentalStart), end: this.formatDate(rentalEnd) },
+      availabilityPolicy: null,
+      reason,
+    };
   }
 }

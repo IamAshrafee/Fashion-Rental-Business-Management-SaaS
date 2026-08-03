@@ -131,6 +131,7 @@ describe('FulfillmentService', () => {
       id,
       productId: `product-${id}`,
       variantSizeId: `sku-${id}`,
+      sourceLocationId: 'location-1',
       productNameSnapshot: id,
       quantity: 1,
       assignedQuantity: 0,
@@ -160,6 +161,7 @@ describe('FulfillmentService', () => {
     availability.check
       .mockResolvedValueOnce({
         available: true,
+        availabilityPolicy: { sources: [] },
         rentalRange: { start: '2026-08-10', end: '2026-08-15' },
         effectiveBlockedRange: { start: '2026-08-09', end: '2026-08-16' },
       })

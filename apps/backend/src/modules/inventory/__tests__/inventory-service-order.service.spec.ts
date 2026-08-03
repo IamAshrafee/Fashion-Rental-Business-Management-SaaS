@@ -23,7 +23,7 @@ describe('InventoryServiceOrderService', () => {
     };
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
     const lifecycle = { transitionInTransaction: jest.fn() };
-    const service = new InventoryServiceOrderService(prisma as never, lifecycle as never);
+    const service = new InventoryServiceOrderService(prisma as never, lifecycle as never, {} as never);
 
     await expect(
       service.complete(
@@ -61,7 +61,7 @@ describe('InventoryServiceOrderService', () => {
     };
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
     const lifecycle = { transitionInTransaction: jest.fn().mockResolvedValue({}) };
-    const service = new InventoryServiceOrderService(prisma as never, lifecycle as never);
+    const service = new InventoryServiceOrderService(prisma as never, lifecycle as never, {} as never);
 
     await service.cancel(
       'tenant-1',

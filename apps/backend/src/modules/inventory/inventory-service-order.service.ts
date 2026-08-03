@@ -19,6 +19,7 @@ import {
   StartInventoryServiceOrderDto,
 } from './dto/inventory-operations.dto';
 import { StockUnitLifecycleService } from './stock-unit-lifecycle.service';
+import { InventoryLocationService } from './inventory-location.service';
 
 const OPEN_SERVICE_STATUSES: InventoryServiceOrderStatus[] = [
   InventoryServiceOrderStatus.REQUESTED,
@@ -42,6 +43,7 @@ export class InventoryServiceOrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lifecycle: StockUnitLifecycleService,
+    private readonly locations: InventoryLocationService,
   ) {}
 
   async create(
@@ -75,6 +77,13 @@ export class InventoryServiceOrderService {
         if (unit.disposition === 'RETIRED' || unit.disposition === 'LOST') {
           throw new ConflictException('Lost or retired units cannot start service work');
         }
+        const serviceLocationId = dto.serviceLocationId ?? unit.locationId;
+        await this.locations.getActiveOrThrow(
+          tx,
+          tenantId,
+          serviceLocationId,
+          this.locationCapabilityFor(dto.serviceType),
+        );
 
         await this.validateContext(tx, tenantId, stockUnitId, dto);
         const scheduledStartAt = dto.scheduledStartAt
@@ -97,6 +106,7 @@ export class InventoryServiceOrderService {
             data: {
               tenantId,
               stockUnitId,
+              locationId: serviceLocationId,
               startDate: this.toDateOnly(scheduledStartAt ?? new Date()),
               endDate: this.toDateOnly(expectedCompletionAt ?? new Date('9999-12-31T00:00:00.000Z')),
               blockType: 'MAINTENANCE',
@@ -121,7 +131,7 @@ export class InventoryServiceOrderService {
             status,
             isAvailabilityBlocking: dto.isAvailabilityBlocking !== false,
             providerName: dto.providerName?.trim() || null,
-            locationLabel: dto.locationLabel?.trim() || null,
+            serviceLocationId,
             requestedByUserId: actorUserId,
             scheduledStartAt,
             expectedCompletionAt,
@@ -408,10 +418,30 @@ export class InventoryServiceOrderService {
     return states[type];
   }
 
+  private locationCapabilityFor(
+    type: InventoryServiceOrderType,
+  ): 'canStoreInventory' | 'canClean' | 'canRepair' {
+    if (
+      type === InventoryServiceOrderType.CLEANING ||
+      type === InventoryServiceOrderType.WASHING
+    ) {
+      return 'canClean';
+    }
+    if (
+      type === InventoryServiceOrderType.REPAIR ||
+      type === InventoryServiceOrderType.ALTERATION ||
+      type === InventoryServiceOrderType.MAINTENANCE
+    ) {
+      return 'canRepair';
+    }
+    return 'canStoreInventory';
+  }
+
   private orderInclude() {
     return {
       issue: true,
       sourceInspection: { select: { id: true, inspectionType: true, completedAt: true } },
+      serviceLocation: { select: { id: true, code: true, name: true, locationType: true } },
       inventoryBlock: true,
       requestedBy: { select: { id: true, fullName: true } },
       completedBy: { select: { id: true, fullName: true } },

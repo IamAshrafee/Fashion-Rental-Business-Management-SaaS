@@ -13,6 +13,10 @@ import { StockUnitSetService } from './stock-unit-set.service';
 import { FulfillmentGuestController, FulfillmentOwnerController } from './fulfillment.controller';
 import { FulfillmentService } from './fulfillment.service';
 import { ProductCompositionService } from './product-composition.service';
+import { InventoryFoundationController } from './inventory-foundation.controller';
+import { InventoryLocationService } from './inventory-location.service';
+import { InventoryPoolService } from './inventory-pool.service';
+import { AvailabilityPolicyService } from './availability-policy.service';
 
 @Module({
   imports: [PrismaModule],
@@ -22,6 +26,7 @@ import { ProductCompositionService } from './product-composition.service';
     InventoryOperationsController,
     FulfillmentGuestController,
     FulfillmentOwnerController,
+    InventoryFoundationController,
   ],
   providers: [
     InventoryAvailabilityService,
@@ -34,7 +39,17 @@ import { ProductCompositionService } from './product-composition.service';
     StockUnitSetService,
     FulfillmentService,
     ProductCompositionService,
+    InventoryLocationService,
+    InventoryPoolService,
+    AvailabilityPolicyService,
   ],
-  exports: [InventoryAvailabilityService, InventoryReservationService, FulfillmentService],
+  exports: [
+    InventoryAvailabilityService,
+    InventoryReservationService,
+    FulfillmentService,
+    InventoryLocationService,
+    InventoryPoolService,
+    AvailabilityPolicyService,
+  ],
 })
 export class InventoryModule {}

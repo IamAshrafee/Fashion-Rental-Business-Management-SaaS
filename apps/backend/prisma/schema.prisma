@@ -168,6 +168,44 @@ enum InventoryTrackingMode {
   SERIALIZED
 }
 
+enum InventoryLocationType {
+  WAREHOUSE
+  SHOWROOM
+  PICKUP_POINT
+  CLEANING_FACILITY
+  REPAIR_FACILITY
+  EXTERNAL
+}
+
+enum AvailabilityPolicyScope {
+  TENANT
+  LOCATION
+  PRODUCT
+  SKU
+}
+
+enum InventoryTransferStatus {
+  DRAFT
+  READY
+  DISPATCHED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+  RECONCILIATION_REQUIRED
+}
+
+enum InventoryTransferLineKind {
+  POOLED
+  SERIALIZED
+}
+
+enum InventoryTransferUnitOutcome {
+  PENDING
+  RECEIVED
+  DAMAGED
+  LOST
+}
+
 enum StockUnitStatus {
   ACTIVE
   MAINTENANCE
@@ -389,12 +427,23 @@ enum InventoryMovementType {
   UNIT_LOST
   UNIT_RECOVERED
   ADMIN_CORRECTION
+  TRANSFER_RESERVED
+  TRANSFER_DISPATCHED
+  TRANSFER_RECEIVED
+  TRANSFER_CANCELLED
+  COUNT_CORRECTION
+  DAMAGE_WRITE_OFF
 }
 
 enum InventoryBlockType {
   MANUAL
   MAINTENANCE
   LEGACY_BOOKING
+  INSPECTION
+  SERVICE
+  TRANSFER
+  LOCATION_BLACKOUT
+  SKU_BLACKOUT
 }
 
 enum DepositStatus {
@@ -467,31 +516,37 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  ownedTenants             Tenant[]
-  tenantUsers              TenantUser[]
-  auditLogs                AuditLog[]
-  sessions                 Session[]
-  loginHistory             LoginHistory[]
-  damageReports            DamageReport[]
-  deletedProducts          Product[]                       @relation("ProductDeletedBy")
-  recordedPayments         SubscriptionPayment[]           @relation("PaymentsRecordedBy")
-  createdPromoCodes        PromoCode[]                     @relation("PromoCodesCreatedBy")
-  subscriptionActions      SubscriptionHistory[]           @relation("HistoryPerformedBy")
-  createdInventoryBlocks   InventoryBlock[]                @relation("InventoryBlockCreatedBy")
-  inventoryMovements       InventoryMovement[]             @relation("InventoryMovementActor")
-  stockUnitAssignments     StockUnitAssignment[]           @relation("StockUnitAssignedBy")
-  stockUnitLifecycleEvents StockUnitLifecycleEvent[]       @relation("StockUnitLifecycleActor")
-  stockUnitInspections     StockUnitInspection[]           @relation("StockUnitInspectionActor")
-  reportedStockUnitIssues  StockUnitIssue[]                @relation("StockUnitIssueReporter")
-  resolvedStockUnitIssues  StockUnitIssue[]                @relation("StockUnitIssueResolver")
-  requestedServiceOrders   InventoryServiceOrder[]         @relation("ServiceOrderRequester")
-  completedServiceOrders   InventoryServiceOrder[]         @relation("ServiceOrderCompleter")
-  createdSetComponents     SkuSetComponentDefinition[]     @relation("SetComponentCreator")
-  inventoryMediaUploads    InventoryMediaAttachment[]      @relation("InventoryMediaUploader")
-  createdCompositionRules  ProductCompositionRule[]        @relation("CompositionRuleCreator")
-  fulfillmentVersions      FulfillmentRequirementVersion[] @relation("FulfillmentVersionActor")
-  fulfillmentSubstitutions FulfillmentSubstitution[]       @relation("FulfillmentSubstitutionActor")
-  fulfillmentEvents        FulfillmentRequirementEvent[]   @relation("FulfillmentEventActor")
+  ownedTenants                 Tenant[]
+  tenantUsers                  TenantUser[]
+  auditLogs                    AuditLog[]
+  sessions                     Session[]
+  loginHistory                 LoginHistory[]
+  damageReports                DamageReport[]
+  deletedProducts              Product[]                       @relation("ProductDeletedBy")
+  recordedPayments             SubscriptionPayment[]           @relation("PaymentsRecordedBy")
+  createdPromoCodes            PromoCode[]                     @relation("PromoCodesCreatedBy")
+  subscriptionActions          SubscriptionHistory[]           @relation("HistoryPerformedBy")
+  createdInventoryBlocks       InventoryBlock[]                @relation("InventoryBlockCreatedBy")
+  inventoryMovements           InventoryMovement[]             @relation("InventoryMovementActor")
+  stockUnitAssignments         StockUnitAssignment[]           @relation("StockUnitAssignedBy")
+  stockUnitLifecycleEvents     StockUnitLifecycleEvent[]       @relation("StockUnitLifecycleActor")
+  stockUnitInspections         StockUnitInspection[]           @relation("StockUnitInspectionActor")
+  reportedStockUnitIssues      StockUnitIssue[]                @relation("StockUnitIssueReporter")
+  resolvedStockUnitIssues      StockUnitIssue[]                @relation("StockUnitIssueResolver")
+  requestedServiceOrders       InventoryServiceOrder[]         @relation("ServiceOrderRequester")
+  completedServiceOrders       InventoryServiceOrder[]         @relation("ServiceOrderCompleter")
+  createdSetComponents         SkuSetComponentDefinition[]     @relation("SetComponentCreator")
+  inventoryMediaUploads        InventoryMediaAttachment[]      @relation("InventoryMediaUploader")
+  createdCompositionRules      ProductCompositionRule[]        @relation("CompositionRuleCreator")
+  fulfillmentVersions          FulfillmentRequirementVersion[] @relation("FulfillmentVersionActor")
+  fulfillmentSubstitutions     FulfillmentSubstitution[]       @relation("FulfillmentSubstitutionActor")
+  fulfillmentEvents            FulfillmentRequirementEvent[]   @relation("FulfillmentEventActor")
+  createdInventoryLocations    InventoryLocation[]             @relation("InventoryLocationCreator")
+  createdInventoryTransfers    InventoryTransfer[]             @relation("InventoryTransferCreator")
+  approvedInventoryTransfers   InventoryTransfer[]             @relation("InventoryTransferApprover")
+  dispatchedInventoryTransfers InventoryTransfer[]             @relation("InventoryTransferDispatcher")
+  receivedInventoryTransfers   InventoryTransfer[]             @relation("InventoryTransferReceiver")
+  inventoryTransferEvents      InventoryTransferEvent[]        @relation("InventoryTransferEventActor")
 
   @@index([phone])
   @@map("users")
@@ -619,6 +674,13 @@ model Tenant {
   fulfillmentSelectionSnapshots  FulfillmentSelectionSnapshot[]
   fulfillmentSubstitutions       FulfillmentSubstitution[]
   fulfillmentRequirementEvents   FulfillmentRequirementEvent[]
+  inventoryLocations             InventoryLocation[]
+  inventoryPools                 InventoryPool[]
+  availabilityPolicies           AvailabilityPolicy[]
+  inventoryTransfers             InventoryTransfer[]
+  inventoryTransferLines         InventoryTransferLine[]
+  inventoryTransferUnits         InventoryTransferUnit[]
+  inventoryTransferEvents        InventoryTransferEvent[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -867,6 +929,7 @@ model Product {
   compositionAlternatives       ProductCompositionAlternative[]
   fulfillmentRequirements       FulfillmentRequirement[]
   fulfillmentSelectionSnapshots FulfillmentSelectionSnapshot[]
+  availabilityPolicies          AvailabilityPolicy[]
 
   @@unique([tenantId, slug])
   @@index([categoryId])
@@ -922,6 +985,9 @@ model VariantSize {
   compositionAlternatives       ProductCompositionAlternative[]
   fulfillmentRequirements       FulfillmentRequirement[]
   fulfillmentSelectionSnapshots FulfillmentSelectionSnapshot[]
+  inventoryPools                InventoryPool[]
+  availabilityPolicies          AvailabilityPolicy[]
+  inventoryTransferLines        InventoryTransferLine[]
 
   @@unique([variantId, sizeInstanceId])
   @@index([variantId])
@@ -1597,10 +1663,248 @@ model DateBlock {
   @@map("date_blocks")
 }
 
+model InventoryLocation {
+  id                String                @id @default(uuid())
+  tenantId          String                @map("tenant_id")
+  code              String
+  name              String
+  locationType      InventoryLocationType @map("location_type")
+  timezone          String                @default("Asia/Dhaka")
+  addressLine1      String?               @map("address_line_1")
+  addressLine2      String?               @map("address_line_2")
+  city              String?
+  state             String?
+  postalCode        String?               @map("postal_code")
+  country           String                @default("BD")
+  contactName       String?               @map("contact_name")
+  contactPhone      String?               @map("contact_phone")
+  contactEmail      String?               @map("contact_email")
+  canStoreInventory Boolean               @default(true) @map("can_store_inventory")
+  canFulfillRentals Boolean               @default(true) @map("can_fulfill_rentals")
+  canCustomerPickup Boolean               @default(false) @map("can_customer_pickup")
+  canAcceptReturns  Boolean               @default(true) @map("can_accept_returns")
+  canClean          Boolean               @default(false) @map("can_clean")
+  canRepair         Boolean               @default(false) @map("can_repair")
+  canTransfer       Boolean               @default(true) @map("can_transfer")
+  isDefault         Boolean               @default(false) @map("is_default")
+  isActive          Boolean               @default(true) @map("is_active")
+  createdByUserId   String?               @map("created_by_user_id")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id])
+  createdBy            User?                    @relation("InventoryLocationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  pools                InventoryPool[]
+  stockUnits           StockUnit[]
+  availabilityPolicies AvailabilityPolicy[]
+  fulfillmentSources   FulfillmentRequirement[]
+  reservations         InventoryReservation[]
+  inventoryBlocks      InventoryBlock[]
+  serviceOrders        InventoryServiceOrder[]
+  outgoingTransfers    InventoryTransfer[]      @relation("TransferOrigin")
+  incomingTransfers    InventoryTransfer[]      @relation("TransferDestination")
+  originMovements      InventoryMovement[]      @relation("InventoryMovementOrigin")
+  destinationMovements InventoryMovement[]      @relation("InventoryMovementDestination")
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive, locationType])
+  @@index([createdByUserId])
+  @@map("inventory_locations")
+}
+
+model InventoryPool {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  variantSizeId    String   @map("variant_size_id")
+  locationId       String   @map("location_id")
+  onHandQuantity   Int      @default(0) @map("on_hand_quantity")
+  reorderThreshold Int?     @map("reorder_threshold")
+  version          Int      @default(0)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id])
+  variantSize     VariantSize             @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  location        InventoryLocation       @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  reservations    InventoryReservation[]
+  inventoryBlocks InventoryBlock[]
+  movements       InventoryMovement[]
+  transferLines   InventoryTransferLine[]
+
+  @@unique([variantSizeId, locationId])
+  @@index([tenantId, locationId])
+  @@index([tenantId, variantSizeId])
+  @@map("inventory_pools")
+}
+
+model AvailabilityPolicy {
+  id                             String                  @id @default(uuid())
+  tenantId                       String                  @map("tenant_id")
+  scope                          AvailabilityPolicyScope
+  scopeKey                       String                  @map("scope_key")
+  locationId                     String?                 @map("location_id")
+  productId                      String?                 @map("product_id")
+  variantSizeId                  String?                 @map("variant_size_id")
+  version                        Int                     @default(1)
+  isActive                       Boolean                 @default(true) @map("is_active")
+  preparationBufferMinutes       Int?                    @map("preparation_buffer_minutes")
+  deliveryBufferMinutes          Int?                    @map("delivery_buffer_minutes")
+  returnBufferMinutes            Int?                    @map("return_buffer_minutes")
+  inspectionBufferMinutes        Int?                    @map("inspection_buffer_minutes")
+  cleaningBufferMinutes          Int?                    @map("cleaning_buffer_minutes")
+  minimumNoticeMinutes           Int?                    @map("minimum_notice_minutes")
+  maximumAdvanceDays             Int?                    @map("maximum_advance_days")
+  pendingHoldMinutes             Int?                    @map("pending_hold_minutes")
+  allowShortage                  Boolean?                @map("allow_shortage")
+  shortageLimit                  Int?                    @map("shortage_limit")
+  requireSingleLocationForBundle Boolean?                @map("require_single_location_for_bundle")
+  allowCrossLocationTransfers    Boolean?                @map("allow_cross_location_transfers")
+  transferLeadTimeMinutes        Int?                    @map("transfer_lead_time_minutes")
+  eligibleConditionGrades        Json?                   @map("eligible_condition_grades") @db.JsonB
+  eligibleOperationalStates      Json?                   @map("eligible_operational_states") @db.JsonB
+  createdAt                      DateTime                @default(now()) @map("created_at")
+  updatedAt                      DateTime                @updatedAt @map("updated_at")
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id])
+  location    InventoryLocation? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  product     Product?           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantSize VariantSize?       @relation(fields: [variantSizeId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, scopeKey])
+  @@index([tenantId, scope, isActive])
+  @@index([locationId, isActive])
+  @@index([productId, isActive])
+  @@index([variantSizeId, isActive])
+  @@map("availability_policies")
+}
+
+model InventoryTransfer {
+  id                    String                  @id @default(uuid())
+  tenantId              String                  @map("tenant_id")
+  transferNumber        String                  @map("transfer_number")
+  originLocationId      String                  @map("origin_location_id")
+  destinationLocationId String                  @map("destination_location_id")
+  status                InventoryTransferStatus @default(DRAFT)
+  version               Int                     @default(0)
+  notes                 String?
+  cancellationReason    String?                 @map("cancellation_reason")
+  reconciliationReason  String?                 @map("reconciliation_reason")
+  expectedDispatchAt    DateTime?               @map("expected_dispatch_at")
+  expectedArrivalAt     DateTime?               @map("expected_arrival_at")
+  readyAt               DateTime?               @map("ready_at")
+  dispatchedAt          DateTime?               @map("dispatched_at")
+  receivedAt            DateTime?               @map("received_at")
+  cancelledAt           DateTime?               @map("cancelled_at")
+  createdByUserId       String                  @map("created_by_user_id")
+  approvedByUserId      String?                 @map("approved_by_user_id")
+  dispatchedByUserId    String?                 @map("dispatched_by_user_id")
+  receivedByUserId      String?                 @map("received_by_user_id")
+  idempotencyKey        String?                 @map("idempotency_key")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+
+  tenant              Tenant                   @relation(fields: [tenantId], references: [id])
+  originLocation      InventoryLocation        @relation("TransferOrigin", fields: [originLocationId], references: [id], onDelete: Restrict)
+  destinationLocation InventoryLocation        @relation("TransferDestination", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+  createdBy           User                     @relation("InventoryTransferCreator", fields: [createdByUserId], references: [id])
+  approvedBy          User?                    @relation("InventoryTransferApprover", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  dispatchedBy        User?                    @relation("InventoryTransferDispatcher", fields: [dispatchedByUserId], references: [id], onDelete: SetNull)
+  receivedBy          User?                    @relation("InventoryTransferReceiver", fields: [receivedByUserId], references: [id], onDelete: SetNull)
+  lines               InventoryTransferLine[]
+  events              InventoryTransferEvent[]
+  movements           InventoryMovement[]
+
+  @@unique([tenantId, transferNumber])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([originLocationId, status])
+  @@index([destinationLocationId, status])
+  @@index([createdByUserId])
+  @@index([approvedByUserId])
+  @@index([dispatchedByUserId])
+  @@index([receivedByUserId])
+  @@map("inventory_transfers")
+}
+
+model InventoryTransferLine {
+  id                 String                    @id @default(uuid())
+  tenantId           String                    @map("tenant_id")
+  transferId         String                    @map("transfer_id")
+  lineKind           InventoryTransferLineKind @map("line_kind")
+  variantSizeId      String                    @map("variant_size_id")
+  inventoryPoolId    String?                   @map("inventory_pool_id")
+  requestedQuantity  Int                       @map("requested_quantity")
+  dispatchedQuantity Int                       @default(0) @map("dispatched_quantity")
+  receivedQuantity   Int                       @default(0) @map("received_quantity")
+  damagedQuantity    Int                       @default(0) @map("damaged_quantity")
+  lostQuantity       Int                       @default(0) @map("lost_quantity")
+  notes              String?
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  transfer      InventoryTransfer       @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  variantSize   VariantSize             @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  inventoryPool InventoryPool?          @relation(fields: [inventoryPoolId], references: [id], onDelete: Restrict)
+  units         InventoryTransferUnit[]
+  movements     InventoryMovement[]
+
+  @@unique([transferId, variantSizeId, lineKind])
+  @@index([tenantId, transferId])
+  @@index([variantSizeId])
+  @@index([inventoryPoolId])
+  @@map("inventory_transfer_lines")
+}
+
+model InventoryTransferUnit {
+  id             String                       @id @default(uuid())
+  tenantId       String                       @map("tenant_id")
+  transferLineId String                       @map("transfer_line_id")
+  stockUnitId    String                       @map("stock_unit_id")
+  outcome        InventoryTransferUnitOutcome @default(PENDING)
+  dispatchedAt   DateTime?                    @map("dispatched_at")
+  receivedAt     DateTime?                    @map("received_at")
+  notes          String?
+  createdAt      DateTime                     @default(now()) @map("created_at")
+  updatedAt      DateTime                     @updatedAt @map("updated_at")
+
+  tenant       Tenant                @relation(fields: [tenantId], references: [id])
+  transferLine InventoryTransferLine @relation(fields: [transferLineId], references: [id], onDelete: Restrict)
+  stockUnit    StockUnit             @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([transferLineId, stockUnitId])
+  @@index([tenantId, stockUnitId, outcome])
+  @@index([stockUnitId])
+  @@map("inventory_transfer_units")
+}
+
+model InventoryTransferEvent {
+  id             String                   @id @default(uuid())
+  tenantId       String                   @map("tenant_id")
+  transferId     String                   @map("transfer_id")
+  fromStatus     InventoryTransferStatus? @map("from_status")
+  toStatus       InventoryTransferStatus  @map("to_status")
+  reason         String
+  metadata       Json?                    @db.JsonB
+  actorUserId    String                   @map("actor_user_id")
+  idempotencyKey String?                  @map("idempotency_key")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id])
+  transfer InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  actor    User              @relation("InventoryTransferEventActor", fields: [actorUserId], references: [id])
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, transferId, createdAt])
+  @@index([actorUserId])
+  @@map("inventory_transfer_events")
+}
+
 model StockUnit {
   id               String                    @id @default(uuid())
   tenantId         String                    @map("tenant_id")
   variantSizeId    String                    @map("variant_size_id")
+  locationId       String                    @map("location_id")
   assetCode        String                    @map("asset_code")
   barcode          String?
   status           StockUnitStatus           @default(ACTIVE)
@@ -1618,6 +1922,7 @@ model StockUnit {
 
   tenant           Tenant                     @relation(fields: [tenantId], references: [id])
   variantSize      VariantSize                @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  location         InventoryLocation          @relation(fields: [locationId], references: [id], onDelete: Restrict)
   assignments      StockUnitAssignment[]
   movements        InventoryMovement[]
   blocks           InventoryBlock[]
@@ -1627,10 +1932,12 @@ model StockUnit {
   serviceOrders    InventoryServiceOrder[]
   componentStates  StockUnitComponentState[]
   mediaAttachments InventoryMediaAttachment[]
+  transferUnits    InventoryTransferUnit[]
 
   @@unique([tenantId, assetCode])
   @@unique([tenantId, barcode])
   @@index([variantSizeId])
+  @@index([tenantId, locationId, variantSizeId])
   @@index([tenantId, variantSizeId, status])
   @@index([tenantId, variantSizeId, disposition, operationalState])
   @@map("stock_units")
@@ -1705,38 +2012,41 @@ model ProductCompositionAlternative {
 }
 
 model FulfillmentRequirement {
-  id                        String                       @id @default(uuid())
-  tenantId                  String                       @map("tenant_id")
-  bookingId                 String                       @map("booking_id")
-  bookingItemId             String                       @map("booking_item_id")
-  compositionRuleId         String?                      @map("composition_rule_id")
-  selectedAlternativeId     String?                      @map("selected_alternative_id")
-  parentRequirementId       String?                      @map("parent_requirement_id")
-  requirementKey            String                       @map("requirement_key")
-  role                      ProductCompositionRole
-  selectionSource           FulfillmentSelectionSource   @map("selection_source")
-  status                    FulfillmentRequirementStatus @default(PLANNED)
-  productId                 String?                      @map("product_id")
-  variantSizeId             String?                      @map("variant_size_id")
-  quantity                  Int                          @default(1)
-  assignedQuantity          Int                          @default(0) @map("assigned_quantity")
-  handedOutQuantity         Int                          @default(0) @map("handed_out_quantity")
-  returnedQuantity          Int                          @default(0) @map("returned_quantity")
-  lostQuantity              Int                          @default(0) @map("lost_quantity")
-  currentVersion            Int                          @default(1) @map("current_version")
-  productNameSnapshot       String                       @map("product_name_snapshot")
-  variantNameSnapshot       String?                      @map("variant_name_snapshot")
-  sizeSnapshot              String?                      @map("size_snapshot")
-  ruleSnapshot              Json?                        @map("rule_snapshot") @db.JsonB
-  customerSelectionSnapshot Json?                        @map("customer_selection_snapshot") @db.JsonB
-  rentalStartDate           DateTime                     @map("rental_start_date") @db.Date
-  rentalEndDate             DateTime                     @map("rental_end_date") @db.Date
-  blockedStartDate          DateTime                     @map("blocked_start_date") @db.Date
-  blockedEndDate            DateTime                     @map("blocked_end_date") @db.Date
-  priceAdjustment           Int                          @default(0) @map("price_adjustment")
-  revenueAllocation         Int                          @default(0) @map("revenue_allocation")
-  createdAt                 DateTime                     @default(now()) @map("created_at")
-  updatedAt                 DateTime                     @updatedAt @map("updated_at")
+  id                         String                       @id @default(uuid())
+  tenantId                   String                       @map("tenant_id")
+  bookingId                  String                       @map("booking_id")
+  bookingItemId              String                       @map("booking_item_id")
+  compositionRuleId          String?                      @map("composition_rule_id")
+  selectedAlternativeId      String?                      @map("selected_alternative_id")
+  parentRequirementId        String?                      @map("parent_requirement_id")
+  requirementKey             String                       @map("requirement_key")
+  role                       ProductCompositionRole
+  selectionSource            FulfillmentSelectionSource   @map("selection_source")
+  status                     FulfillmentRequirementStatus @default(PLANNED)
+  productId                  String                       @map("product_id")
+  variantSizeId              String                       @map("variant_size_id")
+  sourceLocationId           String                       @map("source_location_id")
+  trackingModeSnapshot       InventoryTrackingMode        @map("tracking_mode_snapshot")
+  availabilityPolicySnapshot Json                         @map("availability_policy_snapshot") @db.JsonB
+  quantity                   Int                          @default(1)
+  assignedQuantity           Int                          @default(0) @map("assigned_quantity")
+  handedOutQuantity          Int                          @default(0) @map("handed_out_quantity")
+  returnedQuantity           Int                          @default(0) @map("returned_quantity")
+  lostQuantity               Int                          @default(0) @map("lost_quantity")
+  currentVersion             Int                          @default(1) @map("current_version")
+  productNameSnapshot        String                       @map("product_name_snapshot")
+  variantNameSnapshot        String?                      @map("variant_name_snapshot")
+  sizeSnapshot               String?                      @map("size_snapshot")
+  ruleSnapshot               Json?                        @map("rule_snapshot") @db.JsonB
+  customerSelectionSnapshot  Json?                        @map("customer_selection_snapshot") @db.JsonB
+  rentalStartDate            DateTime                     @map("rental_start_date") @db.Date
+  rentalEndDate              DateTime                     @map("rental_end_date") @db.Date
+  blockedStartDate           DateTime                     @map("blocked_start_date") @db.Date
+  blockedEndDate             DateTime                     @map("blocked_end_date") @db.Date
+  priceAdjustment            Int                          @default(0) @map("price_adjustment")
+  revenueAllocation          Int                          @default(0) @map("revenue_allocation")
+  createdAt                  DateTime                     @default(now()) @map("created_at")
+  updatedAt                  DateTime                     @updatedAt @map("updated_at")
 
   tenant              Tenant                          @relation(fields: [tenantId], references: [id])
   booking             Booking                         @relation(fields: [bookingId], references: [id], onDelete: Restrict)
@@ -1745,8 +2055,9 @@ model FulfillmentRequirement {
   selectedAlternative ProductCompositionAlternative?  @relation(fields: [selectedAlternativeId], references: [id], onDelete: SetNull)
   parentRequirement   FulfillmentRequirement?         @relation("FulfillmentRequirementTree", fields: [parentRequirementId], references: [id], onDelete: SetNull)
   childRequirements   FulfillmentRequirement[]        @relation("FulfillmentRequirementTree")
-  product             Product?                        @relation(fields: [productId], references: [id], onDelete: Restrict)
-  variantSize         VariantSize?                    @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  product             Product                         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variantSize         VariantSize                     @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  sourceLocation      InventoryLocation               @relation(fields: [sourceLocationId], references: [id], onDelete: Restrict)
   reservation         InventoryReservation?
   versions            FulfillmentRequirementVersion[]
   substitutions       FulfillmentSubstitution[]
@@ -1756,6 +2067,7 @@ model FulfillmentRequirement {
   @@unique([bookingItemId, requirementKey])
   @@index([tenantId, bookingId, status])
   @@index([tenantId, variantSizeId, status, blockedStartDate, blockedEndDate])
+  @@index([tenantId, sourceLocationId, status, blockedStartDate, blockedEndDate])
   @@index([compositionRuleId])
   @@index([selectedAlternativeId])
   @@index([parentRequirementId])
@@ -1881,8 +2193,10 @@ model InventoryReservation {
   bookingId                String                     @map("booking_id")
   bookingItemId            String                     @map("booking_item_id")
   fulfillmentRequirementId String                     @unique @map("fulfillment_requirement_id")
-  productId                String?                    @map("product_id")
-  variantSizeId            String?                    @map("variant_size_id")
+  productId                String                     @map("product_id")
+  variantSizeId            String                     @map("variant_size_id")
+  sourceLocationId         String                     @map("source_location_id")
+  inventoryPoolId          String?                    @map("inventory_pool_id")
   quantity                 Int                        @default(1)
   rentalStartDate          DateTime                   @map("rental_start_date") @db.Date
   rentalEndDate            DateTime                   @map("rental_end_date") @db.Date
@@ -1900,14 +2214,19 @@ model InventoryReservation {
   booking                Booking                @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   bookingItem            BookingItem            @relation(fields: [bookingItemId], references: [id], onDelete: Restrict)
   fulfillmentRequirement FulfillmentRequirement @relation(fields: [fulfillmentRequirementId], references: [id], onDelete: Restrict)
-  product                Product?               @relation(fields: [productId], references: [id], onDelete: SetNull)
-  variantSize            VariantSize?           @relation(fields: [variantSizeId], references: [id], onDelete: SetNull)
+  product                Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variantSize            VariantSize            @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  sourceLocation         InventoryLocation      @relation(fields: [sourceLocationId], references: [id], onDelete: Restrict)
+  inventoryPool          InventoryPool?         @relation(fields: [inventoryPoolId], references: [id], onDelete: Restrict)
   assignments            StockUnitAssignment[]
+  movements              InventoryMovement[]
 
   @@index([bookingId])
   @@index([bookingItemId])
   @@index([productId])
   @@index([tenantId, variantSizeId, status, blockedStartDate, blockedEndDate])
+  @@index([tenantId, sourceLocationId, variantSizeId, status, blockedStartDate, blockedEndDate])
+  @@index([inventoryPoolId, status, blockedStartDate, blockedEndDate])
   @@index([tenantId, status, expiresAt])
   @@map("inventory_reservations")
 }
@@ -1940,25 +2259,40 @@ model StockUnitAssignment {
 }
 
 model InventoryMovement {
-  id            String                @id @default(uuid())
-  tenantId      String                @map("tenant_id")
-  variantSizeId String?               @map("variant_size_id")
-  stockUnitId   String?               @map("stock_unit_id")
-  movementType  InventoryMovementType @map("movement_type")
-  quantityDelta Int?                  @map("quantity_delta")
-  beforeState   Json?                 @map("before_state") @db.JsonB
-  afterState    Json?                 @map("after_state") @db.JsonB
-  reason        String
-  actorUserId   String?               @map("actor_user_id")
-  createdAt     DateTime              @default(now()) @map("created_at")
+  id                    String                @id @default(uuid())
+  tenantId              String                @map("tenant_id")
+  variantSizeId         String?               @map("variant_size_id")
+  stockUnitId           String?               @map("stock_unit_id")
+  inventoryPoolId       String?               @map("inventory_pool_id")
+  originLocationId      String?               @map("origin_location_id")
+  destinationLocationId String?               @map("destination_location_id")
+  transferId            String?               @map("transfer_id")
+  transferLineId        String?               @map("transfer_line_id")
+  reservationId         String?               @map("reservation_id")
+  movementType          InventoryMovementType @map("movement_type")
+  quantityDelta         Int?                  @map("quantity_delta")
+  beforeState           Json?                 @map("before_state") @db.JsonB
+  afterState            Json?                 @map("after_state") @db.JsonB
+  reason                String
+  actorUserId           String?               @map("actor_user_id")
+  createdAt             DateTime              @default(now()) @map("created_at")
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id])
-  variantSize VariantSize? @relation(fields: [variantSizeId], references: [id], onDelete: SetNull)
-  stockUnit   StockUnit?   @relation(fields: [stockUnitId], references: [id], onDelete: SetNull)
-  actor       User?        @relation("InventoryMovementActor", fields: [actorUserId], references: [id])
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id])
+  variantSize         VariantSize?           @relation(fields: [variantSizeId], references: [id], onDelete: SetNull)
+  stockUnit           StockUnit?             @relation(fields: [stockUnitId], references: [id], onDelete: SetNull)
+  inventoryPool       InventoryPool?         @relation(fields: [inventoryPoolId], references: [id], onDelete: SetNull)
+  originLocation      InventoryLocation?     @relation("InventoryMovementOrigin", fields: [originLocationId], references: [id], onDelete: SetNull)
+  destinationLocation InventoryLocation?     @relation("InventoryMovementDestination", fields: [destinationLocationId], references: [id], onDelete: SetNull)
+  transfer            InventoryTransfer?     @relation(fields: [transferId], references: [id], onDelete: SetNull)
+  transferLine        InventoryTransferLine? @relation(fields: [transferLineId], references: [id], onDelete: SetNull)
+  reservation         InventoryReservation?  @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  actor               User?                  @relation("InventoryMovementActor", fields: [actorUserId], references: [id])
 
   @@index([tenantId, variantSizeId, createdAt])
   @@index([stockUnitId, createdAt])
+  @@index([inventoryPoolId, createdAt])
+  @@index([transferId, createdAt])
+  @@index([reservationId, createdAt])
   @@index([actorUserId])
   @@map("inventory_movements")
 }
@@ -1970,6 +2304,9 @@ model InventoryBlock {
   variantId       String?            @map("variant_id")
   variantSizeId   String?            @map("variant_size_id")
   stockUnitId     String?            @map("stock_unit_id")
+  locationId      String?            @map("location_id")
+  inventoryPoolId String?            @map("inventory_pool_id")
+  quantity        Int?
   startDate       DateTime           @map("start_date") @db.Date
   endDate         DateTime           @map("end_date") @db.Date
   blockType       InventoryBlockType @map("block_type")
@@ -1983,6 +2320,8 @@ model InventoryBlock {
   variant       ProductVariant?        @relation(fields: [variantId], references: [id], onDelete: Cascade)
   variantSize   VariantSize?           @relation(fields: [variantSizeId], references: [id], onDelete: Cascade)
   stockUnit     StockUnit?             @relation(fields: [stockUnitId], references: [id], onDelete: Cascade)
+  location      InventoryLocation?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  inventoryPool InventoryPool?         @relation(fields: [inventoryPoolId], references: [id], onDelete: Cascade)
   createdByUser User?                  @relation("InventoryBlockCreatedBy", fields: [createdByUserId], references: [id])
   serviceOrder  InventoryServiceOrder?
   inspection    StockUnitInspection?
@@ -1991,6 +2330,8 @@ model InventoryBlock {
   @@index([tenantId, variantId, startDate, endDate])
   @@index([tenantId, variantSizeId, startDate, endDate])
   @@index([tenantId, stockUnitId, startDate, endDate])
+  @@index([tenantId, locationId, startDate, endDate])
+  @@index([tenantId, inventoryPoolId, startDate, endDate])
   @@index([createdByUserId])
   @@map("inventory_blocks")
 }
@@ -2158,6 +2499,7 @@ model InventoryServiceOrder {
   status                   InventoryServiceOrderStatus @default(REQUESTED)
   isAvailabilityBlocking   Boolean                     @default(true) @map("is_availability_blocking")
   providerName             String?                     @map("provider_name")
+  serviceLocationId        String                      @map("service_location_id")
   locationLabel            String?                     @map("location_label")
   requestedByUserId        String                      @map("requested_by_user_id")
   completedByUserId        String?                     @map("completed_by_user_id")
@@ -2176,6 +2518,7 @@ model InventoryServiceOrder {
 
   tenant                Tenant                     @relation(fields: [tenantId], references: [id])
   stockUnit             StockUnit                  @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  serviceLocation       InventoryLocation          @relation(fields: [serviceLocationId], references: [id], onDelete: Restrict)
   issue                 StockUnitIssue?            @relation(fields: [issueId], references: [id], onDelete: SetNull)
   sourceInspection      StockUnitInspection?       @relation("ServiceOrderSourceInspection", fields: [sourceInspectionId], references: [id], onDelete: SetNull)
   completionInspections StockUnitInspection[]      @relation("ServiceCompletionInspection")
@@ -2193,6 +2536,7 @@ model InventoryServiceOrder {
   @@index([requestedByUserId])
   @@index([completedByUserId])
   @@index([tenantId, expectedCompletionAt])
+  @@index([tenantId, serviceLocationId, status])
   @@map("inventory_service_orders")
 }
 

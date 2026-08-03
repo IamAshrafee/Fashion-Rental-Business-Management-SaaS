@@ -22,12 +22,14 @@ import {
   UpdateStockUnitDto,
 } from './dto/inventory.dto';
 import { StockUnitLifecycleService } from './stock-unit-lifecycle.service';
+import { InventoryLocationService } from './inventory-location.service';
 
 @Injectable()
 export class InventoryManagementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lifecycle: StockUnitLifecycleService,
+    private readonly locations: InventoryLocationService,
   ) {}
 
   async getProductInventory(tenantId: string, productId: string) {
@@ -237,6 +239,7 @@ export class InventoryManagementService {
       where: { tenantId, variantSizeId, deletedAt: null },
       orderBy: [{ status: 'asc' }, { assetCode: 'asc' }],
       include: {
+        location: true,
         blocks: { where: { endDate: { gte: this.startOfToday() } }, orderBy: { startDate: 'asc' } },
         componentStates: {
           include: { setComponentDefinition: true },
@@ -271,15 +274,21 @@ export class InventoryManagementService {
         if (sku.trackingMode !== InventoryTrackingMode.SERIALIZED) {
           throw new ConflictException('Physical units can only be added to serialized inventory');
         }
+        await this.locations.getActiveOrThrow(
+          tx,
+          tenantId,
+          dto.locationId,
+          'canStoreInventory',
+        );
 
         const unit = await tx.stockUnit.create({
           data: {
             tenantId,
             variantSizeId,
+            locationId: dto.locationId,
             assetCode: dto.assetCode.trim(),
             barcode: dto.barcode?.trim() || null,
             condition: dto.condition ?? StockConditionGrade.GOOD,
-            locationLabel: dto.locationLabel?.trim() || null,
             purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
             purchasePrice: dto.purchasePrice ?? null,
             notes: dto.notes?.trim() || null,
@@ -291,6 +300,7 @@ export class InventoryManagementService {
             tenantId,
             variantSizeId,
             stockUnitId: unit.id,
+            destinationLocationId: dto.locationId,
             movementType: InventoryMovementType.UNIT_REGISTERED,
             afterState: this.json(unit),
             reason: 'Physical unit registered',
@@ -323,7 +333,6 @@ export class InventoryManagementService {
             ...(dto.assetCode !== undefined ? { assetCode: dto.assetCode.trim() } : {}),
             ...(dto.barcode !== undefined ? { barcode: dto.barcode.trim() || null } : {}),
             ...(dto.condition !== undefined ? { condition: dto.condition } : {}),
-            ...(dto.locationLabel !== undefined ? { locationLabel: dto.locationLabel.trim() || null } : {}),
             ...(dto.purchaseDate !== undefined ? { purchaseDate: new Date(dto.purchaseDate) } : {}),
             ...(dto.purchasePrice !== undefined ? { purchasePrice: dto.purchasePrice } : {}),
             ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
