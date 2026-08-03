@@ -28,12 +28,6 @@ export function useSubmitProduct(clearDraft: () => void) {
         sizeSchemaOverrideId: data.sizeSchemaOverrideId,
 
         // Legacy shipping (still on product, not on pricing engine)
-        pricing: {
-          mode: 'one_time' as const,
-          shippingMode: data.shippingMode,
-          shippingFee: data.flatShippingFee,
-        },
-
         faqs: data.faqs?.map(faq => ({
           question: faq.question,
           answer: faq.answer,
@@ -57,12 +51,36 @@ export function useSubmitProduct(clearDraft: () => void) {
         toast.loading('Setting up pricing...', { id: 'submit-product' });
 
         // Build components array
-        const components = (data.pricingComponents || []).map((comp) => ({
+        const components: Array<{
+          type: string;
+          config: Record<string, unknown>;
+          chargeTiming: string;
+          refundable: boolean;
+        }> = (data.pricingComponents || []).map((comp) => ({
           type: comp.type === 'ADDON_BACKUP' || comp.type === 'ADDON_TRYON' ? 'ADDON' : comp.type,
-          config: comp.config,
+          config: {
+            ...comp.config,
+            ...(comp.type === 'ADDON_BACKUP'
+              ? { purpose: 'BACKUP_SIZE', addonId: 'BACKUP_SIZE' }
+              : comp.type === 'ADDON_TRYON'
+                ? { purpose: 'TRY_ON', addonId: 'TRY_ON' }
+                : {}),
+          },
           chargeTiming: 'AT_BOOKING',
           refundable: comp.type === 'DEPOSIT',
         }));
+        if (data.shippingMode === 'flat' && (data.flatShippingFee ?? 0) > 0) {
+          components.push({
+            type: 'FEE',
+            config: {
+              label: 'Delivery fee',
+              purpose: 'DELIVERY',
+              pricing: { mode: 'FLAT', amountMinor: data.flatShippingFee ?? 0 },
+            },
+            chargeTiming: 'AT_BOOKING',
+            refundable: false,
+          });
+        }
 
         // Build late fee policy
         const lateFeePolicy = data.lateFeeEnabled
@@ -96,9 +114,6 @@ export function useSubmitProduct(clearDraft: () => void) {
           sizes: (variant.sizeInstanceIds || []).map((sizeInstanceId) => ({
             sizeInstanceId,
             trackingMode: variant.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
-            pooledQuantity: variant.inventoryBySizeId?.[sizeInstanceId]?.trackingMode === 'SERIALIZED'
-              ? 0
-              : (variant.inventoryBySizeId?.[sizeInstanceId]?.pooledQuantity ?? 1),
           })),
           identicalColorIds: variant.identicalColorIds,
         });

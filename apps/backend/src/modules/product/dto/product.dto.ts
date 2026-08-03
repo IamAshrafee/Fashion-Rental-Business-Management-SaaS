@@ -12,46 +12,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { InventoryTrackingMode } from '@prisma/client';
-
-// --- Pricing DTO ---
-export class SetPricingDto {
-  @IsEnum(['one_time', 'per_day', 'percentage'])
-  mode!: 'one_time' | 'per_day' | 'percentage';
-
-  @IsOptional() @IsInt() rentalPrice?: number;
-  @IsOptional() @IsInt() @Min(1) includedDays?: number;
-  @IsOptional() @IsInt() pricePerDay?: number;
-  @IsOptional() @IsInt() @Min(1) minimumDays?: number;
-  @IsOptional() @IsInt() retailPrice?: number;
-  @IsOptional() @IsInt() rentalPercentage?: number; // stored as whole number (20 = 20%)
-  @IsOptional() @IsInt() priceOverride?: number;
-  @IsOptional() @IsInt() minInternalPrice?: number;
-  @IsOptional() @IsInt() maxDiscountPrice?: number;
-  @IsOptional() @IsInt() extendedRentalRate?: number;
-
-  @IsOptional() @IsEnum(['fixed', 'percentage', 'per_day']) lateFeeType?: string;
-  @IsOptional() @IsInt() lateFeeAmount?: number;
-  @IsOptional() @IsInt() lateFeePercentage?: number;
-  @IsOptional() @IsInt() maxLateFee?: number;
-
-  @IsOptional() @IsEnum(['flat', 'calculated', 'free']) shippingMode?: string;
-  @IsOptional() @IsInt() shippingFee?: number;
-}
-
-// --- Services DTO ---
-export class SetServicesDto {
-  @IsOptional() @IsInt() depositAmount?: number;
-  @IsOptional() @IsInt() cleaningFee?: number;
-  @IsOptional() @IsBoolean() backupSizeEnabled?: boolean;
-  @IsOptional() @IsInt() backupSizeFee?: number;
-  @IsOptional() @IsBoolean() tryOnEnabled?: boolean;
-  @IsOptional() @IsInt() tryOnFee?: number;
-  @IsOptional() @IsInt() @Min(1) tryOnDurationHours?: number;
-  @IsOptional() @IsBoolean() tryOnCreditToRental?: boolean;
-}
-
-
+import { InventoryTrackingMode, StorefrontItemVisibilityMode } from '@prisma/client';
 
 // --- FAQ DTOs ---
 export class CreateFaqDto {
@@ -97,20 +58,11 @@ export class VariantSizeInventoryDto {
   @IsEnum(InventoryTrackingMode)
   trackingMode?: InventoryTrackingMode;
 
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  pooledQuantity?: number;
 }
 
 export class CreateVariantDto {
   @IsOptional() @IsString() variantName?: string;
   @IsString() mainColorId!: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  sizeInstanceIds?: string[];
 
   @IsOptional()
   @IsArray()
@@ -129,10 +81,6 @@ export class CreateVariantDto {
 export class UpdateVariantDto {
   @IsOptional() @IsString() variantName?: string;
   @IsOptional() @IsString() mainColorId?: string;
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  sizeInstanceIds?: string[];
 
   @IsOptional()
   @IsArray()
@@ -199,9 +147,7 @@ export class CreateProductDto {
   @IsOptional() @IsString() itemCountry?: string;
   @IsOptional() @IsBoolean() itemCountryPublic?: boolean;
   @IsOptional() @IsInt() targetRentals?: number;
-
-  @IsOptional() @ValidateNested() @Type(() => SetPricingDto) pricing?: SetPricingDto;
-  @IsOptional() @ValidateNested() @Type(() => SetServicesDto) services?: SetServicesDto;
+  @IsOptional() @IsEnum(StorefrontItemVisibilityMode) storefrontItemMode?: StorefrontItemVisibilityMode;
 
   @IsOptional() @IsString() productTypeId?: string;
   @IsOptional() @IsString() sizeSchemaOverrideId?: string;
@@ -236,9 +182,7 @@ export class UpdateProductDto {
   @IsOptional() @IsString() itemCountry?: string;
   @IsOptional() @IsBoolean() itemCountryPublic?: boolean;
   @IsOptional() @IsInt() targetRentals?: number;
-
-  @IsOptional() @ValidateNested() @Type(() => SetPricingDto) pricing?: SetPricingDto;
-  @IsOptional() @ValidateNested() @Type(() => SetServicesDto) services?: SetServicesDto;
+  @IsOptional() @IsEnum(StorefrontItemVisibilityMode) storefrontItemMode?: StorefrontItemVisibilityMode;
 
   @IsOptional() @IsString() productTypeId?: string;
   @IsOptional() @IsString() sizeSchemaOverrideId?: string;
@@ -254,13 +198,6 @@ export class UpdateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateDetailHeaderDto)
   details?: CreateDetailHeaderDto[];
-}
-
-// --- Date Block DTOs ---
-export class CreateDateBlockDto {
-  @IsDateString() startDate!: string;
-  @IsDateString() endDate!: string;
-  @IsOptional() @IsString() reason?: string;
 }
 
 // --- Storefront Showcase DTO (landing page APIs) ---

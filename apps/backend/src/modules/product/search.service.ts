@@ -73,17 +73,17 @@ export class SearchService {
       where: { id: { in: productIds } },
       include: {
         category: { select: { id: true, name: true, slug: true } },
-        pricing: {
+        pricingProfile: {
           select: {
-            mode: true,
-            rentalPrice: true,
-            pricePerDay: true,
-            calculatedPrice: true,
-            priceOverride: true,
-            includedDays: true,
+            headlinePriceMinor: true,
+            headlineLabel: true,
+            policyVersions: {
+              where: { status: 'ACTIVE' },
+              take: 1,
+              select: { ratePlans: { orderBy: { priority: 'desc' }, take: 1 } },
+            },
           },
         },
-        services: { select: { depositAmount: true } },
         variants: {
           orderBy: { sequence: 'asc' },
           take: 1,
@@ -202,12 +202,12 @@ export class SearchService {
         },
       }),
       // Price range
-      this.prisma.productPricing.aggregate({
+      this.prisma.pricingProfile.aggregate({
         where: {
           product: baseWhere,
         },
-        _min: { rentalPrice: true },
-        _max: { rentalPrice: true },
+        _min: { headlinePriceMinor: true },
+        _max: { headlinePriceMinor: true },
       }),
     ]);
 
@@ -219,8 +219,8 @@ export class SearchService {
         .filter((e) => e._count.products > 0)
         .map((e) => ({ slug: e.slug, name: e.name, count: e._count.products })),
       priceRange: {
-        min: priceRange._min.rentalPrice || 0,
-        max: priceRange._max.rentalPrice || 0,
+        min: priceRange._min.headlinePriceMinor || 0,
+        max: priceRange._max.headlinePriceMinor || 0,
       },
     };
   }

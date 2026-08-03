@@ -12,6 +12,7 @@ export interface GuestProductCard {
   events: Array<{ id: string; name: string }>;
   rentalPrice: number | null;
   pricingMode: string | null;
+  priceLabel: string | null;
   includedDays: number | null;
   depositAmount: number;
   isAvailable: boolean;
@@ -41,29 +42,7 @@ export interface GuestProductDetail {
   category: { id: string; name: string; slug: string } | null;
   subcategory: { id: string; name: string; slug: string } | null;
   events: Array<{ id: string; name: string; slug: string }>;
-  pricing: {
-    mode: string;
-    rentalPrice: number | null;
-    includedDays: number | null;
-    pricePerDay: number | null;
-    minimumDays: number | null;
-    retailPrice: number | null;
-    calculatedPrice: number | null;
-    priceOverride: number | null;
-    extendedRentalRate: number | null;
-    shippingMode: string | null;
-    shippingFee: number | null;
-  } | null;
-  services: {
-    depositAmount: number | null;
-    cleaningFee: number | null;
-    backupSizeEnabled: boolean;
-    backupSizeFee: number | null;
-    tryOnEnabled: boolean;
-    tryOnFee: number | null;
-    tryOnDurationHours: number | null;
-    tryOnCreditToRental: boolean;
-  } | null;
+  pricing: import('./products').PricingProfileData | null;
   headlinePricing?: {
     price: number;
     label: string;
@@ -82,7 +61,6 @@ export interface GuestProductDetail {
       variantSizeId: string;
       sizeInstance: import('./products').SizeInstanceData;
       trackingMode: 'POOLED' | 'SERIALIZED';
-      pooledQuantity: number;
       totalCapacity: number;
     }>;
     images: Array<{
@@ -184,6 +162,38 @@ export interface DateRangeCheck {
     trackingMode: 'POOLED' | 'SERIALIZED';
   };
   [key: string]: unknown;
+}
+
+export interface PublicItemOptions {
+  mode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION';
+  summary: Array<{
+    condition: string;
+    count: number;
+    minimumAdjustment: number;
+    maximumAdjustment: number;
+  }>;
+  items: Array<{
+    id: string;
+    label: string;
+    condition: string;
+    conditionNote: string | null;
+    priceAdjustment: number;
+    available: boolean;
+    media: Array<{ id: string; url: string; caption: string | null }>;
+  }>;
+}
+
+export async function getPublicItemOptions(
+  productId: string,
+  variantSizeId: string,
+  startDate: string,
+  endDate: string,
+): Promise<PublicItemOptions> {
+  const response = await apiClient.get<ApiResponse<PublicItemOptions>>(`/products/${productId}/item-options`, {
+    params: { variantSizeId, startDate, endDate, quantity: 1 },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Unable to load item options');
+  return response.data.data;
 }
 
 // ─── API Functions ────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { trackBooking } from '@/lib/api/guest-booking';
 import {
@@ -58,6 +58,14 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function GuestBookingTrackPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-gray-500">Loading booking tracker…</div>}>
+      <GuestBookingTrackContent />
+    </Suspense>
+  );
+}
+
+function GuestBookingTrackContent() {
   const searchParams = useSearchParams();
   const initialOrderNumber = searchParams?.get('number') || '';
   const { formatPrice } = useLocale();

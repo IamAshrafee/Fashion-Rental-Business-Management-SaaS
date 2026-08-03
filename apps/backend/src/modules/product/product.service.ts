@@ -49,6 +49,7 @@ export class ProductService {
           itemCountry: dto.itemCountry ?? null,
           itemCountryPublic: dto.itemCountryPublic ?? false,
           targetRentals: dto.targetRentals ?? null,
+          storefrontItemMode: dto.storefrontItemMode,
         },
       });
 
@@ -62,54 +63,7 @@ export class ProductService {
         });
       }
 
-      // 3. Create pricing
-      if (dto.pricing) {
-        const calculatedPrice = this.calculatePrice(dto.pricing);
-        await tx.productPricing.create({
-          data: {
-            tenantId,
-            productId: product.id,
-            mode: dto.pricing.mode,
-            rentalPrice: dto.pricing.rentalPrice ?? null,
-            includedDays: dto.pricing.includedDays ?? null,
-            pricePerDay: dto.pricing.pricePerDay ?? null,
-            minimumDays: dto.pricing.minimumDays ?? null,
-            retailPrice: dto.pricing.retailPrice ?? null,
-            rentalPercentage: dto.pricing.rentalPercentage ?? null,
-            calculatedPrice,
-            priceOverride: dto.pricing.priceOverride ?? null,
-            minInternalPrice: dto.pricing.minInternalPrice ?? null,
-            maxDiscountPrice: dto.pricing.maxDiscountPrice ?? null,
-            extendedRentalRate: dto.pricing.extendedRentalRate ?? null,
-            lateFeeType: dto.pricing.lateFeeType as any /* eslint-disable-line @typescript-eslint/no-explicit-any */ ?? null,
-            lateFeeAmount: dto.pricing.lateFeeAmount ?? null,
-            lateFeePercentage: dto.pricing.lateFeePercentage ?? null,
-            maxLateFee: dto.pricing.maxLateFee ?? null,
-            shippingMode: dto.pricing.shippingMode as any /* eslint-disable-line @typescript-eslint/no-explicit-any */ ?? null,
-            shippingFee: dto.pricing.shippingFee ?? null,
-          },
-        });
-      }
-
-      // 4. Create services
-      if (dto.services) {
-        await tx.productServices.create({
-          data: {
-            tenantId,
-            productId: product.id,
-            depositAmount: dto.services.depositAmount ?? null,
-            cleaningFee: dto.services.cleaningFee ?? null,
-            backupSizeEnabled: dto.services.backupSizeEnabled ?? false,
-            backupSizeFee: dto.services.backupSizeFee ?? null,
-            tryOnEnabled: dto.services.tryOnEnabled ?? false,
-            tryOnFee: dto.services.tryOnFee ?? null,
-            tryOnDurationHours: dto.services.tryOnDurationHours ?? 24,
-            tryOnCreditToRental: dto.services.tryOnCreditToRental ?? false,
-          },
-        });
-      }
-
-      // 5. Create FAQs
+      // 3. Create FAQs
       if (dto.faqs?.length) {
         await tx.productFaq.createMany({
           data: dto.faqs.map((faq, i) => ({
@@ -173,6 +127,7 @@ export class ProductService {
     if (dto.itemCountry !== undefined) data.itemCountry = dto.itemCountry;
     if (dto.itemCountryPublic !== undefined) data.itemCountryPublic = dto.itemCountryPublic;
     if (dto.targetRentals !== undefined) data.targetRentals = dto.targetRentals;
+    if (dto.storefrontItemMode !== undefined) data.storefrontItemMode = dto.storefrontItemMode;
     if (dto.productTypeId !== undefined) data.productTypeId = dto.productTypeId || null;
     if (dto.sizeSchemaOverrideId !== undefined) data.sizeSchemaOverrideId = dto.sizeSchemaOverrideId || null;
 
@@ -194,14 +149,6 @@ export class ProductService {
             })),
           });
         }
-      }
-
-      // Update nested objects if provided
-      if (dto.pricing) {
-        await this.upsertPricing(tx, tenantId, productId, dto.pricing);
-      }
-      if (dto.services) {
-        await this.upsertServices(tx, tenantId, productId, dto.services);
       }
 
       // Replace FAQs if provided (bulk replace strategy)
@@ -401,13 +348,10 @@ export class ProductService {
         data: { productId: null },
       });
 
-      // Delete date blocks (scheduling data, meaningless without the product)
-      await tx.dateBlock.deleteMany({ where: { productId } });
-
       // Delete reviews (no value once product is permanently gone)
       await tx.review.deleteMany({ where: { productId } });
 
-      // Now delete the product (variants, pricing, services, etc. cascade automatically)
+      // Now delete the product; dependent catalog and inventory definitions cascade.
       await tx.product.delete({ where: { id: productId } });
     });
 
@@ -759,16 +703,6 @@ export class ProductService {
         orderBy: query.status === 'trash' ? { deletedAt: 'desc' } : { createdAt: 'desc' },
         include: {
           category: { select: { id: true, name: true, slug: true } },
-          pricing: {
-            select: {
-              mode: true,
-              rentalPrice: true,
-              pricePerDay: true,
-              calculatedPrice: true,
-              priceOverride: true,
-              minInternalPrice: true,
-            },
-          },
           pricingProfile: {
             include: {
               policyVersions: {
@@ -804,7 +738,7 @@ export class ProductService {
         return {
           ...product,
           rentalPrice: headline?.price ?? 0,
-          pricingMode: headline?.mode ?? product.pricing?.mode ?? null,
+          pricingMode: headline?.mode ?? null,
           variants: product.variants.map((variant) => ({
             id: variant.id,
             colorName: variant.mainColor.name,
@@ -872,13 +806,6 @@ export class ProductService {
     return slug;
   }
 
-  private calculatePrice(pricing: { mode: string; rentalPrice?: number; retailPrice?: number; rentalPercentage?: number }): number | null {
-    if (pricing.mode === 'percentage' && pricing.retailPrice && pricing.rentalPercentage) {
-      return Math.round(pricing.retailPrice * (pricing.rentalPercentage / 100));
-    }
-    return null;
-  }
-
   private buildGuestWhere(tenantId: string, query: ProductQueryDto): Prisma.ProductWhereInput {
     const where: Prisma.ProductWhereInput = {
       tenantId,
@@ -909,16 +836,12 @@ export class ProductService {
       };
     }
     if (query.minPrice || query.maxPrice) {
-      where.pricing = {};
-      if (query.minPrice) {
-        where.pricing.rentalPrice = { gte: query.minPrice };
-      }
-      if (query.maxPrice) {
-        where.pricing.rentalPrice = {
-          ...(where.pricing.rentalPrice as Record<string, number> || {}),
-          lte: query.maxPrice,
-        };
-      }
+      where.pricingProfile = {
+        headlinePriceMinor: {
+          ...(query.minPrice ? { gte: query.minPrice } : {}),
+          ...(query.maxPrice ? { lte: query.maxPrice } : {}),
+        },
+      };
     }
 
     return where;
@@ -929,9 +852,9 @@ export class ProductService {
 
     switch (sort) {
       case 'price_asc':
-        return { pricing: { rentalPrice: 'asc' } };
+        return { pricingProfile: { headlinePriceMinor: 'asc' } };
       case 'price_desc':
-        return { pricing: { rentalPrice: 'desc' } };
+        return { pricingProfile: { headlinePriceMinor: 'desc' } };
       case 'popularity':
         return [
           { popularityScore: 'desc' },
@@ -956,21 +879,6 @@ export class ProductService {
       events: {
         include: { event: { select: { id: true, name: true } } },
       },
-      pricing: {
-        select: {
-          mode: true,
-          rentalPrice: true,
-          includedDays: true,
-          pricePerDay: true,
-          calculatedPrice: true,
-          priceOverride: true,
-          shippingMode: true,
-          shippingFee: true,
-        },
-      },
-      services: {
-        select: { depositAmount: true },
-      },
       pricingProfile: {
         include: {
           policyVersions: {
@@ -980,7 +888,8 @@ export class ProductService {
               ratePlans: {
                 orderBy: { priority: 'desc' },
                 take: 1
-              }
+              },
+              priceComponents: true,
             }
           }
         }
@@ -1008,8 +917,6 @@ export class ProductService {
       events: {
         include: { event: { select: { id: true, name: true, slug: true } } },
       },
-      pricing: true,
-      services: true,
       pricingProfile: {
         include: {
           policyVersions: {
@@ -1054,10 +961,14 @@ export class ProductService {
           sizes: {
             include: {
               sizeInstance: true,
+              inventoryPools: {
+                where: { location: { isActive: true } },
+                select: { onHandQuantity: true },
+              },
               _count: {
                 select: {
                   stockUnits: {
-                    where: { status: 'ACTIVE', deletedAt: null },
+                    where: { disposition: 'ACTIVE', deletedAt: null },
                   },
                 },
               },
@@ -1084,28 +995,13 @@ export class ProductService {
 
   private computeHeadlinePrice(product: any): { price: number; label: string; mode: string } | null {
     const activeVersion = product.pricingProfile?.policyVersions?.[0];
-    if (activeVersion && activeVersion.ratePlans?.length > 0) {
-      const ratePlan = activeVersion.ratePlans[0]; // Already sorted by priority desc
-      const config = ratePlan.config;
-      switch (ratePlan.type) {
-        case 'PER_DAY':
-          return { price: config.unitPriceMinor || 0, label: '/day', mode: 'PER_DAY' };
-        case 'FLAT_PERIOD':
-          return { price: config.flatPriceMinor || 0, label: `/${config.includedDays} days`, mode: 'FLAT_PERIOD' };
-        case 'TIERED_DAILY':
-          return { price: config.tiers?.[0]?.pricePerDayMinor || 0, label: '/day', mode: 'TIERED_DAILY' };
-        case 'WEEKLY_MONTHLY':
-          return { price: config.dailyPriceMinor || config.weeklyPriceMinor || config.monthlyPriceMinor || 0, label: '', mode: 'WEEKLY_MONTHLY' };
-        case 'PERCENT_RETAIL':
-          return { price: 0, label: `${config.percent}% of retail`, mode: 'PERCENT_RETAIL' };
-      }
-    }
-    
-    // Fallback to legacy
-    const p = product.pricing;
-    if (!p) return null;
-    const price = p.priceOverride || (p.mode === 'one_time' ? p.rentalPrice : p.mode === 'per_day' ? p.pricePerDay : p.calculatedPrice) || p.rentalPrice;
-    return { price, label: '', mode: p.mode || '' };
+    const ratePlan = activeVersion?.ratePlans?.[0];
+    if (!product.pricingProfile || !ratePlan) return null;
+    return {
+      price: product.pricingProfile.headlinePriceMinor,
+      label: product.pricingProfile.headlineLabel ?? '',
+      mode: ratePlan.type,
+    };
   }
 
   private mapProductCard(product: any) {
@@ -1123,7 +1019,13 @@ export class ProductService {
       events: product.events?.map((pe: any) => pe.event) || [],
       rentalPrice: headline?.price || 0,
       pricingMode: headline?.mode || null,
-      includedDays: product.pricing?.includedDays || null, // Keep legacy or rely on headline label in Frontend
+      priceLabel: headline?.label || null,
+      includedDays:
+        product.pricingProfile?.policyVersions?.[0]?.ratePlans?.[0]?.type === 'FLAT_PERIOD'
+          ? Number(
+              product.pricingProfile.policyVersions[0].ratePlans[0].config?.includedDays ?? 0,
+            ) || null
+          : null,
       depositAmount: this.computeDeposit(product),
       isAvailable: product.isAvailable,
       totalBookings: product.totalBookings,
@@ -1146,7 +1048,7 @@ export class ProductService {
         return depositComponent.config.pricing.amountMinor;
       }
     }
-    return product.services?.depositAmount || 0;
+    return 0;
   }
 
   private mapProductDetail(product: any) {
@@ -1163,11 +1065,13 @@ export class ProductService {
           variantSizeId: s.id,
           sizeInstance: s.sizeInstance,
           trackingMode: s.trackingMode,
-          pooledQuantity: s.pooledQuantity,
           totalCapacity:
             s.trackingMode === 'SERIALIZED'
               ? (s._count?.stockUnits ?? 0)
-              : s.pooledQuantity,
+              : s.inventoryPools?.reduce(
+                  (sum: number, pool: { onHandQuantity: number }) => sum + pool.onHandQuantity,
+                  0,
+                ) ?? 0,
         })) || [],
       })),
       details: product.detailHeaders?.map((h: any) => ({
@@ -1191,18 +1095,29 @@ export class ProductService {
         name: product.productType.name,
         slug: product.productType.slug,
       } : null,
-      // Pass the computed legacy info mapped from new engine
-      headlinePricing: this.computeHeadlinePrice(product)
+      pricing: this.mapActivePricing(product.pricingProfile),
+      headlinePricing: this.computeHeadlinePrice(product),
     };
   }
 
-  private getEffectivePrice(pricing: any): number | null {
-    if (!pricing) return null;
-    if (pricing.priceOverride) return pricing.priceOverride;
-    if (pricing.mode === 'one_time') return pricing.rentalPrice;
-    if (pricing.mode === 'per_day') return pricing.pricePerDay;
-    if (pricing.mode === 'percentage') return pricing.calculatedPrice;
-    return pricing.rentalPrice;
+  private mapActivePricing(profile: any) {
+    const version = profile?.policyVersions?.[0];
+    const ratePlan = version?.ratePlans?.[0];
+    if (!profile || !version || !ratePlan) return null;
+    const delivery = version.priceComponents?.find(
+      (component: any) => component.type === 'FEE' && component.config?.purpose === 'DELIVERY',
+    );
+    return {
+      profileId: profile.id,
+      policyVersionId: version.id,
+      currency: profile.currency,
+      ratePlanType: ratePlan.type,
+      ratePlanConfig: ratePlan.config,
+      components: version.priceComponents,
+      lateFeePolicy: version.lateFeePolicy,
+      shippingMode: delivery ? 'flat' : 'free',
+      shippingFee: delivery?.config?.pricing?.amountMinor ?? 0,
+    };
   }
 
   private async assertPublishReady(tenantId: string, productId: string): Promise<void> {
@@ -1210,7 +1125,6 @@ export class ProductService {
       where: { id: productId, tenantId, deletedAt: null },
       select: {
         categoryId: true,
-        pricing: { select: { id: true } },
         pricingProfile: {
           select: {
             policyVersions: {
@@ -1226,10 +1140,13 @@ export class ProductService {
             sizes: {
               select: {
                 trackingMode: true,
-                pooledQuantity: true,
+                inventoryPools: {
+                  where: { location: { isActive: true } },
+                  select: { onHandQuantity: true },
+                },
                 _count: {
                   select: {
-                    stockUnits: { where: { status: 'ACTIVE', deletedAt: null } },
+                    stockUnits: { where: { disposition: 'ACTIVE', deletedAt: null } },
                   },
                 },
               },
@@ -1244,12 +1161,11 @@ export class ProductService {
     const hasCapacity = product.variants.some((variant) =>
       variant.sizes.some((size) =>
         size.trackingMode === 'POOLED'
-          ? size.pooledQuantity > 0
+          ? size.inventoryPools.some((pool) => pool.onHandQuantity > 0)
           : size._count.stockUnits > 0,
       ),
     );
-    const hasLegacyPricing = Boolean(product.pricing);
-    const hasActiveV2Pricing = Boolean(
+    const hasActivePricing = Boolean(
       product.pricingProfile?.policyVersions.some((version) => version.ratePlans.length > 0),
     );
 
@@ -1258,7 +1174,7 @@ export class ProductService {
     if (product.variants.length === 0) missing.push('variant');
     if (!hasFeaturedImage) missing.push('featured image');
     if (!hasCapacity) missing.push('rentable inventory');
-    if (!hasLegacyPricing && !hasActiveV2Pricing) missing.push('active pricing');
+    if (!hasActivePricing) missing.push('active pricing');
 
     if (missing.length > 0) {
       throw new UnprocessableEntityException({
@@ -1269,80 +1185,4 @@ export class ProductService {
     }
   }
 
-  private async upsertPricing(tx: any, tenantId: string, productId: string, pricing: any) {
-    const calculatedPrice = this.calculatePrice(pricing);
-    await tx.productPricing.upsert({
-      where: { productId },
-      create: {
-        tenantId,
-        productId,
-        mode: pricing.mode,
-        rentalPrice: pricing.rentalPrice ?? null,
-        includedDays: pricing.includedDays ?? null,
-        pricePerDay: pricing.pricePerDay ?? null,
-        minimumDays: pricing.minimumDays ?? null,
-        retailPrice: pricing.retailPrice ?? null,
-        rentalPercentage: pricing.rentalPercentage ?? null,
-        calculatedPrice,
-        priceOverride: pricing.priceOverride ?? null,
-        minInternalPrice: pricing.minInternalPrice ?? null,
-        maxDiscountPrice: pricing.maxDiscountPrice ?? null,
-        extendedRentalRate: pricing.extendedRentalRate ?? null,
-        lateFeeType: pricing.lateFeeType ?? null,
-        lateFeeAmount: pricing.lateFeeAmount ?? null,
-        lateFeePercentage: pricing.lateFeePercentage ?? null,
-        maxLateFee: pricing.maxLateFee ?? null,
-        shippingMode: pricing.shippingMode ?? null,
-        shippingFee: pricing.shippingFee ?? null,
-      },
-      update: {
-        mode: pricing.mode,
-        rentalPrice: pricing.rentalPrice ?? null,
-        includedDays: pricing.includedDays ?? null,
-        pricePerDay: pricing.pricePerDay ?? null,
-        minimumDays: pricing.minimumDays ?? null,
-        retailPrice: pricing.retailPrice ?? null,
-        rentalPercentage: pricing.rentalPercentage ?? null,
-        calculatedPrice,
-        priceOverride: pricing.priceOverride ?? null,
-        minInternalPrice: pricing.minInternalPrice ?? null,
-        maxDiscountPrice: pricing.maxDiscountPrice ?? null,
-        extendedRentalRate: pricing.extendedRentalRate ?? null,
-        lateFeeType: pricing.lateFeeType ?? null,
-        lateFeeAmount: pricing.lateFeeAmount ?? null,
-        lateFeePercentage: pricing.lateFeePercentage ?? null,
-        maxLateFee: pricing.maxLateFee ?? null,
-        shippingMode: pricing.shippingMode ?? null,
-        shippingFee: pricing.shippingFee ?? null,
-      },
-    });
-  }
-
-  private async upsertServices(tx: any, tenantId: string, productId: string, services: any) {
-    await tx.productServices.upsert({
-      where: { productId },
-      create: {
-        tenantId,
-        productId,
-        depositAmount: services.depositAmount ?? null,
-        cleaningFee: services.cleaningFee ?? null,
-        backupSizeEnabled: services.backupSizeEnabled ?? false,
-        backupSizeFee: services.backupSizeFee ?? null,
-        tryOnEnabled: services.tryOnEnabled ?? false,
-        tryOnFee: services.tryOnFee ?? null,
-        tryOnDurationHours: services.tryOnDurationHours ?? 24,
-        tryOnCreditToRental: services.tryOnCreditToRental ?? false,
-      },
-      update: {
-        depositAmount: services.depositAmount ?? undefined,
-        cleaningFee: services.cleaningFee ?? undefined,
-        backupSizeEnabled: services.backupSizeEnabled ?? undefined,
-        backupSizeFee: services.backupSizeFee ?? undefined,
-        tryOnEnabled: services.tryOnEnabled ?? undefined,
-        tryOnFee: services.tryOnFee ?? undefined,
-        tryOnDurationHours: services.tryOnDurationHours ?? undefined,
-        tryOnCreditToRental: services.tryOnCreditToRental ?? undefined,
-      },
-    });
-  }
 }

@@ -53,11 +53,11 @@ import {
 } from '@/components/ui/table';
 
 function statusVariant(
-  status: StockUnit['status'],
+  disposition: StockUnit['disposition'],
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (status === 'ACTIVE') return 'default';
-  if (status === 'MAINTENANCE') return 'secondary';
-  if (status === 'LOST') return 'destructive';
+  if (disposition === 'ACTIVE') return 'default';
+  if (disposition === 'QUARANTINED') return 'secondary';
+  if (disposition === 'LOST') return 'destructive';
   return 'outline';
 }
 
@@ -409,7 +409,7 @@ function SerializedUnits({ productId, sku }: { productId: string; sku: ProductIn
                 <TableRow key={unit.id}>
                   <TableCell className="font-mono text-xs">{unit.assetCode}</TableCell>
                   <TableCell>
-                    <Badge variant={statusVariant(unit.status)}>{unit.disposition}</Badge>
+                    <Badge variant={statusVariant(unit.disposition)}>{unit.disposition}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{unit.operationalState.replaceAll('_', ' ')}</Badge>
@@ -613,10 +613,21 @@ function InventorySkuCard({ productId, sku }: { productId: string; sku: ProductI
 
 export default function ProductInventoryPage() {
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
   const inventoryQuery = useQuery({
     queryKey: ['product-inventory', id],
     queryFn: () => productApi.getInventory(id),
     enabled: !!id,
+  });
+  const updateVisibility = useMutation({
+    mutationFn: (storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION') =>
+      productApi.updateProduct(id, { storefrontItemMode }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['product-inventory', id] });
+      toast.success('Storefront item visibility updated');
+    },
+    onError: (error: unknown) =>
+      toast.error(apiErrorMessage(error, 'Could not update storefront visibility')),
   });
 
   if (inventoryQuery.isLoading)
@@ -670,6 +681,33 @@ export default function ProductInventoryPage() {
           <Badge>{available} available today</Badge>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Customer-facing physical item policy</CardTitle>
+          <CardDescription>
+            Keep pieces internal, show anonymous condition counts, or let customers select an approved serialized piece.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="max-w-md">
+          <Select
+            value={product.storefrontItemMode}
+            disabled={updateVisibility.isPending}
+            onValueChange={(value) =>
+              updateVisibility.mutate(
+                value as 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION',
+              )
+            }
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="INTERNAL_ONLY">Internal assignment only</SelectItem>
+              <SelectItem value="CONDITION_SUMMARY">Show condition summary</SelectItem>
+              <SelectItem value="SPECIFIC_ITEM_SELECTION">Customer selects a piece</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
       <AvailabilityCalendar productId={id} />
 

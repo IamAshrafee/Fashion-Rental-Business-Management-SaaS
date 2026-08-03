@@ -27,6 +27,7 @@ import {
   CreateSkuSetComponentDto,
   CreateStockUnitInspectionDto,
   ResolveStockUnitIssueDto,
+  ReplaceStockUnitReferenceMediaDto,
   StartInventoryServiceOrderDto,
   TransitionStockUnitOperationalStateDto,
   UpdateStockUnitComponentStateDto,
@@ -122,6 +123,22 @@ export class InventoryOperationsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.inspections.complete(tenant.id, inspectionId, dto, request.user.id);
+  }
+
+  @Patch('stock-units/:stockUnitId/reference-media')
+  @Roles('owner', 'manager')
+  async replaceReferenceMedia(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('stockUnitId') stockUnitId: string,
+    @Body() dto: ReplaceStockUnitReferenceMediaDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.inspections.replaceReferenceMedia(
+      tenant.id,
+      stockUnitId,
+      dto,
+      request.user.id,
+    );
   }
 
   @Post('issues/:issueId/resolve')

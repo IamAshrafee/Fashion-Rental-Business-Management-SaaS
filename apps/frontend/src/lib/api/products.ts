@@ -72,38 +72,23 @@ export interface ProductListItem {
   deletedAt?: string | null;
 }
 
-export interface ProductPricingData {
-  id: string;
-  mode: string;
-  rentalPrice: number | null;
-  includedDays: number | null;
-  pricePerDay: number | null;
-  minimumDays: number | null;
-  retailPrice: number | null;
-  rentalPercentage: number | null;
-  calculatedPrice: number | null;
-  priceOverride: number | null;
-  minInternalPrice: number | null;
-  maxDiscountPrice: number | null;
-  extendedRentalRate: number | null;
-  lateFeeType: string | null;
-  lateFeeAmount: number | null;
-  lateFeePercentage: number | null;
-  maxLateFee: number | null;
-  shippingMode: string | null;
-  shippingFee: number | null;
-}
-
-export interface ProductServicesData {
-  id: string;
-  depositAmount: number | null;
-  cleaningFee: number | null;
-  backupSizeEnabled: boolean;
-  backupSizeFee: number | null;
-  tryOnEnabled: boolean;
-  tryOnFee: number | null;
-  tryOnDurationHours: number | null;
-  tryOnCreditToRental: boolean;
+export interface PricingProfileData {
+  profileId: string;
+  policyVersionId: string;
+  currency: string;
+  ratePlanType: 'PER_DAY' | 'FLAT_PERIOD' | 'TIERED_DAILY' | 'WEEKLY_MONTHLY' | 'PERCENT_RETAIL';
+  ratePlanConfig: Record<string, unknown>;
+  components: Array<{
+    id: string;
+    type: string;
+    config: Record<string, unknown>;
+    refundable: boolean;
+    visibility: string;
+    chargeTiming: string;
+  }>;
+  lateFeePolicy: Record<string, unknown> | null;
+  shippingMode: 'free' | 'flat';
+  shippingFee: number;
 }
 
 export interface ProductTypeData {
@@ -171,7 +156,6 @@ export interface ProductVariantData {
     id: string;
     sizeInstanceId: string;
     trackingMode: 'POOLED' | 'SERIALIZED';
-    pooledQuantity: number;
     inventoryVersion: number;
     sizeInstance: SizeInstanceData;
     _count?: { stockUnits: number };
@@ -214,6 +198,7 @@ export interface ProductDetail {
   subcategoryId: string | null;
   status: string;
   isAvailable: boolean;
+  storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION';
   availableFrom: string | null;
   unavailableReason: string | null;
   purchaseDate: string | null;
@@ -232,8 +217,7 @@ export interface ProductDetail {
   category: { id: string; name: string; slug: string };
   subcategory: { id: string; name: string; slug: string } | null;
   events: Array<{ event: { id: string; name: string; slug: string } }>;
-  pricing: ProductPricingData | null;
-  services: ProductServicesData | null;
+  pricing: PricingProfileData | null;
   productType: ProductTypeData | null;
   sizeSchemaOverride: SizeSchemaData | null;
   sizing: SizingPayload | null;
@@ -341,7 +325,7 @@ export const productApi = {
     return data.data;
   },
 
-  addVariant: async (productId: string, payload: { variantName?: string; mainColorId: string; sizeInstanceIds?: string[]; sizes?: VariantSizeInventoryInput[]; identicalColorIds?: string[] }): Promise<{ id: string }> => {
+  addVariant: async (productId: string, payload: { variantName?: string; mainColorId: string; sizes?: VariantSizeInventoryInput[]; identicalColorIds?: string[] }): Promise<{ id: string }> => {
     const { data } = await apiClient.post<ApiResponse<{ id: string }>>(`/owner/products/${productId}/variants`, payload);
     return data.data;
   },
@@ -376,7 +360,7 @@ export const productApi = {
   updateVariant: async (
     productId: string,
     variantId: string,
-    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[]; sizeInstanceIds?: string[]; sizes?: VariantSizeInventoryInput[] },
+    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[]; sizes?: VariantSizeInventoryInput[] },
   ): Promise<Record<string, unknown>> => {
     const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
       `/owner/products/${productId}/variants/${variantId}`,
@@ -497,6 +481,11 @@ export const productApi = {
     return data.data;
   },
 
+  updateStockUnit: async (stockUnitId: string, payload: Record<string, unknown>): Promise<StockUnit> => {
+    const { data } = await apiClient.patch<ApiResponse<StockUnit>>(`/owner/stock-units/${stockUnitId}`, payload);
+    return data.data;
+  },
+
   changeStockUnitLifecycle: async (stockUnitId: string, action: 'maintenance' | 'restore' | 'retire' | 'lost', reason: string): Promise<void> => {
     await apiClient.post(`/owner/stock-units/${stockUnitId}/${action}`, { reason });
   },
@@ -525,7 +514,6 @@ export type InventoryTrackingMode = 'POOLED' | 'SERIALIZED';
 export interface VariantSizeInventoryInput {
   sizeInstanceId: string;
   trackingMode: InventoryTrackingMode;
-  pooledQuantity: number;
 }
 
 export interface ProductInventorySize {
@@ -556,6 +544,7 @@ export interface ProductInventory {
   name: string;
   status: string;
   isAvailable: boolean;
+  storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION';
   variants: Array<{
     id: string;
     variantName: string | null;
@@ -568,10 +557,14 @@ export interface StockUnit {
   id: string;
   assetCode: string;
   barcode: string | null;
-  status: 'ACTIVE' | 'MAINTENANCE' | 'RETIRED' | 'LOST';
   condition: 'NEW' | 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'DAMAGED';
   disposition: 'ACTIVE' | 'QUARANTINED' | 'LOST' | 'RETIRED';
   operationalState: 'AVAILABLE' | 'PREPARING' | 'READY' | 'OUT_FOR_RENTAL' | 'AWAITING_INSPECTION' | 'CLEANING' | 'WASHING' | 'REPAIRING' | 'IN_TRANSFER';
+  storefrontVisible: boolean;
+  publicConditionNote: string | null;
+  rentalPriceAdjustment: number;
+  estimatedCurrentValue: number | null;
+  storefrontSortOrder: number;
   locationId: string;
   location: { id: string; code: string; name: string };
   notes: string | null;
@@ -607,7 +600,6 @@ export interface InventoryCalendar {
   to: string;
   reservations: InventoryCalendarEntry[];
   blocks: InventoryCalendarEntry[];
-  legacyBlocks: InventoryCalendarEntry[];
 }
 
 export interface InventoryMovement {

@@ -11,7 +11,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CustomerService } from '../customer/customer.service';
 import { PricingEngineService } from '../pricing-engine/pricing-engine.service';
 import { BookingStatus, CancelledBy, DamageLevel, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
-import type { ProductPricing, ProductServices } from '@prisma/client';
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service';
 import { InventoryReservationService } from '../inventory/inventory-reservation.service';
 import { FulfillmentService, RequirementProposal } from '../inventory/fulfillment.service';
@@ -20,7 +19,6 @@ import {
   ValidateCartDto,
   CartItemDto,
   BookingQueryDto,
-  BlockDatesDto,
   CreateDamageReportDto,
   CancelBookingDto,
 } from './dto/booking.dto';
@@ -111,7 +109,7 @@ export class BookingService {
   ) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId, status: 'published', isAvailable: true, deletedAt: null },
-      include: { pricing: true, services: true },
+      select: { id: true },
     });
 
     if (!product) {
@@ -131,8 +129,6 @@ export class BookingService {
     // Calculate pricing
     const pricing = await this.calculatePricingForDates(
       product.id,
-      product.pricing,
-      product.services,
       {
         startDate,
         endDate,
@@ -197,6 +193,7 @@ export class BookingService {
             variantSizeId: item.variantSizeId,
             quantity: item.quantity,
             selections: item.compositionSelections,
+            preferredStockUnitId: item.preferredStockUnitId,
           });
           result.itemTotal += proposals.reduce((sum, proposal) => sum + proposal.priceAdjustment, 0);
           for (const proposal of proposals) {
@@ -204,6 +201,7 @@ export class BookingService {
               tenantId,
               productId: proposal.productId,
               variantSizeId: proposal.variantSizeId,
+              preferredStockUnitId: proposal.preferredStockUnitId,
               startDate: item.startDate,
               endDate: item.endDate,
               quantity: proposal.quantity,
@@ -334,6 +332,7 @@ export class BookingService {
           tenantId,
           productId: item.productId,
           variantSizeId: item.variantSizeId,
+          preferredStockUnitId: item.preferredStockUnitId,
           quantity: item.quantity,
           selections: item.compositionSelections,
         }));
@@ -352,20 +351,6 @@ export class BookingService {
 
         // Apply per-item price override if provided (manual booking power-up)
         if ('priceOverride' in item && item.priceOverride !== undefined && item.priceOverride !== null) {
-          const product = await tx.product.findFirst({
-            where: { id: item.productId, tenantId },
-            include: { pricing: true },
-          });
-          const minPrice = product?.pricing?.minInternalPrice ?? 0;
-
-          if (item.priceOverride < minPrice && minPrice > 0) {
-            // Soft warn — allow but log it for audit
-            this.logger.warn(
-              `Price override ৳${item.priceOverride} is below minInternalPrice ৳${minPrice} ` +
-              `for product "${result.productName}" (tenant: ${tenantId}). Allowing with audit flag.`,
-            );
-          }
-
           // Override the base rental and recalculate item total
           const originalBaseRental = result.baseRental;
           result.baseRental = item.priceOverride;
@@ -473,19 +458,9 @@ export class BookingService {
         // Build sizeInfo string from selectedSize
         const sizeInfo = item.sizeLabel || cartItem.selectedSize || null;
 
-        // Create booking item
-        // M1 FIX: Credit try-on fee toward rental when tryOnCreditToRental is enabled
-        const productServices = await tx.productServices.findUnique({
-          where: { productId: item.productId },
-          select: { tryOnCreditToRental: true },
-        });
-        let effectiveTryOnFee = item.tryOnFee;
-        let adjustedItemTotal = item.itemTotal;
-        if (effectiveTryOnFee > 0 && productServices?.tryOnCreditToRental === true) {
-          // Try-on fee is credited toward the rental, reducing the itemTotal
-          adjustedItemTotal = Math.max(0, item.itemTotal - effectiveTryOnFee);
-          effectiveTryOnFee = 0; // Fee was credited, so effective charge is 0
-        }
+        // Pricing components are already resolved and snapshotted by the pricing engine.
+        const effectiveTryOnFee = item.tryOnFee;
+        const adjustedItemTotal = item.itemTotal;
 
         const bookingItem = await tx.bookingItem.create({
           data: {
@@ -741,15 +716,6 @@ export class BookingService {
           include: {
             damageReport: true,
             variantSize: { include: { sizeInstance: true } },
-            inventoryReservations: {
-              include: {
-                assignments: {
-                  where: { releasedAt: null },
-                  include: { stockUnit: true },
-                },
-                fulfillmentRequirement: true,
-              },
-            },
             fulfillmentRequirements: {
               include: {
                 compositionRule: true,
@@ -1037,13 +1003,6 @@ export class BookingService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      // Keep legacy booking blocks synchronized while they still exist.
-      if (newStatus === 'confirmed') {
-        await tx.dateBlock.updateMany({
-          where: { bookingId, tenantId, blockType: 'pending' },
-          data: { blockType: 'booking' },
-        });
-      }
       await this.fulfillment.assertAndTransitionBooking(
         tx,
         tenantId,
@@ -1117,8 +1076,6 @@ export class BookingService {
         },
       });
 
-      // Release date blocks
-      await tx.dateBlock.deleteMany({ where: { bookingId, tenantId } });
       await this.fulfillment.assertAndTransitionBooking(
         tx,
         tenantId,
@@ -1251,8 +1208,6 @@ export class BookingService {
           include: {
             product: {
               include: {
-                pricing: true,
-                // M5 FIX: Also load pricing profile for new engine late fees
                 pricingProfile: {
                   include: {
                     policyVersions: {
@@ -1286,30 +1241,12 @@ export class BookingService {
 
       let lateFee = 0;
 
-      // M5 FIX: Try new pricing engine's late fee policy first
       const activeVersion = (item.product as any)?.pricingProfile?.policyVersions?.[0];
-      if (activeVersion?.lateFeePolicy) {
-        // Use pricing engine's computeLateFee
-        lateFee = this.pricingEngineService.computeLateFee(
-          activeVersion.lateFeePolicy,
-          item.baseRental,
-          lateDays,
-        );
-      } else {
-        // Fall back to legacy ProductPricing late fee
-        const pricing = item.product?.pricing;
-        if (pricing?.lateFeeType === 'fixed' && pricing.lateFeeAmount) {
-          lateFee = pricing.lateFeeAmount * lateDays;
-        } else if (pricing?.lateFeeType === 'percentage' && pricing.lateFeePercentage) {
-          const pct = Number(pricing.lateFeePercentage) / 100;
-          lateFee = Math.ceil(item.baseRental * pct * lateDays);
-        }
-
-        // Cap late fee (legacy)
-        if (pricing?.maxLateFee && lateFee > pricing.maxLateFee) {
-          lateFee = pricing.maxLateFee;
-        }
-      }
+      lateFee = this.pricingEngineService.computeLateFee(
+        activeVersion?.lateFeePolicy ?? null,
+        item.baseRental,
+        lateDays,
+      );
 
       updates.push(
         this.prisma.bookingItem.update({
@@ -1324,68 +1261,6 @@ export class BookingService {
     }
 
     return { bookingId, lateItemsUpdated: updates.length };
-  }
-
-  // =========================================================================
-  // MANUAL DATE BLOCKING
-  // =========================================================================
-
-  async blockDates(tenantId: string, dto: BlockDatesDto) {
-    // Validate product belongs to tenant
-    const product = await this.prisma.product.findFirst({
-      where: { id: dto.productId, tenantId, deletedAt: null },
-    });
-    if (!product) throw new NotFoundException('Product not found');
-
-    const startDate = new Date(dto.startDate);
-    const endDate = new Date(dto.endDate);
-
-    if (startDate > endDate) {
-      throw new BadRequestException('Start date must be before end date');
-    }
-
-    // Check for conflicts with existing blocks
-    const conflict = await this.prisma.dateBlock.findFirst({
-      where: {
-        tenantId,
-        productId: dto.productId,
-        startDate: { lte: endDate },
-        endDate: { gte: startDate },
-      },
-    });
-
-    if (conflict) {
-      throw new ConflictException('These dates conflict with an existing booking or block');
-    }
-
-    const block = await this.prisma.dateBlock.create({
-      data: {
-        tenantId,
-        productId: dto.productId,
-        startDate,
-        endDate,
-        blockType: 'manual',
-        reason: dto.reason ?? null,
-      },
-    });
-
-    return block;
-  }
-
-  async unblockDates(tenantId: string, blockId: string) {
-    const block = await this.prisma.dateBlock.findFirst({
-      where: { id: blockId, tenantId },
-    });
-    if (!block) throw new NotFoundException('Date block not found');
-
-    if (block.blockType !== 'manual') {
-      throw new UnprocessableEntityException(
-        'Only manual date blocks can be removed. To release a booking block, cancel the booking.',
-      );
-    }
-
-    await this.prisma.dateBlock.delete({ where: { id: blockId } });
-    return { message: 'Date block removed' };
   }
 
   // =========================================================================
@@ -1428,8 +1303,6 @@ export class BookingService {
     const product = await tx.product.findFirst({
       where: { id: item.productId, tenantId, deletedAt: null },
       include: {
-        pricing: true,
-        services: true,
         variants: {
           where: { id: item.variantId },
           include: {
@@ -1523,6 +1396,7 @@ export class BookingService {
           tenantId,
           productId: item.productId,
           variantSizeId: item.variantSizeId,
+          preferredStockUnitId: item.preferredStockUnitId,
           startDate: item.startDate,
           endDate: item.endDate,
           quantity,
@@ -1537,19 +1411,38 @@ export class BookingService {
 
     const unitPricing = await this.calculatePricingForDates(
       product.id,
-      product.pricing,
-      product.services,
       item,
+    );
+    const preferredUnit = item.preferredStockUnitId
+      ? await tx.stockUnit.findFirst({
+          where: {
+            id: item.preferredStockUnitId,
+            tenantId,
+            variantSizeId: item.variantSizeId,
+            storefrontVisible: true,
+            variantSize: {
+              variant: {
+                product: { id: item.productId, storefrontItemMode: 'SPECIFIC_ITEM_SELECTION' },
+              },
+            },
+          },
+          select: { rentalPriceAdjustment: true },
+        })
+      : null;
+    const adjustedBaseRental = Math.max(
+      0,
+      unitPricing.baseRental + (preferredUnit?.rentalPriceAdjustment ?? 0),
     );
     const pricing: PricingSnapshot = {
       ...unitPricing,
-      baseRental: unitPricing.baseRental * quantity,
+      baseRental: adjustedBaseRental * quantity,
       extendedCost: unitPricing.extendedCost * quantity,
       depositAmount: unitPricing.depositAmount * quantity,
       cleaningFee: unitPricing.cleaningFee * quantity,
       backupSizeFee: unitPricing.backupSizeFee * quantity,
       tryOnFee: unitPricing.tryOnFee * quantity,
-      itemTotal: unitPricing.itemTotal * quantity,
+      itemTotal:
+        (unitPricing.itemTotal - unitPricing.baseRental + adjustedBaseRental) * quantity,
     };
 
     return {
@@ -1574,76 +1467,14 @@ export class BookingService {
    */
   private async calculatePricingForDates(
     productId: string,
-    pricing: ProductPricing | null,
-    services: ProductServices | null,
     item: { startDate: string; endDate: string; backupSize?: string; tryOn?: boolean },
   ): Promise<PricingSnapshot> {
-    // 1. Try resolving using determinative pricing engine v2
-    const enginePricing = await this.pricingEngineService.computeLegacyPricing(
+    return this.pricingEngineService.computeBookingPricing(
       productId,
       item.startDate,
       item.endDate,
-      { backupSize: item.backupSize, tryOn: item.tryOn }
+      { backupSize: item.backupSize, tryOn: item.tryOn },
     );
-    if (enginePricing) return enginePricing;
-
-    // 2. Fallback backward compatibility calculation if legacy product
-    const start = new Date(item.startDate);
-    const end = new Date(item.endDate);
-    const rentalDays =
-      Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-
-    // Base rental calculation
-    let baseRental = 0;
-    let extendedDays = 0;
-    let extendedCost = 0;
-
-    if (pricing) {
-      if (pricing.mode === 'one_time') {
-        // Fixed price for included days, extended rate for extra days
-        const effectivePrice = pricing.priceOverride ?? pricing.rentalPrice ?? 0;
-        const includedDays = pricing.includedDays ?? rentalDays;
-
-        if (rentalDays <= includedDays) {
-          baseRental = effectivePrice;
-        } else {
-          baseRental = effectivePrice;
-          extendedDays = rentalDays - includedDays;
-          extendedCost = Math.ceil(extendedDays * (pricing.extendedRentalRate ?? 0));
-        }
-      } else if (pricing.mode === 'per_day') {
-        const minimumDays = pricing.minimumDays ?? 1;
-        baseRental = Math.ceil(Math.max(rentalDays, minimumDays) * (pricing.pricePerDay ?? 0));
-      } else if (pricing.mode === 'percentage') {
-        // Use calculated price (pre-computed from retailPrice * percentage)
-        baseRental = pricing.priceOverride ?? pricing.calculatedPrice ?? 0;
-      }
-    }
-
-    // Service fees (snapshot from ProductServices)
-    const depositAmount = services?.depositAmount ?? 0;
-    const cleaningFee = services?.cleaningFee ?? 0;
-    const backupSizeFee = item.backupSize && services?.backupSizeEnabled ? (services?.backupSizeFee ?? 0) : 0;
-    const tryOnFee = item.tryOn && services?.tryOnEnabled ? (services?.tryOnFee ?? 0) : 0;
-
-    // Shipping fee from product pricing
-    const shippingFee =
-      pricing?.shippingMode === 'flat' ? (pricing?.shippingFee ?? 0) : 0;
-
-    const itemTotal = baseRental + extendedCost + cleaningFee + backupSizeFee + tryOnFee;
-
-    return {
-      rentalDays,
-      baseRental,
-      extendedDays,
-      extendedCost,
-      depositAmount,
-      cleaningFee,
-      backupSizeFee,
-      tryOnFee,
-      shippingFee,
-      itemTotal,
-    };
   }
 
   /**

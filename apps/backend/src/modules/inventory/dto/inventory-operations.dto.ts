@@ -57,6 +57,14 @@ export class InventoryMediaInputDto {
   capturedAt?: string;
 }
 
+export class ReplaceStockUnitReferenceMediaDto {
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => InventoryMediaInputDto)
+  media!: InventoryMediaInputDto[];
+}
+
 export class TransitionStockUnitOperationalStateDto {
   @IsEnum(StockUnitOperationalState)
   targetState!: StockUnitOperationalState;

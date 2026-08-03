@@ -7,7 +7,6 @@ import { BookingSchedulerService } from './booking-scheduler.service';
 import {
   BookingGuestController,
   BookingOwnerController,
-  DateBlockController,
 } from './booking.controller';
 import { PricingEngineModule } from '../pricing-engine/pricing-engine.module'; // Added PricingEngineModule
 import { InventoryModule } from '../inventory/inventory.module';
@@ -17,7 +16,7 @@ import { InventoryModule } from '../inventory/inventory.module';
  *
  * Handles: Availability checking, cart validation, atomic booking creation,
  * booking lifecycle state machine, late fee calculation, damage reports,
- * manual date blocking, and booking queries/stats.
+ * inventory-aware availability, and booking queries/stats.
  *
  * Depends on:
  * - PrismaModule for database access
@@ -33,11 +32,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     InventoryModule,
     ScheduleModule.forRoot(),
   ],
-  controllers: [
-    BookingGuestController,
-    BookingOwnerController,
-    DateBlockController,
-  ],
+  controllers: [BookingGuestController, BookingOwnerController],
   providers: [BookingService, BookingSchedulerService],
   exports: [BookingService],
 })

@@ -167,7 +167,7 @@ export function ImageUploader({ images = [], onChange, maxImages = 10, className
   };
 
   const handleRemove = (id: string) => {
-    let updated = images.filter((img) => img.id !== id);
+    const updated = images.filter((img) => img.id !== id);
     // If we removed the featured image and there are still images left, make the first one featured
     if (images.find((img) => img.id === id)?.isFeatured && updated.length > 0) {
       updated[0].isFeatured = true;

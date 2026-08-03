@@ -23,8 +23,6 @@ import {
   CreateVariantDto,
   UpdateVariantDto,
   ReorderDto,
-  SetPricingDto,
-  SetServicesDto,
   CreateFaqDto,
   UpdateFaqDto,
   CreateDetailHeaderDto,
@@ -294,31 +292,6 @@ export class ProductOwnerController {
     @Body() dto: ReorderDto,
   ) {
     return this.variantService.reorderVariants(tenant.id, productId, dto);
-  }
-
-  // --- Pricing ---
-
-  @Post(':id/pricing')
-  @Roles('owner', 'manager')
-  async setPricing(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') productId: string,
-    @Body() dto: SetPricingDto,
-  ) {
-    // Upsert pricing via product update
-    return this.productService.update(tenant.id, productId, { pricing: dto });
-  }
-
-  // --- Services ---
-
-  @Post(':id/services')
-  @Roles('owner', 'manager')
-  async setServices(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') productId: string,
-    @Body() dto: SetServicesDto,
-  ) {
-    return this.productService.update(tenant.id, productId, { services: dto });
   }
 
   // --- FAQs ---

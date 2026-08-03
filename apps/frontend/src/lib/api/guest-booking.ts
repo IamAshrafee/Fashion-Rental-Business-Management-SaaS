@@ -8,6 +8,7 @@ export interface CartValidationRequest {
     productId: string;
     variantId: string;
     variantSizeId: string;
+    preferredStockUnitId?: string;
     quantity: number;
     startDate: string;
     endDate: string;
@@ -87,6 +88,7 @@ export interface CheckoutPayload {
     productId: string;
     variantId: string;
     variantSizeId: string;
+    preferredStockUnitId?: string;
     quantity: number;
     startDate: string;
     endDate: string;

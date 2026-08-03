@@ -39,7 +39,7 @@ describe('InventoryReservationService', () => {
     expect(tx.inventoryReservation.updateMany).not.toHaveBeenCalled();
   });
 
-  it('keeps confirmation compatible with legacy bookings that have no reservations', async () => {
+  it('refuses to confirm a booking that has no inventory reservations', async () => {
     const tx = {
       inventoryReservation: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -48,7 +48,7 @@ describe('InventoryReservationService', () => {
     };
 
     await expect(
-      service.transitionForBooking(tx as never, 'tenant-1', 'legacy-booking', BookingStatus.confirmed),
-    ).resolves.toBeUndefined();
+      service.transitionForBooking(tx as never, 'tenant-1', 'booking-without-inventory', BookingStatus.confirmed),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVENTORY_RESERVATION_MISSING' }) });
   });
 });

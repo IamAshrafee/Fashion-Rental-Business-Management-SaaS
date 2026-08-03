@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -93,6 +94,28 @@ export class CreateStockUnitDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  storefrontVisible?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  publicConditionNote?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(-100_000_000)
+  @Max(100_000_000)
+  rentalPriceAdjustment?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  estimatedCurrentValue?: number;
 }
 
 export class UpdateStockUnitDto {
@@ -130,6 +153,34 @@ export class UpdateStockUnitDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  storefrontVisible?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  publicConditionNote?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(-100_000_000)
+  @Max(100_000_000)
+  rentalPriceAdjustment?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  estimatedCurrentValue?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  storefrontSortOrder?: number;
 }
 
 export class StockUnitLifecycleDto {

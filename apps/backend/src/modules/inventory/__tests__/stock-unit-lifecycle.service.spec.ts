@@ -2,7 +2,6 @@ import { ConflictException } from '@nestjs/common';
 import {
   StockUnitDisposition,
   StockUnitOperationalState,
-  StockUnitStatus,
 } from '@prisma/client';
 import { StockUnitLifecycleService } from '../stock-unit-lifecycle.service';
 
@@ -14,7 +13,6 @@ describe('StockUnitLifecycleService', () => {
     id: 'unit-1',
     tenantId: 'tenant-1',
     variantSizeId: 'sku-1',
-    status: StockUnitStatus.ACTIVE,
     disposition: StockUnitDisposition.ACTIVE,
     operationalState: StockUnitOperationalState.AVAILABLE,
     retiredAt: null,
@@ -55,7 +53,7 @@ describe('StockUnitLifecycleService', () => {
     expect(tx.stockUnit.update).not.toHaveBeenCalled();
   });
 
-  it('records a valid return transition and keeps compatibility status synchronized', async () => {
+  it('records a valid return transition', async () => {
     const tx = transaction({
       stockUnit: {
         findFirst: jest.fn().mockResolvedValue({
@@ -79,7 +77,6 @@ describe('StockUnitLifecycleService', () => {
       where: { id: 'unit-1' },
       data: expect.objectContaining({
         operationalState: StockUnitOperationalState.AWAITING_INSPECTION,
-        status: StockUnitStatus.ACTIVE,
       }),
     });
     expect(tx.stockUnitLifecycleEvent.create).toHaveBeenCalled();

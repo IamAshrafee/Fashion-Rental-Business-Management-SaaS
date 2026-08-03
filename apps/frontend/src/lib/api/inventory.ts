@@ -91,6 +91,16 @@ export interface InventoryOverview {
       variant: { variantName: string | null; product: { id: string; name: string } };
     };
   }>;
+  conditionSummary: Array<{
+    condition: StockConditionGrade;
+    _count: { _all: number };
+  }>;
+  economics: {
+    acquisitionCost: number;
+    estimatedCurrentValue: number;
+    completedServiceCost: number;
+    completedServiceOrders: number;
+  };
 }
 
 export interface InventoryItem {
@@ -102,6 +112,10 @@ export interface InventoryItem {
   operationalState: StockUnitOperationalState;
   purchaseDate: string | null;
   purchasePrice: number | null;
+  estimatedCurrentValue: number | null;
+  storefrontVisible: boolean;
+  publicConditionNote: string | null;
+  rentalPriceAdjustment: number;
   notes: string | null;
   location: { id: string; code: string; name: string };
   variantSize: {
@@ -114,6 +128,7 @@ export interface InventoryItem {
     };
   };
   _count: { inspections: number; issues: number; serviceOrders: number };
+  rentalMetrics: { completedRentals: number; totalRentalDays: number };
 }
 
 export type AvailabilityPolicyScope = 'TENANT' | 'LOCATION' | 'PRODUCT' | 'SKU';

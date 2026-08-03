@@ -49,6 +49,10 @@ export class CartItemDto {
   variantSizeId!: string;
 
   @IsOptional()
+  @IsUUID()
+  preferredStockUnitId?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -356,27 +360,6 @@ export class CreateDamageReportDto {
   @IsArray()
   @IsString({ each: true })
   photos?: string[];
-}
-
-// ============================================================================
-// DATE BLOCKING
-// ============================================================================
-
-export class BlockDatesDto {
-  @IsString()
-  @IsNotEmpty()
-  productId!: string;
-
-  @IsDateString()
-  startDate!: string;
-
-  @IsDateString()
-  endDate!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  reason?: string;
 }
 
 // ============================================================================

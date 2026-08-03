@@ -12,11 +12,13 @@ export interface InventoryAvailabilityInput {
   tenantId: string;
   productId: string;
   variantSizeId: string;
+  preferredStockUnitId?: string;
   sourceLocationId?: string;
   startDate: string | Date;
   endDate: string | Date;
   quantity?: number;
   enforcePublished?: boolean;
+  allowPreferredOutsideStorefrontMode?: boolean;
   excludeReservationId?: string;
 }
 
@@ -81,6 +83,7 @@ export class InventoryAvailabilityService {
                 isAvailable: true,
                 availableFrom: true,
                 deletedAt: true,
+                storefrontItemMode: true,
               },
             },
           },
@@ -96,6 +99,22 @@ export class InventoryAvailabilityService {
     );
     if (productReason) {
       return this.unavailableResult(input, quantity, rentalStart, rentalEnd, productReason, sku);
+    }
+    if (
+      input.preferredStockUnitId &&
+      (quantity !== 1 ||
+        (!input.allowPreferredOutsideStorefrontMode &&
+          sku.variant.product.storefrontItemMode !== 'SPECIFIC_ITEM_SELECTION') ||
+        sku.trackingMode !== InventoryTrackingMode.SERIALIZED)
+    ) {
+      return this.unavailableResult(
+        input,
+        quantity,
+        rentalStart,
+        rentalEnd,
+        'Specific item selection is not enabled for this product and SKU',
+        sku,
+      );
     }
 
     const locations = await db.inventoryLocation.findMany({
@@ -133,6 +152,120 @@ export class InventoryAvailabilityService {
       if (left.available !== right.available) return left.available ? -1 : 1;
       return right.remainingQuantity - left.remainingQuantity;
     })[0];
+  }
+
+  async listPublicItemOptions(
+    tenantId: string,
+    productId: string,
+    query: {
+      variantSizeId: string;
+      startDate: string;
+      endDate: string;
+    },
+  ) {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        tenantId,
+        status: 'published',
+        isAvailable: true,
+        deletedAt: null,
+      },
+      select: { storefrontItemMode: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+    if (product.storefrontItemMode === 'INTERNAL_ONLY') {
+      return { mode: product.storefrontItemMode, summary: [], items: [] };
+    }
+
+    const units = await this.prisma.stockUnit.findMany({
+      where: {
+        tenantId,
+        variantSizeId: query.variantSizeId,
+        variantSize: { variant: { productId } },
+        storefrontVisible: true,
+        disposition: 'ACTIVE',
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        condition: true,
+        publicConditionNote: true,
+        rentalPriceAdjustment: true,
+        storefrontSortOrder: true,
+        mediaAttachments: {
+          where: { isPublicApproved: true, purpose: 'UNIT_REFERENCE' },
+          orderBy: { createdAt: 'desc' },
+          take: 4,
+          select: { id: true, url: true, caption: true },
+        },
+      },
+      orderBy: [{ storefrontSortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    if (product.storefrontItemMode === 'CONDITION_SUMMARY') {
+      const datedUnits = await Promise.all(
+        units.map(async (unit) => ({
+          unit,
+          availability: await this.check({
+            tenantId,
+            productId,
+            variantSizeId: query.variantSizeId,
+            preferredStockUnitId: unit.id,
+            startDate: query.startDate,
+            endDate: query.endDate,
+            quantity: 1,
+            allowPreferredOutsideStorefrontMode: true,
+          }),
+        })),
+      );
+      const grouped = new Map<
+        string,
+        { condition: string; count: number; minimumAdjustment: number; maximumAdjustment: number }
+      >();
+      for (const { unit, availability } of datedUnits) {
+        if (!availability.available) continue;
+        const current = grouped.get(unit.condition) ?? {
+          condition: unit.condition,
+          count: 0,
+          minimumAdjustment: unit.rentalPriceAdjustment,
+          maximumAdjustment: unit.rentalPriceAdjustment,
+        };
+        current.count += 1;
+        current.minimumAdjustment = Math.min(current.minimumAdjustment, unit.rentalPriceAdjustment);
+        current.maximumAdjustment = Math.max(current.maximumAdjustment, unit.rentalPriceAdjustment);
+        grouped.set(unit.condition, current);
+      }
+      return {
+        mode: product.storefrontItemMode,
+        summary: [...grouped.values()],
+        items: [],
+      };
+    }
+
+    const items = await Promise.all(
+      units.map(async (unit, index) => {
+        const availability = await this.check({
+          tenantId,
+          productId,
+          variantSizeId: query.variantSizeId,
+          preferredStockUnitId: unit.id,
+          startDate: query.startDate,
+          endDate: query.endDate,
+          quantity: 1,
+        });
+        return {
+          id: unit.id,
+          label: `Piece ${index + 1}`,
+          condition: unit.condition,
+          conditionNote: unit.publicConditionNote,
+          priceAdjustment: unit.rentalPriceAdjustment,
+          media: unit.mediaAttachments,
+          available: availability.available,
+        };
+      }),
+    );
+    return { mode: product.storefrontItemMode, summary: [], items };
   }
 
   async getEffectiveBlockedRange(
@@ -251,6 +384,20 @@ export class InventoryAvailabilityService {
       );
     }
 
+    if (input.preferredStockUnitId) {
+      return this.checkPreferredUnitAtLocation(
+        db,
+        input,
+        sku,
+        location,
+        rentalStart,
+        rentalEnd,
+        blockedStart,
+        blockedEnd,
+        policy,
+      );
+    }
+
     const [totalCapacity, blockedQuantity, reservationAggregate] = await Promise.all([
       this.resolveCapacity(
         db,
@@ -313,12 +460,12 @@ export class InventoryAvailabilityService {
     variantSizeId: string,
     locationId: string,
     trackingMode: InventoryTrackingMode,
-    pooledQuantity: number,
+    onHandQuantity: number,
     policy: EffectiveAvailabilityPolicy,
     blockedStart: Date,
     blockedEnd: Date,
   ) {
-    if (trackingMode === InventoryTrackingMode.POOLED) return Math.max(0, pooledQuantity);
+    if (trackingMode === InventoryTrackingMode.POOLED) return Math.max(0, onHandQuantity);
     return db.stockUnit.count({
       where: {
         tenantId,
@@ -338,6 +485,111 @@ export class InventoryAvailabilityService {
         blocks: { none: { startDate: { lte: blockedEnd }, endDate: { gte: blockedStart } } },
       },
     });
+  }
+
+  private async checkPreferredUnitAtLocation(
+    db: InventoryDatabase,
+    input: InventoryAvailabilityInput,
+    sku: { id: string; variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
+    location: { id: string; code: string; name: string },
+    rentalStart: Date,
+    rentalEnd: Date,
+    blockedStart: Date,
+    blockedEnd: Date,
+    policy: EffectiveAvailabilityPolicy,
+  ): Promise<InventoryAvailabilityResult> {
+    const [eligibleUnit, overallCapacity, reservations] = await Promise.all([
+      db.stockUnit.findFirst({
+        where: {
+          id: input.preferredStockUnitId,
+          tenantId: input.tenantId,
+          variantSizeId: sku.id,
+          locationId: location.id,
+          storefrontVisible: true,
+          disposition: 'ACTIVE',
+          operationalState: { in: policy.eligibleOperationalStates },
+          condition: { in: policy.eligibleConditionGrades },
+          deletedAt: null,
+          issues: { none: { isAvailabilityBlocking: true, status: { in: ['OPEN', 'IN_SERVICE'] } } },
+          componentStates: {
+            none: {
+              setComponentDefinition: { isActive: true, absenceBlocksRental: true },
+              presence: { in: ['MISSING', 'DAMAGED'] },
+            },
+          },
+          blocks: { none: { startDate: { lte: blockedEnd }, endDate: { gte: blockedStart } } },
+          assignments: {
+            none: {
+              releasedAt: null,
+              blockedStartDate: { lte: blockedEnd },
+              blockedEndDate: { gte: blockedStart },
+            },
+          },
+        },
+        select: { id: true },
+      }),
+      this.resolveCapacity(
+        db,
+        input.tenantId,
+        sku.id,
+        location.id,
+        sku.trackingMode,
+        0,
+        policy,
+        blockedStart,
+        blockedEnd,
+      ),
+      db.inventoryReservation.findMany({
+        where: {
+          tenantId: input.tenantId,
+          sourceLocationId: location.id,
+          variantSizeId: sku.id,
+          ...(input.excludeReservationId ? { id: { not: input.excludeReservationId } } : {}),
+          blockedStartDate: { lte: blockedEnd },
+          blockedEndDate: { gte: blockedStart },
+          OR: [
+            { status: 'CONFIRMED' },
+            { status: 'PENDING', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          ],
+        },
+        select: { quantity: true, preferredStockUnitId: true },
+      }),
+    ]);
+
+    const selectedAlreadyReserved = reservations.some(
+      (reservation) => reservation.preferredStockUnitId === input.preferredStockUnitId,
+    );
+    const genericReserved = reservations
+      .filter((reservation) => reservation.preferredStockUnitId === null)
+      .reduce((sum, reservation) => sum + reservation.quantity, 0);
+    const otherSpecificUnits = new Set(
+      reservations.flatMap((reservation) =>
+        reservation.preferredStockUnitId &&
+        reservation.preferredStockUnitId !== input.preferredStockUnitId
+          ? [reservation.preferredStockUnitId]
+          : [],
+      ),
+    ).size;
+    const enoughUncommittedAlternatives =
+      genericReserved <= Math.max(0, overallCapacity - otherSpecificUnits - 1);
+    const available = Boolean(eligibleUnit) && !selectedAlreadyReserved && enoughUncommittedAlternatives;
+    return this.locationResult(
+      input,
+      sku,
+      location,
+      1,
+      rentalStart,
+      rentalEnd,
+      blockedStart,
+      blockedEnd,
+      policy,
+      {
+        totalCapacity: eligibleUnit ? 1 : 0,
+        blockedQuantity: 0,
+        reservedQuantity: available ? 0 : 1,
+        reason: available ? undefined : 'This physical item is unavailable for the selected dates',
+      },
+    );
   }
 
   private productUnavailableReason(

@@ -1,11 +1,20 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { CheckCircle2, ArrowRight, MessageCircle } from 'lucide-react';
 import { useTenant } from '@/hooks/use-tenant';
 
 export default function GuestBookingConfirmationPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-gray-500">Loading confirmation…</div>}>
+      <GuestBookingConfirmationContent />
+    </Suspense>
+  );
+}
+
+function GuestBookingConfirmationContent() {
   const searchParams = useSearchParams();
   const orderNumber = searchParams?.get('number');
   const { tenant } = useTenant();

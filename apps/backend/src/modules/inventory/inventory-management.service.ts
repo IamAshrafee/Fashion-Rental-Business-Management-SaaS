@@ -11,7 +11,6 @@ import {
   StockConditionGrade,
   StockUnitDisposition,
   StockUnitOperationalState,
-  StockUnitStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -40,6 +39,7 @@ export class InventoryManagementService {
         name: true,
         status: true,
         isAvailable: true,
+        storefrontItemMode: true,
         variants: {
           orderBy: { sequence: 'asc' },
           select: {
@@ -197,7 +197,7 @@ export class InventoryManagementService {
             where: {
               tenantId,
               variantSizeId,
-              status: { in: ['ACTIVE', 'MAINTENANCE'] },
+              disposition: { in: ['ACTIVE', 'QUARANTINED'] },
               deletedAt: null,
             },
           });
@@ -257,7 +257,7 @@ export class InventoryManagementService {
     await this.getVariantSize(this.prisma, tenantId, variantSizeId);
     return this.prisma.stockUnit.findMany({
       where: { tenantId, variantSizeId, deletedAt: null },
-      orderBy: [{ status: 'asc' }, { assetCode: 'asc' }],
+      orderBy: [{ disposition: 'asc' }, { operationalState: 'asc' }, { assetCode: 'asc' }],
       include: {
         location: true,
         blocks: { where: { endDate: { gte: this.startOfToday() } }, orderBy: { startDate: 'asc' } },
@@ -312,6 +312,10 @@ export class InventoryManagementService {
             purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
             purchasePrice: dto.purchasePrice ?? null,
             notes: dto.notes?.trim() || null,
+            storefrontVisible: dto.storefrontVisible ?? false,
+            publicConditionNote: dto.publicConditionNote?.trim() || null,
+            rentalPriceAdjustment: dto.rentalPriceAdjustment ?? 0,
+            estimatedCurrentValue: dto.estimatedCurrentValue ?? null,
           },
         });
 
@@ -356,6 +360,21 @@ export class InventoryManagementService {
             ...(dto.purchaseDate !== undefined ? { purchaseDate: new Date(dto.purchaseDate) } : {}),
             ...(dto.purchasePrice !== undefined ? { purchasePrice: dto.purchasePrice } : {}),
             ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
+            ...(dto.storefrontVisible !== undefined
+              ? { storefrontVisible: dto.storefrontVisible }
+              : {}),
+            ...(dto.publicConditionNote !== undefined
+              ? { publicConditionNote: dto.publicConditionNote.trim() || null }
+              : {}),
+            ...(dto.rentalPriceAdjustment !== undefined
+              ? { rentalPriceAdjustment: dto.rentalPriceAdjustment }
+              : {}),
+            ...(dto.estimatedCurrentValue !== undefined
+              ? { estimatedCurrentValue: dto.estimatedCurrentValue }
+              : {}),
+            ...(dto.storefrontSortOrder !== undefined
+              ? { storefrontSortOrder: dto.storefrontSortOrder }
+              : {}),
           },
         });
 
@@ -369,6 +388,23 @@ export class InventoryManagementService {
               beforeState: this.json({ condition: unit.condition }),
               afterState: this.json({ condition: updated.condition }),
               reason: dto.reason?.trim() || 'Condition updated',
+              actorUserId: actorUserId ?? null,
+            },
+          });
+        }
+        if (
+          dto.estimatedCurrentValue !== undefined &&
+          dto.estimatedCurrentValue !== unit.estimatedCurrentValue
+        ) {
+          await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              variantSizeId: unit.variantSizeId,
+              stockUnitId,
+              movementType: InventoryMovementType.VALUATION_CHANGED,
+              beforeState: this.json({ estimatedCurrentValue: unit.estimatedCurrentValue }),
+              afterState: this.json({ estimatedCurrentValue: updated.estimatedCurrentValue }),
+              reason: dto.reason?.trim() || 'Estimated current value updated',
               actorUserId: actorUserId ?? null,
             },
           });
@@ -471,7 +507,7 @@ export class InventoryManagementService {
       ? { variantSizeId: query.variantSizeId }
       : { variantSize: { variant: { productId } } };
 
-    const [reservations, blocks, legacyBlocks] = await Promise.all([
+    const [reservations, blocks] = await Promise.all([
       this.prisma.inventoryReservation.findMany({
         where: {
           tenantId,
@@ -513,13 +549,9 @@ export class InventoryManagementService {
           blockType: true,
         },
       }),
-      this.prisma.dateBlock.findMany({
-        where: { tenantId, productId, startDate: { lte: to }, endDate: { gte: from } },
-        select: { id: true, startDate: true, endDate: true, blockType: true },
-      }),
     ]);
 
-    return { productId, from: query.from, to: query.to, reservations, blocks, legacyBlocks };
+    return { productId, from: query.from, to: query.to, reservations, blocks };
   }
 
   async listMovements(tenantId: string, variantSizeId: string) {

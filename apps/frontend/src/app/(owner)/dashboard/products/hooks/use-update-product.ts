@@ -28,13 +28,6 @@ function buildUpdatePayload(data: ProductFormValues) {
     productTypeId: data.productTypeId,
     sizeSchemaOverrideId: data.sizeSchemaOverrideId,
 
-    // Legacy shipping 
-    pricing: {
-      mode: 'one_time' as const,
-      shippingMode: data.shippingMode,
-      shippingFee: data.flatShippingFee,
-    },
-
     faqs: data.faqs?.map((faq) => ({
       question: faq.question,
       answer: faq.answer,
@@ -79,12 +72,36 @@ export function useUpdateProduct(
       if (data.ratePlanType && data.ratePlanConfig) {
         toast.loading('Updating pricing...', { id: 'update-product' });
 
-        const components = (data.pricingComponents || []).map((comp) => ({
+        const components: Array<{
+          type: string;
+          config: Record<string, unknown>;
+          chargeTiming: string;
+          refundable: boolean;
+        }> = (data.pricingComponents || []).map((comp) => ({
           type: comp.type === 'ADDON_BACKUP' || comp.type === 'ADDON_TRYON' ? 'ADDON' : comp.type,
-          config: comp.config,
+          config: {
+            ...comp.config,
+            ...(comp.type === 'ADDON_BACKUP'
+              ? { purpose: 'BACKUP_SIZE', addonId: 'BACKUP_SIZE' }
+              : comp.type === 'ADDON_TRYON'
+                ? { purpose: 'TRY_ON', addonId: 'TRY_ON' }
+                : {}),
+          },
           chargeTiming: 'AT_BOOKING',
           refundable: comp.type === 'DEPOSIT',
         }));
+        if (data.shippingMode === 'flat' && (data.flatShippingFee ?? 0) > 0) {
+          components.push({
+            type: 'FEE',
+            config: {
+              label: 'Delivery fee',
+              purpose: 'DELIVERY',
+              pricing: { mode: 'FLAT', amountMinor: data.flatShippingFee ?? 0 },
+            },
+            chargeTiming: 'AT_BOOKING',
+            refundable: false,
+          });
+        }
 
         const lateFeePolicy = data.lateFeeEnabled
           ? {
@@ -136,9 +153,6 @@ export function useUpdateProduct(
             sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
               sizeInstanceId,
               trackingMode: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
-              pooledQuantity: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode === 'SERIALIZED'
-                ? 0
-                : (fv.inventoryBySizeId?.[sizeInstanceId]?.pooledQuantity ?? 1),
             })),
             identicalColorIds: fv.identicalColorIds,
           });
@@ -152,9 +166,6 @@ export function useUpdateProduct(
             sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
               sizeInstanceId,
               trackingMode: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
-              pooledQuantity: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode === 'SERIALIZED'
-                ? 0
-                : (fv.inventoryBySizeId?.[sizeInstanceId]?.pooledQuantity ?? 1),
             })),
             identicalColorIds: fv.identicalColorIds,
           });

@@ -19,7 +19,7 @@ export class VariantService {
 
   async addVariant(tenantId: string, productId: string, dto: CreateVariantDto) {
     return this.prisma.$transaction(async (tx) => {
-      const sizes = this.normalizeSizes(dto.sizes, dto.sizeInstanceIds);
+      const sizes = this.normalizeSizes(dto.sizes);
       await this.validateReferences(
         tx,
         tenantId,
@@ -46,8 +46,6 @@ export class VariantService {
               tenantId,
               sizeInstanceId: size.sizeInstanceId,
               trackingMode: size.trackingMode,
-              pooledQuantity: size.pooledQuantity,
-              stockLevel: size.pooledQuantity,
             })),
           },
         },
@@ -76,13 +74,12 @@ export class VariantService {
       });
       if (!variant) throw new NotFoundException('Variant not found');
 
-      const sizesProvided = dto.sizes !== undefined || dto.sizeInstanceIds !== undefined;
+      const sizesProvided = dto.sizes !== undefined;
       const sizes = sizesProvided
-        ? this.normalizeSizes(dto.sizes, dto.sizeInstanceIds)
+        ? this.normalizeSizes(dto.sizes)
         : variant.sizes.map((size) => ({
             sizeInstanceId: size.sizeInstanceId,
             trackingMode: size.trackingMode,
-            pooledQuantity: size.pooledQuantity,
           }));
       const mainColorId = dto.mainColorId ?? variant.mainColorId;
 
@@ -167,14 +164,11 @@ export class VariantService {
 
   private normalizeSizes(
     configured: VariantSizeInventoryDto[] | undefined,
-    legacyIds: string[] | undefined,
   ): Array<{
     sizeInstanceId: string;
     trackingMode: InventoryTrackingMode;
-    pooledQuantity: number;
   }> {
-    const values: VariantSizeInventoryDto[] =
-      configured ?? (legacyIds ?? []).map((sizeInstanceId) => ({ sizeInstanceId }));
+    const values = configured ?? [];
     const unique = new Set<string>();
 
     return values.map((size) => {
@@ -185,7 +179,6 @@ export class VariantService {
       return {
         sizeInstanceId: size.sizeInstanceId,
         trackingMode: size.trackingMode ?? InventoryTrackingMode.POOLED,
-        pooledQuantity: size.pooledQuantity ?? 1,
       };
     });
   }
@@ -243,12 +236,10 @@ export class VariantService {
       id: string;
       sizeInstanceId: string;
       trackingMode: InventoryTrackingMode;
-      pooledQuantity: number;
     }>,
     desired: Array<{
       sizeInstanceId: string;
       trackingMode: InventoryTrackingMode;
-      pooledQuantity: number;
     }>,
     configurationProvided: boolean,
   ): Promise<void> {
@@ -276,8 +267,6 @@ export class VariantService {
             variantId,
             sizeInstanceId: desiredSize.sizeInstanceId,
             trackingMode: desiredSize.trackingMode,
-            pooledQuantity: desiredSize.pooledQuantity,
-            stockLevel: desiredSize.pooledQuantity,
           },
         });
         continue;
@@ -297,27 +286,10 @@ export class VariantService {
         }
       }
 
-      const reserved = await tx.inventoryReservation.aggregate({
-        where: {
-          tenantId,
-          variantSizeId: current.id,
-          status: { in: ['PENDING', 'CONFIRMED'] },
-        },
-        _sum: { quantity: true },
-      });
-      if (
-        desiredSize.trackingMode === InventoryTrackingMode.POOLED &&
-        desiredSize.pooledQuantity < (reserved._sum.quantity ?? 0)
-      ) {
-        throw new ConflictException('Pooled quantity cannot be lower than reserved quantity');
-      }
-
       await tx.variantSize.update({
         where: { id: current.id },
         data: {
           trackingMode: desiredSize.trackingMode,
-          pooledQuantity: desiredSize.pooledQuantity,
-          stockLevel: desiredSize.pooledQuantity,
           inventoryVersion: { increment: 1 },
         },
       });

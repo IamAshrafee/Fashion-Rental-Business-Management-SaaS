@@ -4,7 +4,6 @@ import {
   Prisma,
   StockUnitDisposition,
   StockUnitOperationalState,
-  StockUnitStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -162,13 +161,11 @@ export class StockUnitLifecycleService {
       await this.assertReadyForAvailability(tx, input.tenantId, input.stockUnitId);
     }
 
-    const legacyStatus = this.resolveLegacyStatus(targetDisposition, targetOperationalState);
     const stockUnit = await tx.stockUnit.update({
       where: { id: input.stockUnitId },
       data: {
         disposition: targetDisposition,
         operationalState: targetOperationalState,
-        status: legacyStatus,
         retiredAt:
           targetDisposition === StockUnitDisposition.RETIRED
             ? unit.retiredAt ?? new Date()
@@ -209,12 +206,10 @@ export class StockUnitLifecycleService {
         beforeState: this.json({
           disposition: unit.disposition,
           operationalState: unit.operationalState,
-          legacyStatus: unit.status,
         }),
         afterState: this.json({
           disposition: targetDisposition,
           operationalState: targetOperationalState,
-          legacyStatus,
         }),
         reason: input.reason.trim(),
         actorUserId: input.actorUserId ?? null,
@@ -288,21 +283,6 @@ export class StockUnitLifecycleService {
         message: 'Blocking issues, service work, or missing set components must be resolved first',
       });
     }
-  }
-
-  private resolveLegacyStatus(
-    disposition: StockUnitDisposition,
-    state: StockUnitOperationalState,
-  ): StockUnitStatus {
-    if (disposition === StockUnitDisposition.RETIRED) return StockUnitStatus.RETIRED;
-    if (disposition === StockUnitDisposition.LOST) return StockUnitStatus.LOST;
-    if (
-      disposition === StockUnitDisposition.QUARANTINED ||
-      ['CLEANING', 'WASHING', 'REPAIRING'].includes(state)
-    ) {
-      return StockUnitStatus.MAINTENANCE;
-    }
-    return StockUnitStatus.ACTIVE;
   }
 
   private resolveMovementType(

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { Suspense, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ProductCard } from '@/components/guest/ui/product-card';
@@ -15,6 +15,14 @@ import {
 } from '@/lib/api/guest-products';
 
 export default function GuestProductsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">Loading collection…</div>}>
+      <GuestProductsContent />
+    </Suspense>
+  );
+}
+
+function GuestProductsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);

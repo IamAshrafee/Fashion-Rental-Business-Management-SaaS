@@ -184,7 +184,6 @@ export function VariantsMediaStep() {
                                       if (!inventoryBySizeId[inst.id]) {
                                         setValue(`variants.${index}.inventoryBySizeId.${inst.id}`, {
                                           trackingMode: 'POOLED',
-                                          pooledQuantity: 1,
                                         });
                                       }
                                     }
@@ -210,9 +209,9 @@ export function VariantsMediaStep() {
                               </div>
                               {selectedSizeIds.map((sizeId) => {
                                 const instance = sizeInstances.find((item: any) => item.id === sizeId);
-                                const config = inventoryBySizeId[sizeId] ?? { trackingMode: 'POOLED', pooledQuantity: 1 };
+                                const config = inventoryBySizeId[sizeId] ?? { trackingMode: 'POOLED' };
                                 return (
-                                  <div key={sizeId} className="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-[minmax(5rem,1fr)_minmax(10rem,1fr)_minmax(8rem,1fr)] sm:items-end">
+                                  <div key={sizeId} className="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-[minmax(5rem,1fr)_minmax(10rem,1fr)] sm:items-end">
                                     <div>
                                       <p className="text-xs text-muted-foreground">Size</p>
                                       <p className="font-medium">{instance?.displayLabel ?? 'Size'}</p>
@@ -224,7 +223,6 @@ export function VariantsMediaStep() {
                                         onValueChange={(trackingMode: 'POOLED' | 'SERIALIZED') =>
                                           setValue(`variants.${index}.inventoryBySizeId.${sizeId}`, {
                                             trackingMode,
-                                            pooledQuantity: trackingMode === 'SERIALIZED' ? 0 : Math.max(1, config.pooledQuantity),
                                           }, { shouldDirty: true })
                                         }
                                       >
@@ -235,22 +233,15 @@ export function VariantsMediaStep() {
                                         </SelectContent>
                                       </Select>
                                     </div>
-                                    <div className="space-y-1.5">
-                                      <label className="text-xs font-medium">Starting quantity</label>
-                                      <Input
-                                        type="number"
-                                        min={0}
-                                        disabled={config.trackingMode === 'SERIALIZED'}
-                                        value={config.pooledQuantity}
-                                        onChange={(event) =>
-                                          setValue(`variants.${index}.inventoryBySizeId.${sizeId}.pooledQuantity`, Math.max(0, Number(event.target.value) || 0), { shouldDirty: true })
-                                        }
-                                      />
-                                    </div>
                                   </div>
                                 );
                               })}
                             </div>
+                          )}
+                          {selectedSizeIds.length > 0 && (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Add opening stock by location from the product inventory workspace after saving.
+                            </p>
                           )}
                           <FormMessage />
                         </FormItem>
@@ -390,4 +381,3 @@ export function VariantsMediaStep() {
     </div>
   );
 }
-

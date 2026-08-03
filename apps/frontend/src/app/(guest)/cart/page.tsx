@@ -37,6 +37,7 @@ export default function GuestCartPage() {
           productId: item.productId,
           variantId: item.variantId || '',
           variantSizeId: item.variantSizeId,
+          preferredStockUnitId: item.preferredStockUnitId,
           quantity: item.quantity,
           startDate: item.startDate,
           endDate: item.endDate,

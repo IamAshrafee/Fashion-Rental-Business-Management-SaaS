@@ -43,14 +43,11 @@ export interface SizeSchemaDefinition {
   };
 }
 
-export type PricingMode = 'one_time' | 'per_day' | 'percentage';
-export type LateFeeType = 'fixed' | 'percentage';
-export type ShippingMode = 'free' | 'flat' | 'area_based';
+export type ShippingMode = 'free' | 'flat';
 export type PaymentMethod = 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type TransactionStatus = 'pending' | 'verified' | 'failed' | 'refunded';
 export type CancelledBy = 'customer' | 'owner';
-export type BlockType = 'booking' | 'pending' | 'manual';
 export type DepositStatus =
   | 'pending'
   | 'collected'

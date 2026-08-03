@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  InventoryMediaPurpose,
   InventoryServiceOrderType,
   Prisma,
   StockUnitDisposition,
@@ -21,6 +22,7 @@ import {
   CreateStockUnitInspectionDto,
   InspectionIssueInputDto,
   ResolveStockUnitIssueDto,
+  ReplaceStockUnitReferenceMediaDto,
 } from './dto/inventory-operations.dto';
 import { StockUnitLifecycleService } from './stock-unit-lifecycle.service';
 
@@ -408,10 +410,19 @@ export class StockUnitInspectionService {
           where: { endDate: { gte: this.toDateOnly(new Date()) } },
           orderBy: { startDate: 'asc' },
         },
+        mediaAttachments: {
+          where: { purpose: InventoryMediaPurpose.UNIT_REFERENCE },
+          orderBy: { createdAt: 'asc' },
+        },
+        movements: {
+          include: { actor: { select: { id: true, fullName: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 300,
+        },
       },
     });
     if (!unit) throw new NotFoundException('Stock unit not found');
-    const [inspections, issues, lifecycleEvents] = await Promise.all([
+    const [inspections, issues, lifecycleEvents, metrics] = await Promise.all([
       this.prisma.stockUnitInspection.findMany({
         where: { tenantId, stockUnitId },
         include: this.inspectionInclude(),
@@ -434,8 +445,73 @@ export class StockUnitInspectionService {
         orderBy: { createdAt: 'desc' },
         take: 300,
       }),
+      this.prisma.$queryRaw<
+        Array<{ completed_rentals: bigint; total_rental_days: bigint }>
+      >(Prisma.sql`
+        SELECT
+          COUNT(*)::bigint AS completed_rentals,
+          COALESCE(SUM(bi.rental_days), 0)::bigint AS total_rental_days
+        FROM stock_unit_assignments sua
+        JOIN inventory_reservations ir ON ir.id = sua.reservation_id
+        JOIN booking_items bi ON bi.id = ir.booking_item_id
+        JOIN bookings b ON b.id = ir.booking_id
+        WHERE sua.tenant_id = ${tenantId}
+          AND sua.stock_unit_id = ${stockUnitId}
+          AND b.status = 'completed'
+      `),
     ]);
-    return { stockUnit: unit, inspections, issues, lifecycleEvents };
+    return {
+      stockUnit: unit,
+      inspections,
+      issues,
+      lifecycleEvents,
+      rentalMetrics: {
+        completedRentals: Number(metrics[0]?.completed_rentals ?? 0),
+        totalRentalDays: Number(metrics[0]?.total_rental_days ?? 0),
+      },
+    };
+  }
+
+  async replaceReferenceMedia(
+    tenantId: string,
+    stockUnitId: string,
+    dto: ReplaceStockUnitReferenceMediaDto,
+    actorUserId: string,
+  ) {
+    const unit = await this.prisma.stockUnit.findFirst({
+      where: { id: stockUnitId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!unit) throw new NotFoundException('Stock unit not found');
+    if (dto.media.some((media) => media.purpose !== InventoryMediaPurpose.UNIT_REFERENCE)) {
+      throw new BadRequestException('Only unit reference media can be published from this endpoint');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.inventoryMediaAttachment.deleteMany({
+        where: { tenantId, stockUnitId, purpose: InventoryMediaPurpose.UNIT_REFERENCE },
+      });
+      if (dto.media.length) {
+        await tx.inventoryMediaAttachment.createMany({
+          data: dto.media.map((media) => ({
+            tenantId,
+            stockUnitId,
+            purpose: InventoryMediaPurpose.UNIT_REFERENCE,
+            url: media.url,
+            objectKey: media.objectKey?.trim() || null,
+            mimeType: media.mimeType?.trim() || null,
+            caption: media.caption?.trim() || null,
+            isPublicApproved: true,
+            uploadedByUserId: actorUserId,
+            capturedAt: media.capturedAt ? new Date(media.capturedAt) : null,
+          })),
+        });
+      }
+      return tx.inventoryMediaAttachment.findMany({
+        where: { tenantId, stockUnitId, purpose: InventoryMediaPurpose.UNIT_REFERENCE },
+        orderBy: { createdAt: 'asc' },
+      });
+    });
   }
 
   private async validateInspectionContext(

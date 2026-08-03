@@ -8,8 +8,8 @@ describe('InventoryAvailabilityService', () => {
     inventoryLocation: { findMany: jest.fn() },
     inventoryPool: { findUnique: jest.fn() },
     inventoryBlock: { findFirst: jest.fn(), aggregate: jest.fn() },
-    inventoryReservation: { aggregate: jest.fn() },
-    stockUnit: { count: jest.fn() },
+    inventoryReservation: { aggregate: jest.fn(), findMany: jest.fn() },
+    stockUnit: { count: jest.fn(), findFirst: jest.fn() },
   };
   const policy = {
     preparationBufferMinutes: 1440,
@@ -44,7 +44,6 @@ describe('InventoryAvailabilityService', () => {
     variantId: 'variant-1',
     sizeInstanceId: 'size-1',
     trackingMode: InventoryTrackingMode.POOLED,
-    pooledQuantity: 3,
     variant: {
       product: {
         id: 'product-1',
@@ -52,6 +51,7 @@ describe('InventoryAvailabilityService', () => {
         isAvailable: true,
         availableFrom: null,
         deletedAt: null,
+        storefrontItemMode: 'INTERNAL_ONLY',
       },
     },
   };
@@ -72,7 +72,9 @@ describe('InventoryAvailabilityService', () => {
     prisma.inventoryBlock.findFirst.mockResolvedValue(null);
     prisma.inventoryBlock.aggregate.mockResolvedValue({ _sum: { quantity: null } });
     prisma.inventoryReservation.aggregate.mockResolvedValue({ _sum: { quantity: 1 } });
+    prisma.inventoryReservation.findMany.mockResolvedValue([]);
     prisma.stockUnit.count.mockResolvedValue(0);
+    prisma.stockUnit.findFirst.mockResolvedValue(null);
   });
 
   it('subtracts overlapping reservations from pooled capacity and applies buffer days', async () => {
@@ -112,7 +114,6 @@ describe('InventoryAvailabilityService', () => {
     prisma.variantSize.findFirst.mockResolvedValue({
       ...baseSku,
       trackingMode: InventoryTrackingMode.SERIALIZED,
-      pooledQuantity: 0,
     });
     prisma.stockUnit.count.mockResolvedValue(4);
     prisma.inventoryReservation.aggregate.mockResolvedValue({ _sum: { quantity: 2 } });
@@ -144,6 +145,65 @@ describe('InventoryAvailabilityService', () => {
     expect(result.available).toBe(false);
     expect(result.reason).toBe('Inventory is blocked at this location for the selected dates');
     expect(prisma.inventoryReservation.aggregate).not.toHaveBeenCalled();
+  });
+
+  it('allows an available customer-selected unit while protecting generic demand', async () => {
+    prisma.variantSize.findFirst.mockResolvedValue({
+      ...baseSku,
+      trackingMode: InventoryTrackingMode.SERIALIZED,
+      variant: {
+        product: { ...baseSku.variant.product, storefrontItemMode: 'SPECIFIC_ITEM_SELECTION' },
+      },
+    });
+    prisma.stockUnit.count.mockResolvedValue(2);
+    prisma.stockUnit.findFirst.mockResolvedValue({ id: 'unit-1' });
+    prisma.inventoryReservation.findMany.mockResolvedValue([
+      { quantity: 1, preferredStockUnitId: null },
+    ]);
+
+    const result = await service.check({
+      tenantId: 'tenant-1',
+      productId: 'product-1',
+      variantSizeId: 'sku-1',
+      preferredStockUnitId: 'unit-1',
+      startDate: '2026-08-10',
+      endDate: '2026-08-12',
+    });
+
+    expect(result.available).toBe(true);
+    expect(result.remainingQuantity).toBe(1);
+  });
+
+  it('rejects a customer-selected unit with an overlapping assignment', async () => {
+    prisma.variantSize.findFirst.mockResolvedValue({
+      ...baseSku,
+      trackingMode: InventoryTrackingMode.SERIALIZED,
+      variant: {
+        product: { ...baseSku.variant.product, storefrontItemMode: 'SPECIFIC_ITEM_SELECTION' },
+      },
+    });
+    prisma.stockUnit.count.mockResolvedValue(2);
+    prisma.stockUnit.findFirst.mockResolvedValue(null);
+
+    const result = await service.check({
+      tenantId: 'tenant-1',
+      productId: 'product-1',
+      variantSizeId: 'sku-1',
+      preferredStockUnitId: 'unit-1',
+      startDate: '2026-08-10',
+      endDate: '2026-08-12',
+    });
+
+    expect(result.available).toBe(false);
+    expect(prisma.stockUnit.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          assignments: {
+            none: expect.objectContaining({ releasedAt: null }),
+          },
+        }),
+      }),
+    );
   });
 
   it('reports malformed date input as a bad request', () => {

@@ -20,6 +20,9 @@ export class InventoryDashboardService {
       openIssues,
       overdueRequirements,
       potentialLowStock,
+      conditionSummary,
+      unitEconomics,
+      serviceEconomics,
     ] = await Promise.all([
       this.prisma.inventoryLocation.findMany({
         where: { tenantId, isActive: true },
@@ -83,6 +86,20 @@ export class InventoryDashboardService {
         },
         take: 500,
       }),
+      this.prisma.stockUnit.groupBy({
+        by: ['condition'],
+        where: { tenantId, deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.prisma.stockUnit.aggregate({
+        where: { tenantId, deletedAt: null },
+        _sum: { purchasePrice: true, estimatedCurrentValue: true },
+      }),
+      this.prisma.inventoryServiceOrder.aggregate({
+        where: { tenantId, status: 'COMPLETED' },
+        _sum: { cost: true },
+        _count: { _all: true },
+      }),
     ]);
     return {
       locations,
@@ -107,6 +124,13 @@ export class InventoryDashboardService {
       lowStock: potentialLowStock.filter(
         (pool) => pool.reorderThreshold !== null && pool.onHandQuantity <= pool.reorderThreshold,
       ),
+      conditionSummary,
+      economics: {
+        acquisitionCost: unitEconomics._sum.purchasePrice ?? 0,
+        estimatedCurrentValue: unitEconomics._sum.estimatedCurrentValue ?? 0,
+        completedServiceCost: serviceEconomics._sum.cost ?? 0,
+        completedServiceOrders: serviceEconomics._count._all,
+      },
     };
   }
 
@@ -164,8 +188,45 @@ export class InventoryDashboardService {
       }),
       this.prisma.stockUnit.count({ where }),
     ]);
+    const metrics = data.length
+      ? await this.prisma.$queryRaw<
+          Array<{
+            stock_unit_id: string;
+            completed_rentals: bigint;
+            total_rental_days: bigint;
+          }>
+        >(Prisma.sql`
+          SELECT
+            sua.stock_unit_id,
+            COUNT(*)::bigint AS completed_rentals,
+            COALESCE(SUM(bi.rental_days), 0)::bigint AS total_rental_days
+          FROM stock_unit_assignments sua
+          JOIN inventory_reservations ir ON ir.id = sua.reservation_id
+          JOIN booking_items bi ON bi.id = ir.booking_item_id
+          JOIN bookings b ON b.id = ir.booking_id
+          WHERE sua.tenant_id = ${tenantId}
+            AND sua.stock_unit_id IN (${Prisma.join(data.map((item) => item.id))})
+            AND b.status = 'completed'
+          GROUP BY sua.stock_unit_id
+        `)
+      : [];
+    const metricsByUnit = new Map(
+      metrics.map((item) => [
+        item.stock_unit_id,
+        {
+          completedRentals: Number(item.completed_rentals),
+          totalRentalDays: Number(item.total_rental_days),
+        },
+      ]),
+    );
     return {
-      data,
+      data: data.map((item) => ({
+        ...item,
+        rentalMetrics: metricsByUnit.get(item.id) ?? {
+          completedRentals: 0,
+          totalRentalDays: 0,
+        },
+      })),
       meta: {
         page: query.page,
         limit: query.limit,

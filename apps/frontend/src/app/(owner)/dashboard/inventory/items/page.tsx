@@ -145,6 +145,8 @@ export default function InventoryItemsPage() {
                     <TableHead>Location</TableHead>
                     <TableHead>Condition</TableHead>
                     <TableHead>Operational state</TableHead>
+                    <TableHead>Rental history</TableHead>
+                    <TableHead>Current value</TableHead>
                     <TableHead>Open work</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
@@ -177,6 +179,17 @@ export default function InventoryItemsPage() {
                         >
                           {humanize(item.operationalState)}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <p>{item.rentalMetrics.completedRentals} completed</p>
+                        <p className="text-muted-foreground">
+                          {item.rentalMetrics.totalRentalDays} rental days
+                        </p>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {item.estimatedCurrentValue == null
+                          ? '—'
+                          : `৳${item.estimatedCurrentValue.toLocaleString()}`}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {item._count.issues} issues · {item._count.serviceOrders} service

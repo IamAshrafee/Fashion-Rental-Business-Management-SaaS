@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion, useScroll, useTransform, type MotionValue } from 'framer-motion';
 
 const steps = [
   {
@@ -30,6 +30,85 @@ const steps = [
   },
 ];
 
+function DesktopStepImage({
+  step,
+  index,
+  scrollYProgress,
+}: {
+  step: (typeof steps)[number];
+  index: number;
+  scrollYProgress: MotionValue<number>;
+}) {
+  const start = index * 0.25;
+  const end = (index + 1) * 0.25;
+  const input = index === 0
+    ? [0, end, end + 0.05]
+    : index === steps.length - 1
+      ? [start - 0.05, start, 1]
+      : [start - 0.05, start, end, end + 0.05];
+  const output = index === 0
+    ? [1, 1, 0]
+    : index === steps.length - 1
+      ? [0, 1, 1]
+      : [0, 1, 1, 0];
+  const opacity = useTransform(scrollYProgress, input, output);
+
+  return (
+    <motion.div style={{ opacity }} className="absolute inset-0 h-full w-full">
+      <img src={step.image} alt={step.title} className="h-full w-full object-cover" loading="lazy" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+    </motion.div>
+  );
+}
+
+function DesktopStepText({
+  step,
+  index,
+  scrollYProgress,
+}: {
+  step: (typeof steps)[number];
+  index: number;
+  scrollYProgress: MotionValue<number>;
+}) {
+  const start = index * 0.25;
+  const end = (index + 1) * 0.25;
+  const mid = start + 0.125;
+  const inputOpacity = index === 0
+    ? [0, mid, end, end + 0.1]
+    : index === steps.length - 1
+      ? [start - 0.1, start, mid, 1]
+      : [start - 0.1, start, mid, end, end + 0.1];
+  const outputOpacity = index === 0
+    ? [1, 1, 0.15, 0.15]
+    : index === steps.length - 1
+      ? [0.15, 1, 1, 1]
+      : [0.15, 1, 1, 0.15, 0.15];
+  const inputY = index === 0
+    ? [0, mid, end]
+    : index === steps.length - 1
+      ? [start - 0.1, start, 1]
+      : [start - 0.1, start, mid, end];
+  const outputY = index === 0
+    ? [0, 0, -40]
+    : index === steps.length - 1
+      ? [40, 0, 0]
+      : [40, 0, 0, -40];
+  const opacity = useTransform(scrollYProgress, inputOpacity, outputOpacity);
+  const y = useTransform(scrollYProgress, inputY, outputY);
+
+  return (
+    <div className="flex min-h-[75vh] flex-col justify-center px-16">
+      <motion.div style={{ opacity, y }} className="max-w-md">
+        <span className="mb-4 inline-block rounded-full bg-brand-100 px-4 py-1.5 font-sans text-xs font-semibold uppercase tracking-widest text-[#937B69]">
+          Step 0{step.id}
+        </span>
+        <h3 className="font-editorial mb-4 text-5xl leading-tight text-gray-900">{step.title}</h3>
+        <p className="font-sans text-lg font-light leading-relaxed text-gray-600">{step.description}</p>
+      </motion.div>
+    </div>
+  );
+}
+
 function DesktopRentalJourney() {
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -48,94 +127,18 @@ function DesktopRentalJourney() {
         {/* Sticky Visual Side */}
         <div className="sticky top-0 z-0 flex h-screen w-1/2 items-center justify-center p-8">
           <div className="relative h-full w-full overflow-hidden rounded-[24px] bg-gray-200 shadow-2xl">
-            {steps.map((step, index) => {
-              const start = index * 0.25;
-              const end = (index + 1) * 0.25;
-              
-              let input, output;
-              if (index === 0) {
-                input = [0, end, end + 0.05];
-                output = [1, 1, 0];
-              } else if (index === steps.length - 1) {
-                input = [start - 0.05, start, 1];
-                output = [0, 1, 1];
-              } else {
-                input = [start - 0.05, start, end, end + 0.05];
-                output = [0, 1, 1, 0];
-              }
-
-              const opacity = useTransform(scrollYProgress, input, output);
-
-              return (
-                <motion.div
-                  key={step.id}
-                  style={{ opacity }}
-                  className="absolute inset-0 h-full w-full"
-                >
-                  <img
-                    src={step.image}
-                    alt={step.title}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent"></div>
-                </motion.div>
-              );
-            })}
+            {steps.map((step, index) => (
+              <DesktopStepImage key={step.id} step={step} index={index} scrollYProgress={scrollYProgress} />
+            ))}
           </div>
         </div>
 
         {/* Scrollable Text Side */}
         <div className="relative z-10 w-1/2">
           <div className="pb-[25vh] pt-[25vh]">
-            {steps.map((step, index) => {
-              const start = index * 0.25;
-              const end = (index + 1) * 0.25;
-              const mid = start + 0.125;
-              
-              const inputOpacity = 
-                index === 0 ? [0, mid, end, end + 0.1] : 
-                index === steps.length - 1 ? [start - 0.1, start, mid, 1] : 
-                [start - 0.1, start, mid, end, end + 0.1];
-                
-              const outputOpacity = 
-                index === 0 ? [1, 1, 0.15, 0.15] : 
-                index === steps.length - 1 ? [0.15, 1, 1, 1] : 
-                [0.15, 1, 1, 0.15, 0.15];
-
-              const opacity = useTransform(scrollYProgress, inputOpacity, outputOpacity);
-              
-              const inputY = 
-                index === 0 ? [0, mid, end] : 
-                index === steps.length - 1 ? [start - 0.1, start, 1] :
-                [start - 0.1, start, mid, end];
-                
-              const outputY = 
-                index === 0 ? [0, 0, -40] : 
-                index === steps.length - 1 ? [40, 0, 0] :
-                [40, 0, 0, -40];
-
-              const y = useTransform(scrollYProgress, inputY, outputY);
-
-              return (
-                <div 
-                  key={step.id} 
-                  className="flex min-h-[75vh] flex-col justify-center px-16"
-                >
-                  <motion.div style={{ opacity, y }} className="max-w-md">
-                    <span className="mb-4 inline-block rounded-full bg-brand-100 px-4 py-1.5 font-sans text-xs font-semibold uppercase tracking-widest text-[#937B69]">
-                      Step 0{step.id}
-                    </span>
-                    <h3 className="font-editorial mb-4 text-5xl leading-tight text-gray-900">
-                      {step.title}
-                    </h3>
-                    <p className="font-sans text-lg font-light leading-relaxed text-gray-600">
-                      {step.description}
-                    </p>
-                  </motion.div>
-                </div>
-              );
-            })}
+            {steps.map((step, index) => (
+              <DesktopStepText key={step.id} step={step} index={index} scrollYProgress={scrollYProgress} />
+            ))}
           </div>
         </div>
 

@@ -31,8 +31,7 @@ import { productApi } from '@/lib/api/products';
 import type {
   ProductDetail,
   ProductVariantData,
-  ProductPricingData,
-  ProductServicesData,
+  PricingProfileData,
 } from '@/lib/api/products';
 import { useSoftDeleteProduct, useUpdateProductStatus } from '../hooks/use-product-apis';
 import { useLocale } from '@/hooks/use-locale';
@@ -67,20 +66,28 @@ const stagger = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getEffectivePrice(pricing: ProductPricingData | null): number | null {
+function getEffectivePrice(pricing: PricingProfileData | null): number | null {
   if (!pricing) return null;
-  if (pricing.priceOverride) return pricing.priceOverride;
-  if (pricing.mode === 'one_time') return pricing.rentalPrice;
-  if (pricing.mode === 'per_day') return pricing.pricePerDay;
-  if (pricing.mode === 'percentage') return pricing.calculatedPrice;
-  return pricing.rentalPrice;
+  const config = pricing.ratePlanConfig;
+  if (pricing.ratePlanType === 'PER_DAY') return Number(config.unitPriceMinor ?? 0);
+  if (pricing.ratePlanType === 'FLAT_PERIOD') return Number(config.flatPriceMinor ?? 0);
+  if (pricing.ratePlanType === 'TIERED_DAILY') {
+    const tiers = Array.isArray(config.tiers) ? config.tiers : [];
+    return Number((tiers[0] as Record<string, unknown> | undefined)?.pricePerDayMinor ?? 0);
+  }
+  if (pricing.ratePlanType === 'WEEKLY_MONTHLY') {
+    return Number(config.dailyPriceMinor ?? config.weeklyPriceMinor ?? config.monthlyPriceMinor ?? 0);
+  }
+  return Number(config.minPriceMinor ?? 0);
 }
 
 function getPricingModeLabel(mode: string): string {
   switch (mode) {
-    case 'one_time': return 'One-time Rental';
-    case 'per_day': return 'Per Day';
-    case 'percentage': return '% of Retail';
+    case 'FLAT_PERIOD': return 'Rental Package';
+    case 'PER_DAY': return 'Per Day';
+    case 'TIERED_DAILY': return 'Tiered Daily';
+    case 'WEEKLY_MONTHLY': return 'Daily / Weekly / Monthly';
+    case 'PERCENT_RETAIL': return '% of Retail';
     default: return mode;
   }
 }
@@ -255,135 +262,37 @@ function ImageGallery({ variants, productName }: { variants: ProductVariantData[
 
 // ─── Tab: Pricing ─────────────────────────────────────────────────────────────
 
-function PricingTab({ pricing, services }: { pricing: ProductPricingData | null; services: ProductServicesData | null }) {
-  if (!pricing && !services) {
+function PricingTab({ pricing }: { pricing: PricingProfileData | null }) {
+  if (!pricing) {
     return <p className="text-sm text-muted-foreground py-6 text-center">No pricing configured.</p>;
   }
 
+  const configEntries = Object.entries(pricing.ratePlanConfig).filter(
+    ([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean',
+  );
+
   return (
     <motion.div className="space-y-5" variants={stagger} initial="hidden" animate="visible">
-      {pricing && (
-        <>
-          {/* Pricing mode header */}
-          <motion.div variants={fadeUp} custom={0} className="flex items-center justify-between">
-            <SectionLabel icon={DollarSign}>{getPricingModeLabel(pricing.mode)}</SectionLabel>
-            {pricing.priceOverride && (
-              <Badge variant="outline" className="text-amber-600 border-amber-300/50 dark:text-amber-400 text-[10px] font-medium">Override Active</Badge>
-            )}
-          </motion.div>
-
-          {/* Mode-specific rows */}
-          <motion.div variants={fadeUp} custom={1} className="space-y-0.5">
-            {pricing.mode === 'one_time' && (
-              <>
-                <Row label="Rental Price" value={<PriceDisplay amount={pricing.rentalPrice || 0} />} bold />
-                {pricing.includedDays != null && <Row label="Included Days" value={`${pricing.includedDays} days`} />}
-                {pricing.extendedRentalRate != null && <Row label="Extended Rate" value={<><PriceDisplay amount={pricing.extendedRentalRate} />/day</>} />}
-              </>
-            )}
-            {pricing.mode === 'per_day' && (
-              <>
-                <Row label="Price per Day" value={<PriceDisplay amount={pricing.pricePerDay || 0} />} bold />
-                {pricing.minimumDays != null && <Row label="Minimum Days" value={`${pricing.minimumDays} days`} />}
-              </>
-            )}
-            {pricing.mode === 'percentage' && (
-              <>
-                <Row label="Retail Price" value={<PriceDisplay amount={pricing.retailPrice || 0} />} />
-                <Row label="Rental %" value={`${Number(pricing.rentalPercentage)}%`} />
-                <Row label="Calculated" value={<PriceDisplay amount={pricing.calculatedPrice || 0} />} bold />
-                {pricing.includedDays != null && <Row label="Included Days" value={`${pricing.includedDays} days`} />}
-                {pricing.extendedRentalRate != null && <Row label="Extended Rate" value={<><PriceDisplay amount={pricing.extendedRentalRate} />/day</>} />}
-              </>
-            )}
-            {pricing.priceOverride && (
-              <Row label="Override Price" value={<PriceDisplay amount={pricing.priceOverride} />} bold highlight />
-            )}
-          </motion.div>
-
-          {/* Guard rails */}
-          {(pricing.minInternalPrice != null || pricing.maxDiscountPrice != null) && (
-            <motion.div variants={fadeUp} custom={2}>
-              <Separator className="mb-4" />
-              <div className="grid grid-cols-2 gap-6">
-                {pricing.minInternalPrice != null && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-0.5">Min Internal</div>
-                    <PriceDisplay amount={pricing.minInternalPrice} className="text-sm font-semibold" />
-                  </div>
-                )}
-                {pricing.maxDiscountPrice != null && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-0.5">Max Discount</div>
-                    <PriceDisplay amount={pricing.maxDiscountPrice} className="text-sm font-semibold" />
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {/* Late fees */}
-          {pricing.lateFeeType && (
-            <motion.div variants={fadeUp} custom={3}>
-              <Separator className="mb-4" />
-              <SectionLabel icon={Clock}>Late Fees</SectionLabel>
-              <div className="space-y-0.5">
-                <Row label="Type" value={<span className="capitalize">{pricing.lateFeeType}</span>} />
-                {pricing.lateFeeType === 'fixed' && pricing.lateFeeAmount != null && (
-                  <Row label="Amount/day" value={<PriceDisplay amount={pricing.lateFeeAmount} />} />
-                )}
-                {pricing.lateFeeType === 'percentage' && pricing.lateFeePercentage != null && (
-                  <Row label="Rate/day" value={`${Number(pricing.lateFeePercentage)}%`} />
-                )}
-                {pricing.maxLateFee != null && <Row label="Cap" value={<PriceDisplay amount={pricing.maxLateFee} />} />}
-              </div>
-            </motion.div>
-          )}
-
-          {/* Shipping */}
-          {pricing.shippingMode && (
-            <motion.div variants={fadeUp} custom={4}>
-              <Separator className="mb-4" />
-              <Row
-                label="Shipping"
-                value={pricing.shippingMode === 'flat'
-                  ? <PriceDisplay amount={pricing.shippingFee || 0} />
-                  : <span className="capitalize">{pricing.shippingMode}</span>
-                }
-              />
-            </motion.div>
-          )}
-        </>
-      )}
-
-      {/* Services */}
-      {services && (
-        <motion.div variants={fadeUp} custom={5}>
+      <motion.div variants={fadeUp} custom={0}>
+        <SectionLabel icon={DollarSign}>{getPricingModeLabel(pricing.ratePlanType)}</SectionLabel>
+        <div className="space-y-0.5">
+          {configEntries.map(([key, value]) => (
+            <Row key={key} label={key.replace(/([A-Z])/g, ' $1')} value={String(value)} />
+          ))}
+        </div>
+      </motion.div>
+      {pricing.components.length > 0 && (
+        <motion.div variants={fadeUp} custom={1}>
           <Separator className="mb-4" />
-          <SectionLabel icon={Shield}>Services</SectionLabel>
+          <SectionLabel icon={Shield}>Fees, deposits & add-ons</SectionLabel>
           <div className="space-y-0.5">
-            <Row label="Deposit" value={services.depositAmount != null ? <PriceDisplay amount={services.depositAmount} /> : '—'} />
-            <Row label="Cleaning" value={services.cleaningFee != null ? <PriceDisplay amount={services.cleaningFee} /> : '—'} />
-            {services.backupSizeEnabled && (
+            {pricing.components.map((component) => (
               <Row
-                label={<span className="flex items-center gap-1.5">Backup Size <Dot on /></span>}
-                value={services.backupSizeFee != null ? <PriceDisplay amount={services.backupSizeFee} /> : '—'}
+                key={component.id}
+                label={String(component.config.label ?? component.type)}
+                value={<PriceDisplay amount={Number((component.config.pricing as Record<string, unknown> | undefined)?.amountMinor ?? 0)} />}
               />
-            )}
-            {services.tryOnEnabled && (
-              <>
-                <Row
-                  label={<span className="flex items-center gap-1.5">Try-on <Dot on /></span>}
-                  value={services.tryOnFee != null ? <PriceDisplay amount={services.tryOnFee} /> : '—'}
-                />
-                {services.tryOnDurationHours != null && <Row label="Duration" value={`${services.tryOnDurationHours}h`} />}
-                {services.tryOnCreditToRental && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 pt-1">
-                    <Sparkles className="h-3 w-3" /> Try-on credited to rental
-                  </div>
-                )}
-              </>
-            )}
+            ))}
           </div>
         </motion.div>
       )}
@@ -669,7 +578,7 @@ export default function ProductDetailPage() {
     ? Math.min(Math.round((product.totalBookings / product.targetRentals) * 100), 100)
     : null;
 
-  const hasPricing = !!(product.pricing || product.services);
+  const hasPricing = !!product.pricing;
   const hasSizes = !!product.sizing?.schema;
   const hasVariants = product.variants.length > 0;
   const hasDetails = product.detailHeaders.length > 0;
@@ -793,16 +702,7 @@ export default function ProductDetailPage() {
                 </div>
                 {product.pricing && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    {getPricingModeLabel(product.pricing.mode)}
-                    {product.pricing.mode === 'one_time' && product.pricing.includedDays != null && (
-                      <> · {product.pricing.includedDays} days included</>
-                    )}
-                    {product.pricing.mode === 'percentage' && product.pricing.includedDays != null && (
-                      <> · {product.pricing.includedDays} days included</>
-                    )}
-                    {product.pricing.mode === 'per_day' && product.pricing.minimumDays != null && (
-                      <> · min {product.pricing.minimumDays} days</>
-                    )}
+                    {getPricingModeLabel(product.pricing.ratePlanType)}
                   </p>
                 )}
               </div>
@@ -947,7 +847,7 @@ export default function ProductDetailPage() {
               <AnimatePresence mode="wait">
                 {hasPricing && (
                   <TabsContent value="pricing" className="m-0 mt-0 focus-visible:ring-0 focus-visible:outline-none">
-                    <PricingTab pricing={product.pricing} services={product.services} />
+                    <PricingTab pricing={product.pricing} />
                   </TabsContent>
                 )}
                 {hasSizes && (

@@ -8,6 +8,7 @@ import { useLocale } from '@/hooks/use-locale';
 import { useAnalytics } from '@/providers/analytics-provider';
 import {
   getProductBySlug,
+  getPublicItemOptions,
   type DateRangeCheck,
   type GuestProductDetail,
 } from '@/lib/api/guest-products';
@@ -86,11 +87,12 @@ export default function GuestProductDetailPage() {
   const [availabilityResult, setAvailabilityResult] = useState<DateRangeCheck | null>(null);
   const [compositionSelections, setCompositionSelections] = useState<BundleSelection[]>([]);
   const [validatedBundleSummary, setValidatedBundleSummary] = useState<Array<{ ruleId: string; label: string; productName: string; sizeLabel?: string; quantity: number; priceAdjustment: number }>>([]);
+  const [selectedStockUnitId, setSelectedStockUnitId] = useState<string | undefined>();
 
   const toggleAccordion = (id: string) => setOpenAccordion((prev) => (prev === id ? null : id));
 
   const availabilityMutation = useMutation({
-    mutationFn: async (params: { productId: string; variantId: string; variantSizeId: string; startDate: string; endDate: string }) => {
+    mutationFn: async (params: { productId: string; variantId: string; variantSizeId: string; startDate: string; endDate: string; preferredStockUnitId?: string }) => {
       const result = await validateCart({ items: [{
         ...params,
         quantity: 1,
@@ -134,6 +136,23 @@ export default function GuestProductDetailPage() {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [selectedVariantSizeId, setSelectedVariantSizeId] = useState<string | null>(null);
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
+  const itemOptions = useQuery({
+    queryKey: [
+      'public-item-options',
+      product?.id,
+      selectedVariantSizeId,
+      date.from?.toISOString(),
+      date.to?.toISOString(),
+    ],
+    queryFn: () =>
+      getPublicItemOptions(
+        product!.id,
+        selectedVariantSizeId!,
+        format(date.from!, 'yyyy-MM-dd'),
+        format(date.to!, 'yyyy-MM-dd'),
+      ),
+    enabled: Boolean(product?.id && selectedVariantSizeId && date.from && date.to && date.to > date.from),
+  });
 
   // Analytics: Track product view once per page load
   const hasTrackedView = useRef(false);
@@ -145,11 +164,11 @@ export default function GuestProductDetailPage() {
         metadata: {
           productName: product.name,
           categoryName: product.category?.name,
-          basePrice: product.pricing?.rentalPrice || product.pricing?.priceOverride || 0,
+          basePrice: product.headlinePricing?.price || 0,
         }
       });
     }
-  }, [product?.id, product?.name, product?.category?.name, trackEvent, product?.pricing?.rentalPrice, product?.pricing?.priceOverride]);
+  }, [product?.id, product?.name, product?.category?.name, product?.headlinePricing?.price, trackEvent]);
 
   useEffect(() => {
     setAvailabilityResult(null);
@@ -161,11 +180,12 @@ export default function GuestProductDetailPage() {
           variantSizeId: selectedVariantSizeId,
           startDate: format(date.from, 'yyyy-MM-dd'),
           endDate: format(date.to, 'yyyy-MM-dd'),
+          preferredStockUnitId: selectedStockUnitId,
         });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date.from, date.to, product?.id, selectedVariantId, selectedVariantSizeId, compositionSelections, compositionQuery.isLoading, compositionQuery.dataUpdatedAt]);
+  }, [date.from, date.to, product?.id, selectedVariantId, selectedVariantSizeId, selectedStockUnitId, compositionSelections, compositionQuery.isLoading, compositionQuery.dataUpdatedAt]);
 
   // 1. Group by unique colors to display the colour swatches
   const uniqueColors = useMemo(() => {
@@ -209,7 +229,25 @@ export default function GuestProductDetailPage() {
     }
   }, [selectedVariant, selectedVariantSizeId]);
   const pricing = product?.pricing;
-  const services = product?.services;
+  const pricingComponent = (purpose: string) =>
+    pricing?.components.find(
+      (component) =>
+        component.config.purpose === purpose || component.config.addonId === purpose,
+    );
+  const componentAmount = (component: NonNullable<typeof pricing>['components'][number] | undefined) =>
+    Number((component?.config.pricing as Record<string, unknown> | undefined)?.amountMinor ?? 0);
+  const depositComponent = pricing?.components.find((component) => component.type === 'DEPOSIT');
+  const tryOnComponent = pricingComponent('TRY_ON');
+  const backupComponent = pricingComponent('BACKUP_SIZE');
+  const services = {
+    depositAmount: componentAmount(depositComponent),
+    tryOnEnabled: Boolean(tryOnComponent),
+    tryOnFee: componentAmount(tryOnComponent),
+    tryOnDurationHours: Number(tryOnComponent?.config.durationHours ?? 24),
+    tryOnCreditToRental: Boolean(tryOnComponent?.config.creditToRental),
+    backupSizeEnabled: Boolean(backupComponent),
+    backupSizeFee: componentAmount(backupComponent),
+  };
   const sizing = product?.sizing; // new schema-driven sizing
 
   const allImages = useMemo(() => {
@@ -257,7 +295,7 @@ export default function GuestProductDetailPage() {
       return product.headlinePricing.price;
     }
     
-    return pricing.priceOverride || (pricing.mode === 'percentage' ? pricing.calculatedPrice : null) || pricing.rentalPrice || pricing.pricePerDay || 0;
+    return product?.headlinePricing?.price || 0;
   }, [pricing, availabilityResult, product?.headlinePricing]);
 
   const depositAmount = (availabilityResult?.pricing?.deposit) ?? (services?.depositAmount || 0);
@@ -283,7 +321,9 @@ export default function GuestProductDetailPage() {
     compositionSelections.some((selection) => selection.compositionRuleId === rule.id && selection.variantSizeId),
   );
   const isAvailable = availabilityResult?.available !== false;
-  const canAddToCart = isFormValid && compositionValid && isAvailable && !compositionQuery.isLoading && !availabilityMutation.isPending;
+  const itemSelectionValid =
+    itemOptions.data?.mode !== 'SPECIFIC_ITEM_SELECTION' || Boolean(selectedStockUnitId);
+  const canAddToCart = isFormValid && compositionValid && itemSelectionValid && isAvailable && !compositionQuery.isLoading && !availabilityMutation.isPending;
 
   const handleAddToCart = () => {
     if (!canAddToCart || !product || !date.from || !date.to) return;
@@ -305,6 +345,7 @@ export default function GuestProductDetailPage() {
       productId: product.id,
       variantId: selectedVariant?.id,
       variantSizeId: selectedVariantSizeId!,
+      preferredStockUnitId: selectedStockUnitId,
       quantity: 1,
       productName: product.name,
       categoryName: product.category?.name,
@@ -323,7 +364,7 @@ export default function GuestProductDetailPage() {
       },
       totalPrice,
     });
-    try { toast.success(`Added ${product.name} to cart!`); } catch {}
+    toast.success(`Added ${product.name} to cart!`);
   };
 
   if (isLoading) {
@@ -349,7 +390,7 @@ export default function GuestProductDetailPage() {
     );
   }
 
-  const effectiveBasePrice = pricing?.priceOverride || (pricing?.mode === 'percentage' ? pricing?.calculatedPrice : null) || pricing?.rentalPrice || 0;
+  const effectiveBasePrice = product.headlinePricing?.price || 0;
   
   return (
     <div className="bg-white pb-32">
@@ -489,19 +530,19 @@ export default function GuestProductDetailPage() {
                   {!isFormValid && (
                     <span className="mb-1.5 text-sm font-medium text-muted-foreground">
                       {product?.headlinePricing?.label || (() => {
-                        const mode = product?.headlinePricing?.mode || pricing?.mode;
-                        if (mode === 'per_day') return ' per day';
-                        if (mode === 'flat') return pricing?.includedDays ? ` for ${pricing.includedDays} days` : ' flat rate';
-                        if (mode === 'percentage') return ' of retail value';
-                        if (mode === 'tiered') return ' / day (tiered)';
-                        if (mode === 'weekly_monthly') return ' starting rate';
+                        const mode = product?.headlinePricing?.mode || pricing?.ratePlanType;
+                        if (mode === 'PER_DAY') return ' per day';
+                        if (mode === 'FLAT_PERIOD') return pricing?.ratePlanConfig.includedDays ? ` for ${String(pricing.ratePlanConfig.includedDays)} days` : ' flat rate';
+                        if (mode === 'PERCENT_RETAIL') return ' of retail value';
+                        if (mode === 'TIERED_DAILY') return ' / day (tiered)';
+                        if (mode === 'WEEKLY_MONTHLY') return ' starting rate';
                         return '';
                       })()}
                     </span>
                   )}
-                  {isFormValid && pricing?.includedDays && (
+                  {isFormValid && Boolean(pricing?.ratePlanConfig.includedDays) && (
                     <span className="mb-1.5 text-sm font-medium text-muted-foreground">
-                      / {pricing.includedDays} days included
+                      / {String(pricing?.ratePlanConfig.includedDays ?? '')} days included
                     </span>
                   )}
                 </div>
@@ -577,7 +618,10 @@ export default function GuestProductDetailPage() {
                   {sizing.schema.definition && (sizing.schema.definition as any).ui?.selectorType === 'dropdown' && (selectedVariant?.sizes.length ?? 0) > 12 ? (
                     <select 
                       value={selectedVariantSizeId || ''}
-                      onChange={(e) => setSelectedVariantSizeId(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedVariantSizeId(e.target.value);
+                        setSelectedStockUnitId(undefined);
+                      }}
                       className="w-full rounded-lg border border-black/10 bg-neutral-50 px-3 py-2.5 text-sm font-medium focus:border-black focus:ring-1 focus:ring-black"
                     >
                       {selectedVariant?.sizes.map((size) => (
@@ -589,7 +633,10 @@ export default function GuestProductDetailPage() {
                       {selectedVariant?.sizes.map((size) => (
                         <button
                           key={size.variantSizeId}
-                          onClick={() => setSelectedVariantSizeId(size.variantSizeId)}
+                          onClick={() => {
+                            setSelectedVariantSizeId(size.variantSizeId);
+                            setSelectedStockUnitId(undefined);
+                          }}
                           className={cn(
                             'flex min-w-[3rem] items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-all duration-300',
                             selectedVariantSizeId === size.variantSizeId
@@ -613,6 +660,53 @@ export default function GuestProductDetailPage() {
 
               {/* Extra Services */}
               <BundleConfigurator rules={compositionRules} selections={compositionSelections} onChange={setCompositionSelections} />
+
+              {itemOptions.data?.mode === 'CONDITION_SUMMARY' && itemOptions.data.summary.length > 0 && (
+                <div className="space-y-2 rounded-xl bg-neutral-50 p-4">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Available piece conditions</h3>
+                  {itemOptions.data.summary.map((group) => (
+                    <div key={group.condition} className="flex justify-between text-sm">
+                      <span>{group.condition.toLowerCase().replaceAll('_', ' ')} · {group.count} pieces</span>
+                      <span>{group.minimumAdjustment === group.maximumAdjustment ? `${group.minimumAdjustment >= 0 ? '+' : ''}${formatPrice(group.minimumAdjustment)}` : 'Varied pricing'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {itemOptions.data?.mode === 'SPECIFIC_ITEM_SELECTION' && itemOptions.data.items.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Choose a physical piece</h3>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {itemOptions.data.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        disabled={!item.available}
+                        onClick={() => setSelectedStockUnitId(item.id)}
+                        className={cn(
+                          'rounded-xl border p-3 text-left text-sm transition-all',
+                          selectedStockUnitId === item.id ? 'border-black bg-black text-white' : 'bg-neutral-50',
+                          !item.available && 'cursor-not-allowed opacity-45',
+                        )}
+                      >
+                        {item.media[0] && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={item.media[0].url}
+                            alt={item.media[0].caption || item.label}
+                            className="mb-3 aspect-[4/3] w-full rounded-lg object-cover"
+                          />
+                        )}
+                        <div className="flex justify-between gap-2 font-semibold">
+                          <span>{item.label} · {item.condition.toLowerCase()}</span>
+                          <span>{item.priceAdjustment === 0 ? 'Base price' : `${item.priceAdjustment > 0 ? '+' : ''}${formatPrice(item.priceAdjustment)}`}</span>
+                        </div>
+                        {item.conditionNote && <p className="mt-1 text-xs opacity-75">{item.conditionNote}</p>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Extra Services */}
               {(services?.tryOnEnabled || services?.backupSizeEnabled) && (

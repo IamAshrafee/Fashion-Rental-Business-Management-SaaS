@@ -62,6 +62,7 @@ export interface RequirementProposal {
   ruleSnapshot?: Prisma.InputJsonValue;
   customerSelectionSnapshot?: Prisma.InputJsonValue;
   priceAdjustment: number;
+  preferredStockUnitId?: string;
 }
 
 interface ExpandInput {
@@ -70,6 +71,7 @@ interface ExpandInput {
   variantSizeId: string;
   quantity: number;
   selections?: FulfillmentSelectionDto[];
+  preferredStockUnitId?: string;
 }
 
 interface CreateRequirementsInput {
@@ -107,7 +109,11 @@ export class FulfillmentService {
       variantName: mainSku.variant.variantName,
       sizeLabel: mainSku.sizeInstance.displayLabel,
       priceAdjustment: 0,
-      ruleSnapshot: this.json({ source: 'main-product' }),
+      preferredStockUnitId: input.preferredStockUnitId,
+      ruleSnapshot: this.json({
+        source: 'main-product',
+        preferredStockUnitId: input.preferredStockUnitId ?? null,
+      }),
     }];
 
     await this.expandProductRules(
@@ -214,6 +220,7 @@ export class FulfillmentService {
         endDate: input.endDate,
         status: input.reservationStatus,
         expiresAt: input.expiresAt,
+        preferredStockUnitId: proposal.preferredStockUnitId,
       });
       await tx.fulfillmentRequirementVersion.update({
         where: { requirementId_version: { requirementId: requirement.id, version: 1 } },
@@ -810,10 +817,10 @@ export class FulfillmentService {
     type Result = Awaited<ReturnType<InventoryAvailabilityService['check']>>;
     const groups = new Map<
       string,
-      { productId: string; variantSizeId: string; quantity: number; proposals: RequirementProposal[] }
+      { productId: string; variantSizeId: string; preferredStockUnitId?: string; quantity: number; proposals: RequirementProposal[] }
     >();
     for (const proposal of input.proposals) {
-      const key = `${proposal.productId}:${proposal.variantSizeId}`;
+      const key = `${proposal.productId}:${proposal.variantSizeId}:${proposal.preferredStockUnitId ?? 'generic'}`;
       const group = groups.get(key);
       if (group) {
         group.quantity += proposal.quantity;
@@ -822,6 +829,7 @@ export class FulfillmentService {
         groups.set(key, {
           productId: proposal.productId,
           variantSizeId: proposal.variantSizeId,
+          preferredStockUnitId: proposal.preferredStockUnitId,
           quantity: proposal.quantity,
           proposals: [proposal],
         });
@@ -848,6 +856,7 @@ export class FulfillmentService {
           tenantId: input.tenantId,
           productId: group.productId,
           variantSizeId: group.variantSizeId,
+          preferredStockUnitId: group.preferredStockUnitId,
           sourceLocationId: location.id,
           startDate: input.startDate,
           endDate: input.endDate,
@@ -875,7 +884,8 @@ export class FulfillmentService {
       variantSizeId: mainProposal.variantSizeId,
       startDate: input.startDate,
       endDate: input.endDate,
-      quantity: groups.get(`${mainProposal.productId}:${mainProposal.variantSizeId}`)!.quantity,
+      preferredStockUnitId: mainProposal.preferredStockUnitId,
+      quantity: groups.get(`${mainProposal.productId}:${mainProposal.variantSizeId}:${mainProposal.preferredStockUnitId ?? 'generic'}`)!.quantity,
       enforcePublished: false,
     }, tx);
     if (
@@ -891,12 +901,13 @@ export class FulfillmentService {
 
     const splitResults = new Map<string, Result>();
     for (const [key, group] of groups) {
-      const result = key === `${mainProposal.productId}:${mainProposal.variantSizeId}`
+      const result = key === `${mainProposal.productId}:${mainProposal.variantSizeId}:${mainProposal.preferredStockUnitId ?? 'generic'}`
         ? mainAvailability
         : await this.availability.check({
             tenantId: input.tenantId,
             productId: group.productId,
             variantSizeId: group.variantSizeId,
+            preferredStockUnitId: group.preferredStockUnitId,
             startDate: input.startDate,
             endDate: input.endDate,
             quantity: group.quantity,
@@ -915,7 +926,7 @@ export class FulfillmentService {
   private expandAvailabilityGroups(
     groups: Map<
       string,
-      { productId: string; variantSizeId: string; quantity: number; proposals: RequirementProposal[] }
+      { productId: string; variantSizeId: string; preferredStockUnitId?: string; quantity: number; proposals: RequirementProposal[] }
     >,
     results: Map<string, Awaited<ReturnType<InventoryAvailabilityService['check']>>>,
   ) {
@@ -961,7 +972,10 @@ export class FulfillmentService {
           tenantId,
           variant: { productId: rule.componentProductId, product: { deletedAt: null } },
           OR: [
-            { trackingMode: InventoryTrackingMode.POOLED, pooledQuantity: { gt: 0 } },
+            {
+              trackingMode: InventoryTrackingMode.POOLED,
+              inventoryPools: { some: { onHandQuantity: { gt: 0 }, location: { isActive: true } } },
+            },
             { trackingMode: InventoryTrackingMode.SERIALIZED, stockUnits: { some: { disposition: 'ACTIVE', deletedAt: null } } },
           ],
         },

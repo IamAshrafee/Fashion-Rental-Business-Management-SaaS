@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { customerApi } from '@/lib/api/customers';
-import { productApi, type ProductServicesData } from '@/lib/api/products';
+import { productApi, type PricingProfileData } from '@/lib/api/products';
 import { bookingApi, type ValidateCartResponse } from '@/lib/api/bookings';
 import { fulfillmentApi } from '@/lib/api/fulfillment';
 import { BundleConfigurator, type BundleSelection } from '@/app/(guest)/products/[slug]/bundle-configurator';
@@ -64,14 +64,8 @@ interface OwnerProductResult {
   name: string;
   slug: string;
   status: string;
-  pricing: {
-    mode: string;
-    rentalPrice: number | null;
-    pricePerDay: number | null;
-    calculatedPrice: number | null;
-    priceOverride: number | null;
-    minInternalPrice: number | null;
-  } | null;
+  rentalPrice: number;
+  pricingMode: string | null;
   variants: Array<{
     id: string;
     variantName: string | null;
@@ -99,7 +93,34 @@ interface ProductForForm {
   }>;
   // Sizing handled abstractly via attributes now if needed
   // Service config (loaded lazily after selection)
-  services?: ProductServicesData | null;
+  services?: RentalOptions | null;
+}
+
+interface RentalOptions {
+  backupSizeEnabled: boolean;
+  backupSizeFee: number;
+  tryOnEnabled: boolean;
+  tryOnFee: number;
+  tryOnCreditToRental: boolean;
+}
+
+function rentalOptionsFromPricing(pricing: PricingProfileData | null): RentalOptions {
+  const component = (purpose: string) =>
+    pricing?.components.find(
+      (item) =>
+        item.config.purpose === purpose || item.config.addonId === purpose,
+    );
+  const amount = (item: PricingProfileData['components'][number] | undefined) =>
+    Number((item?.config.pricing as Record<string, unknown> | undefined)?.amountMinor ?? 0);
+  const backup = component('BACKUP_SIZE');
+  const tryOn = component('TRY_ON');
+  return {
+    backupSizeEnabled: Boolean(backup),
+    backupSizeFee: amount(backup),
+    tryOnEnabled: Boolean(tryOn),
+    tryOnFee: amount(tryOn),
+    tryOnCreditToRental: Boolean(tryOn?.config.creditToRental),
+  };
 }
 
 interface BookingItemLine {
@@ -128,27 +149,17 @@ interface BookingItemLine {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getEffectivePrice(pricing: OwnerProductResult['pricing']): number {
-  if (!pricing) return 0;
-  if (pricing.priceOverride) return pricing.priceOverride;
-  if (pricing.mode === 'one_time') return pricing.rentalPrice ?? 0;
-  if (pricing.mode === 'per_day') return pricing.pricePerDay ?? 0;
-  if (pricing.mode === 'percentage') return pricing.calculatedPrice ?? 0;
-  return pricing.rentalPrice ?? 0;
-}
-
 function mapToFormProduct(raw: OwnerProductResult): ProductForForm {
-  const price = getEffectivePrice(raw.pricing);
   const firstVariant = raw.variants?.[0];
   const thumb = firstVariant?.images?.[0]?.thumbnailUrl ?? '';
 
   return {
     id: raw.id,
     name: raw.name,
-    rentalPrice: price,
-    minInternalPrice: raw.pricing?.minInternalPrice ?? 0,
+    rentalPrice: raw.rentalPrice,
+    minInternalPrice: 0,
     thumbnailUrl: thumb,
-    pricingMode: raw.pricing?.mode ?? 'one_time',
+    pricingMode: raw.pricingMode ?? 'FLAT_PERIOD',
     variants: (raw.variants ?? []).map((v) => ({
       id: v.id,
       colorName: v.mainColor?.name ?? 'Default',
@@ -396,7 +407,7 @@ export function ManualBookingForm() {
       const detail = await productApi.getById(product.id);
       setSelectedProduct(prev => prev ? {
         ...prev,
-        services: detail.services,
+        services: rentalOptionsFromPricing(detail.pricing),
         variants: detail.variants.map((variant) => ({
           id: variant.id,
           colorName: variant.variantName || variant.mainColor.name,

@@ -2,14 +2,9 @@
 
 **Date:** 2026-08-03
 
-**Status:** Approved direction; implementation specification
+**Status:** Implemented architecture baseline
 
 **Scope:** Replace transitional inventory compatibility with one authoritative rental domain and reorganize the owner dashboard around real operational workflows.
-
-**Builds on:**
-
-- `2026-08-03-complete-rental-inventory-domain-design.md`
-- `2026-08-03-hybrid-inventory-design.md`
 
 ## 1. Decision
 

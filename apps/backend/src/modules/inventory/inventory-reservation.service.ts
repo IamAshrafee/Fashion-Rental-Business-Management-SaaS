@@ -19,6 +19,7 @@ interface CreateReservationInput {
   endDate: string | Date;
   status: InventoryReservationStatus;
   expiresAt?: Date | null;
+  preferredStockUnitId?: string;
 }
 
 @Injectable()
@@ -63,6 +64,7 @@ export class InventoryReservationService {
         startDate: input.startDate,
         endDate: input.endDate,
         quantity: input.quantity,
+        preferredStockUnitId: input.preferredStockUnitId,
       },
       tx,
     );
@@ -89,6 +91,7 @@ export class InventoryReservationService {
         variantSizeId: input.variantSizeId,
         sourceLocationId: input.sourceLocationId,
         inventoryPoolId: availability.inventoryPoolId,
+        preferredStockUnitId: input.preferredStockUnitId ?? null,
         quantity: input.quantity,
         rentalStartDate: new Date(availability.rentalRange.start),
         rentalEndDate: new Date(availability.rentalRange.end),
@@ -114,6 +117,12 @@ export class InventoryReservationService {
         where: { tenantId, bookingId },
         select: { status: true, expiresAt: true },
       });
+      if (reservations.length === 0) {
+        throw new ConflictException({
+          code: 'INVENTORY_RESERVATION_MISSING',
+          message: 'This booking cannot be confirmed because it has no inventory reservation',
+        });
+      }
       const unavailableReservation = reservations.find(
         (reservation) =>
           !['PENDING', 'CONFIRMED'].includes(reservation.status) ||

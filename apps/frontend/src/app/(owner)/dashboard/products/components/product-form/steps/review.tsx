@@ -286,8 +286,6 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
               value={
                 data.shippingMode === 'flat'
                   ? `Flat ৳${data.flatShippingFee || 0}`
-                  : data.shippingMode === 'area_based'
-                  ? 'Area based'
                   : 'Free'
               }
             />

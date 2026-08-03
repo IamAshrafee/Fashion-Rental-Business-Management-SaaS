@@ -55,6 +55,7 @@ export interface InventoryMediaAttachment {
   objectKey: string | null;
   mimeType: string | null;
   caption: string | null;
+  isPublicApproved: boolean;
   capturedAt: string | null;
   createdAt: string;
 }
@@ -159,6 +160,11 @@ export interface StockUnitOperations {
     location: { id: string; code: string; name: string };
     purchaseDate: string | null;
     purchasePrice: number | null;
+    estimatedCurrentValue: number | null;
+    storefrontVisible: boolean;
+    publicConditionNote: string | null;
+    rentalPriceAdjustment: number;
+    storefrontSortOrder: number;
     notes: string | null;
     variantSize: {
       id: string;
@@ -187,11 +193,22 @@ export interface StockUnitOperations {
       };
     }>;
     blocks: Array<{ id: string; startDate: string; endDate: string; blockType: string; reason: string | null }>;
+    mediaAttachments: InventoryMediaAttachment[];
+    movements: Array<{
+      id: string;
+      movementType: string;
+      beforeState: Record<string, unknown> | null;
+      afterState: Record<string, unknown> | null;
+      reason: string;
+      createdAt: string;
+      actor: PersonSummary | null;
+    }>;
   };
   inspections: StockUnitInspection[];
   issues: StockUnitIssue[];
   lifecycleEvents: StockUnitLifecycleEvent[];
   serviceOrders: InventoryServiceOrder[];
+  rentalMetrics: { completedRentals: number; totalRentalDays: number };
 }
 
 export interface CompleteInspectionInput {
@@ -269,6 +286,9 @@ export const inventoryOperationsApi = {
 
   updateComponentState: async (stockUnitId: string, definitionId: string, payload: { presence: StockUnitComponentPresence; presentQuantity: number; condition?: StockConditionGrade; notes?: string }): Promise<StockUnitComponentState> =>
     unwrap(await apiClient.patch<ApiResponse<StockUnitComponentState>>(`/owner/inventory/stock-units/${stockUnitId}/set-components/${definitionId}`, payload)),
+
+  replaceReferenceMedia: async (stockUnitId: string, media: Array<{ url: string; objectKey?: string; mimeType?: string; purpose: 'UNIT_REFERENCE'; caption?: string }>): Promise<InventoryMediaAttachment[]> =>
+    unwrap(await apiClient.patch<ApiResponse<InventoryMediaAttachment[]>>(`/owner/inventory/stock-units/${stockUnitId}/reference-media`, { media })),
 
   uploadInspectionMedia: async (stockUnitId: string, files: File[]): Promise<Array<{ url: string; objectKey: string; mimeType: string }>> => {
     const body = new FormData();

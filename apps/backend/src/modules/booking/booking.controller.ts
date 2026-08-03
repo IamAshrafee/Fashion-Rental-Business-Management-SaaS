@@ -22,7 +22,6 @@ import {
   CancelBookingDto,
   AddNoteDto,
   CreateDamageReportDto,
-  BlockDatesDto,
   BookingQueryDto,
   CheckAvailabilityDto,
 } from './dto/booking.dto';
@@ -338,48 +337,5 @@ export class BookingOwnerController {
     @Param('id') id: string,
   ) {
     return this.bookingService.calculateLateFees(tenant.id, id);
-  }
-}
-
-// ============================================================================
-// DATE BLOCKS CONTROLLER — Authenticated
-// ============================================================================
-
-/**
- * Owner endpoints for managing manual date blocks.
- */
-@Controller()
-@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
-export class DateBlockController {
-  constructor(private readonly bookingService: BookingService) {}
-
-  /**
-   * POST /api/v1/owner/products/:productId/date-blocks
-   * Manually block dates for a product.
-   */
-  @Post('owner/products/:productId/date-blocks')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async blockDates(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Body() dto: BlockDatesDto,
-  ) {
-    // Inject productId from path param into dto
-    return this.bookingService.blockDates(tenant.id, { ...dto, productId });
-  }
-
-  /**
-   * DELETE /api/v1/owner/date-blocks/:blockId
-   * Remove a manual date block.
-   */
-  @Delete('owner/date-blocks/:blockId')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async unblockDates(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('blockId') blockId: string,
-  ) {
-    return this.bookingService.unblockDates(tenant.id, blockId);
   }
 }

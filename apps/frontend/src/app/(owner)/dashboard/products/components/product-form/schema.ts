@@ -28,7 +28,6 @@ export const productFormSchema = z.object({
         sizeInstanceIds: z.array(z.string()).default([]),
         inventoryBySizeId: z.record(z.object({
           trackingMode: z.enum(['POOLED', 'SERIALIZED']).default('POOLED'),
-          pooledQuantity: z.number().int().min(0).default(1),
         })).default({}),
         mainColorId: z.string().min(1, 'Main color is required'),
         identicalColorIds: z.array(z.string()).min(1, 'At least one identical color is required'),
@@ -61,8 +60,8 @@ export const productFormSchema = z.object({
   lateFeeAmountMinor: z.number().int().optional(),
   lateFeeCapMinor: z.number().int().optional(),
 
-  // Shipping (kept from legacy — not part of pricing engine)
-  shippingMode: z.enum(['free', 'flat', 'area_based'] as [ShippingMode, ...ShippingMode[]]).default('free'),
+  // Delivery charge is stored as a versioned pricing component.
+  shippingMode: z.enum(['free', 'flat'] as [ShippingMode, ...ShippingMode[]]).default('free'),
   flatShippingFee: z.number().optional(),
 
   // Step 5: Size (schema-driven)

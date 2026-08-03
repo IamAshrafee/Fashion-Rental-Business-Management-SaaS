@@ -19,7 +19,7 @@ export class PricingAdminService {
 
   /**
    * Returns the full pricing profile + active policy version for a product.
-   * If no profile exists, returns null (legacy product).
+   * Returns null until pricing has been configured for the product.
    */
   async getPricingProfile(tenantId: string, productId: string) {
     const profile = await this.prisma.pricingProfile.findFirst({
@@ -203,9 +203,14 @@ export class PricingAdminService {
       }
 
       // 7. Update active version pointer
+      const headline = this.deriveHeadline(input.ratePlan.type, input.ratePlan.config);
       await tx.pricingProfile.update({
         where: { id: profile.id },
-        data: { activePolicyVersionId: policyVersion.id },
+        data: {
+          activePolicyVersionId: policyVersion.id,
+          headlinePriceMinor: headline.price,
+          headlineLabel: headline.label,
+        },
       });
 
       this.logger.log(
@@ -238,5 +243,39 @@ export class PricingAdminService {
     });
 
     return { message: 'Pricing profile deleted' };
+  }
+
+  private deriveHeadline(
+    type: string,
+    config: Record<string, unknown>,
+  ): { price: number; label: string | null } {
+    const number = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+    if (type === 'PER_DAY') return { price: number(config.unitPriceMinor), label: '/day' };
+    if (type === 'FLAT_PERIOD') {
+      const days = number(config.includedDays);
+      return {
+        price: number(config.flatPriceMinor),
+        label: days > 0 ? `/${days} days` : null,
+      };
+    }
+    if (type === 'TIERED_DAILY') {
+      const tiers = Array.isArray(config.tiers) ? config.tiers : [];
+      const first = tiers[0] as Record<string, unknown> | undefined;
+      return { price: number(first?.pricePerDayMinor), label: '/day' };
+    }
+    if (type === 'WEEKLY_MONTHLY') {
+      return {
+        price:
+          number(config.dailyPriceMinor) ||
+          number(config.weeklyPriceMinor) ||
+          number(config.monthlyPriceMinor),
+        label: null,
+      };
+    }
+    if (type === 'PERCENT_RETAIL') {
+      return { price: number(config.minPriceMinor), label: `${number(config.percent)}% of retail` };
+    }
+    return { price: 0, label: null };
   }
 }

@@ -115,6 +115,30 @@ export default function InventoryOverviewPage() {
         </Card>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Acquisition cost</CardDescription>
+            <CardTitle>৳{data.economics.acquisitionCost.toLocaleString()}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Estimated current value</CardDescription>
+            <CardTitle>৳{data.economics.estimatedCurrentValue.toLocaleString()}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Completed service cost</CardDescription>
+            <CardTitle>৳{data.economics.completedServiceCost.toLocaleString()}</CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs text-muted-foreground">
+            {data.economics.completedServiceOrders} completed service orders
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
         <Card>
           <CardHeader>

@@ -207,11 +207,8 @@ export class PricingEngineService {
     };
   }
 
-  /**
-   * Legacy compatibility: compute pricing for the booking service
-   * using the old PricingSnapshot interface shape.
-   */
-  async computeLegacyPricing(
+  /** Maps a versioned quote into the booking's immutable monetary snapshot. */
+  async computeBookingPricing(
     productId: string,
     startDate: string,
     endDate: string,
@@ -219,51 +216,40 @@ export class PricingEngineService {
   ) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      select: { purchasePrice: true, tenantId: true, pricing: { select: { shippingMode: true, shippingFee: true } } },
+      select: { purchasePrice: true, tenantId: true },
+    });
+    if (!product) throw new NotFoundException(`Product ${productId} not found`);
+
+    const result = await this.computeQuote({
+      tenantId: product.tenantId,
+      productId,
+      startAt: new Date(startDate),
+      endAt: new Date(endDate),
+      retailPriceMinor: product.purchasePrice ?? undefined,
+      selectedAddons: [
+        ...(options?.backupSize ? ['BACKUP_SIZE'] : []),
+        ...(options?.tryOn ? ['TRY_ON'] : []),
+      ],
     });
 
-    try {
-      const result = await this.computeQuote({
-        tenantId: product?.tenantId || '',
-        productId,
-        startAt: new Date(startDate),
-        endAt: new Date(endDate),
-        retailPriceMinor: product?.purchasePrice ?? undefined,
-        selectedAddons: [
-          ...(options?.backupSize ? ['BACKUP_SIZE'] : []),
-          ...(options?.tryOn ? ['TRY_ON'] : []),
-        ],
-      });
-
-      // Map to legacy shape
-      const baseRentalItem = result.lineItems.find((li) => li.type === 'BASE_RENTAL');
-      const cleaningItem = result.lineItems.find((li) => li.type === 'CLEANING_FEE' || li.type === 'FEE');
-      const depositItem = result.lineItems.find((li) => li.type === 'DEPOSIT');
-      const backupItem = result.lineItems.find((li) => li.type === 'BACKUP_SIZE');
-      const tryOnItem = result.lineItems.find((li) => li.type === 'TRY_ON');
-
-      // C2 FIX: Overlay shipping fee from ProductPricing instead of hardcoding 0
-      const pricing = product?.pricing;
-      const shippingFee = pricing?.shippingMode === 'flat' ? (pricing?.shippingFee ?? 0) : 0;
-
-      return {
-        rentalDays: result.billableDays,
-        baseRental: baseRentalItem?.amountMinor ?? 0,
-        extendedDays: 0, // handled within base rental now
-        extendedCost: 0,
-        depositAmount: depositItem?.amountMinor ?? 0,
-        cleaningFee: cleaningItem?.amountMinor ?? 0,
-        backupSizeFee: backupItem?.amountMinor ?? 0,
-        tryOnFee: tryOnItem?.amountMinor ?? 0,
-        shippingFee,
-        itemTotal: result.subtotalMinor,
-        policyVersionId: result.policyVersionId,
-      };
-    } catch {
-      // If no pricing profile exists (legacy product), return null
-      // so the caller can fall back to the old calculatePricingForDates
-      return null;
-    }
+    const amount = (type: string) =>
+      result.lineItems
+        .filter((line) => line.type === type)
+        .reduce((sum, line) => sum + line.amountMinor, 0);
+    const shippingFee = amount('DELIVERY_FEE');
+    return {
+      rentalDays: result.billableDays,
+      baseRental: amount('BASE_RENTAL'),
+      extendedDays: 0,
+      extendedCost: 0,
+      depositAmount: amount('DEPOSIT'),
+      cleaningFee: amount('CLEANING_FEE'),
+      backupSizeFee: amount('BACKUP_SIZE'),
+      tryOnFee: amount('TRY_ON'),
+      shippingFee,
+      itemTotal: result.subtotalMinor - shippingFee,
+      policyVersionId: result.policyVersionId,
+    };
   }
 
   // =========================================================================
@@ -593,7 +579,12 @@ export class PricingEngineService {
     }
 
     return {
-      type: component.type === 'FEE' ? this.getFeeSubType(config.label) : component.type,
+      type:
+        component.type === 'FEE'
+          ? this.getFeeSubType(config)
+          : component.type === 'ADDON'
+            ? this.getAddonSubType(config)
+            : component.type,
       label: config.label,
       amountMinor: amount,
       refundable: component.refundable,
@@ -603,12 +594,21 @@ export class PricingEngineService {
     };
   }
 
-  private getFeeSubType(label: string): string {
-    const lower = label.toLowerCase();
+  private getFeeSubType(config: ComponentPricingConfig & { purpose?: string }): string {
+    if (config.purpose === 'DELIVERY') return 'DELIVERY_FEE';
+    const lower = config.label.toLowerCase();
     if (lower.includes('clean')) return 'CLEANING_FEE';
-    if (lower.includes('backup') || lower.includes('size')) return 'BACKUP_SIZE';
-    if (lower.includes('try') || lower.includes('trial')) return 'TRY_ON';
     return 'FEE';
+  }
+
+  private getAddonSubType(
+    config: ComponentPricingConfig & { purpose?: string; addonId?: string },
+  ): string {
+    if (config.purpose === 'BACKUP_SIZE' || config.addonId === 'BACKUP_SIZE') {
+      return 'BACKUP_SIZE';
+    }
+    if (config.purpose === 'TRY_ON' || config.addonId === 'TRY_ON') return 'TRY_ON';
+    return 'ADDON';
   }
 
   // =========================================================================

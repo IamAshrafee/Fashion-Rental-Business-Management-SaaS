@@ -594,11 +594,10 @@ export function PricingServicesStep() {
           How delivery costs are handled for this product
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           {([
             { value: 'free', label: 'Free Shipping', desc: 'No delivery charge' },
             { value: 'flat', label: 'Flat Fee', desc: 'Fixed delivery charge' },
-            { value: 'area_based', label: 'Area-Based', desc: 'Varies by location' },
           ] as const).map((opt) => {
             const isActive = (watch('shippingMode') || 'free') === opt.value;
             return (
@@ -639,12 +638,6 @@ export function PricingServicesStep() {
           </div>
         )}
 
-        {watch('shippingMode') === 'area_based' && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-700">
-            <Info className="h-4 w-4 shrink-0" />
-            <p className="text-xs">Area-based shipping is configured in Store Settings → Delivery Zones.</p>
-          </div>
-        )}
       </div>
 
       <Separator />

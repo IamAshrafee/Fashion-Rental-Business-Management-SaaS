@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { productApi } from '@/lib/api/products';
 import {
   inventoryOperationsApi,
   type CompleteInspectionInput,
@@ -1493,8 +1494,52 @@ function ComponentsPanel({
   );
 }
 
-function Overview({ data }: { data: StockUnitOperations }) {
+function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () => Promise<void> }) {
   const unit = data.stockUnit;
+  const [storefrontVisible, setStorefrontVisible] = useState(unit.storefrontVisible);
+  const [conditionNote, setConditionNote] = useState(unit.publicConditionNote || '');
+  const [priceAdjustment, setPriceAdjustment] = useState(String(unit.rentalPriceAdjustment));
+  const [currentValue, setCurrentValue] = useState(
+    unit.estimatedCurrentValue == null ? '' : String(unit.estimatedCurrentValue),
+  );
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [referenceCaption, setReferenceCaption] = useState('');
+  const saveCommercial = useMutation({
+    mutationFn: () =>
+      productApi.updateStockUnit(unit.id, {
+        storefrontVisible,
+        publicConditionNote: conditionNote,
+        rentalPriceAdjustment: Number(priceAdjustment) || 0,
+        estimatedCurrentValue: currentValue === '' ? undefined : Number(currentValue),
+      }),
+    onSuccess: async () => {
+      await refresh();
+      toast.success('Item visibility and valuation updated');
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not update item settings')),
+  });
+  const replaceReferenceMedia = useMutation({
+    mutationFn: async (clear: boolean) => {
+      const uploaded = clear
+        ? []
+        : await inventoryOperationsApi.uploadInspectionMedia(unit.id, referenceFiles);
+      return inventoryOperationsApi.replaceReferenceMedia(
+        unit.id,
+        uploaded.map((file) => ({
+          ...file,
+          purpose: 'UNIT_REFERENCE' as const,
+          caption: referenceCaption.trim() || undefined,
+        })),
+      );
+    },
+    onSuccess: async () => {
+      setReferenceFiles([]);
+      setReferenceCaption('');
+      await refresh();
+      toast.success('Public item photos updated');
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not update item photos')),
+  });
   const blockingIssues = data.issues.filter(
     (issue) => issue.isAvailabilityBlocking && ['OPEN', 'IN_SERVICE'].includes(issue.status),
   );
@@ -1547,10 +1592,16 @@ function Overview({ data }: { data: StockUnitOperations }) {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Completed inspections</CardDescription>
+            <CardDescription>Completed rentals</CardDescription>
             <CardTitle className="text-lg">
-              {data.inspections.filter((inspection) => inspection.status === 'COMPLETED').length}
+              {data.rentalMetrics.completedRentals}
             </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Total rental days</CardDescription>
+            <CardTitle className="text-lg">{data.rentalMetrics.totalRentalDays}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -1578,6 +1629,112 @@ function Overview({ data }: { data: StockUnitOperations }) {
           <div className="sm:col-span-2">
             <p className="text-muted-foreground">Notes</p>
             <p>{unit.notes || '—'}</p>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Storefront transparency and valuation</CardTitle>
+          <CardDescription>
+            Product-level visibility policy controls whether these approved item details appear publicly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <label className="flex items-center gap-3 rounded-md border p-3 text-sm sm:col-span-2">
+            <Checkbox
+              checked={storefrontVisible}
+              onCheckedChange={(checked) => setStorefrontVisible(checked === true)}
+            />
+            Allow this piece to participate in public condition display or item selection
+          </label>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Public condition disclosure</Label>
+            <Textarea
+              value={conditionNote}
+              onChange={(event) => setConditionNote(event.target.value)}
+              placeholder="Example: slight color fading near the hem"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Rental price adjustment (৳)</Label>
+            <Input
+              type="number"
+              value={priceAdjustment}
+              onChange={(event) => setPriceAdjustment(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Use a negative value for a condition discount.</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Estimated current value (৳)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={currentValue}
+              onChange={(event) => setCurrentValue(event.target.value)}
+            />
+          </div>
+          <Button
+            className="sm:col-span-2 sm:w-fit"
+            disabled={saveCommercial.isPending}
+            onClick={() => saveCommercial.mutate()}
+          >
+            {saveCommercial.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save item settings
+          </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Approved storefront photos</CardTitle>
+          <CardDescription>
+            These photos are public only when the product visibility policy and this item&apos;s visibility are enabled.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {unit.mediaAttachments.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {unit.mediaAttachments.map((media) => (
+                <div key={media.id} className="overflow-hidden rounded-md border">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={media.url} alt={media.caption || 'Physical item reference'} className="aspect-square w-full object-cover" />
+                  {media.caption && <p className="p-2 text-xs text-muted-foreground">{media.caption}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="reference-media">Replacement photos</Label>
+              <Input
+                id="reference-media"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                onChange={(event) => setReferenceFiles(Array.from(event.target.files || []).slice(0, 10))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Public caption</Label>
+              <Input value={referenceCaption} onChange={(event) => setReferenceCaption(event.target.value)} />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={referenceFiles.length === 0 || replaceReferenceMedia.isPending}
+              onClick={() => replaceReferenceMedia.mutate(false)}
+            >
+              {replaceReferenceMedia.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Replace public photos
+            </Button>
+            {unit.mediaAttachments.length > 0 && (
+              <Button
+                variant="outline"
+                disabled={replaceReferenceMedia.isPending}
+                onClick={() => replaceReferenceMedia.mutate(true)}
+              >
+                Remove public photos
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1721,7 +1878,7 @@ export default function StockUnitOperationsPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <Overview data={data} />
+          <Overview data={data} refresh={refresh} />
         </TabsContent>
         <TabsContent value="inspections">
           <InspectionsPanel data={data} refresh={refresh} />
@@ -1737,13 +1894,17 @@ export default function StockUnitOperationsPage() {
         </TabsContent>
         <TabsContent value="history">
           <div className="space-y-3">
-            {!data.lifecycleEvents.length ? (
+            {!data.lifecycleEvents.length && !data.stockUnit.movements.length ? (
               <Card>
                 <CardContent className="p-8 text-center text-sm text-muted-foreground">
-                  No lifecycle changes recorded.
+                  No item history recorded.
                 </CardContent>
               </Card>
-            ) : (
+            ) : null}
+            {data.lifecycleEvents.length > 0 && (
+              <p className="text-sm font-semibold">Lifecycle events</p>
+            )}
+            {data.lifecycleEvents.length > 0 &&
               data.lifecycleEvents.map((event) => (
                 <Card key={event.id}>
                   <CardContent className="flex flex-wrap items-start justify-between gap-3 p-4">
@@ -1760,8 +1921,29 @@ export default function StockUnitOperationsPage() {
                     </p>
                   </CardContent>
                 </Card>
-              ))
+              ))}
+            {data.stockUnit.movements.length > 0 && (
+              <p className="pt-2 text-sm font-semibold">Inventory and valuation events</p>
             )}
+            {data.stockUnit.movements.map((movement) => (
+              <Card key={movement.id}>
+                <CardContent className="flex flex-wrap items-start justify-between gap-3 p-4">
+                  <div>
+                    <p className="text-sm font-medium">{label(movement.movementType)}</p>
+                    <p className="text-sm text-muted-foreground">{movement.reason}</p>
+                    {movement.movementType === 'VALUATION_CHANGED' && (
+                      <p className="text-xs text-muted-foreground">
+                        ৳{Number(movement.beforeState?.estimatedCurrentValue ?? 0).toLocaleString()} → ৳{Number(movement.afterState?.estimatedCurrentValue ?? 0).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDate(movement.createdAt)}
+                    {movement.actor ? ` · ${movement.actor.fullName}` : ''}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </TabsContent>
       </Tabs>

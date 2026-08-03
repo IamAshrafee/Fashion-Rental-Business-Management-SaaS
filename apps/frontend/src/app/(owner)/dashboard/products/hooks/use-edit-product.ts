@@ -11,7 +11,6 @@ import { productFormSchema, ProductFormValues } from '../components/product-form
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapProductToFormValues(product: any): ProductFormValues {
   const pricing = product.pricing;
-  const services = product.services;
   const size = product.productSize;
 
   return {
@@ -40,7 +39,7 @@ function mapProductToFormValues(product: any): ProductFormValues {
       inventoryBySizeId: Object.fromEntries(
         (v.sizes ?? []).map((sz: any) => [
           sz.sizeInstance?.id ?? sz.sizeInstanceId,
-          { trackingMode: sz.trackingMode ?? 'POOLED', pooledQuantity: sz.pooledQuantity ?? 1 },
+          { trackingMode: sz.trackingMode ?? 'POOLED' },
         ]),
       ),
       identicalColorIds:
@@ -59,9 +58,14 @@ function mapProductToFormValues(product: any): ProductFormValues {
     ratePlanType: pricing?.ratePlanType as 'PER_DAY' | 'FLAT_PERIOD' | 'TIERED_DAILY' | 'WEEKLY_MONTHLY' | 'PERCENT_RETAIL' | undefined,
     ratePlanConfig: pricing?.ratePlanConfig ?? undefined,
     pricingComponents: pricing?.components?.map((c: any) => ({
-      type: c.type,
+      type:
+        c.type === 'ADDON' && c.config?.purpose === 'BACKUP_SIZE'
+          ? 'ADDON_BACKUP'
+          : c.type === 'ADDON' && c.config?.purpose === 'TRY_ON'
+            ? 'ADDON_TRYON'
+            : c.type,
       config: c.config,
-    })) ?? [],
+    })).filter((c: any) => c.config?.purpose !== 'DELIVERY') ?? [],
     lateFeeEnabled: pricing?.lateFeePolicy?.enabled ?? false,
     lateFeeGraceHours: pricing?.lateFeePolicy?.graceHours ?? undefined,
     lateFeeAmountMinor: pricing?.lateFeePolicy?.amountMinor ?? undefined,

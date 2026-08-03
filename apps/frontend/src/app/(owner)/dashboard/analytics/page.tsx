@@ -27,9 +27,10 @@ export default function AnalyticsPage() {
         return { from: format(subDays(today, 30), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
       case 'thisMonth':
         return { from: format(startOfMonth(today), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
-      case 'lastMonth':
+      case 'lastMonth': {
         const lastMonth = subMonths(today, 1);
         return { from: format(startOfMonth(lastMonth), 'yyyy-MM-dd'), to: format(endOfMonth(lastMonth), 'yyyy-MM-dd') };
+      }
     }
   };
 

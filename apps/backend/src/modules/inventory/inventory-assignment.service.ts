@@ -13,7 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class InventoryAssignmentService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listEligibleUnits(tenantId: string, bookingId: string, bookingItemId: string, requirementId?: string) {
+  async listEligibleUnits(tenantId: string, bookingId: string, bookingItemId: string, requirementId: string) {
     const reservation = await this.getReservation(this.prisma, tenantId, bookingId, bookingItemId, requirementId);
     if (reservation.variantSize?.trackingMode !== InventoryTrackingMode.SERIALIZED) {
       return { requirement: reservation.fulfillmentRequirement, reservationId: reservation.id, required: 0, assigned: [], eligible: [] };
@@ -31,10 +31,12 @@ export class InventoryAssignmentService {
       this.prisma.stockUnit.findMany({
         where: {
           tenantId,
+          ...(reservation.preferredStockUnitId
+            ? { id: reservation.preferredStockUnitId }
+            : {}),
           variantSizeId: reservation.variantSize.id,
           locationId: reservation.sourceLocationId,
           disposition: 'ACTIVE',
-          status: 'ACTIVE',
           operationalState: { in: eligibility.operationalStates },
           condition: { in: eligibility.conditionGrades },
           deletedAt: null,
@@ -84,8 +86,8 @@ export class InventoryAssignmentService {
     bookingId: string,
     bookingItemId: string,
     stockUnitIds: string[],
-    actorUserId?: string,
-    requirementId?: string,
+    actorUserId: string | undefined,
+    requirementId: string,
   ) {
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -103,6 +105,15 @@ export class InventoryAssignmentService {
         );
 
         const sortedIds = [...new Set(stockUnitIds)].sort();
+        if (
+          reservation.preferredStockUnitId &&
+          (sortedIds.length !== 1 || sortedIds[0] !== reservation.preferredStockUnitId)
+        ) {
+          throw new ConflictException({
+            code: 'PREFERRED_STOCK_UNIT_REQUIRED',
+            message: 'This booking reserved a specific customer-selected physical item',
+          });
+        }
         await tx.$queryRaw(Prisma.sql`
           SELECT id
           FROM stock_units
@@ -129,7 +140,6 @@ export class InventoryAssignmentService {
             variantSizeId: reservation.variantSize.id,
             locationId: reservation.sourceLocationId,
             disposition: 'ACTIVE',
-            status: 'ACTIVE',
             operationalState: { in: eligibility.operationalStates },
             condition: { in: eligibility.conditionGrades },
             deletedAt: null,
@@ -246,8 +256,8 @@ export class InventoryAssignmentService {
     bookingItemId: string,
     assignmentId: string,
     reason: string,
-    actorUserId?: string,
-    requirementId?: string,
+    actorUserId: string | undefined,
+    requirementId: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
       const assignment = await tx.stockUnitAssignment.findFirst({
@@ -257,7 +267,7 @@ export class InventoryAssignmentService {
           reservation: {
             bookingId,
             bookingItemId,
-            ...(requirementId ? { fulfillmentRequirementId: requirementId } : {}),
+            fulfillmentRequirementId: requirementId,
           },
           releasedAt: null,
         },
@@ -301,16 +311,14 @@ export class InventoryAssignmentService {
     tenantId: string,
     bookingId: string,
     bookingItemId: string,
-    requirementId?: string,
+    requirementId: string,
   ) {
     const reservation = await db.inventoryReservation.findFirst({
       where: {
         tenantId,
         bookingId,
         bookingItemId,
-        ...(requirementId
-          ? { fulfillmentRequirementId: requirementId }
-          : { fulfillmentRequirement: { requirementKey: 'MAIN' } }),
+        fulfillmentRequirementId: requirementId,
       },
       include: { variantSize: true, fulfillmentRequirement: true },
     });

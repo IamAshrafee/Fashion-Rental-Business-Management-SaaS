@@ -21,17 +21,14 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
-  AssignStockUnitsDto,
   ConfigureVariantSizeInventoryDto,
   CreateInventoryBlockDto,
   CreateStockUnitDto,
   InventoryCalendarQueryDto,
   PublicAvailabilityQueryDto,
-  ReleaseAssignmentDto,
   StockUnitLifecycleDto,
   UpdateStockUnitDto,
 } from './dto/inventory.dto';
-import { InventoryAssignmentService } from './inventory-assignment.service';
 import { InventoryAvailabilityService } from './inventory-availability.service';
 import { InventoryManagementService } from './inventory-management.service';
 
@@ -59,15 +56,22 @@ export class InventoryGuestController {
       quantity: query.quantity,
     });
   }
+
+  @Public()
+  @Get(':productId/item-options')
+  async listItemOptions(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
+    @Query() query: PublicAvailabilityQueryDto,
+  ) {
+    return this.availability.listPublicItemOptions(tenant.id, productId, query);
+  }
 }
 
 @Controller('owner')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class InventoryOwnerController {
-  constructor(
-    private readonly inventory: InventoryManagementService,
-    private readonly assignments: InventoryAssignmentService,
-  ) {}
+  constructor(private readonly inventory: InventoryManagementService) {}
 
   @Get('products/:productId/inventory')
   @Roles('owner', 'manager', 'staff')
@@ -233,51 +237,4 @@ export class InventoryOwnerController {
     return this.inventory.deleteBlock(tenant.id, blockId);
   }
 
-  @Get('bookings/:bookingId/items/:bookingItemId/assignments')
-  @Roles('owner', 'manager', 'staff')
-  async listEligibleAssignments(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('bookingId') bookingId: string,
-    @Param('bookingItemId') bookingItemId: string,
-  ) {
-    return this.assignments.listEligibleUnits(tenant.id, bookingId, bookingItemId);
-  }
-
-  @Post('bookings/:bookingId/items/:bookingItemId/assignments')
-  @Roles('owner', 'manager', 'staff')
-  @HttpCode(HttpStatus.CREATED)
-  async assignStockUnits(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('bookingId') bookingId: string,
-    @Param('bookingItemId') bookingItemId: string,
-    @Body() dto: AssignStockUnitsDto,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.assignments.assign(
-      tenant.id,
-      bookingId,
-      bookingItemId,
-      dto.stockUnitIds,
-      request.user?.id,
-    );
-  }
-
-  @Delete('bookings/:bookingId/items/:bookingItemId/assignments/:assignmentId')
-  @Roles('owner', 'manager', 'staff')
-  async releaseAssignment(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('bookingId') bookingId: string,
-    @Param('bookingItemId') bookingItemId: string,
-    @Param('assignmentId') assignmentId: string,
-    @Body() dto: ReleaseAssignmentDto,
-  ) {
-    return this.assignments.release(
-      tenant.id,
-      bookingId,
-      bookingItemId,
-      assignmentId,
-      dto.reason,
-    );
-  }
 }
-

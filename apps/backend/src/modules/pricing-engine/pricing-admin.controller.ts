@@ -39,7 +39,7 @@ export class PricingAdminController {
 
     return {
       success: true,
-      data: profile, // null = legacy product with no profile yet
+      data: profile,
     };
   }
 
