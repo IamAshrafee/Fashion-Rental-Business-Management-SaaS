@@ -40,7 +40,9 @@ export class ProductService {
           subcategoryId: dto.subcategoryId || null,
           productTypeId: dto.productTypeId || null,
           sizeSchemaOverrideId: dto.sizeSchemaOverrideId || null,
-          status: (dto.status as 'draft' | 'published') || 'draft',
+          // Variants, images, pricing v2, and inventory are saved by subsequent
+          // owner requests. A base product therefore always starts as a draft.
+          status: 'draft',
           purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
           purchasePrice: dto.purchasePrice ?? null,
           purchasePricePublic: dto.purchasePricePublic ?? false,
@@ -263,6 +265,10 @@ export class ProductService {
 
   async updateStatus(tenantId: string, productId: string, status: string) {
     const product = await this.findProductOrFail(tenantId, productId);
+
+    if (status === 'published') {
+      await this.assertPublishReady(tenantId, productId);
+    }
 
     const updated = await this.prisma.product.update({
       where: { id: productId },
@@ -763,6 +769,15 @@ export class ProductService {
               minInternalPrice: true,
             },
           },
+          pricingProfile: {
+            include: {
+              policyVersions: {
+                where: { status: 'ACTIVE' },
+                take: 1,
+                include: { ratePlans: { orderBy: { priority: 'desc' }, take: 1 } },
+              },
+            },
+          },
           variants: {
             orderBy: { sequence: 'asc' },
             take: 1,
@@ -771,7 +786,7 @@ export class ProductService {
               images: {
                 where: { isFeatured: true },
                 take: 1,
-                select: { thumbnailUrl: true },
+                select: { id: true, url: true, thumbnailUrl: true, isFeatured: true },
               },
             },
           },
@@ -784,7 +799,24 @@ export class ProductService {
     ]);
 
     return {
-      data: products,
+      data: products.map((product) => {
+        const headline = this.computeHeadlinePrice(product);
+        return {
+          ...product,
+          rentalPrice: headline?.price ?? 0,
+          pricingMode: headline?.mode ?? product.pricing?.mode ?? null,
+          variants: product.variants.map((variant) => ({
+            id: variant.id,
+            colorName: variant.mainColor.name,
+            colorHex: variant.mainColor.hexCode,
+            images: variant.images.map((image) => ({
+              id: image.id,
+              url: image.thumbnailUrl || image.url,
+              isFeatured: image.isFeatured,
+            })),
+          })),
+        };
+      }),
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   }
@@ -1019,7 +1051,18 @@ export class ProductService {
               color: { select: { id: true, name: true, hexCode: true } },
             },
           },
-          sizes: { include: { sizeInstance: true } },
+          sizes: {
+            include: {
+              sizeInstance: true,
+              _count: {
+                select: {
+                  stockUnits: {
+                    where: { status: 'ACTIVE', deletedAt: null },
+                  },
+                },
+              },
+            },
+          },
           images: {
             orderBy: { sequence: 'asc' as const },
           },
@@ -1116,7 +1159,16 @@ export class ProductService {
       variants: product.variants?.map((v: any) => ({
         ...v,
         identicalColors: v.identicalColors?.map((vc: any) => vc.color) || [],
-        sizes: v.sizes?.map((s: any) => s.sizeInstance) || [],
+        sizes: v.sizes?.map((s: any) => ({
+          variantSizeId: s.id,
+          sizeInstance: s.sizeInstance,
+          trackingMode: s.trackingMode,
+          pooledQuantity: s.pooledQuantity,
+          totalCapacity:
+            s.trackingMode === 'SERIALIZED'
+              ? (s._count?.stockUnits ?? 0)
+              : s.pooledQuantity,
+        })) || [],
       })),
       details: product.detailHeaders?.map((h: any) => ({
         id: h.id,
@@ -1151,6 +1203,70 @@ export class ProductService {
     if (pricing.mode === 'per_day') return pricing.pricePerDay;
     if (pricing.mode === 'percentage') return pricing.calculatedPrice;
     return pricing.rentalPrice;
+  }
+
+  private async assertPublishReady(tenantId: string, productId: string): Promise<void> {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, tenantId, deletedAt: null },
+      select: {
+        categoryId: true,
+        pricing: { select: { id: true } },
+        pricingProfile: {
+          select: {
+            policyVersions: {
+              where: { status: 'ACTIVE' },
+              take: 1,
+              select: { id: true, ratePlans: { take: 1, select: { id: true } } },
+            },
+          },
+        },
+        variants: {
+          select: {
+            images: { where: { isFeatured: true }, take: 1, select: { id: true } },
+            sizes: {
+              select: {
+                trackingMode: true,
+                pooledQuantity: true,
+                _count: {
+                  select: {
+                    stockUnits: { where: { status: 'ACTIVE', deletedAt: null } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const hasFeaturedImage = product.variants.some((variant) => variant.images.length > 0);
+    const hasCapacity = product.variants.some((variant) =>
+      variant.sizes.some((size) =>
+        size.trackingMode === 'POOLED'
+          ? size.pooledQuantity > 0
+          : size._count.stockUnits > 0,
+      ),
+    );
+    const hasLegacyPricing = Boolean(product.pricing);
+    const hasActiveV2Pricing = Boolean(
+      product.pricingProfile?.policyVersions.some((version) => version.ratePlans.length > 0),
+    );
+
+    const missing: string[] = [];
+    if (!product.categoryId) missing.push('category');
+    if (product.variants.length === 0) missing.push('variant');
+    if (!hasFeaturedImage) missing.push('featured image');
+    if (!hasCapacity) missing.push('rentable inventory');
+    if (!hasLegacyPricing && !hasActiveV2Pricing) missing.push('active pricing');
+
+    if (missing.length > 0) {
+      throw new UnprocessableEntityException({
+        code: 'PRODUCT_NOT_READY_TO_PUBLISH',
+        message: `Product cannot be published until it has: ${missing.join(', ')}`,
+        missing,
+      });
+    }
   }
 
   private async upsertPricing(tx: any, tenantId: string, productId: string, pricing: any) {

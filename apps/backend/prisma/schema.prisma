@@ -163,6 +163,53 @@ enum BlockType {
   manual
 }
 
+enum InventoryTrackingMode {
+  POOLED
+  SERIALIZED
+}
+
+enum StockUnitStatus {
+  ACTIVE
+  MAINTENANCE
+  RETIRED
+  LOST
+}
+
+enum StockConditionGrade {
+  EXCELLENT
+  GOOD
+  FAIR
+  DAMAGED
+}
+
+enum InventoryReservationStatus {
+  PENDING
+  CONFIRMED
+  RELEASED
+  CANCELLED
+  EXPIRED
+}
+
+enum InventoryMovementType {
+  INITIAL_STOCK
+  POOLED_ADDITION
+  POOLED_REDUCTION
+  UNIT_REGISTERED
+  CONDITION_CHANGED
+  MAINTENANCE_STARTED
+  MAINTENANCE_ENDED
+  UNIT_RETIRED
+  UNIT_LOST
+  UNIT_RECOVERED
+  ADMIN_CORRECTION
+}
+
+enum InventoryBlockType {
+  MANUAL
+  MAINTENANCE
+  LEGACY_BOOKING
+}
+
 enum DepositStatus {
   pending
   collected
@@ -233,16 +280,19 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  ownedTenants        Tenant[]
-  tenantUsers         TenantUser[]
-  auditLogs           AuditLog[]
-  sessions            Session[]
-  loginHistory        LoginHistory[]
-  damageReports       DamageReport[]
-  deletedProducts     Product[]             @relation("ProductDeletedBy")
-  recordedPayments    SubscriptionPayment[] @relation("PaymentsRecordedBy")
-  createdPromoCodes   PromoCode[]           @relation("PromoCodesCreatedBy")
-  subscriptionActions SubscriptionHistory[] @relation("HistoryPerformedBy")
+  ownedTenants           Tenant[]
+  tenantUsers            TenantUser[]
+  auditLogs              AuditLog[]
+  sessions               Session[]
+  loginHistory           LoginHistory[]
+  damageReports          DamageReport[]
+  deletedProducts        Product[]             @relation("ProductDeletedBy")
+  recordedPayments       SubscriptionPayment[] @relation("PaymentsRecordedBy")
+  createdPromoCodes      PromoCode[]           @relation("PromoCodesCreatedBy")
+  subscriptionActions    SubscriptionHistory[] @relation("HistoryPerformedBy")
+  createdInventoryBlocks InventoryBlock[]      @relation("InventoryBlockCreatedBy")
+  inventoryMovements     InventoryMovement[]   @relation("InventoryMovementActor")
+  stockUnitAssignments   StockUnitAssignment[] @relation("StockUnitAssignedBy")
 
   @@index([phone])
   @@map("users")
@@ -329,27 +379,32 @@ model Tenant {
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  owner                User                  @relation(fields: [ownerUserId], references: [id])
-  plan                 SubscriptionPlan?     @relation(fields: [planId], references: [id])
-  promoCode            PromoCode?            @relation(fields: [promoCodeId], references: [id])
-  storeSettings        StoreSettings?
-  subscription         Subscription?
-  tenantUsers          TenantUser[]
-  products             Product[]
-  categories           Category[]
-  subcategories        Subcategory[]
-  variantSizes         VariantSize[]
-  events               Event[]
-  bookings             Booking[]
-  customers            Customer[]
-  notifications        Notification[]
-  auditLogs            AuditLog[]
-  sessions             Session[]
-  subscriptionPayments SubscriptionPayment[]
-  invoices             Invoice[]
-  subscriptionHistory  SubscriptionHistory[]
-  storefrontEvents     StorefrontEvent[]
-  usageSnapshots       TenantUsageSnapshot[]
+  owner                 User                   @relation(fields: [ownerUserId], references: [id])
+  plan                  SubscriptionPlan?      @relation(fields: [planId], references: [id])
+  promoCode             PromoCode?             @relation(fields: [promoCodeId], references: [id])
+  storeSettings         StoreSettings?
+  subscription          Subscription?
+  tenantUsers           TenantUser[]
+  products              Product[]
+  categories            Category[]
+  subcategories         Subcategory[]
+  variantSizes          VariantSize[]
+  events                Event[]
+  bookings              Booking[]
+  customers             Customer[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+  sessions              Session[]
+  subscriptionPayments  SubscriptionPayment[]
+  invoices              Invoice[]
+  subscriptionHistory   SubscriptionHistory[]
+  storefrontEvents      StorefrontEvent[]
+  usageSnapshots        TenantUsageSnapshot[]
+  stockUnits            StockUnit[]
+  inventoryReservations InventoryReservation[]
+  inventoryMovements    InventoryMovement[]
+  inventoryBlocks       InventoryBlock[]
+  stockUnitAssignments  StockUnitAssignment[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -573,24 +628,26 @@ model Product {
   deletedAt            DateTime?                @map("deleted_at")
   deletedByUserId      String?                  @map("deleted_by_user_id")
 
-  tenant             Tenant                @relation(fields: [tenantId], references: [id])
-  deletedBy          User?                 @relation("ProductDeletedBy", fields: [deletedByUserId], references: [id])
-  category           Category              @relation(fields: [categoryId], references: [id])
-  subcategory        Subcategory?          @relation(fields: [subcategoryId], references: [id])
-  productType        ProductType?          @relation(fields: [productTypeId], references: [id])
-  sizeSchemaOverride SizeSchema?           @relation("ProductSchemaOverride", fields: [sizeSchemaOverrideId], references: [id])
-  variants           ProductVariant[]
-  events             ProductEvent[]
-  pricing            ProductPricing? // Legacy — kept during migration
-  services           ProductServices? // Legacy — kept during migration
-  pricingProfile     PricingProfile? // Pricing Engine v2
-  faqs               ProductFaq[]
-  detailHeaders      ProductDetailHeader[]
-  bookingItems       BookingItem[]
-  dateBlocks         DateBlock[]
-  reviews            Review[]
-  sizeCharts         SizeChart[]
-  storefrontEvents   StorefrontEvent[]
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
+  deletedBy             User?                  @relation("ProductDeletedBy", fields: [deletedByUserId], references: [id])
+  category              Category               @relation(fields: [categoryId], references: [id])
+  subcategory           Subcategory?           @relation(fields: [subcategoryId], references: [id])
+  productType           ProductType?           @relation(fields: [productTypeId], references: [id])
+  sizeSchemaOverride    SizeSchema?            @relation("ProductSchemaOverride", fields: [sizeSchemaOverrideId], references: [id])
+  variants              ProductVariant[]
+  events                ProductEvent[]
+  pricing               ProductPricing? // Legacy — kept during migration
+  services              ProductServices? // Legacy — kept during migration
+  pricingProfile        PricingProfile? // Pricing Engine v2
+  faqs                  ProductFaq[]
+  detailHeaders         ProductDetailHeader[]
+  bookingItems          BookingItem[]
+  dateBlocks            DateBlock[]
+  inventoryReservations InventoryReservation[]
+  inventoryBlocks       InventoryBlock[]
+  reviews               Review[]
+  sizeCharts            SizeChart[]
+  storefrontEvents      StorefrontEvent[]
 
   @@unique([tenantId, slug])
   @@index([categoryId])
@@ -611,11 +668,12 @@ model ProductVariant {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  product         Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  mainColor       Color          @relation("MainColor", fields: [mainColorId], references: [id])
+  product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mainColor       Color            @relation("MainColor", fields: [mainColorId], references: [id])
   identicalColors VariantColor[]
   images          ProductImage[]
   sizes           VariantSize[]
+  inventoryBlocks InventoryBlock[]
 
   @@index([productId])
   @@index([tenantId])
@@ -623,18 +681,27 @@ model ProductVariant {
 }
 
 model VariantSize {
-  id             String @id @default(uuid())
-  tenantId       String @map("tenant_id")
-  variantId      String @map("variant_id")
-  sizeInstanceId String @map("size_instance_id")
-  stockLevel     Int    @default(1) @map("stock_level")
+  id               String                @id @default(uuid())
+  tenantId         String                @map("tenant_id")
+  variantId        String                @map("variant_id")
+  sizeInstanceId   String                @map("size_instance_id")
+  stockLevel       Int                   @default(1) @map("stock_level")
+  trackingMode     InventoryTrackingMode @default(POOLED) @map("tracking_mode")
+  pooledQuantity   Int                   @default(1) @map("pooled_quantity")
+  inventoryVersion Int                   @default(0) @map("inventory_version")
 
-  tenant       Tenant         @relation(fields: [tenantId], references: [id])
-  variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  sizeInstance SizeInstance   @relation(fields: [sizeInstanceId], references: [id])
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
+  variant               ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  sizeInstance          SizeInstance           @relation(fields: [sizeInstanceId], references: [id])
+  stockUnits            StockUnit[]
+  inventoryReservations InventoryReservation[]
+  inventoryMovements    InventoryMovement[]
+  inventoryBlocks       InventoryBlock[]
+  bookingItems          BookingItem[]
 
   @@unique([variantId, sizeInstanceId])
   @@index([variantId])
+  @@index([tenantId, trackingMode])
   @@map("variant_sizes")
 }
 
@@ -1193,13 +1260,14 @@ model Booking {
   createdAt            DateTime      @default(now()) @map("created_at")
   updatedAt            DateTime      @updatedAt @map("updated_at")
 
-  tenant        Tenant              @relation(fields: [tenantId], references: [id])
-  customer      Customer            @relation(fields: [customerId], references: [id])
-  policyVersion PricePolicyVersion? @relation(fields: [policyVersionId], references: [id])
-  items         BookingItem[]
-  payments      Payment[]
-  dateBlocks    DateBlock[]
-  reviews       Review[]
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
+  customer              Customer               @relation(fields: [customerId], references: [id])
+  policyVersion         PricePolicyVersion?    @relation(fields: [policyVersionId], references: [id])
+  items                 BookingItem[]
+  payments              Payment[]
+  dateBlocks            DateBlock[]
+  inventoryReservations InventoryReservation[]
+  reviews               Review[]
 
   @@unique([tenantId, bookingNumber])
   @@index([tenantId, status])
@@ -1216,6 +1284,8 @@ model BookingItem {
   bookingId           String        @map("booking_id")
   productId           String?       @map("product_id")
   variantId           String        @map("variant_id")
+  variantSizeId       String?       @map("variant_size_id")
+  quantity            Int           @default(1)
   productName         String        @map("product_name")
   variantName         String?       @map("variant_name")
   colorName           String        @map("color_name")
@@ -1243,12 +1313,15 @@ model BookingItem {
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
-  booking      Booking       @relation(fields: [bookingId], references: [id])
-  product      Product?      @relation(fields: [productId], references: [id])
-  damageReport DamageReport?
+  booking              Booking               @relation(fields: [bookingId], references: [id])
+  product              Product?              @relation(fields: [productId], references: [id])
+  variantSize          VariantSize?          @relation(fields: [variantSizeId], references: [id], onDelete: SetNull)
+  damageReport         DamageReport?
+  inventoryReservation InventoryReservation?
 
   @@index([bookingId])
   @@index([productId])
+  @@index([variantSizeId])
   @@map("booking_items")
 }
 
@@ -1291,6 +1364,147 @@ model DateBlock {
   @@index([bookingId])
   @@index([tenantId])
   @@map("date_blocks")
+}
+
+model StockUnit {
+  id            String              @id @default(uuid())
+  tenantId      String              @map("tenant_id")
+  variantSizeId String              @map("variant_size_id")
+  assetCode     String              @map("asset_code")
+  barcode       String?
+  status        StockUnitStatus     @default(ACTIVE)
+  condition     StockConditionGrade @default(GOOD)
+  locationLabel String?             @map("location_label")
+  purchaseDate  DateTime?           @map("purchase_date") @db.Date
+  purchasePrice Int?                @map("purchase_price")
+  notes         String?
+  retiredAt     DateTime?           @map("retired_at")
+  deletedAt     DateTime?           @map("deleted_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id])
+  variantSize VariantSize           @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  assignments StockUnitAssignment[]
+  movements   InventoryMovement[]
+  blocks      InventoryBlock[]
+
+  @@unique([tenantId, assetCode])
+  @@unique([tenantId, barcode])
+  @@index([variantSizeId])
+  @@index([tenantId, variantSizeId, status])
+  @@map("stock_units")
+}
+
+model InventoryReservation {
+  id               String                     @id @default(uuid())
+  tenantId         String                     @map("tenant_id")
+  bookingId        String                     @map("booking_id")
+  bookingItemId    String                     @unique @map("booking_item_id")
+  productId        String?                    @map("product_id")
+  variantSizeId    String?                    @map("variant_size_id")
+  quantity         Int                        @default(1)
+  rentalStartDate  DateTime                   @map("rental_start_date") @db.Date
+  rentalEndDate    DateTime                   @map("rental_end_date") @db.Date
+  blockedStartDate DateTime                   @map("blocked_start_date") @db.Date
+  blockedEndDate   DateTime                   @map("blocked_end_date") @db.Date
+  status           InventoryReservationStatus @default(PENDING)
+  expiresAt        DateTime?                  @map("expires_at")
+  releasedAt       DateTime?                  @map("released_at")
+  cancelledAt      DateTime?                  @map("cancelled_at")
+  releaseReason    String?                    @map("release_reason")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id])
+  booking     Booking               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingItem BookingItem           @relation(fields: [bookingItemId], references: [id], onDelete: Restrict)
+  product     Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantSize VariantSize?          @relation(fields: [variantSizeId], references: [id], onDelete: SetNull)
+  assignments StockUnitAssignment[]
+
+  @@index([bookingId])
+  @@index([productId])
+  @@index([tenantId, variantSizeId, status, blockedStartDate, blockedEndDate])
+  @@index([tenantId, status, expiresAt])
+  @@map("inventory_reservations")
+}
+
+model StockUnitAssignment {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  reservationId    String    @map("reservation_id")
+  stockUnitId      String    @map("stock_unit_id")
+  assignedByUserId String?   @map("assigned_by_user_id")
+  blockedStartDate DateTime  @map("blocked_start_date") @db.Date
+  blockedEndDate   DateTime  @map("blocked_end_date") @db.Date
+  assignedAt       DateTime  @default(now()) @map("assigned_at")
+  releasedAt       DateTime? @map("released_at")
+  releaseReason    String?   @map("release_reason")
+
+  tenant         Tenant               @relation(fields: [tenantId], references: [id])
+  reservation    InventoryReservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  stockUnit      StockUnit            @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  assignedByUser User?                @relation("StockUnitAssignedBy", fields: [assignedByUserId], references: [id])
+
+  @@index([reservationId, releasedAt])
+  @@index([tenantId, stockUnitId, blockedStartDate, blockedEndDate])
+  @@index([assignedByUserId])
+  @@map("stock_unit_assignments")
+}
+
+model InventoryMovement {
+  id            String                @id @default(uuid())
+  tenantId      String                @map("tenant_id")
+  variantSizeId String?               @map("variant_size_id")
+  stockUnitId   String?               @map("stock_unit_id")
+  movementType  InventoryMovementType @map("movement_type")
+  quantityDelta Int?                  @map("quantity_delta")
+  beforeState   Json?                 @map("before_state") @db.JsonB
+  afterState    Json?                 @map("after_state") @db.JsonB
+  reason        String
+  actorUserId   String?               @map("actor_user_id")
+  createdAt     DateTime              @default(now()) @map("created_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  variantSize VariantSize? @relation(fields: [variantSizeId], references: [id], onDelete: SetNull)
+  stockUnit   StockUnit?   @relation(fields: [stockUnitId], references: [id], onDelete: SetNull)
+  actor       User?        @relation("InventoryMovementActor", fields: [actorUserId], references: [id])
+
+  @@index([tenantId, variantSizeId, createdAt])
+  @@index([stockUnitId, createdAt])
+  @@index([actorUserId])
+  @@map("inventory_movements")
+}
+
+model InventoryBlock {
+  id              String             @id @default(uuid())
+  tenantId        String             @map("tenant_id")
+  productId       String?            @map("product_id")
+  variantId       String?            @map("variant_id")
+  variantSizeId   String?            @map("variant_size_id")
+  stockUnitId     String?            @map("stock_unit_id")
+  startDate       DateTime           @map("start_date") @db.Date
+  endDate         DateTime           @map("end_date") @db.Date
+  blockType       InventoryBlockType @map("block_type")
+  reason          String?
+  createdByUserId String?            @map("created_by_user_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  product       Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  variantSize   VariantSize?    @relation(fields: [variantSizeId], references: [id], onDelete: Cascade)
+  stockUnit     StockUnit?      @relation(fields: [stockUnitId], references: [id], onDelete: Cascade)
+  createdByUser User?           @relation("InventoryBlockCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([tenantId, productId, startDate, endDate])
+  @@index([tenantId, variantId, startDate, endDate])
+  @@index([tenantId, variantSizeId, startDate, endDate])
+  @@index([tenantId, stockUnitId, startDate, endDate])
+  @@index([createdByUserId])
+  @@map("inventory_blocks")
 }
 
 model Payment {

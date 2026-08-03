@@ -81,8 +81,8 @@ export default function GuestProductDetailPage() {
   const toggleAccordion = (id: string) => setOpenAccordion((prev) => (prev === id ? null : id));
 
   const availabilityMutation = useMutation({
-    mutationFn: (params: { productId: string; startDate: string; endDate: string }) =>
-      checkDateRange(params.productId, params.startDate, params.endDate),
+    mutationFn: (params: { productId: string; variantSizeId: string; startDate: string; endDate: string }) =>
+      checkDateRange(params.productId, params.variantSizeId, params.startDate, params.endDate),
     onSuccess: (data: any) => {
       const unwrapped = data && typeof data === 'object' && 'data' in data && 'success' in data ? data.data : data;
       setAvailabilityResult(unwrapped);
@@ -95,6 +95,7 @@ export default function GuestProductDetailPage() {
   const [activeImage, setActiveImage] = useState(0);
   const [selectedColorId, setSelectedColorId] = useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [selectedVariantSizeId, setSelectedVariantSizeId] = useState<string | null>(null);
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
 
   // Analytics: Track product view once per page load
@@ -115,17 +116,18 @@ export default function GuestProductDetailPage() {
 
   useEffect(() => {
     setAvailabilityResult(null);
-    if (date.from && date.to && product?.id) {
+    if (date.from && date.to && product?.id && selectedVariantSizeId) {
       if (date.to > date.from) {
         availabilityMutation.mutate({
           productId: product.id,
+          variantSizeId: selectedVariantSizeId,
           startDate: format(date.from, 'yyyy-MM-dd'),
           endDate: format(date.to, 'yyyy-MM-dd'),
         });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date.from, date.to, product?.id]);
+  }, [date.from, date.to, product?.id, selectedVariantSizeId]);
 
   // 1. Group by unique colors to display the colour swatches
   const uniqueColors = useMemo(() => {
@@ -160,6 +162,14 @@ export default function GuestProductDetailPage() {
   }, [colorVariants, selectedVariantId]);
 
   const selectedVariant = product?.variants?.find((v) => v.id === selectedVariantId);
+  const selectedVariantSize = selectedVariant?.sizes.find((size) => size.variantSizeId === selectedVariantSizeId);
+
+  useEffect(() => {
+    const firstSizeId = selectedVariant?.sizes[0]?.variantSizeId ?? null;
+    if (!selectedVariant?.sizes.some((size) => size.variantSizeId === selectedVariantSizeId)) {
+      setSelectedVariantSizeId(firstSizeId);
+    }
+  }, [selectedVariant, selectedVariantSizeId]);
   const pricing = product?.pricing;
   const services = product?.services;
   const sizing = product?.sizing; // new schema-driven sizing
@@ -224,8 +234,8 @@ export default function GuestProductDetailPage() {
     return rentalPrice + depositAmount + tryOnFee + backupFee;
   }, [availabilityResult, rentalPrice, depositAmount, tryOnFee, backupFee]);
 
-  const hasSizes = colorVariants.some(v => v.sizeInstance !== null);
-  const isSizeValid = !hasSizes || selectedVariantId !== null;
+  const hasSizes = (selectedVariant?.sizes.length ?? 0) > 0;
+  const isSizeValid = hasSizes && selectedVariantSizeId !== null;
 
   const isFormValid = !!date.from && !!date.to && days > 0 && isSizeValid;
   const isAvailable = availabilityResult?.available !== false;
@@ -250,6 +260,8 @@ export default function GuestProductDetailPage() {
     addItem({
       productId: product.id,
       variantId: selectedVariant?.id,
+      variantSizeId: selectedVariantSizeId!,
+      quantity: 1,
       productName: product.name,
       categoryName: product.category?.name,
       featuredImage: allImages[activeImage]?.url || allImages[0]?.url,
@@ -258,7 +270,7 @@ export default function GuestProductDetailPage() {
       startDate: format(date.from, 'yyyy-MM-dd'),
       endDate: format(date.to, 'yyyy-MM-dd'),
       durationDays: days,
-      selectedSize: selectedVariant?.sizeInstance?.displayLabel || undefined,
+      selectedSize: selectedVariantSize?.sizeInstance.displayLabel,
       serviceMap: {
         tryOn: addTryOn,
         backupSize: addBackup ? selectedBackupSize : null,
@@ -505,7 +517,7 @@ export default function GuestProductDetailPage() {
               )}
 
               {/* Sizing */}
-              {sizing && colorVariants.some(v => v.sizeInstance !== null) && (
+              {sizing && hasSizes && (
                 <div>
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">3. Fit & Size</h3>
@@ -516,30 +528,30 @@ export default function GuestProductDetailPage() {
                     )}
                   </div>
                   
-                  {sizing.schema.definition && (sizing.schema.definition as any).ui?.selectorType === 'dropdown' && colorVariants.length > 12 ? (
+                  {sizing.schema.definition && (sizing.schema.definition as any).ui?.selectorType === 'dropdown' && (selectedVariant?.sizes.length ?? 0) > 12 ? (
                     <select 
-                      value={selectedVariantId || ''} 
-                      onChange={(e) => setSelectedVariantId(e.target.value)}
+                      value={selectedVariantSizeId || ''}
+                      onChange={(e) => setSelectedVariantSizeId(e.target.value)}
                       className="w-full rounded-lg border border-black/10 bg-neutral-50 px-3 py-2.5 text-sm font-medium focus:border-black focus:ring-1 focus:ring-black"
                     >
-                      {colorVariants.map(v => (
-                        <option key={v.id} value={v.id}>{v.sizeInstance?.displayLabel}</option>
+                      {selectedVariant?.sizes.map((size) => (
+                        <option key={size.variantSizeId} value={size.variantSizeId}>{size.sizeInstance.displayLabel}</option>
                       ))}
                     </select>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {colorVariants.map((v) => (
+                      {selectedVariant?.sizes.map((size) => (
                         <button
-                          key={v.id}
-                          onClick={() => setSelectedVariantId(v.id)}
+                          key={size.variantSizeId}
+                          onClick={() => setSelectedVariantSizeId(size.variantSizeId)}
                           className={cn(
                             'flex min-w-[3rem] items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-all duration-300',
-                            selectedVariantId === v.id 
+                            selectedVariantSizeId === size.variantSizeId
                               ? 'border-black bg-black text-white shadow-md' 
                               : 'border-transparent bg-black/5 text-black hover:bg-black/10'
                           )}
                         >
-                          {v.sizeInstance?.displayLabel || 'Default'}
+                          {size.sizeInstance.displayLabel}
                         </button>
                       ))}
                     </div>

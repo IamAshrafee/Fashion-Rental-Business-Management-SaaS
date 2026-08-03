@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InventoryReservationService } from '../inventory/inventory-reservation.service';
 
 /**
  * M6 FIX: Automated overdue detection.
@@ -17,7 +18,19 @@ export class BookingSchedulerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly inventoryReservations: InventoryReservationService,
   ) {}
+
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async expirePendingInventoryHolds() {
+    const processed = await this.prisma.$transaction((tx) =>
+      this.inventoryReservations.expirePending(tx),
+    );
+    if (processed > 0) {
+      this.logger.log(`Expired ${processed} abandoned inventory hold(s).`);
+    }
+    return { processed };
+  }
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async detectOverdueBookings() {

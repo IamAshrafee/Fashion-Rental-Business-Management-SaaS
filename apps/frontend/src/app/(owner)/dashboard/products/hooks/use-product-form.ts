@@ -5,7 +5,7 @@ import { productFormSchema, ProductFormValues } from '../components/product-form
 
 const STORAGE_KEY = 'fashionRental_newProductDraft';
 // Bump this version whenever the form schema changes to auto-invalidate old drafts
-const DRAFT_VERSION = 3;
+const DRAFT_VERSION = 4;
 const SAVE_DEBOUNCE_MS = 2000;
 
 const defaultValues: Partial<ProductFormValues> = {
@@ -18,6 +18,7 @@ const defaultValues: Partial<ProductFormValues> = {
       name: '',
       mainColorId: '',
       sizeInstanceIds: [],
+      inventoryBySizeId: {},
       identicalColorIds: [],
       images: [],
     },

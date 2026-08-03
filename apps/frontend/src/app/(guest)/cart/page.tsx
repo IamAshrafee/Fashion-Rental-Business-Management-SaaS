@@ -36,6 +36,8 @@ export default function GuestCartPage() {
         items: items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId || '',
+          variantSizeId: item.variantSizeId,
+          quantity: item.quantity,
           startDate: item.startDate,
           endDate: item.endDate,
           selectedSize: undefined,

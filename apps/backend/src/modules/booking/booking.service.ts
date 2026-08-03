@@ -12,6 +12,8 @@ import { CustomerService } from '../customer/customer.service';
 import { PricingEngineService } from '../pricing-engine/pricing-engine.service';
 import { BookingStatus, CancelledBy, DamageLevel, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import type { ProductPricing, ProductServices } from '@prisma/client';
+import { InventoryAvailabilityService } from '../inventory/inventory-availability.service';
+import { InventoryReservationService } from '../inventory/inventory-reservation.service';
 import {
   CreateBookingDto,
   ValidateCartDto,
@@ -42,6 +44,9 @@ interface PricingSnapshot {
 interface CartItemResult extends PricingSnapshot {
   productId: string;
   variantId: string;
+  variantSizeId: string;
+  sizeLabel: string;
+  quantity: number;
   available: boolean;
   productName: string;
   variantName: string | null;
@@ -82,82 +87,13 @@ export class BookingService {
     private readonly customerService: CustomerService,
     private readonly eventEmitter: EventEmitter2,
     private readonly pricingEngineService: PricingEngineService,
+    private readonly inventoryAvailability: InventoryAvailabilityService,
+    private readonly inventoryReservations: InventoryReservationService,
   ) {}
 
   // =========================================================================
   // AVAILABILITY
   // =========================================================================
-
-  /**
-   * Returns blocked dates for a product in a given month.
-   * Format: { "YYYY-MM-DD": "booked" | "pending" | "blocked" }
-   * Dates not in the map are free.
-   */
-  async checkAvailability(tenantId: string, productId: string, month: string) {
-    // Validate product exists and is published
-    const product = await this.prisma.product.findFirst({
-      where: { id: productId, tenantId, deletedAt: null },
-      select: { id: true, status: true, isAvailable: true },
-    });
-    if (!product) throw new NotFoundException('Product not found');
-
-    // Parse month → date range
-    const [year, mon] = month.split('-').map(Number);
-    const startOfMonth = new Date(year, mon - 1, 1);
-    const endOfMonth = new Date(year, mon, 0); // last day of month
-
-    const blocks = await this.prisma.dateBlock.findMany({
-      where: {
-        tenantId,
-        productId,
-        // Overlap: block.startDate <= endOfMonth AND block.endDate >= startOfMonth
-        startDate: { lte: endOfMonth },
-        endDate: { gte: startOfMonth },
-      },
-      select: {
-        startDate: true,
-        endDate: true,
-        blockType: true,
-      },
-    });
-
-    // C1 FIX: Load buffer days so the calendar shows buffer-padded blocks
-    const storeSettings = await this.prisma.storeSettings.findUnique({
-      where: { tenantId },
-      select: { bufferDays: true },
-    });
-    const bufferDays = storeSettings?.bufferDays ?? 0;
-
-    const dateMap: Record<string, string> = {};
-
-    for (const block of blocks) {
-      const blockTypeLabel =
-        block.blockType === 'booking'
-          ? 'booked'
-          : block.blockType === 'pending'
-            ? 'pending'
-            : 'blocked';
-
-      // Iterate each date in the block range
-      const cursor = new Date(block.startDate);
-      while (cursor <= block.endDate) {
-        const isoDate = cursor.toISOString().split('T')[0];
-        // Only include dates within the requested month
-        const d = new Date(isoDate);
-        if (d >= startOfMonth && d <= endOfMonth) {
-          dateMap[isoDate] = blockTypeLabel;
-        }
-        cursor.setDate(cursor.getDate() + 1);
-      }
-    }
-
-    return {
-      productId,
-      month,
-      isAvailable: product.isAvailable && product.status === 'published',
-      dates: dateMap,
-    };
-  }
 
   /**
    * Checks if a specific date range is available for a product.
@@ -166,8 +102,10 @@ export class BookingService {
   async checkDateRange(
     tenantId: string,
     productId: string,
+    variantSizeId: string,
     startDate: string,
     endDate: string,
+    quantity = 1,
   ) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId, status: 'published', isAvailable: true, deletedAt: null },
@@ -178,53 +116,15 @@ export class BookingService {
       return { available: false, reason: 'Product not available' };
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    if (start > end) {
-      return { available: false, reason: 'Start date must be before end date' };
-    }
-
-    // C1 FIX: Load buffer days and expand the check range
-    const storeSettings = await this.prisma.storeSettings.findUnique({
-      where: { tenantId },
-      select: { bufferDays: true },
+    const inventory = await this.inventoryAvailability.check({
+      tenantId,
+      productId,
+      variantSizeId,
+      startDate,
+      endDate,
+      quantity,
     });
-    const bufferDays = storeSettings?.bufferDays ?? 0;
-
-    // Expand the requested range by buffer days to account for DateBlock padding
-    const bufferedStart = new Date(start);
-    const bufferedEnd = new Date(end);
-    if (bufferDays > 0) {
-      bufferedStart.setDate(bufferedStart.getDate() - bufferDays);
-      bufferedEnd.setDate(bufferedEnd.getDate() + bufferDays);
-    }
-
-    // Check overlapping date blocks using buffered range
-    const conflict = await this.prisma.dateBlock.findFirst({
-      where: {
-        tenantId,
-        productId,
-        startDate: { lte: bufferedEnd },
-        endDate: { gte: bufferedStart },
-      },
-      select: { startDate: true, endDate: true },
-    });
-
-    if (conflict) {
-      // Find next available date after the conflict (account for buffer)
-      const conflictEnd = new Date(conflict.endDate);
-      conflictEnd.setDate(conflictEnd.getDate() + 1 + bufferDays);
-
-      return {
-        available: false,
-        conflictDates: [
-          conflict.startDate.toISOString().split('T')[0],
-          conflict.endDate.toISOString().split('T')[0],
-        ],
-        nextAvailable: conflictEnd.toISOString().split('T')[0],
-      };
-    }
+    if (!inventory.available) return inventory;
 
     // Calculate pricing
     const pricing = await this.calculatePricingForDates(
@@ -249,6 +149,7 @@ export class BookingService {
 
     return {
       available: true,
+      inventory,
       rentalDays: pricing.rentalDays,
       pricing: {
         baseRental: pricing.baseRental,
@@ -286,6 +187,8 @@ export class BookingService {
       valid: !anyUnavailable,
       items: results.map((item) => ({
         productId: item.productId,
+        variantSizeId: item.variantSizeId,
+        quantity: item.quantity,
         available: item.available,
         rentalDays: item.rentalDays,
         rentalPrice: item.baseRental,
@@ -319,12 +222,15 @@ export class BookingService {
    * 2. Re-validate all items (with optional price overrides)
    * 3. Generate booking number
    * 4. Apply discount if provided (flat or percentage)
-   * 5. Create Booking + BookingItems + DateBlocks in one transaction
+   * 5. Create Booking + BookingItems + inventory reservations in one transaction
    * 6. Optionally auto-confirm (skip pending state)
    * 7. Optionally record initial payment
    * 8. Emit booking.created (and booking.confirmed) event
    */
   async createBooking(tenantId: string, dto: CreateBookingDto) {
+    const pendingReservationExpiresAt = dto.autoConfirm
+      ? null
+      : new Date(Date.now() + 24 * 60 * 60 * 1000);
     // Step 1: Find or create customer (outside transaction — idempotent)
     const customer = await this.customerService.findOrCreateByPhone(
       tenantId,
@@ -342,9 +248,15 @@ export class BookingService {
     );
 
     // Steps 2-7: Validate + create atomically inside a single transaction
-    // This prevents double-booking: the availability check and DateBlock creation
-    // are serialized via the transaction, so concurrent requests cannot both pass.
-    const booking = await this.prisma.$transaction(async (tx) => {
+    // The deterministic SKU locks and reservation writes share one serializable
+    // transaction, so concurrent requests cannot both consume the same capacity.
+    const booking = await this.runSerializableTransaction(async (tx) => {
+      await this.inventoryReservations.lockVariantSizes(
+        tx,
+        tenantId,
+        dto.items.map((item) => item.variantSizeId),
+      );
+
       // Step 2: Validate all items INSIDE the transaction
       const validatedItems: CartItemResult[] = [];
       for (const item of dto.items) {
@@ -390,13 +302,6 @@ export class BookingService {
       // Step 3: Generate booking number (with row-level locking)
       const year = new Date().getFullYear();
       const bookingNumber = await this.generateBookingNumber(tx, tenantId, year);
-
-      // Store settings for buffer days
-      const storeSettings = await tx.storeSettings.findUnique({
-        where: { tenantId },
-        select: { bufferDays: true },
-      });
-      const bufferDays = storeSettings?.bufferDays ?? 0;
 
       // Step 4: Apply discount if provided
       let discountAmount = 0;
@@ -475,15 +380,12 @@ export class BookingService {
         },
       });
 
-      // Create booking items + date blocks
-      for (const item of validatedItems) {
-        // Find the matching cart item DTO (match on both productId + variantId for safety)
-        const cartItem = dto.items.find(
-          (i) => i.productId === item.productId && i.variantId === item.variantId,
-        ) ?? dto.items.find((i) => i.productId === item.productId)!;
+      // Create booking items + inventory reservations
+      for (const [itemIndex, item] of validatedItems.entries()) {
+        const cartItem = dto.items[itemIndex];
 
         // Build sizeInfo string from selectedSize
-        const sizeInfo = cartItem.selectedSize || null;
+        const sizeInfo = item.sizeLabel || cartItem.selectedSize || null;
 
         // Create booking item
         // M1 FIX: Credit try-on fee toward rental when tryOnCreditToRental is enabled
@@ -499,12 +401,14 @@ export class BookingService {
           effectiveTryOnFee = 0; // Fee was credited, so effective charge is 0
         }
 
-        await tx.bookingItem.create({
+        const bookingItem = await tx.bookingItem.create({
           data: {
             tenantId,
             bookingId: newBooking.id,
             productId: item.productId,
             variantId: item.variantId,
+            variantSizeId: item.variantSizeId,
+            quantity: item.quantity,
             productName: item.productName,
             variantName: item.variantName ?? null,
             colorName: item.colorName,
@@ -528,26 +432,17 @@ export class BookingService {
           },
         });
 
-        // Create date block
-        const blockStartDate = new Date(cartItem.startDate);
-        const blockEndDate = new Date(cartItem.endDate);
-
-        // Apply buffer days
-        if (bufferDays > 0) {
-          blockStartDate.setDate(blockStartDate.getDate() - bufferDays);
-          blockEndDate.setDate(blockEndDate.getDate() + bufferDays);
-        }
-
-        await tx.dateBlock.create({
-          data: {
-            tenantId,
-            productId: item.productId,
-            startDate: blockStartDate,
-            endDate: blockEndDate,
-            // When auto-confirming, date blocks are immediately 'booking' (not 'pending')
-            blockType: dto.autoConfirm ? 'booking' : 'pending',
-            bookingId: newBooking.id,
-          },
+        await this.inventoryReservations.create(tx, {
+          tenantId,
+          bookingId: newBooking.id,
+          bookingItemId: bookingItem.id,
+          productId: item.productId,
+          variantSizeId: item.variantSizeId,
+          quantity: item.quantity,
+          startDate: cartItem.startDate,
+          endDate: cartItem.endDate,
+          status: dto.autoConfirm ? 'CONFIRMED' : 'PENDING',
+          expiresAt: pendingReservationExpiresAt,
         });
       }
 
@@ -608,11 +503,6 @@ export class BookingService {
           },
         },
       });
-    }, {
-      // Serializable isolation prevents phantom reads — if two bookings
-      // try to check the same DateBlock range concurrently, one will retry.
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      timeout: 15000,
     });
 
     if (!booking) throw new UnprocessableEntityException('Failed to create booking');
@@ -765,6 +655,15 @@ export class BookingService {
         items: {
           include: {
             damageReport: true,
+            variantSize: { include: { sizeInstance: true } },
+            inventoryReservation: {
+              include: {
+                assignments: {
+                  where: { releasedAt: null },
+                  include: { stockUnit: true },
+                },
+              },
+            },
           },
         },
         payments: {
@@ -1024,11 +923,6 @@ export class BookingService {
     switch (newStatus) {
       case 'confirmed':
         updateData.confirmedAt = now;
-        // Update date_blocks from pending → booking
-        await this.prisma.dateBlock.updateMany({
-          where: { bookingId, blockType: 'pending' },
-          data: { blockType: 'booking' },
-        });
         break;
       case 'delivered':
         updateData.deliveredAt = now;
@@ -1041,9 +935,24 @@ export class BookingService {
         break;
     }
 
-    const updated = await this.prisma.booking.update({
-      where: { id: bookingId, tenantId },
-      data: updateData,
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Keep legacy booking blocks synchronized while they still exist.
+      if (newStatus === 'confirmed') {
+        await tx.dateBlock.updateMany({
+          where: { bookingId, tenantId, blockType: 'pending' },
+          data: { blockType: 'booking' },
+        });
+      }
+      await this.inventoryReservations.transitionForBooking(
+        tx,
+        tenantId,
+        bookingId,
+        newStatus,
+      );
+      return tx.booking.update({
+        where: { id: bookingId, tenantId },
+        data: updateData,
+      });
     });
 
     // Emit lifecycle event (ADR-05)
@@ -1103,6 +1012,13 @@ export class BookingService {
 
       // Release date blocks
       await tx.dateBlock.deleteMany({ where: { bookingId, tenantId } });
+      await this.inventoryReservations.transitionForBooking(
+        tx,
+        tenantId,
+        bookingId,
+        'cancelled',
+        dto.reason,
+      );
     });
 
     this.eventEmitter.emit('booking.cancelled', {
@@ -1367,9 +1283,8 @@ export class BookingService {
 
   /**
    * Validates a single cart item within a transaction client.
-   * When called inside a Serializable transaction, concurrent reads on
-   * the same DateBlock rows will cause one transaction to abort and retry,
-   * preventing double-booking.
+   * During booking creation the affected SKU rows are locked first and the
+   * serializable transaction is retried on a write conflict.
    */
   private async validateSingleItemTx(
     tx: Prisma.TransactionClient | PrismaService,
@@ -1377,8 +1292,9 @@ export class BookingService {
     item: CartItemDto,
   ): Promise<CartItemResult> {
     const errors: string[] = [];
+    const quantity = item.quantity ?? 1;
 
-    // Load product with pricing, services, and size schema (H1+H2 FIX)
+    // Inventory identity is the tenant-owned variant-size, never a display label.
     const product = await tx.product.findFirst({
       where: { id: item.productId, tenantId, deletedAt: null },
       include: {
@@ -1389,9 +1305,12 @@ export class BookingService {
           include: {
             mainColor: { select: { name: true } },
             images: { where: { isFeatured: true }, take: 1 },
+            sizes: {
+              where: { id: item.variantSizeId },
+              include: { sizeInstance: true },
+            },
           },
         },
-        // H1+H2: Load active size schema for validation
         sizeSchemaOverride: {
           include: { instances: { select: { id: true } } },
         },
@@ -1409,6 +1328,9 @@ export class BookingService {
       return {
         productId: item.productId,
         variantId: item.variantId,
+        variantSizeId: item.variantSizeId,
+        sizeLabel: item.selectedSize ?? '',
+        quantity,
         available: false,
         productName: 'Unknown Product',
         variantName: null,
@@ -1436,77 +1358,76 @@ export class BookingService {
     if (!variant) {
       errors.push('Variant not found');
     }
+    const variantSize = variant?.sizes[0];
+    if (!variantSize) {
+      errors.push('Selected size is not available for this variant');
+    }
 
     // Validate date range
     const start = new Date(item.startDate);
     const end = new Date(item.endDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
     if (start < today) errors.push('Start date cannot be in the past');
     if (start > end) errors.push('End date must be after start date');
 
-    // H1+H2 FIX: Validate selectedSize and backupSize against the product's size schema
+    // Backup size is still a display/service option. Primary inventory identity
+    // is always variantSizeId and is validated above.
     const activeSchema = (product as any).sizeSchemaOverride ?? (product as any).productType?.defaultSizeSchema ?? null;
     const validSizeIds = activeSchema?.instances?.map((i: any) => i.id) ?? [];
 
-    if (item.selectedSize && validSizeIds.length > 0) {
-      if (!validSizeIds.includes(item.selectedSize)) {
-        errors.push('Selected size is not available for this product');
-      }
-    }
     if (item.backupSize) {
       if (validSizeIds.length > 0 && !validSizeIds.includes(item.backupSize)) {
         errors.push('Backup size is not available for this product');
       }
-      if (item.backupSize === item.selectedSize) {
+      if (item.backupSize === variantSize?.sizeInstanceId) {
         errors.push('Backup size must differ from selected size');
       }
     }
 
-    // C1 FIX: Load buffer days for availability check expansion
-    const storeSettings = await tx.storeSettings.findUnique({
-      where: { tenantId },
-      select: { bufferDays: true },
-    });
-    const bufferDays = storeSettings?.bufferDays ?? 0;
-
-    // Check availability (if dates are valid)
     let isAvailable = errors.length === 0;
     if (isAvailable) {
-      // Expand check range by buffer days to match how DateBlocks are created
-      const bufferedStart = new Date(start);
-      const bufferedEnd = new Date(end);
-      if (bufferDays > 0) {
-        bufferedStart.setDate(bufferedStart.getDate() - bufferDays);
-        bufferedEnd.setDate(bufferedEnd.getDate() + bufferDays);
-      }
-
-      const conflict = await tx.dateBlock.findFirst({
-        where: {
+      const inventory = await this.inventoryAvailability.check(
+        {
           tenantId,
           productId: item.productId,
-          startDate: { lte: bufferedEnd },
-          endDate: { gte: bufferedStart },
+          variantSizeId: item.variantSizeId,
+          startDate: item.startDate,
+          endDate: item.endDate,
+          quantity,
         },
-      });
-      if (conflict) {
+        tx as Prisma.TransactionClient,
+      );
+      if (!inventory.available) {
         isAvailable = false;
-        errors.push(`Product is not available from ${item.startDate} to ${item.endDate}`);
+        errors.push(inventory.reason ?? 'Selected inventory is not available');
       }
     }
 
-    // Calculate pricing (even if unavailable — so user sees expected price)
-    const pricing = await this.calculatePricingForDates(
+    const unitPricing = await this.calculatePricingForDates(
       product.id,
       product.pricing,
       product.services,
       item,
     );
+    const pricing: PricingSnapshot = {
+      ...unitPricing,
+      baseRental: unitPricing.baseRental * quantity,
+      extendedCost: unitPricing.extendedCost * quantity,
+      depositAmount: unitPricing.depositAmount * quantity,
+      cleaningFee: unitPricing.cleaningFee * quantity,
+      backupSizeFee: unitPricing.backupSizeFee * quantity,
+      tryOnFee: unitPricing.tryOnFee * quantity,
+      itemTotal: unitPricing.itemTotal * quantity,
+    };
 
     return {
       productId: item.productId,
       variantId: item.variantId,
+      variantSizeId: item.variantSizeId,
+      sizeLabel: variantSize?.sizeInstance.displayLabel ?? item.selectedSize ?? '',
+      quantity,
       available: isAvailable,
       productName: product.name,
       variantName: variant?.variantName ?? null,
@@ -1642,6 +1563,32 @@ export class BookingService {
     const padLength = Math.max(4, String(sequence).length);
     const padded = String(sequence).padStart(padLength, '0');
     return `${prefix}${padded}`;
+  }
+
+  private async runSerializableTransaction<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 15_000,
+        });
+      } catch (error) {
+        const retriable =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034';
+        if (!retriable) throw error;
+        if (attempt === maxAttempts) {
+          throw new ConflictException({
+            code: 'INVENTORY_CAPACITY_CONFLICT',
+            message: 'Inventory changed while the booking was being created. Please try again.',
+          });
+        }
+      }
+    }
+    throw new ConflictException('Could not reserve inventory');
   }
 
   /**

@@ -36,7 +36,13 @@ function mapProductToFormValues(product: any): ProductFormValues {
       id: v.id,
       name: v.variantName ?? '',
       mainColorId: v.mainColor?.id ?? v.mainColorId ?? '',
-      sizeInstanceIds: v.sizes?.map((sz: any) => sz.id).filter(Boolean) ?? [],
+      sizeInstanceIds: v.sizes?.map((sz: any) => sz.sizeInstance?.id ?? sz.sizeInstanceId).filter(Boolean) ?? [],
+      inventoryBySizeId: Object.fromEntries(
+        (v.sizes ?? []).map((sz: any) => [
+          sz.sizeInstance?.id ?? sz.sizeInstanceId,
+          { trackingMode: sz.trackingMode ?? 'POOLED', pooledQuantity: sz.pooledQuantity ?? 1 },
+        ]),
+      ),
       identicalColorIds:
         v.identicalColors?.map((vc: any) => vc.color?.id ?? vc.colorId).filter(Boolean) ?? [],
       images:
@@ -47,7 +53,7 @@ function mapProductToFormValues(product: any): ProductFormValues {
           sequence: img.sequence ?? 0,
           // No `file` — these are already uploaded
         })) ?? [],
-    })) ?? [{ name: '', mainColorId: '', identicalColorIds: [], images: [], sizeInstanceIds: [] }],
+    })) ?? [{ name: '', mainColorId: '', identicalColorIds: [], images: [], sizeInstanceIds: [], inventoryBySizeId: {} }],
 
     // ── Pricing ────────────────────────────────────────────────
     ratePlanType: pricing?.ratePlanType as 'PER_DAY' | 'FLAT_PERIOD' | 'TIERED_DAILY' | 'WEEKLY_MONTHLY' | 'PERCENT_RETAIL' | undefined,

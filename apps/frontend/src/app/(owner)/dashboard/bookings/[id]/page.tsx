@@ -13,6 +13,7 @@ import { PriceBreakdown } from './components/price-breakdown';
 import { PaymentHistory } from './components/payment-history';
 import { StatusTimeline } from './components/status-timeline';
 import { DeliveryTrackingCard } from './components/delivery-tracking-card';
+import { InventoryAssignments } from './components/inventory-assignments';
 import { bookingApi } from '@/lib/api/bookings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -406,6 +407,8 @@ export default function BookingDetailPage() {
             <h2 className="text-lg font-semibold tracking-tight mb-4">Rented Items</h2>
             <BookingItems items={mappedItems} bookingId={booking.id} bookingStatus={booking.status} />
           </div>
+
+          <InventoryAssignments bookingId={booking.id} items={booking.items} />
           
           <div className="grid sm:grid-cols-2 gap-6">
             <PaymentHistory payments={mappedPayments} bookingId={booking.id} balanceDue={booking.grandTotal - booking.totalPaid} />

@@ -12,6 +12,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { InventoryTrackingMode } from '@prisma/client';
 
 // --- Pricing DTO ---
 export class SetPricingDto {
@@ -88,6 +89,20 @@ export class UpdateDetailHeaderDto {
 }
 
 // --- Variant DTOs ---
+export class VariantSizeInventoryDto {
+  @IsString()
+  sizeInstanceId!: string;
+
+  @IsOptional()
+  @IsEnum(InventoryTrackingMode)
+  trackingMode?: InventoryTrackingMode;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  pooledQuantity?: number;
+}
+
 export class CreateVariantDto {
   @IsOptional() @IsString() variantName?: string;
   @IsString() mainColorId!: string;
@@ -96,6 +111,12 @@ export class CreateVariantDto {
   @IsArray()
   @IsString({ each: true })
   sizeInstanceIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantSizeInventoryDto)
+  sizes?: VariantSizeInventoryDto[];
 
   @IsOptional()
   @IsArray()
@@ -112,6 +133,12 @@ export class UpdateVariantDto {
   @IsArray()
   @IsString({ each: true })
   sizeInstanceIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantSizeInventoryDto)
+  sizes?: VariantSizeInventoryDto[];
 
   @IsOptional()
   @IsArray()

@@ -27,6 +27,8 @@ export interface CreateBookingPayload {
   items: Array<{
     productId: string;
     variantId: string;
+    variantSizeId: string;
+    quantity: number;
     startDate: string;
     endDate: string;
     selectedSize?: string;
@@ -122,6 +124,8 @@ export interface BookingDetailItem {
   bookingId: string;
   productId: string;
   variantId: string;
+  variantSizeId: string | null;
+  quantity: number;
   productName: string;
   variantName: string | null;
   colorName: string;
@@ -148,6 +152,16 @@ export interface BookingDetailItem {
   lateDays: number;
   createdAt: string;
   updatedAt: string;
+  variantSize?: {
+    id: string;
+    trackingMode: 'POOLED' | 'SERIALIZED';
+    sizeInstance: { displayLabel: string };
+  } | null;
+  inventoryReservation?: {
+    id: string;
+    status: string;
+    assignments: InventoryAssignment[];
+  } | null;
   damageReport: {
     id: string;
     damageLevel: string;
@@ -170,6 +184,27 @@ export interface BookingDetailPayment {
   notes: string | null;
   recordedBy: string | null;
   createdAt: string;
+}
+
+export interface AssignmentStockUnit {
+  id: string;
+  assetCode: string;
+  status: string;
+  condition: string;
+  locationLabel: string | null;
+}
+
+export interface InventoryAssignment {
+  id: string;
+  stockUnit: AssignmentStockUnit;
+  assignedAt: string;
+}
+
+export interface AssignmentOptions {
+  reservationId: string;
+  required: number;
+  assigned: InventoryAssignment[];
+  eligible: AssignmentStockUnit[];
 }
 
 export interface BookingDetailResponse {
@@ -238,6 +273,8 @@ export interface ValidateCartPayload {
   items: Array<{
     productId: string;
     variantId: string;
+    variantSizeId: string;
+    quantity: number;
     startDate: string;
     endDate: string;
     selectedSize?: string;
@@ -362,12 +399,14 @@ export const bookingApi = {
    */
   checkDateRange: async (
     productId: string,
+    variantSizeId: string,
     startDate: string,
     endDate: string,
+    quantity = 1,
   ): Promise<DateRangeCheckResponse> => {
     const { data } = await apiClient.post<ApiResponse<DateRangeCheckResponse>>(
       `/products/${productId}/check-availability`,
-      { startDate, endDate },
+      { variantSizeId, startDate, endDate, quantity },
       { withCredentials: true },
     );
     if (!data.success) throw new Error(data.message || 'Availability check failed');
@@ -402,6 +441,19 @@ export const bookingApi = {
     const { data } = await apiClient.get<ApiResponse<BookingDetailResponse>>(`/owner/bookings/${id}`);
     if (!data.success) throw new Error(data.message || 'Booking not found');
     return data.data;
+  },
+
+  getAssignmentOptions: async (bookingId: string, bookingItemId: string): Promise<AssignmentOptions> => {
+    const { data } = await apiClient.get<ApiResponse<AssignmentOptions>>(`/owner/bookings/${bookingId}/items/${bookingItemId}/assignments`);
+    return data.data;
+  },
+
+  assignStockUnits: async (bookingId: string, bookingItemId: string, stockUnitIds: string[]): Promise<void> => {
+    await apiClient.post(`/owner/bookings/${bookingId}/items/${bookingItemId}/assignments`, { stockUnitIds });
+  },
+
+  releaseStockUnit: async (bookingId: string, bookingItemId: string, assignmentId: string, reason: string): Promise<void> => {
+    await apiClient.delete(`/owner/bookings/${bookingId}/items/${bookingItemId}/assignments/${assignmentId}`, { data: { reason } });
   },
 
   /**

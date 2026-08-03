@@ -24,7 +24,6 @@ import {
   CreateDamageReportDto,
   BlockDatesDto,
   BookingQueryDto,
-  AvailabilityQueryDto,
   CheckAvailabilityDto,
 } from './dto/booking.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -52,20 +51,6 @@ export class BookingGuestController {
   ) {}
 
   /**
-   * GET /api/v1/products/:productId/availability?month=2026-04
-   * Returns blocked dates for a product in a given month.
-   */
-  @Public()
-  @Get('products/:productId/availability')
-  async checkAvailability(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Query() query: AvailabilityQueryDto,
-  ) {
-    return this.bookingService.checkAvailability(tenant.id, productId, query.month);
-  }
-
-  /**
    * POST /api/v1/products/:productId/check-availability
    * Checks a specific date range and returns pricing.
    */
@@ -80,8 +65,10 @@ export class BookingGuestController {
     return this.bookingService.checkDateRange(
       tenant.id,
       productId,
+      dto.variantSizeId,
       dto.startDate,
       dto.endDate,
+      dto.quantity,
     );
   }
 

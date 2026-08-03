@@ -93,6 +93,7 @@ interface ProductForForm {
     colorName: string;
     colorHex: string | null;
     thumbnailUrl: string;
+    sizes: Array<{ variantSizeId: string; label: string }>;
   }>;
   // Sizing handled abstractly via attributes now if needed
   // Service config (loaded lazily after selection)
@@ -102,6 +103,8 @@ interface ProductForForm {
 interface BookingItemLine {
   productId: string;
   variantId: string;
+  variantSizeId: string;
+  quantity: number;
   productName: string;
   variantName: string;
   startDate: string;
@@ -148,6 +151,7 @@ function mapToFormProduct(raw: OwnerProductResult): ProductForForm {
       colorName: v.mainColor?.name ?? 'Default',
       colorHex: v.mainColor?.hexCode ?? null,
       thumbnailUrl: v.images?.[0]?.thumbnailUrl ?? '',
+      sizes: [],
     })),
   };
 }
@@ -233,6 +237,7 @@ export function ManualBookingForm() {
   const [cartItems, setCartItems] = useState<BookingItemLine[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<ProductForForm | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState('');
+  const [selectedVariantSizeId, setSelectedVariantSizeId] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
   const [backupSize, setBackupSize] = useState('');
   const [tryOn, setTryOn] = useState(false);
@@ -341,6 +346,7 @@ export function ManualBookingForm() {
     if (selectedProduct) {
       setSelectedProduct(null);
       setSelectedVariantId('');
+      setSelectedVariantSizeId('');
       setSelectedSize('');
       setBackupSize('');
       setTryOn(false);
@@ -363,6 +369,7 @@ export function ManualBookingForm() {
   const handleSelectProduct = async (product: ProductForForm) => {
     setSelectedProduct(product);
     setSelectedVariantId(product.variants[0]?.id ?? '');
+    setSelectedVariantSizeId(product.variants[0]?.sizes[0]?.variantSizeId ?? '');
     setProductSearch(product.name);
     setShowProductDropdown(false);
     setSearchResults([]);
@@ -379,7 +386,20 @@ export function ManualBookingForm() {
       setSelectedProduct(prev => prev ? {
         ...prev,
         services: detail.services,
+        variants: detail.variants.map((variant) => ({
+          id: variant.id,
+          colorName: variant.variantName || variant.mainColor.name,
+          colorHex: variant.mainColor.hexCode,
+          thumbnailUrl: variant.images[0]?.thumbnailUrl || variant.images[0]?.url || '',
+          sizes: variant.sizes.map((size) => ({
+            variantSizeId: size.id,
+            label: size.sizeInstance.displayLabel,
+          })),
+        })),
       } : null);
+      const firstVariant = detail.variants[0];
+      setSelectedVariantId(firstVariant?.id ?? '');
+      setSelectedVariantSizeId(firstVariant?.sizes[0]?.id ?? '');
     } catch {
       // Non-critical — size/services just won't be available
     } finally {
@@ -389,7 +409,7 @@ export function ManualBookingForm() {
 
   // ── Availability check ────────────────────────────────────────────────
 
-  const checkAvailability = useCallback(async (productId: string, start: string, end: string) => {
+  const checkAvailability = useCallback(async (productId: string, variantSizeId: string, start: string, end: string) => {
     if (!start || !end) {
       setAvailabilityResult(null);
       return;
@@ -401,7 +421,7 @@ export function ManualBookingForm() {
 
     setIsCheckingAvailability(true);
     try {
-      const result = await bookingApi.checkDateRange(productId, start, end);
+      const result = await bookingApi.checkDateRange(productId, variantSizeId, start, end);
       if (result.available) {
         setAvailabilityResult({
           available: true,
@@ -430,24 +450,24 @@ export function ManualBookingForm() {
   const handleStartDateChange = (val: string) => {
     setStartDate(val);
     setAvailabilityResult(null);
-    if (selectedProduct && val && endDate) {
-      checkAvailability(selectedProduct.id, val, endDate);
+    if (selectedProduct && selectedVariantSizeId && val && endDate) {
+      checkAvailability(selectedProduct.id, selectedVariantSizeId, val, endDate);
     }
   };
 
   const handleEndDateChange = (val: string) => {
     setEndDate(val);
     setAvailabilityResult(null);
-    if (selectedProduct && startDate && val) {
-      checkAvailability(selectedProduct.id, startDate, val);
+    if (selectedProduct && selectedVariantSizeId && startDate && val) {
+      checkAvailability(selectedProduct.id, selectedVariantSizeId, startDate, val);
     }
   };
 
   // ── Add item to cart ──────────────────────────────────────────────────
 
   const handleAddItem = () => {
-    if (!selectedProduct || !selectedVariantId || !startDate || !endDate) {
-      toast.error('Please select a product, variant, and rental dates.');
+    if (!selectedProduct || !selectedVariantId || !selectedVariantSizeId || !startDate || !endDate) {
+      toast.error('Please select a product, variant, size, and rental dates.');
       return;
     }
     if (new Date(startDate) >= new Date(endDate)) {
@@ -463,6 +483,7 @@ export function ManualBookingForm() {
     const isDuplicate = cartItems.some(
       item => item.productId === selectedProduct.id
         && item.variantId === selectedVariantId
+        && item.variantSizeId === selectedVariantSizeId
         && item.startDate === startDate
         && item.endDate === endDate,
     );
@@ -480,6 +501,7 @@ export function ManualBookingForm() {
     }
 
     const variant = selectedProduct.variants.find(v => v.id === selectedVariantId);
+    const selectedSku = variant?.sizes.find(size => size.variantSizeId === selectedVariantSizeId);
     const services = selectedProduct.services;
     const hasTryOn = !!services?.tryOnEnabled;
     const hasBackupSize = !!services?.backupSizeEnabled;
@@ -487,12 +509,14 @@ export function ManualBookingForm() {
     setCartItems(prev => [...prev, {
       productId: selectedProduct.id,
       variantId: selectedVariantId,
+      variantSizeId: selectedVariantSizeId,
+      quantity: 1,
       productName: selectedProduct.name,
       variantName: variant?.colorName ?? 'Default',
       startDate,
       endDate,
       thumbnailUrl: variant?.thumbnailUrl || selectedProduct.thumbnailUrl,
-      selectedSize: selectedSize || undefined,
+      selectedSize: selectedSku?.label || selectedSize || undefined,
       backupSize: backupSize || undefined,
       tryOn: tryOn || undefined,
       priceOverride: parsedOverride,
@@ -506,6 +530,7 @@ export function ManualBookingForm() {
     // Reset selection
     setSelectedProduct(null);
     setSelectedVariantId('');
+    setSelectedVariantSizeId('');
     setSelectedSize('');
     setBackupSize('');
     setTryOn(false);
@@ -537,6 +562,8 @@ export function ManualBookingForm() {
         items: cartItems.map(item => ({
           productId: item.productId,
           variantId: item.variantId,
+          variantSizeId: item.variantSizeId,
+          quantity: item.quantity,
           startDate: item.startDate,
           endDate: item.endDate,
           selectedSize: item.selectedSize,
@@ -638,6 +665,8 @@ export function ManualBookingForm() {
       items: cartItems.map(item => ({
         productId: item.productId,
         variantId: item.variantId,
+        variantSizeId: item.variantSizeId,
+        quantity: item.quantity,
         startDate: item.startDate,
         endDate: item.endDate,
         selectedSize: item.selectedSize,
@@ -1067,7 +1096,15 @@ export function ManualBookingForm() {
                           {/* Variant selector */}
                           <div className="space-y-1 col-span-2 sm:col-span-1">
                             <Label className="text-xs">Color / Variant *</Label>
-                            <Select value={selectedVariantId} onValueChange={setSelectedVariantId}>
+                            <Select
+                              value={selectedVariantId}
+                              onValueChange={(variantId) => {
+                                setSelectedVariantId(variantId);
+                                const firstSku = selectedProduct.variants.find((variant) => variant.id === variantId)?.sizes[0];
+                                setSelectedVariantSizeId(firstSku?.variantSizeId ?? '');
+                                setAvailabilityResult(null);
+                              }}
+                            >
                               <SelectTrigger>
                                 <SelectValue placeholder="Select variant" />
                               </SelectTrigger>
@@ -1084,6 +1121,27 @@ export function ManualBookingForm() {
                                       {v.colorName}
                                     </span>
                                   </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-1 col-span-2 sm:col-span-1">
+                            <Label className="text-xs">Size / SKU *</Label>
+                            <Select
+                              value={selectedVariantSizeId}
+                              onValueChange={(variantSizeId) => {
+                                setSelectedVariantSizeId(variantSizeId);
+                                setAvailabilityResult(null);
+                                if (startDate && endDate) {
+                                  checkAvailability(selectedProduct.id, variantSizeId, startDate, endDate);
+                                }
+                              }}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Select size" /></SelectTrigger>
+                              <SelectContent>
+                                {(selectedProduct.variants.find((variant) => variant.id === selectedVariantId)?.sizes ?? []).map((size) => (
+                                  <SelectItem key={size.variantSizeId} value={size.variantSizeId}>{size.label}</SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>

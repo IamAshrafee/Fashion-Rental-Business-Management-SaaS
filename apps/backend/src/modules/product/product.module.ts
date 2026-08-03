@@ -7,7 +7,6 @@ import { ColorService } from './color.service';
 import { ProductService } from './product.service';
 import { VariantService } from './variant.service';
 import { SearchService } from './search.service';
-import { InventoryService } from './inventory.service';
 
 // Controllers — Category
 import {
@@ -27,17 +26,11 @@ import {
   ProductOwnerController,
 } from './product.controller';
 
-// Controllers — Inventory
-import {
-  InventoryGuestController,
-  InventoryOwnerController,
-} from './inventory.controller';
-
 /**
  * Product Module — P04 Product Management.
  *
  * Covers: Categories, Colors, Products, Variants, Pricing, Services,
- * Sizes, FAQs, Details, Search, and Inventory/Availability.
+ * Sizes, FAQs, Details, and Search.
  */
 @Module({
   imports: [PrismaModule],
@@ -47,13 +40,11 @@ import {
     EventGuestController,
     ColorController,
     ProductGuestController,
-    InventoryGuestController,
     // Owner (auth required)
     CategoryOwnerController,
     SubcategoryOwnerController,
     EventOwnerController,
     ProductOwnerController,
-    InventoryOwnerController,
   ],
   providers: [
     CategoryService,
@@ -61,13 +52,11 @@ import {
     ProductService,
     VariantService,
     SearchService,
-    InventoryService,
   ],
   exports: [
     ProductService,
     CategoryService,
     ColorService,
-    InventoryService,
     SearchService,
   ],
 })

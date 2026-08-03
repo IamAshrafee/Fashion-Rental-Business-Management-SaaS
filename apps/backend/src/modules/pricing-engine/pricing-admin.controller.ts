@@ -14,9 +14,10 @@ import { SavePricingDto, SimulatePricingDto } from './dto/pricing-engine.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { TenantGuard } from '../../common/guards/tenant.guard';
 
-@Controller('api/products/:productId/pricing')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('products/:productId/pricing')
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class PricingAdminController {
   constructor(
     private readonly adminService: PricingAdminService,
@@ -59,7 +60,7 @@ export class PricingAdminController {
       ratePlan: dto.ratePlan,
       components: dto.components,
       lateFeePolicy: dto.lateFeePolicy as any,
-    });
+    }, req.user.id);
 
     return {
       success: true,

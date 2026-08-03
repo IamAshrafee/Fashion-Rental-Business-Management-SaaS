@@ -133,7 +133,13 @@ export function useUpdateProduct(
           await productApi.updateVariant(productId, fv.id, {
             variantName: fv.name,
             mainColorId: fv.mainColorId,
-            sizeInstanceIds: fv.sizeInstanceIds || [],
+            sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
+              sizeInstanceId,
+              trackingMode: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
+              pooledQuantity: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode === 'SERIALIZED'
+                ? 0
+                : (fv.inventoryBySizeId?.[sizeInstanceId]?.pooledQuantity ?? 1),
+            })),
             identicalColorIds: fv.identicalColorIds,
           });
           variantId = fv.id;
@@ -143,7 +149,13 @@ export function useUpdateProduct(
           const created = await productApi.addVariant(productId, {
             variantName: fv.name,
             mainColorId: fv.mainColorId,
-            sizeInstanceIds: fv.sizeInstanceIds || [],
+            sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
+              sizeInstanceId,
+              trackingMode: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
+              pooledQuantity: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode === 'SERIALIZED'
+                ? 0
+                : (fv.inventoryBySizeId?.[sizeInstanceId]?.pooledQuantity ?? 1),
+            })),
             identicalColorIds: fv.identicalColorIds,
           });
           variantId = created.id;
@@ -177,6 +189,10 @@ export function useUpdateProduct(
           );
           await productApi.uploadImage(variantId, img.file, img.isFeatured);
         }
+      }
+
+      if (data.status !== originalProduct?.status) {
+        await productApi.updateStatus(productId, data.status);
       }
 
       return productId;

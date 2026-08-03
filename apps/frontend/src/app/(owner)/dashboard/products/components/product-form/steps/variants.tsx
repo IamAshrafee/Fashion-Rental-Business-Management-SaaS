@@ -79,6 +79,8 @@ export function VariantsMediaStep() {
         {fields.map((field, index) => {
           const mainColorId = watch(`variants.${index}.mainColorId`);
           const identicalColorIds = watch(`variants.${index}.identicalColorIds`) || [];
+          const selectedSizeIds = watch(`variants.${index}.sizeInstanceIds`) || [];
+          const inventoryBySizeId = watch(`variants.${index}.inventoryBySizeId`) || {};
           const images = watch(`variants.${index}.images`) || [];
           const imageCount = images.length;
           const isImagesOpen = expandedImages[index] ?? false;
@@ -179,6 +181,12 @@ export function VariantsMediaStep() {
                                       field.onChange(field.value.filter((id: string) => id !== inst.id));
                                     } else {
                                       field.onChange([...(field.value || []), inst.id]);
+                                      if (!inventoryBySizeId[inst.id]) {
+                                        setValue(`variants.${index}.inventoryBySizeId.${inst.id}`, {
+                                          trackingMode: 'POOLED',
+                                          pooledQuantity: 1,
+                                        });
+                                      }
                                     }
                                   }}
                                   className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${
@@ -192,6 +200,58 @@ export function VariantsMediaStep() {
                               );
                             })}
                           </div>
+                          {selectedSizeIds.length > 0 && (
+                            <div className="mt-4 space-y-3 rounded-lg border bg-muted/20 p-4">
+                              <div>
+                                <p className="text-sm font-medium">Inventory tracking</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Use pooled stock for interchangeable items, or serialized stock when every physical piece needs its own asset record.
+                                </p>
+                              </div>
+                              {selectedSizeIds.map((sizeId) => {
+                                const instance = sizeInstances.find((item: any) => item.id === sizeId);
+                                const config = inventoryBySizeId[sizeId] ?? { trackingMode: 'POOLED', pooledQuantity: 1 };
+                                return (
+                                  <div key={sizeId} className="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-[minmax(5rem,1fr)_minmax(10rem,1fr)_minmax(8rem,1fr)] sm:items-end">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Size</p>
+                                      <p className="font-medium">{instance?.displayLabel ?? 'Size'}</p>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-xs font-medium">Tracking mode</label>
+                                      <Select
+                                        value={config.trackingMode}
+                                        onValueChange={(trackingMode: 'POOLED' | 'SERIALIZED') =>
+                                          setValue(`variants.${index}.inventoryBySizeId.${sizeId}`, {
+                                            trackingMode,
+                                            pooledQuantity: trackingMode === 'SERIALIZED' ? 0 : Math.max(1, config.pooledQuantity),
+                                          }, { shouldDirty: true })
+                                        }
+                                      >
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="POOLED">Pooled quantity</SelectItem>
+                                          <SelectItem value="SERIALIZED">Individual units</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-xs font-medium">Starting quantity</label>
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        disabled={config.trackingMode === 'SERIALIZED'}
+                                        value={config.pooledQuantity}
+                                        onChange={(event) =>
+                                          setValue(`variants.${index}.inventoryBySizeId.${sizeId}.pooledQuantity`, Math.max(0, Number(event.target.value) || 0), { shouldDirty: true })
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                           <FormMessage />
                         </FormItem>
                       )}
@@ -319,7 +379,7 @@ export function VariantsMediaStep() {
           className="w-full border-dashed min-h-[48px]"
           onClick={() => {
             const newIndex = fields.length;
-            append({ name: '', mainColorId: '', sizeInstanceIds: [], identicalColorIds: [], images: [] });
+            append({ name: '', mainColorId: '', sizeInstanceIds: [], inventoryBySizeId: {}, identicalColorIds: [], images: [] });
             setExpandedImages(prev => ({ ...prev, [newIndex]: true }));
           }}
         >
@@ -330,5 +390,4 @@ export function VariantsMediaStep() {
     </div>
   );
 }
-
 

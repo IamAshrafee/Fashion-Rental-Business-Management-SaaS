@@ -93,7 +93,13 @@ export function useSubmitProduct(clearDraft: () => void) {
         const { id: variantId } = await productApi.addVariant(productId, {
           variantName: variant.name,
           mainColorId: variant.mainColorId,
-          sizeInstanceIds: variant.sizeInstanceIds || [],
+          sizes: (variant.sizeInstanceIds || []).map((sizeInstanceId) => ({
+            sizeInstanceId,
+            trackingMode: variant.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
+            pooledQuantity: variant.inventoryBySizeId?.[sizeInstanceId]?.trackingMode === 'SERIALIZED'
+              ? 0
+              : (variant.inventoryBySizeId?.[sizeInstanceId]?.pooledQuantity ?? 1),
+          })),
           identicalColorIds: variant.identicalColorIds,
         });
 
@@ -109,6 +115,11 @@ export function useSubmitProduct(clearDraft: () => void) {
           }
         }
         variantIdx++;
+      }
+
+      if (data.status !== 'draft') {
+        toast.loading(`${data.status === 'published' ? 'Publishing' : 'Archiving'} product...`, { id: 'submit-product' });
+        await productApi.updateStatus(productId, data.status);
       }
 
       return productId;

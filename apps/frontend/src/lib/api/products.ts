@@ -167,7 +167,15 @@ export interface ProductVariantData {
   sequence: number;
   mainColor: { id: string; name: string; hexCode: string | null };
   identicalColors: Array<{ color: { id: string; name: string; hexCode: string | null } }>;
-  sizeInstance: SizeInstanceData | null;
+  sizes: Array<{
+    id: string;
+    sizeInstanceId: string;
+    trackingMode: 'POOLED' | 'SERIALIZED';
+    pooledQuantity: number;
+    inventoryVersion: number;
+    sizeInstance: SizeInstanceData;
+    _count?: { stockUnits: number };
+  }>;
   images: Array<{
     id: string;
     url: string;
@@ -333,7 +341,7 @@ export const productApi = {
     return data.data;
   },
 
-  addVariant: async (productId: string, payload: { variantName?: string; mainColorId: string; sizeInstanceIds?: string[]; identicalColorIds?: string[] }): Promise<{ id: string }> => {
+  addVariant: async (productId: string, payload: { variantName?: string; mainColorId: string; sizeInstanceIds?: string[]; sizes?: VariantSizeInventoryInput[]; identicalColorIds?: string[] }): Promise<{ id: string }> => {
     const { data } = await apiClient.post<ApiResponse<{ id: string }>>(`/owner/products/${productId}/variants`, payload);
     return data.data;
   },
@@ -368,7 +376,7 @@ export const productApi = {
   updateVariant: async (
     productId: string,
     variantId: string,
-    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[]; sizeInstanceIds?: string[] },
+    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[]; sizeInstanceIds?: string[]; sizes?: VariantSizeInventoryInput[] },
   ): Promise<Record<string, unknown>> => {
     const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
       `/owner/products/${productId}/variants/${variantId}`,
@@ -469,7 +477,131 @@ export const productApi = {
     const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(`/products/${productId}/pricing/simulate`, payload);
     return data.data;
   },
+
+  getInventory: async (productId: string): Promise<ProductInventory> => {
+    const { data } = await apiClient.get<ApiResponse<ProductInventory>>(`/owner/products/${productId}/inventory`);
+    return data.data;
+  },
+
+  configureInventory: async (variantSizeId: string, payload: { trackingMode?: InventoryTrackingMode; pooledQuantity?: number; reason?: string }): Promise<void> => {
+    await apiClient.patch(`/owner/variant-sizes/${variantSizeId}/inventory`, payload);
+  },
+
+  listStockUnits: async (variantSizeId: string): Promise<StockUnit[]> => {
+    const { data } = await apiClient.get<ApiResponse<StockUnit[]>>(`/owner/variant-sizes/${variantSizeId}/stock-units`);
+    return data.data;
+  },
+
+  createStockUnit: async (variantSizeId: string, payload: CreateStockUnitInput): Promise<StockUnit> => {
+    const { data } = await apiClient.post<ApiResponse<StockUnit>>(`/owner/variant-sizes/${variantSizeId}/stock-units`, payload);
+    return data.data;
+  },
+
+  changeStockUnitLifecycle: async (stockUnitId: string, action: 'maintenance' | 'restore' | 'retire' | 'lost', reason: string): Promise<void> => {
+    await apiClient.post(`/owner/stock-units/${stockUnitId}/${action}`, { reason });
+  },
+
+  getInventoryCalendar: async (productId: string, from: string, to: string): Promise<InventoryCalendar> => {
+    const { data } = await apiClient.get<ApiResponse<InventoryCalendar>>(`/owner/products/${productId}/inventory/calendar`, { params: { from, to } });
+    return data.data;
+  },
+
+  createInventoryBlock: async (payload: { productId?: string; variantSizeId?: string; stockUnitId?: string; startDate: string; endDate: string; blockType: 'MANUAL' | 'MAINTENANCE'; reason?: string }): Promise<void> => {
+    await apiClient.post('/owner/inventory/blocks', payload);
+  },
+
+  deleteInventoryBlock: async (blockId: string): Promise<void> => {
+    await apiClient.delete(`/owner/inventory/blocks/${blockId}`);
+  },
+
+  listInventoryMovements: async (variantSizeId: string): Promise<InventoryMovement[]> => {
+    const { data } = await apiClient.get<ApiResponse<InventoryMovement[]>>(`/owner/variant-sizes/${variantSizeId}/inventory-movements`);
+    return data.data;
+  },
 };
+
+export type InventoryTrackingMode = 'POOLED' | 'SERIALIZED';
+
+export interface VariantSizeInventoryInput {
+  sizeInstanceId: string;
+  trackingMode: InventoryTrackingMode;
+  pooledQuantity: number;
+}
+
+export interface ProductInventorySize {
+  variantSizeId: string;
+  sizeInstance: SizeInstanceData;
+  trackingMode: InventoryTrackingMode;
+  pooledQuantity: number;
+  inventoryVersion: number;
+  totalCapacity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  unitCounts: { active: number; maintenance: number; retired: number; lost: number };
+}
+
+export interface ProductInventory {
+  id: string;
+  name: string;
+  status: string;
+  isAvailable: boolean;
+  variants: Array<{
+    id: string;
+    variantName: string | null;
+    mainColor: { id: string; name: string; hexCode: string | null };
+    sizes: ProductInventorySize[];
+  }>;
+}
+
+export interface StockUnit {
+  id: string;
+  assetCode: string;
+  barcode: string | null;
+  status: 'ACTIVE' | 'MAINTENANCE' | 'RETIRED' | 'LOST';
+  condition: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'DAMAGED';
+  locationLabel: string | null;
+  notes: string | null;
+}
+
+export interface CreateStockUnitInput {
+  assetCode: string;
+  barcode?: string;
+  condition?: StockUnit['condition'];
+  locationLabel?: string;
+  notes?: string;
+}
+
+export interface InventoryCalendarEntry {
+  id: string;
+  variantSizeId?: string | null;
+  stockUnitId?: string | null;
+  quantity?: number;
+  status?: string;
+  blockType?: string;
+  blockedStartDate?: string;
+  blockedEndDate?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface InventoryCalendar {
+  productId: string;
+  from: string;
+  to: string;
+  reservations: InventoryCalendarEntry[];
+  blocks: InventoryCalendarEntry[];
+  legacyBlocks: InventoryCalendarEntry[];
+}
+
+export interface InventoryMovement {
+  id: string;
+  movementType: string;
+  quantityDelta: number | null;
+  reason: string | null;
+  createdAt: string;
+  stockUnit: { id: string; assetCode: string } | null;
+  actor: { id: string; fullName: string } | null;
+}
 
 // ─── Sizing Module API ──────────────────────────────────────────────────────
 

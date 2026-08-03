@@ -6,6 +6,8 @@ export interface CartItem {
   cartItemId: string; // Unique generated ID for the item in cart
   productId: string;
   variantId?: string;
+  variantSizeId: string;
+  quantity: number;
   productName: string;
   categoryName?: string;
   featuredImage?: string;
@@ -23,7 +25,7 @@ export interface CartItem {
   totalPrice: number;      // Calculated total
 }
 
-const CART_STORAGE_KEY = 'closetrent_guest_cart_v2'; // Bumped version to invalidate old carts missing size
+const CART_STORAGE_KEY = 'closetrent_guest_cart_v3';
 
 
 // Fallback logic for SSR

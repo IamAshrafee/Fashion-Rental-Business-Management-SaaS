@@ -1,72 +1,66 @@
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { InventoryTrackingMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateVariantDto, UpdateVariantDto, ReorderDto } from './dto/product.dto';
+import {
+  CreateVariantDto,
+  ReorderDto,
+  UpdateVariantDto,
+  VariantSizeInventoryDto,
+} from './dto/product.dto';
 
 @Injectable()
 export class VariantService {
-  private readonly logger = new Logger(VariantService.name);
-
   constructor(private readonly prisma: PrismaService) {}
 
   async addVariant(tenantId: string, productId: string, dto: CreateVariantDto) {
-    // Verify product belongs to tenant
-    const product = await this.prisma.product.findFirst({
-      where: { id: productId, tenantId, deletedAt: null },
-    });
-    if (!product) throw new NotFoundException('Product not found');
-
-    // Get next sequence
-    const maxSeq = await this.prisma.productVariant.aggregate({
-      where: { productId },
-      _max: { sequence: true },
-    });
-    const sequence = dto.sequence ?? ((maxSeq._max.sequence ?? -1) + 1);
-
-    // Create variant
-    const variant = await this.prisma.productVariant.create({
-      data: {
+    return this.prisma.$transaction(async (tx) => {
+      const sizes = this.normalizeSizes(dto.sizes, dto.sizeInstanceIds);
+      await this.validateReferences(
+        tx,
         tenantId,
         productId,
-        variantName: dto.variantName || null,
-        mainColorId: dto.mainColorId,
-        sequence,
-        sizes: {
-          create: dto.sizeInstanceIds 
-            ? (await this.prisma.sizeInstance.findMany({
-                where: { id: { in: dto.sizeInstanceIds } },
-                select: { id: true }
-              })).map(si => ({
-                tenantId,
-                sizeInstanceId: si.id,
-                stockLevel: 1,
-              }))
-            : [],
+        sizes.map((size) => size.sizeInstanceId),
+        [dto.mainColorId, ...(dto.identicalColorIds ?? [])],
+      );
+
+      const maxSeq = await tx.productVariant.aggregate({
+        where: { productId, tenantId },
+        _max: { sequence: true },
+      });
+      const sequence = dto.sequence ?? (maxSeq._max.sequence ?? -1) + 1;
+
+      const variant = await tx.productVariant.create({
+        data: {
+          tenantId,
+          productId,
+          variantName: dto.variantName?.trim() || null,
+          mainColorId: dto.mainColorId,
+          sequence,
+          sizes: {
+            create: sizes.map((size) => ({
+              tenantId,
+              sizeInstanceId: size.sizeInstanceId,
+              trackingMode: size.trackingMode,
+              pooledQuantity: size.pooledQuantity,
+              stockLevel: size.pooledQuantity,
+            })),
+          },
         },
-      },
-      include: {
-        mainColor: { select: { id: true, name: true, hexCode: true } },
-        sizes: {
-          include: { sizeInstance: true }
-        }
-      },
+      });
+
+      const colorIds = new Set(dto.identicalColorIds ?? []);
+      colorIds.add(dto.mainColorId);
+      await tx.variantColor.createMany({
+        data: [...colorIds].map((colorId) => ({ variantId: variant.id, colorId })),
+      });
+
+      return this.getVariant(tx, variant.id);
     });
-
-    // Create identical color associations (always include main color)
-    const colorIds = new Set(dto.identicalColorIds || []);
-    colorIds.add(dto.mainColorId); // Auto-include main color
-
-    await this.prisma.variantColor.createMany({
-      data: Array.from(colorIds).map((colorId) => ({
-        variantId: variant.id,
-        colorId,
-      })),
-    });
-
-    return variant;
   }
 
   async updateVariant(
@@ -75,92 +69,269 @@ export class VariantService {
     variantId: string,
     dto: UpdateVariantDto,
   ) {
-    const variant = await this.prisma.productVariant.findFirst({
-      where: { id: variantId, productId, tenantId },
-    });
-    if (!variant) throw new NotFoundException('Variant not found');
-
-    const data: Record<string, unknown> = {};
-    if (dto.variantName !== undefined) data.variantName = dto.variantName;
-    if (dto.mainColorId !== undefined) data.mainColorId = dto.mainColorId;
-    if (dto.sequence !== undefined) data.sequence = dto.sequence;
-
-    const updated = await this.prisma.productVariant.update({
-      where: { id: variantId },
-      data,
-      include: {
-        mainColor: { select: { id: true, name: true, hexCode: true } },
-      },
-    });
-
-    // Update sizes if provided
-    if (dto.sizeInstanceIds !== undefined) {
-      await this.prisma.variantSize.deleteMany({ where: { variantId } });
-      const validIds = dto.sizeInstanceIds.filter((id) => id && id.length > 5);
-      
-      if (validIds.length > 0) {
-        // Double check against DB to prevent foreign key violations from cached 'ghost' IDs
-        const existingSizes = await this.prisma.sizeInstance.findMany({
-          where: { id: { in: validIds } },
-          select: { id: true }
-        });
-        
-        if (existingSizes.length > 0) {
-          await this.prisma.variantSize.createMany({
-            data: existingSizes.map((si) => ({
-              tenantId,
-              variantId,
-              sizeInstanceId: si.id,
-              stockLevel: 1,
-            }))
-          });
-        }
-      }
-    }
-
-    // Update identical colors if provided
-    if (dto.identicalColorIds !== undefined) {
-      await this.prisma.variantColor.deleteMany({ where: { variantId } });
-
-      const colorIds = new Set(dto.identicalColorIds);
-      colorIds.add(dto.mainColorId || variant.mainColorId);
-
-      await this.prisma.variantColor.createMany({
-        data: Array.from(colorIds).map((colorId) => ({
-          variantId,
-          colorId,
-        })),
+    return this.prisma.$transaction(async (tx) => {
+      const variant = await tx.productVariant.findFirst({
+        where: { id: variantId, productId, tenantId },
+        include: { sizes: true },
       });
-    }
+      if (!variant) throw new NotFoundException('Variant not found');
 
-    return updated;
+      const sizesProvided = dto.sizes !== undefined || dto.sizeInstanceIds !== undefined;
+      const sizes = sizesProvided
+        ? this.normalizeSizes(dto.sizes, dto.sizeInstanceIds)
+        : variant.sizes.map((size) => ({
+            sizeInstanceId: size.sizeInstanceId,
+            trackingMode: size.trackingMode,
+            pooledQuantity: size.pooledQuantity,
+          }));
+      const mainColorId = dto.mainColorId ?? variant.mainColorId;
+
+      await this.validateReferences(
+        tx,
+        tenantId,
+        productId,
+        sizes.map((size) => size.sizeInstanceId),
+        [mainColorId, ...(dto.identicalColorIds ?? [])],
+      );
+
+      await tx.productVariant.update({
+        where: { id: variantId },
+        data: {
+          ...(dto.variantName !== undefined
+            ? { variantName: dto.variantName.trim() || null }
+            : {}),
+          ...(dto.mainColorId !== undefined ? { mainColorId: dto.mainColorId } : {}),
+          ...(dto.sequence !== undefined ? { sequence: dto.sequence } : {}),
+        },
+      });
+
+      if (sizesProvided) {
+        await this.reconcileSizes(tx, tenantId, variantId, variant.sizes, sizes, dto.sizes !== undefined);
+      }
+
+      if (dto.identicalColorIds !== undefined || dto.mainColorId !== undefined) {
+        await tx.variantColor.deleteMany({ where: { variantId } });
+        const colorIds = new Set(dto.identicalColorIds ?? []);
+        colorIds.add(mainColorId);
+        await tx.variantColor.createMany({
+          data: [...colorIds].map((colorId) => ({ variantId, colorId })),
+        });
+      }
+
+      return this.getVariant(tx, variantId);
+    });
   }
 
   async deleteVariant(tenantId: string, productId: string, variantId: string) {
     const variant = await this.prisma.productVariant.findFirst({
       where: { id: variantId, productId, tenantId },
+      select: {
+        id: true,
+        sizes: {
+          select: {
+            id: true,
+            _count: { select: { stockUnits: true, inventoryReservations: true } },
+          },
+        },
+      },
     });
     if (!variant) throw new NotFoundException('Variant not found');
 
-    // Cascade handled by DB (onDelete: Cascade in schema)
+    const hasHistory = variant.sizes.some(
+      (size) => size._count.stockUnits > 0 || size._count.inventoryReservations > 0,
+    );
+    if (hasHistory) {
+      throw new ConflictException('Variant cannot be deleted because it has inventory history');
+    }
+
     await this.prisma.productVariant.delete({ where: { id: variantId } });
     return { message: 'Variant deleted' };
   }
 
   async reorderVariants(tenantId: string, productId: string, dto: ReorderDto) {
-    const product = await this.prisma.product.findFirst({
+    const variants = await this.prisma.productVariant.findMany({
+      where: { tenantId, productId, id: { in: dto.ids } },
+      select: { id: true },
+    });
+    if (variants.length !== new Set(dto.ids).size) {
+      throw new BadRequestException('Every reordered variant must belong to this product');
+    }
+
+    await this.prisma.$transaction(
+      dto.ids.map((id, sequence) =>
+        this.prisma.productVariant.update({ where: { id }, data: { sequence } }),
+      ),
+    );
+    return { message: 'Variants reordered' };
+  }
+
+  private normalizeSizes(
+    configured: VariantSizeInventoryDto[] | undefined,
+    legacyIds: string[] | undefined,
+  ): Array<{
+    sizeInstanceId: string;
+    trackingMode: InventoryTrackingMode;
+    pooledQuantity: number;
+  }> {
+    const values: VariantSizeInventoryDto[] =
+      configured ?? (legacyIds ?? []).map((sizeInstanceId) => ({ sizeInstanceId }));
+    const unique = new Set<string>();
+
+    return values.map((size) => {
+      if (unique.has(size.sizeInstanceId)) {
+        throw new BadRequestException('A size can only appear once in a variant');
+      }
+      unique.add(size.sizeInstanceId);
+      return {
+        sizeInstanceId: size.sizeInstanceId,
+        trackingMode: size.trackingMode ?? InventoryTrackingMode.POOLED,
+        pooledQuantity: size.pooledQuantity ?? 1,
+      };
+    });
+  }
+
+  private async validateReferences(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    productId: string,
+    sizeInstanceIds: string[],
+    colorIds: string[],
+  ): Promise<void> {
+    const product = await tx.product.findFirst({
       where: { id: productId, tenantId, deletedAt: null },
+      select: {
+        sizeSchemaOverrideId: true,
+        productType: { select: { defaultSizeSchemaId: true } },
+      },
     });
     if (!product) throw new NotFoundException('Product not found');
 
-    const updates = dto.ids.map((id, index) =>
-      this.prisma.productVariant.update({
-        where: { id },
-        data: { sequence: index },
-      }),
-    );
+    const uniqueColorIds = [...new Set(colorIds)];
+    const colors = await tx.color.count({
+      where: {
+        id: { in: uniqueColorIds },
+        OR: [{ tenantId: null }, { tenantId }],
+      },
+    });
+    if (colors !== uniqueColorIds.length) {
+      throw new BadRequestException('One or more selected colors do not belong to this store');
+    }
 
-    await this.prisma.$transaction(updates);
-    return { message: 'Variants reordered' };
+    if (sizeInstanceIds.length === 0) return;
+    const activeSchemaId = product.sizeSchemaOverrideId ?? product.productType?.defaultSizeSchemaId;
+    if (!activeSchemaId) {
+      throw new BadRequestException('Configure a size schema before adding variant sizes');
+    }
+
+    const sizes = await tx.sizeInstance.count({
+      where: {
+        id: { in: [...new Set(sizeInstanceIds)] },
+        sizeSchemaId: activeSchemaId,
+        sizeSchema: { tenantId },
+      },
+    });
+    if (sizes !== new Set(sizeInstanceIds).size) {
+      throw new BadRequestException('One or more sizes do not belong to the product size schema');
+    }
+  }
+
+  private async reconcileSizes(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    variantId: string,
+    existing: Array<{
+      id: string;
+      sizeInstanceId: string;
+      trackingMode: InventoryTrackingMode;
+      pooledQuantity: number;
+    }>,
+    desired: Array<{
+      sizeInstanceId: string;
+      trackingMode: InventoryTrackingMode;
+      pooledQuantity: number;
+    }>,
+    configurationProvided: boolean,
+  ): Promise<void> {
+    const desiredIds = new Set(desired.map((size) => size.sizeInstanceId));
+    const removed = existing.filter((size) => !desiredIds.has(size.sizeInstanceId));
+
+    for (const size of removed) {
+      const [units, reservations, bookingItems] = await Promise.all([
+        tx.stockUnit.count({ where: { tenantId, variantSizeId: size.id } }),
+        tx.inventoryReservation.count({ where: { tenantId, variantSizeId: size.id } }),
+        tx.bookingItem.count({ where: { tenantId, variantSizeId: size.id } }),
+      ]);
+      if (units + reservations + bookingItems > 0) {
+        throw new ConflictException('A size with inventory or booking history cannot be removed');
+      }
+      await tx.variantSize.delete({ where: { id: size.id } });
+    }
+
+    for (const desiredSize of desired) {
+      const current = existing.find((size) => size.sizeInstanceId === desiredSize.sizeInstanceId);
+      if (!current) {
+        await tx.variantSize.create({
+          data: {
+            tenantId,
+            variantId,
+            sizeInstanceId: desiredSize.sizeInstanceId,
+            trackingMode: desiredSize.trackingMode,
+            pooledQuantity: desiredSize.pooledQuantity,
+            stockLevel: desiredSize.pooledQuantity,
+          },
+        });
+        continue;
+      }
+
+      if (!configurationProvided) continue;
+      if (current.trackingMode !== desiredSize.trackingMode) {
+        const activeReservations = await tx.inventoryReservation.count({
+          where: {
+            tenantId,
+            variantSizeId: current.id,
+            status: { in: ['PENDING', 'CONFIRMED'] },
+          },
+        });
+        if (activeReservations > 0) {
+          throw new ConflictException('Tracking mode cannot change while reservations exist');
+        }
+      }
+
+      const reserved = await tx.inventoryReservation.aggregate({
+        where: {
+          tenantId,
+          variantSizeId: current.id,
+          status: { in: ['PENDING', 'CONFIRMED'] },
+        },
+        _sum: { quantity: true },
+      });
+      if (
+        desiredSize.trackingMode === InventoryTrackingMode.POOLED &&
+        desiredSize.pooledQuantity < (reserved._sum.quantity ?? 0)
+      ) {
+        throw new ConflictException('Pooled quantity cannot be lower than reserved quantity');
+      }
+
+      await tx.variantSize.update({
+        where: { id: current.id },
+        data: {
+          trackingMode: desiredSize.trackingMode,
+          pooledQuantity: desiredSize.pooledQuantity,
+          stockLevel: desiredSize.pooledQuantity,
+          inventoryVersion: { increment: 1 },
+        },
+      });
+    }
+  }
+
+  private getVariant(tx: Prisma.TransactionClient, variantId: string) {
+    return tx.productVariant.findUniqueOrThrow({
+      where: { id: variantId },
+      include: {
+        mainColor: { select: { id: true, name: true, hexCode: true } },
+        identicalColors: { include: { color: true } },
+        sizes: { include: { sizeInstance: true }, orderBy: { sizeInstance: { sortOrder: 'asc' } } },
+      },
+    });
   }
 }

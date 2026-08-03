@@ -415,9 +415,9 @@ function VariantsTab({ variants }: { variants: ProductVariantData[] }) {
           <div className="min-w-0 flex-1">
             <div className="font-medium text-sm flex items-center gap-2 truncate">
               {v.variantName || v.mainColor.name}
-              {v.sizeInstance && (
+              {v.sizes.length > 0 && (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 uppercase tracking-wider font-semibold">
-                  {v.sizeInstance.displayLabel}
+                  {v.sizes.map((size) => size.sizeInstance.displayLabel).join(', ')}
                 </Badge>
               )}
             </div>
@@ -735,6 +735,11 @@ export default function ProductDetailPage() {
           <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" asChild>
             <Link href={`/dashboard/products/${id}/edit`}>
               <Edit className="h-3 w-3 mr-1" /> Edit
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" asChild>
+            <Link href={`/dashboard/products/${id}/inventory`}>
+              <Package className="h-3 w-3 mr-1" /> Inventory
             </Link>
           </Button>
           <DropdownMenu>

@@ -22,8 +22,8 @@ export class PricingAdminService {
    * If no profile exists, returns null (legacy product).
    */
   async getPricingProfile(tenantId: string, productId: string) {
-    const profile = await this.prisma.pricingProfile.findUnique({
-      where: { productId },
+    const profile = await this.prisma.pricingProfile.findFirst({
+      where: { productId, tenantId },
       include: {
         policyVersions: {
           orderBy: { version: 'desc' },
@@ -123,8 +123,15 @@ export class PricingAdminService {
       lateFeePolicy?: Record<string, unknown>;
       presentationConfig?: Record<string, unknown>;
     },
+    actorUserId?: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.findFirst({
+        where: { id: productId, tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!product) throw new NotFoundException('Product not found');
+
       // 1. Upsert PricingProfile
       let profile = await tx.pricingProfile.findUnique({
         where: { productId },
@@ -166,7 +173,7 @@ export class PricingAdminService {
           publishedAt: new Date(),
           lateFeePolicy: (input.lateFeePolicy as any) ?? Prisma.JsonNull,
           presentationConfig: (input.presentationConfig as any) ?? Prisma.JsonNull,
-          createdBy: tenantId, // TODO: use actual userId
+          createdBy: actorUserId ?? null,
         },
       });
 

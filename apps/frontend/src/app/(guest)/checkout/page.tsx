@@ -104,6 +104,8 @@ export default function GuestCheckoutPage() {
         items: items.map(i => ({
           productId: i.productId,
           variantId: i.variantId || '',
+          variantSizeId: i.variantSizeId,
+          quantity: i.quantity,
           startDate: i.startDate,
           endDate: i.endDate,
           tryOn: i.serviceMap?.tryOn || false,

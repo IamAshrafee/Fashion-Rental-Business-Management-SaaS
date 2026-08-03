@@ -14,6 +14,7 @@ import {
   MaxLength,
   MinLength,
   IsNumber,
+  IsUUID,
   ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -43,6 +44,16 @@ export class CartItemDto {
   @IsString()
   @IsNotEmpty()
   variantId!: string;
+
+  @IsUUID()
+  variantSizeId!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity = 1;
 
   @IsDateString()
   startDate!: string;
@@ -396,16 +407,20 @@ export class BookingQueryDto {
   order?: string;
 }
 
-export class AvailabilityQueryDto {
-  @IsString()
-  @IsNotEmpty()
-  month!: string; // Format: YYYY-MM
-}
-
 export class CheckAvailabilityDto {
+  @IsUUID()
+  variantSizeId!: string;
+
   @IsDateString()
   startDate!: string;
 
   @IsDateString()
   endDate!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity = 1;
 }

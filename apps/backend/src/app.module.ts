@@ -31,6 +31,7 @@ import { SizeSchemaModule } from './modules/size-schema/size-schema.module';
 import { SizeInstanceModule } from './modules/size-instance/size-instance.module';
 import { ProductTypeModule } from './modules/product-type/product-type.module';
 import { PricingEngineModule } from './modules/pricing-engine/pricing-engine.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { PricingEngineModule } from './modules/pricing-engine/pricing-engine.mod
     AuthModule,
     TenantModule,
     ProductModule,
+    InventoryModule,
     BookingModule,
     CustomerModule,
     PaymentModule,
@@ -92,4 +94,3 @@ export class AppModule implements NestModule {
       .forRoutes('*');
   }
 }
-

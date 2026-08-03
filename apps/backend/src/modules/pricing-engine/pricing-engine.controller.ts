@@ -3,7 +3,7 @@ import { PricingEngineService } from './pricing-engine.service';
 import { GetQuoteDto } from './dto/pricing-engine.dto';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 
-@Controller('api/pricing')
+@Controller('pricing')
 @UseGuards(TenantGuard)
 export class PricingEngineController {
   constructor(private readonly pricingEngine: PricingEngineService) {}

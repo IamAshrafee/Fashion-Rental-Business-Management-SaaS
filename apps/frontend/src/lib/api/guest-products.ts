@@ -78,7 +78,13 @@ export interface GuestProductDetail {
     sequence: number;
     mainColor: { id: string; name: string; hexCode: string | null };
     identicalColors: Array<{ id: string; name: string; hexCode: string | null }>;
-    sizeInstance: import('./products').SizeInstanceData | null;
+    sizes: Array<{
+      variantSizeId: string;
+      sizeInstance: import('./products').SizeInstanceData;
+      trackingMode: 'POOLED' | 'SERIALIZED';
+      pooledQuantity: number;
+      totalCapacity: number;
+    }>;
     images: Array<{
       id: string;
       url: string;
@@ -156,11 +162,6 @@ export interface SearchSuggestion {
   slug: string;
 }
 
-export interface AvailabilityMonth {
-  blockedDates: string[];
-  [key: string]: unknown;
-}
-
 export interface DateRangeCheck {
   available: boolean;
   rentalDays?: number;
@@ -174,6 +175,14 @@ export interface DateRangeCheck {
     total: number;
   };
   reason?: string;
+  inventory?: {
+    variantSizeId: string;
+    requestedQuantity: number;
+    totalCapacity: number;
+    reservedQuantity: number;
+    remainingQuantity: number;
+    trackingMode: 'POOLED' | 'SERIALIZED';
+  };
   [key: string]: unknown;
 }
 
@@ -354,32 +363,19 @@ export async function getGuestEvents(): Promise<GuestEvent[]> {
 }
 
 /**
- * GET /api/v1/products/:productId/availability?month=2026-04
- * Returns blocked dates for a product in a given month.
- */
-export async function checkProductAvailability(
-  productId: string,
-  month: string,
-): Promise<AvailabilityMonth> {
-  const { data } = await apiClient.get<AvailabilityMonth>(
-    `/products/${productId}/availability`,
-    { params: { month } },
-  );
-  return data;
-}
-
-/**
  * POST /api/v1/products/:productId/check-availability
  * Checks a specific date range and returns pricing breakdown.
  */
 export async function checkDateRange(
   productId: string,
+  variantSizeId: string,
   startDate: string,
   endDate: string,
+  quantity = 1,
 ): Promise<DateRangeCheck> {
   const { data } = await apiClient.post<DateRangeCheck>(
     `/products/${productId}/check-availability`,
-    { startDate, endDate },
+    { variantSizeId, startDate, endDate, quantity },
   );
   return data;
 }
