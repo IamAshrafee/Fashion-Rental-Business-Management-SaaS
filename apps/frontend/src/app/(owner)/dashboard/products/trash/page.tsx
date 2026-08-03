@@ -25,9 +25,9 @@ export default function TrashPage() {
   const trashItems: TrashedProductRow[] = (data?.data ?? []).map((p) => ({
     id: p.id,
     name: p.name,
-    category: (p as any).category?.name ?? undefined,
+    category: p.category.name,
     deletedAt: p.deletedAt ?? p.updatedAt ?? p.createdAt,
-    deletedBy: (p as any).deletedBy?.fullName ?? undefined,
+    deletedBy: p.deletedBy?.fullName ?? undefined,
   }));
 
   const totalCount = data?.meta?.total ?? 0;

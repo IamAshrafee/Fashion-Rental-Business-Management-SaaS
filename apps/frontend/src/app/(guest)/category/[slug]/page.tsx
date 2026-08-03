@@ -117,7 +117,7 @@ export default function GuestCategoryPage() {
       )}
 
       {/* Pagination hint */}
-      {meta && meta.pages > 1 && (
+      {meta && meta.totalPages > 1 && (
         <div className="mt-12 text-center">
           <Link
             href={`/products?category=${categorySlug}`}

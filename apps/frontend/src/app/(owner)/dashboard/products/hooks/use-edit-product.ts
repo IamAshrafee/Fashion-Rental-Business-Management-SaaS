@@ -1,157 +1,125 @@
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { productApi } from '@/lib/api/products';
-import { productFormSchema, ProductFormValues } from '../components/product-form/schema';
+import { productApi, type ProductDetail } from '@/lib/api/products';
+import { productFormSchema, type ProductFormValues } from '../components/product-form/schema';
 
-/**
- * Maps the raw backend product response (deeply nested relations)
- * into the flat ProductFormValues shape used by the form.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapProductToFormValues(product: any): ProductFormValues {
+function mapProductToFormValues(product: ProductDetail): ProductFormValues {
   const pricing = product.pricing;
-  const size = product.productSize;
+  const pricingComponents = pricing?.components
+    .filter((component) => component.config.purpose !== 'DELIVERY')
+    .map((component) => ({
+      type:
+        component.type === 'ADDON' && component.config.purpose === 'BACKUP_SIZE'
+          ? 'ADDON_BACKUP'
+          : component.type === 'ADDON' && component.config.purpose === 'TRY_ON'
+            ? 'ADDON_TRYON'
+            : component.type,
+      config: component.config,
+    })) ?? [];
 
   return {
-    // ── Basic Info ──────────────────────────────────────────────
-    name: product.name ?? '',
-    description: product.description ?? '',
-    categoryId: product.categoryId ?? '',
+    name: product.name,
+    description: product.description ?? undefined,
+    categoryId: product.categoryId,
     subcategoryId: product.subcategoryId ?? undefined,
-    events: product.events?.map((pe: any) => pe.event?.id ?? pe.eventId).filter(Boolean) ?? [],
-    status: product.status ?? 'draft',
+    events: product.events.map((association) => association.event.id),
+    status: product.status,
     purchaseDate: product.purchaseDate
       ? new Date(product.purchaseDate).toISOString().split('T')[0]
       : undefined,
     purchasePrice: product.purchasePrice ?? undefined,
-    showPurchasePrice: product.purchasePricePublic ?? false,
+    showPurchasePrice: product.purchasePricePublic,
     itemCountry: product.itemCountry ?? undefined,
-    showCountry: product.itemCountryPublic ?? false,
+    showCountry: product.itemCountryPublic,
     targetRentals: product.targetRentals ?? undefined,
-
-    // ── Variants ───────────────────────────────────────────────
-    variants: product.variants?.map((v: any) => ({
-      id: v.id,
-      name: v.variantName ?? '',
-      mainColorId: v.mainColor?.id ?? v.mainColorId ?? '',
-      sizeInstanceIds: v.sizes?.map((sz: any) => sz.sizeInstance?.id ?? sz.sizeInstanceId).filter(Boolean) ?? [],
+    productTypeId: product.productTypeId ?? '',
+    sizeSchemaOverrideId: product.sizeSchemaOverrideId ?? '',
+    variants: product.variants.map((variant) => ({
+      id: variant.id,
+      name: variant.variantName ?? '',
+      mainColorId: variant.mainColorId,
+      sizeInstanceIds: variant.sizes.map((size) => size.sizeInstanceId),
       inventoryBySizeId: Object.fromEntries(
-        (v.sizes ?? []).map((sz: any) => [
-          sz.sizeInstance?.id ?? sz.sizeInstanceId,
-          { trackingMode: sz.trackingMode ?? 'POOLED' },
+        variant.sizes.map((size) => [
+          size.sizeInstanceId,
+          { trackingMode: size.trackingMode },
         ]),
       ),
-      identicalColorIds:
-        v.identicalColors?.map((vc: any) => vc.color?.id ?? vc.colorId).filter(Boolean) ?? [],
-      images:
-        v.images?.map((img: any) => ({
-          id: img.id,
-          url: img.url,
-          isFeatured: img.isFeatured ?? false,
-          sequence: img.sequence ?? 0,
-          // No `file` — these are already uploaded
-        })) ?? [],
-    })) ?? [{ name: '', mainColorId: '', identicalColorIds: [], images: [], sizeInstanceIds: [], inventoryBySizeId: {} }],
-
-    // ── Pricing ────────────────────────────────────────────────
-    ratePlanType: pricing?.ratePlanType as 'PER_DAY' | 'FLAT_PERIOD' | 'TIERED_DAILY' | 'WEEKLY_MONTHLY' | 'PERCENT_RETAIL' | undefined,
-    ratePlanConfig: pricing?.ratePlanConfig ?? undefined,
-    pricingComponents: pricing?.components?.map((c: any) => ({
-      type:
-        c.type === 'ADDON' && c.config?.purpose === 'BACKUP_SIZE'
-          ? 'ADDON_BACKUP'
-          : c.type === 'ADDON' && c.config?.purpose === 'TRY_ON'
-            ? 'ADDON_TRYON'
-            : c.type,
-      config: c.config,
-    })).filter((c: any) => c.config?.purpose !== 'DELIVERY') ?? [],
-    lateFeeEnabled: pricing?.lateFeePolicy?.enabled ?? false,
-    lateFeeGraceHours: pricing?.lateFeePolicy?.graceHours ?? undefined,
-    lateFeeAmountMinor: pricing?.lateFeePolicy?.amountMinor ?? undefined,
-    lateFeeCapMinor: pricing?.lateFeePolicy?.totalCapMinor ?? undefined,
+      identicalColorIds: variant.identicalColors.map((association) => association.color.id),
+      images: variant.images.map((image) => ({
+        id: image.id,
+        url: image.url,
+        isFeatured: image.isFeatured,
+        sequence: image.sequence,
+      })),
+    })),
+    ratePlanType: pricing?.ratePlanType,
+    ratePlanConfig: pricing?.ratePlanConfig,
+    pricingComponents,
+    lateFeeEnabled: Boolean(pricing?.lateFeePolicy?.enabled),
+    lateFeeGraceHours: typeof pricing?.lateFeePolicy?.graceHours === 'number'
+      ? pricing.lateFeePolicy.graceHours
+      : undefined,
+    lateFeeAmountMinor: typeof pricing?.lateFeePolicy?.amountMinor === 'number'
+      ? pricing.lateFeePolicy.amountMinor
+      : undefined,
+    lateFeeCapMinor: typeof pricing?.lateFeePolicy?.totalCapMinor === 'number'
+      ? pricing.lateFeePolicy.totalCapMinor
+      : undefined,
     shippingMode: pricing?.shippingMode ?? 'free',
-    flatShippingFee: pricing?.shippingFee ?? undefined,
-
-    // ── Size ───────────────────────────────────────────────────
-    sizeMode: size?.mode ?? 'standard',
-    availableSizes: size?.availableSizes ?? [],
-    mainDisplaySize: size?.mainDisplaySize ?? undefined,
-    freeSizeType: size?.freeSizeType ?? undefined,
-    measurements: size?.measurements
-      ?.filter((m: any) => !m.partId) // top-level measurements only
-      ?.map((m: any) => ({
-        label: m.label ?? '',
-        value: typeof m.value === 'string' ? parseFloat(m.value) || 0 : (m.value ?? 0),
-        unit: m.unit ?? 'inch',
-      })) ?? [],
-    parts: size?.parts?.map((p: any) => ({
-      partName: p.partName ?? '',
-      measurements: p.measurements?.map((m: any) => ({
-        label: m.label ?? '',
-        value: typeof m.value === 'string' ? parseFloat(m.value) || 0 : (m.value ?? 0),
-        unit: m.unit ?? 'inch',
-      })) ?? [],
-    })) ?? [],
-    sizeChartUrl: size?.sizeChartUrl ?? undefined,
-
-    // ── Details & FAQ ──────────────────────────────────────────
-    details: product.detailHeaders?.map((h: any) => ({
-      header: h.headerName ?? '',
-      items: h.entries?.map((e: any) => ({
-        key: e.key ?? '',
-        value: e.value ?? '',
-      })) ?? [],
-    })) ?? [],
-    faqs: product.faqs?.map((f: any) => ({
-      question: f.question ?? '',
-      answer: f.answer ?? '',
-    })) ?? [],
-  } as ProductFormValues;
+    flatShippingFee: pricing?.shippingFee,
+    details: product.detailHeaders.map((header) => ({
+      header: header.headerName,
+      items: header.entries.map((entry) => ({ key: entry.key, value: entry.value })),
+    })),
+    faqs: product.faqs.map((faq) => ({ question: faq.question, answer: faq.answer })),
+  };
 }
 
-/**
- * Hook that fetches a product by ID and initializes a react-hook-form
- * instance with the mapped data.
- *
- * FIX: We no longer use useEffect + form.reset() after initial mount.
- * Instead, we pass `defaultValues` directly with the real mapped data only
- * when the product is available. The form is not created until rawProduct
- * is truthy (callers guard on isLoading / rawProduct before rendering the
- * FormProvider — see EditProductForm). This ensures Radix Select triggers
- * always mount with the correct saved values without stale-state issues.
- */
+const emptyValues: ProductFormValues = {
+  name: '',
+  description: undefined,
+  categoryId: '',
+  subcategoryId: undefined,
+  events: [],
+  status: 'draft',
+  purchaseDate: undefined,
+  purchasePrice: undefined,
+  showPurchasePrice: false,
+  itemCountry: undefined,
+  showCountry: false,
+  targetRentals: undefined,
+  productTypeId: '',
+  sizeSchemaOverrideId: '',
+  variants: [{
+    name: '',
+    mainColorId: '',
+    sizeInstanceIds: [],
+    inventoryBySizeId: {},
+    identicalColorIds: [],
+    images: [],
+  }],
+  ratePlanType: undefined,
+  ratePlanConfig: undefined,
+  pricingComponents: [],
+  lateFeeEnabled: false,
+  lateFeeGraceHours: undefined,
+  lateFeeAmountMinor: undefined,
+  lateFeeCapMinor: undefined,
+  shippingMode: 'free',
+  flatShippingFee: undefined,
+  details: [],
+  faqs: [],
+};
+
 export function useEditProduct(productId: string) {
-  // Fetch the full product from the API
-  const {
-    data: rawProduct,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
+  const query = useQuery({
     queryKey: ['products', 'detail', productId],
     queryFn: () => productApi.getById(productId),
-    enabled: !!productId,
+    enabled: Boolean(productId),
   });
-
-  // Map to form values only when data is present, otherwise use safe empty defaults.
-  // The EditProductForm parent guards render until rawProduct is truthy, so the
-  // form will always be initialized with real data — never empty fallbacks.
-  const initialValues = rawProduct
-    ? mapProductToFormValues(rawProduct)
-    : {
-        status: 'draft' as const,
-        pricingMode: 'one_time' as const,
-        sizeMode: 'standard' as const,
-        events: [] as string[],
-        variants: [{ name: '', mainColorId: '', identicalColorIds: [] as string[], images: [] }],
-        availableSizes: [] as string[],
-        measurements: [],
-        parts: [],
-        details: [],
-        faqs: [],
-      };
-
+  const initialValues = query.data ? mapProductToFormValues(query.data) : emptyValues;
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productFormSchema),
     defaultValues: initialValues,
@@ -160,9 +128,9 @@ export function useEditProduct(productId: string) {
 
   return {
     form,
-    rawProduct,
-    isLoading,
-    isError,
-    error,
+    rawProduct: query.data,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
   };
 }

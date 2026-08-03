@@ -10,6 +10,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Headers,
 } from '@nestjs/common';
 import { ProductService } from './product.service';
 import { VariantService } from './variant.service';
@@ -19,6 +20,7 @@ import {
   UpdateProductDto,
   UpdateProductStatusDto,
   ProductQueryDto,
+  OwnerProductQueryDto,
   StorefrontShowcaseQueryDto,
   CreateVariantDto,
   UpdateVariantDto,
@@ -164,7 +166,7 @@ export class ProductOwnerController {
   @Roles('owner', 'manager')
   async listProducts(
     @CurrentTenant() tenant: TenantContext,
-    @Query() query: ProductQueryDto,
+    @Query() query: OwnerProductQueryDto,
   ) {
     return this.productService.listOwner(tenant.id, query);
   }
@@ -174,7 +176,7 @@ export class ProductOwnerController {
   @Roles('owner', 'manager')
   async listTrash(
     @CurrentTenant() tenant: TenantContext,
-    @Query() query: ProductQueryDto,
+    @Query() query: OwnerProductQueryDto,
   ) {
     return this.productService.listOwner(tenant.id, { ...query, status: 'trash' });
   }
@@ -185,8 +187,9 @@ export class ProductOwnerController {
   async createProduct(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateProductDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.productService.create(tenant.id, dto);
+    return this.productService.create(tenant.id, dto, idempotencyKey);
   }
 
   @Get(':id')

@@ -402,6 +402,7 @@ CREATE TABLE "login_history" (
 CREATE TABLE "products" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
+    "creation_key" TEXT,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "description" TEXT,
@@ -1793,6 +1794,9 @@ CREATE INDEX "products_tenant_id_status_popularity_score_idx" ON "products"("ten
 
 -- CreateIndex
 CREATE UNIQUE INDEX "products_tenant_id_slug_key" ON "products"("tenant_id", "slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "products_tenant_id_creation_key_key" ON "products"("tenant_id", "creation_key");
 
 -- CreateIndex
 CREATE INDEX "product_variants_product_id_idx" ON "product_variants"("product_id");

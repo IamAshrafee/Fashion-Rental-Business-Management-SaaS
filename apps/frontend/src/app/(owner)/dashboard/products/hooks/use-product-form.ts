@@ -1,12 +1,13 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { productFormSchema, ProductFormValues } from '../components/product-form/schema';
+import { productFormSchema, type ProductFormValues } from '../components/product-form/schema';
+import type { UploadedProductImage } from '@/lib/api/products';
 
 const STORAGE_KEY = 'fashionRental_newProductDraft';
-// Bump this version whenever the form schema changes to auto-invalidate old drafts
-const DRAFT_VERSION = 4;
+const DRAFT_VERSION = 5;
 const SAVE_DEBOUNCE_MS = 2000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const defaultValues: Partial<ProductFormValues> = {
   status: 'draft',
@@ -23,7 +24,6 @@ const defaultValues: Partial<ProductFormValues> = {
       images: [],
     },
   ],
-  // Pricing Engine v2
   ratePlanType: undefined,
   ratePlanConfig: undefined,
   pricingComponents: [],
@@ -39,7 +39,25 @@ interface DraftPayload {
   _draftVersion: number;
   _savedAt: string;
   _currentStep: number;
+  _creationKey: string;
+  _productId?: string;
   [key: string]: unknown;
+}
+
+function createKey(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `product-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function serializableValues(values: ProductFormValues): ProductFormValues {
+  return {
+    ...values,
+    variants: values.variants.map((variant) => ({
+      ...variant,
+      images: (variant.images ?? [])
+        .filter((image) => UUID_PATTERN.test(image.id) && !image.file)
+        .map(({ file: _file, ...image }) => image),
+    })),
+  };
 }
 
 export function useProductForm() {
@@ -47,7 +65,12 @@ export function useProductForm() {
   const [hasDraft, setHasDraft] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [restoredStep, setRestoredStep] = useState(0);
+  const [productId, setProductId] = useState<string | null>(null);
+  const [creationKey, setCreationKey] = useState(createKey);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const productIdRef = useRef<string | null>(null);
+  const creationKeyRef = useRef(creationKey);
+  const currentStepRef = useRef(0);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productFormSchema),
@@ -55,80 +78,125 @@ export function useProductForm() {
     mode: 'onChange',
   });
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed: DraftPayload = JSON.parse(saved);
-        // Only restore if the draft version matches
-        if (parsed._draftVersion === DRAFT_VERSION) {
-          const { _draftVersion, _savedAt, _currentStep, ...formData } = parsed;
-          form.reset({ ...defaultValues, ...formData });
-          setHasDraft(true);
-          setLastSavedAt(_savedAt ? new Date(_savedAt) : null);
-          setRestoredStep(typeof _currentStep === 'number' ? _currentStep : 0);
-        } else {
-          // Stale draft — discard it
-          console.warn('Discarding stale product draft (version mismatch)');
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      } catch (e) {
-        console.error('Failed to parse saved product draft', e);
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-    setIsLoaded(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Debounced auto-save to localStorage on change
-  useEffect(() => {
-    if (!isLoaded) return;
-    const subscription = form.watch((value) => {
-      // Clear any pending save
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      // Debounce save
-      saveTimerRef.current = setTimeout(() => {
-        const now = new Date();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          ...value,
-          _draftVersion: DRAFT_VERSION,
-          _savedAt: now.toISOString(),
-          _currentStep: 0, // Will be overwritten by forceSaveDraft
-        }));
-        setLastSavedAt(now);
-        setHasDraft(true);
-      }, SAVE_DEBOUNCE_MS);
-    });
-    return () => {
-      subscription.unsubscribe();
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [form, isLoaded]);
-
-  // Force-save immediately (called by Ctrl+S or "Save & Exit")
-  const forceSaveDraft = useCallback((currentStep: number) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  const persistDraft = useCallback((currentStep: number) => {
     const now = new Date();
-    const values = form.getValues();
+    currentStepRef.current = currentStep;
+    const values = serializableValues(form.getValues());
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       ...values,
       _draftVersion: DRAFT_VERSION,
       _savedAt: now.toISOString(),
       _currentStep: currentStep,
+      _creationKey: creationKeyRef.current,
+      ...(productIdRef.current ? { _productId: productIdRef.current } : {}),
     }));
     setLastSavedAt(now);
     setHasDraft(true);
   }, [form]);
 
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed: DraftPayload = JSON.parse(saved);
+        if (parsed._draftVersion === DRAFT_VERSION) {
+          const {
+            _draftVersion,
+            _savedAt,
+            _currentStep,
+            _creationKey,
+            _productId,
+            ...formData
+          } = parsed;
+          form.reset({ ...defaultValues, ...formData });
+          const restoredCreationKey = _creationKey || createKey();
+          creationKeyRef.current = restoredCreationKey;
+          productIdRef.current = _productId ?? null;
+          currentStepRef.current = typeof _currentStep === 'number' ? _currentStep : 0;
+          setCreationKey(restoredCreationKey);
+          setProductId(_productId ?? null);
+          setHasDraft(true);
+          setLastSavedAt(_savedAt ? new Date(_savedAt) : null);
+          setRestoredStep(currentStepRef.current);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+    setIsLoaded(true);
+  }, [form]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    const subscription = form.watch(() => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(
+        () => persistDraft(currentStepRef.current),
+        SAVE_DEBOUNCE_MS,
+      );
+    });
+    return () => {
+      subscription.unsubscribe();
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [form, isLoaded, persistDraft]);
+
+  const forceSaveDraft = useCallback((currentStep: number) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    persistDraft(currentStep);
+  }, [persistDraft]);
+
+  const checkpointProduct = useCallback((id: string) => {
+    productIdRef.current = id;
+    setProductId(id);
+    persistDraft(currentStepRef.current);
+  }, [persistDraft]);
+
+  const checkpointVariant = useCallback((variantIndex: number, id: string) => {
+    form.setValue(`variants.${variantIndex}.id`, id, { shouldDirty: false });
+    persistDraft(currentStepRef.current);
+  }, [form, persistDraft]);
+
+  const checkpointImage = useCallback((
+    variantIndex: number,
+    imageIndex: number,
+    uploaded: UploadedProductImage,
+  ) => {
+    form.setValue(`variants.${variantIndex}.images.${imageIndex}.id`, uploaded.id, { shouldDirty: false });
+    form.setValue(`variants.${variantIndex}.images.${imageIndex}.url`, uploaded.thumbnailUrl || uploaded.url, { shouldDirty: false });
+    form.setValue(`variants.${variantIndex}.images.${imageIndex}.file`, undefined, { shouldDirty: false });
+    persistDraft(currentStepRef.current);
+  }, [form, persistDraft]);
+
   const clearDraft = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     localStorage.removeItem(STORAGE_KEY);
+    const nextCreationKey = createKey();
+    creationKeyRef.current = nextCreationKey;
+    productIdRef.current = null;
+    currentStepRef.current = 0;
+    setCreationKey(nextCreationKey);
+    setProductId(null);
     form.reset(defaultValues);
     setHasDraft(false);
     setLastSavedAt(null);
+    setRestoredStep(0);
   }, [form]);
 
-  return { form, isLoaded, clearDraft, hasDraft, lastSavedAt, forceSaveDraft, restoredStep };
+  return {
+    form,
+    isLoaded,
+    clearDraft,
+    hasDraft,
+    lastSavedAt,
+    forceSaveDraft,
+    restoredStep,
+    productId,
+    creationKey,
+    checkpointProduct,
+    checkpointVariant,
+    checkpointImage,
+  };
 }

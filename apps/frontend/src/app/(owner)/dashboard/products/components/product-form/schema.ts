@@ -30,7 +30,7 @@ export const productFormSchema = z.object({
           trackingMode: z.enum(['POOLED', 'SERIALIZED']).default('POOLED'),
         })).default({}),
         mainColorId: z.string().min(1, 'Main color is required'),
-        identicalColorIds: z.array(z.string()).min(1, 'At least one identical color is required'),
+        identicalColorIds: z.array(z.string()).default([]),
         images: z
           .array(
             z.object({
@@ -65,7 +65,7 @@ export const productFormSchema = z.object({
   flatShippingFee: z.number().optional(),
 
   // Step 5: Size (schema-driven)
-  productTypeId: z.string().optional(),
+  productTypeId: z.string().min(1, 'Product type is required'),
   sizeSchemaOverrideId: z.string().optional(),
 
   // Step 6: Details & FAQ

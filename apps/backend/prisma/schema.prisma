@@ -852,6 +852,7 @@ model LoginHistory {
 model Product {
   id                   String                       @id @default(uuid())
   tenantId             String                       @map("tenant_id")
+  creationKey          String?                      @map("creation_key")
   name                 String
   slug                 String
   description          String?
@@ -904,6 +905,7 @@ model Product {
   availabilityPolicies          AvailabilityPolicy[]
 
   @@unique([tenantId, slug])
+  @@unique([tenantId, creationKey])
   @@index([categoryId])
   @@index([productTypeId])
   @@index([sizeSchemaOverrideId])

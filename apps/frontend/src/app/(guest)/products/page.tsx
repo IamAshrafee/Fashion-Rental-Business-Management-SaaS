@@ -84,7 +84,7 @@ function GuestProductsContent() {
   const handleSortChange = (value: string) => updateParams({ sort: value });
   const handleFilterChange = (key: string, value: string | undefined) => updateParams({ [key]: value });
   const handleLoadMore = () => {
-    if (productsData && currentPage < productsData.meta.pages) {
+    if (productsData && currentPage < productsData.meta.totalPages) {
       updateParams({ page: String(currentPage + 1) });
     }
   };
@@ -269,7 +269,7 @@ function GuestProductsContent() {
                 ))}
               </div>
 
-              {meta && currentPage < meta.pages && (
+              {meta && currentPage < meta.totalPages && (
                 <div className="mt-16 text-center">
                   <button
                     type="button"

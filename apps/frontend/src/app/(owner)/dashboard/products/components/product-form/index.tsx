@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FormProvider } from 'react-hook-form';
+import { FormProvider, type FieldPath } from 'react-hook-form';
 import { useProductForm } from '../../hooks/use-product-form';
 import { useSubmitProduct } from '../../hooks/use-submit-product';
+import type { ProductFormValues } from './schema';
 import { WizardLayout, WIZARD_STEPS } from './wizard-layout';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 // Step imports
 import { BasicInfoStep } from './steps/basic-info';
@@ -18,9 +20,9 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 
 /* ─── Validation field groups for each step ────────────────────────────── */
-const STEP_FIELDS: Record<number, string[]> = {
+const STEP_FIELDS: Record<number, FieldPath<ProductFormValues>[]> = {
   0: ['name', 'categoryId', 'status'],
-  1: ['sizeMode', 'measurements', 'details', 'faqs'],
+  1: ['productTypeId', 'sizeSchemaOverrideId', 'details', 'faqs'],
   2: ['variants'],
   3: [
     'ratePlanType', 'ratePlanConfig', 'pricingComponents',
@@ -31,10 +33,30 @@ const STEP_FIELDS: Record<number, string[]> = {
 
 /* ─── Main Component ───────────────────────────────────────────────────── */
 export function ProductFormWizard() {
-  const { form, isLoaded, clearDraft, hasDraft, lastSavedAt, forceSaveDraft, restoredStep } = useProductForm();
+  const {
+    form,
+    isLoaded,
+    clearDraft,
+    hasDraft,
+    lastSavedAt,
+    forceSaveDraft,
+    restoredStep,
+    productId,
+    creationKey,
+    checkpointProduct,
+    checkpointVariant,
+    checkpointImage,
+  } = useProductForm();
   const [currentStep, setCurrentStep] = useState(0);
   const [stepErrors, setStepErrors] = useState<Record<number, number>>({});
-  const { mutate: submitProduct, isPending: isSubmitting } = useSubmitProduct(clearDraft);
+  const { mutate: submitProduct, isPending: isSubmitting } = useSubmitProduct({
+    clearDraft,
+    productId,
+    creationKey,
+    checkpointProduct,
+    checkpointVariant,
+    checkpointImage,
+  });
   const router = useRouter();
   const { toast } = useToast();
   const hasRestoredRef = useRef(false);
@@ -52,7 +74,7 @@ export function ProductFormWizard() {
     const errors = form.formState.errors;
     const errorMap: Record<number, number> = {};
     
-    const countFieldErrors = (fields: string[]): number => {
+    const countFieldErrors = (fields: FieldPath<ProductFormValues>[]): number => {
       let count = 0;
       for (const field of fields) {
         const err = errors[field as keyof typeof errors];
@@ -91,7 +113,7 @@ export function ProductFormWizard() {
       let hasImageError = false;
       variants.forEach((v, i) => {
         if (!v.images || v.images.length === 0) {
-          form.setError(`variants.${i}.images` as any, {
+          form.setError(`variants.${i}.images` as FieldPath<ProductFormValues>, {
             type: 'manual',
             message: 'At least one image is required per variant',
           });
@@ -111,7 +133,7 @@ export function ProductFormWizard() {
     const fields = STEP_FIELDS[currentStep] || [];
     if (fields.length === 0) return true;
     
-    const isValid = await form.trigger(fields as any);
+    const isValid = await form.trigger(fields);
     if (!isValid) {
       const errMap = computeStepErrors();
       const errCount = errMap[currentStep] || 0;
@@ -142,7 +164,7 @@ export function ProductFormWizard() {
         });
         return;
       }
-      form.handleSubmit(onSubmit)();
+      form.handleSubmit((data: ProductFormValues) => submitProduct(data))();
       return;
     }
 
@@ -155,7 +177,7 @@ export function ProductFormWizard() {
       // Scroll to top of content area
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [currentStep, form, validateCurrentStep, forceSaveDraft, computeStepErrors, toast]);
+  }, [currentStep, form, validateCurrentStep, forceSaveDraft, computeStepErrors, toast, submitProduct]);
 
   const handlePrev = useCallback(() => {
     if (currentStep > 0) {
@@ -175,10 +197,6 @@ export function ProductFormWizard() {
     }
   }, [currentStep, forceSaveDraft]);
 
-  const onSubmit = useCallback(async (data: unknown) => {
-    submitProduct(data as any);
-  }, [submitProduct]);
-
   const handleForceSave = useCallback(() => {
     forceSaveDraft(currentStep);
     toast({
@@ -193,16 +211,13 @@ export function ProductFormWizard() {
       title: 'Draft saved',
       description: 'You can resume editing anytime.',
     });
-    router.push('/dashboard/products');
-  }, [forceSaveDraft, currentStep, toast, router]);
+    router.push(productId ? `/dashboard/products/${productId}/edit` : '/dashboard/products');
+  }, [forceSaveDraft, currentStep, toast, router, productId]);
 
   /* ── Keyboard shortcuts ───────────────────────────────────────────── */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input/textarea
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'ArrowRight') {
           e.preventDefault();
@@ -274,19 +289,24 @@ export function ProductFormWizard() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-amber-700 border-amber-300 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700 min-h-[36px]"
-                onClick={() => {
-                  clearDraft();
-                  setCurrentStep(0);
-                }}
-              >
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                Start Fresh
-              </Button>
+              {productId ? (
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <Link href={`/dashboard/products/${productId}/edit`}>Open server draft</Link>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    clearDraft();
+                    setCurrentStep(0);
+                  }}
+                >
+                  <RotateCcw data-icon="inline-start" />
+                  Start fresh
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"

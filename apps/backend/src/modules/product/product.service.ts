@@ -9,8 +9,76 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateProductDto, UpdateProductDto, ProductQueryDto } from './dto/product.dto';
-import { Prisma } from '@prisma/client';
+import {
+  CreateProductDto,
+  UpdateProductDto,
+  ProductQueryDto,
+  OwnerProductQueryDto,
+} from './dto/product.dto';
+import { InventoryTrackingMode, Prisma } from '@prisma/client';
+
+const ownerProductListSelect = () => ({
+  id: true,
+  name: true,
+  slug: true,
+  status: true,
+  targetRentals: true,
+  totalBookings: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+  category: { select: { id: true, name: true, slug: true } },
+  productType: { select: { id: true, name: true, slug: true } },
+  pricingProfile: {
+    select: {
+      headlinePriceMinor: true,
+      headlineLabel: true,
+      policyVersions: {
+        where: { status: 'ACTIVE' as const },
+        take: 1,
+        select: {
+          ratePlans: {
+            orderBy: { priority: 'desc' as const },
+            take: 1,
+            select: { type: true },
+          },
+        },
+      },
+    },
+  },
+  variants: {
+    orderBy: { sequence: 'asc' as const },
+    select: {
+      id: true,
+      mainColor: { select: { name: true, hexCode: true } },
+      images: {
+        where: { isFeatured: true },
+        orderBy: { sequence: 'asc' as const },
+        take: 1,
+        select: { id: true, url: true, thumbnailUrl: true, isFeatured: true },
+      },
+      sizes: {
+        select: {
+          trackingMode: true,
+          inventoryPools: { select: { onHandQuantity: true } },
+          _count: {
+            select: {
+              stockUnits: {
+                where: { disposition: 'ACTIVE' as const, deletedAt: null },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  deletedBy: { select: { id: true, fullName: true } },
+  _count: { select: { bookingItems: true } },
+}) satisfies Prisma.ProductSelect;
+
+type OwnerProductListRecord = Prisma.ProductGetPayload<{
+  select: ReturnType<typeof ownerProductListSelect>;
+}>;
 
 @Injectable()
 export class ProductService {
@@ -25,14 +93,31 @@ export class ProductService {
   // CREATE
   // =========================================================================
 
-  async create(tenantId: string, dto: CreateProductDto) {
+  async create(tenantId: string, dto: CreateProductDto, idempotencyKey?: string) {
+    const creationKey = idempotencyKey?.trim() || null;
+    if (creationKey && creationKey.length > 128) {
+      throw new BadRequestException('Idempotency-Key must be 128 characters or fewer');
+    }
+
+    if (creationKey) {
+      const existing = await this.prisma.product.findFirst({
+        where: { tenantId, creationKey },
+      });
+      if (existing) {
+        this.assertMatchingCreationRequest(existing, dto);
+        return existing;
+      }
+    }
+
     const slug = await this.generateUniqueSlug(tenantId, dto.name);
 
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       // 1. Create product
       const product = await tx.product.create({
         data: {
           tenantId,
+          creationKey,
           name: dto.name,
           slug,
           description: dto.description,
@@ -102,8 +187,20 @@ export class ProductService {
         }
       }
 
-      return product;
-    });
+        return product;
+      });
+    } catch (error) {
+      if (creationKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const existing = await this.prisma.product.findFirst({
+          where: { tenantId, creationKey },
+        });
+        if (existing) {
+          this.assertMatchingCreationRequest(existing, dto);
+          return existing;
+        }
+      }
+      throw error;
+    }
   }
 
   // =========================================================================
@@ -387,7 +484,7 @@ export class ProductService {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit),
+        totalPages: Math.max(1, Math.ceil(total / limit)),
       },
     };
   }
@@ -675,7 +772,7 @@ export class ProductService {
   // READ — OWNER
   // =========================================================================
 
-  async listOwner(tenantId: string, query: ProductQueryDto) {
+  async listOwner(tenantId: string, query: OwnerProductQueryDto) {
     const page = query.page || 1;
     const limit = Math.min(query.limit || 20, 100);
     const skip = (page - 1) * limit;
@@ -684,15 +781,45 @@ export class ProductService {
       tenantId,
       deletedAt: query.status === 'trash' ? { not: null } : null,
     };
+    const andFilters: Prisma.ProductWhereInput[] = [];
 
     if (query.status && query.status !== 'trash') {
-      where.status = query.status as any /* eslint-disable-line @typescript-eslint/no-explicit-any */;
+      where.status = query.status;
     }
-    if (query.category) {
-      where.category = { slug: query.category };
+    if (query.categoryId) {
+      where.categoryId = query.categoryId;
+    }
+    if (query.productTypeId) {
+      where.productTypeId = query.productTypeId;
+    }
+    if (query.trackingMode) {
+      where.variants = {
+        some: { sizes: { some: { trackingMode: query.trackingMode } } },
+      };
     }
     if (query.search) {
-      where.name = { contains: query.search, mode: 'insensitive' };
+      where.OR = [
+        { name: { contains: query.search.trim(), mode: 'insensitive' } },
+        { slug: { contains: query.search.trim(), mode: 'insensitive' } },
+      ];
+    }
+
+    const readyWhere = this.ownerReadyWhere();
+    if (query.readiness === 'ready') {
+      andFilters.push(readyWhere);
+    } else if (query.readiness === 'needs_attention') {
+      andFilters.push({ NOT: readyWhere });
+    }
+
+    const hasStockWhere = this.ownerHasStockWhere();
+    if (query.stockState === 'in_stock') {
+      andFilters.push(hasStockWhere);
+    } else if (query.stockState === 'no_stock') {
+      andFilters.push({ NOT: hasStockWhere });
+    }
+
+    if (andFilters.length > 0) {
+      where.AND = andFilters;
     }
 
     const [products, total] = await Promise.all([
@@ -700,58 +827,15 @@ export class ProductService {
         where,
         skip,
         take: limit,
-        orderBy: query.status === 'trash' ? { deletedAt: 'desc' } : { createdAt: 'desc' },
-        include: {
-          category: { select: { id: true, name: true, slug: true } },
-          pricingProfile: {
-            include: {
-              policyVersions: {
-                where: { status: 'ACTIVE' },
-                take: 1,
-                include: { ratePlans: { orderBy: { priority: 'desc' }, take: 1 } },
-              },
-            },
-          },
-          variants: {
-            orderBy: { sequence: 'asc' },
-            take: 1,
-            include: {
-              mainColor: { select: { name: true, hexCode: true } },
-              images: {
-                where: { isFeatured: true },
-                take: 1,
-                select: { id: true, url: true, thumbnailUrl: true, isFeatured: true },
-              },
-            },
-          },
-          // Include who deleted the product (for trash view)
-          deletedBy: { select: { id: true, fullName: true } },
-          _count: { select: { variants: true, bookingItems: true } },
-        },
+        orderBy: this.ownerOrderBy(query),
+        select: ownerProductListSelect(),
       }),
       this.prisma.product.count({ where }),
     ]);
 
     return {
-      data: products.map((product) => {
-        const headline = this.computeHeadlinePrice(product);
-        return {
-          ...product,
-          rentalPrice: headline?.price ?? 0,
-          pricingMode: headline?.mode ?? null,
-          variants: product.variants.map((variant) => ({
-            id: variant.id,
-            colorName: variant.mainColor.name,
-            colorHex: variant.mainColor.hexCode,
-            images: variant.images.map((image) => ({
-              id: image.id,
-              url: image.thumbnailUrl || image.url,
-              isFeatured: image.isFeatured,
-            })),
-          })),
-        };
-      }),
-      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+      data: products.map((product) => this.mapOwnerProductListItem(product)),
+      meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
     };
   }
 
@@ -762,12 +846,28 @@ export class ProductService {
     });
 
     if (!product) throw new NotFoundException('Product not found');
-    return product;
+    return this.mapOwnerProductDetail(product);
   }
 
   // =========================================================================
   // PRIVATE HELPERS
   // =========================================================================
+
+  private assertMatchingCreationRequest(
+    product: { name: string; categoryId: string; productTypeId: string | null },
+    dto: CreateProductDto,
+  ): void {
+    const matches =
+      product.name === dto.name &&
+      product.categoryId === dto.categoryId &&
+      product.productTypeId === (dto.productTypeId || null);
+    if (!matches) {
+      throw new ConflictException({
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: 'This product creation key is already associated with another draft.',
+      });
+    }
+  }
 
   private async findProductOrFail(tenantId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
@@ -804,6 +904,144 @@ export class ProductService {
     }
 
     return slug;
+  }
+
+  private ownerReadyWhere(): Prisma.ProductWhereInput {
+    return {
+      productTypeId: { not: null },
+      AND: [
+        { variants: { some: { sizes: { some: {} } } } },
+        { variants: { some: { images: { some: { isFeatured: true } } } } },
+        {
+          pricingProfile: {
+            policyVersions: {
+              some: { status: 'ACTIVE', ratePlans: { some: {} } },
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  private ownerHasStockWhere(): Prisma.ProductWhereInput {
+    return {
+      variants: {
+        some: {
+          sizes: {
+            some: {
+              OR: [
+                { inventoryPools: { some: { onHandQuantity: { gt: 0 } } } },
+                {
+                  stockUnits: {
+                    some: { disposition: 'ACTIVE', deletedAt: null },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    };
+  }
+
+  private ownerOrderBy(
+    query: OwnerProductQueryDto,
+  ): Prisma.ProductOrderByWithRelationInput[] {
+    if (query.status === 'trash' && !query.sort) {
+      return [{ deletedAt: 'desc' }, { id: 'asc' }];
+    }
+
+    const sort = query.sort ?? 'updatedAt';
+    const direction = query.order ?? (sort === 'name' ? 'asc' : 'desc');
+    return [
+      { [sort]: direction } as Prisma.ProductOrderByWithRelationInput,
+      { id: 'asc' },
+    ];
+  }
+
+  private mapOwnerProductListItem(product: OwnerProductListRecord) {
+    let pooledOnHand = 0;
+    let serializedUnits = 0;
+    let skuCount = 0;
+    let thumbnailUrl: string | null = null;
+    const trackingModes = new Set<InventoryTrackingMode>();
+
+    for (const variant of product.variants) {
+      thumbnailUrl ??= variant.images[0]?.thumbnailUrl || variant.images[0]?.url || null;
+      for (const size of variant.sizes) {
+        skuCount += 1;
+        trackingModes.add(size.trackingMode);
+        if (size.trackingMode === InventoryTrackingMode.POOLED) {
+          for (const pool of size.inventoryPools) {
+            pooledOnHand += pool.onHandQuantity;
+          }
+        } else {
+          serializedUnits += size._count.stockUnits;
+        }
+      }
+    }
+
+    const activeRatePlan = product.pricingProfile?.policyVersions[0]?.ratePlans[0] ?? null;
+    const readiness = this.productReadiness({
+      hasProductType: Boolean(product.productType),
+      hasVariant: product.variants.length > 0,
+      hasSku: skuCount > 0,
+      hasFeaturedImage: Boolean(thumbnailUrl),
+      hasActivePricing: Boolean(activeRatePlan),
+    });
+    const trackingMode =
+      trackingModes.size === 0
+        ? 'NONE'
+        : trackingModes.size > 1
+          ? 'MIXED'
+          : (trackingModes.values().next().value ?? 'NONE');
+    const onHand = pooledOnHand + serializedUnits;
+
+    return {
+      id: product.id,
+      name: product.name,
+      slug: product.slug,
+      status: product.status,
+      targetRentals: product.targetRentals,
+      totalBookings: product.totalBookings,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+      deletedAt: product.deletedAt,
+      deletedBy: product.deletedBy,
+      category: product.category,
+      productType: product.productType,
+      rentalPrice: product.pricingProfile?.headlinePriceMinor ?? 0,
+      headlineLabel: product.pricingProfile?.headlineLabel ?? null,
+      pricingMode: activeRatePlan?.type ?? null,
+      thumbnailUrl,
+      variantCount: product.variants.length,
+      skuCount,
+      trackingMode,
+      inventory: {
+        onHand,
+        pooledOnHand,
+        serializedUnits,
+        hasStock: onHand > 0,
+      },
+      readiness,
+      _count: product._count,
+    };
+  }
+
+  private productReadiness(input: {
+    hasProductType: boolean;
+    hasVariant: boolean;
+    hasSku: boolean;
+    hasFeaturedImage: boolean;
+    hasActivePricing: boolean;
+  }): { ready: boolean; missing: string[] } {
+    const missing: string[] = [];
+    if (!input.hasProductType) missing.push('PRODUCT_TYPE');
+    if (!input.hasVariant) missing.push('VARIANT');
+    if (!input.hasSku) missing.push('RENTABLE_SKU');
+    if (!input.hasFeaturedImage) missing.push('FEATURED_IMAGE');
+    if (!input.hasActivePricing) missing.push('ACTIVE_PRICING');
+    return { ready: missing.length === 0, missing };
   }
 
   private buildGuestWhere(tenantId: string, query: ProductQueryDto): Prisma.ProductWhereInput {
@@ -1100,6 +1338,27 @@ export class ProductService {
     };
   }
 
+  private mapOwnerProductDetail(product: any) {
+    const activeSchema = product.sizeSchemaOverride ?? product.productType?.defaultSizeSchema ?? null;
+    return {
+      ...product,
+      pricing: this.mapActivePricing(product.pricingProfile),
+      sizing: activeSchema
+        ? {
+            schema: {
+              id: activeSchema.id,
+              code: activeSchema.code,
+              name: activeSchema.name,
+              schemaType: activeSchema.schemaType,
+              definition: activeSchema.definition,
+            },
+            instances: activeSchema.instances || [],
+            sizeCharts: activeSchema.sizeCharts || [],
+          }
+        : null,
+    };
+  }
+
   private mapActivePricing(profile: any) {
     const version = profile?.policyVersions?.[0];
     const ratePlan = version?.ratePlans?.[0];
@@ -1125,6 +1384,7 @@ export class ProductService {
       where: { id: productId, tenantId, deletedAt: null },
       select: {
         categoryId: true,
+        productTypeId: true,
         pricingProfile: {
           select: {
             policyVersions: {
@@ -1138,18 +1398,7 @@ export class ProductService {
           select: {
             images: { where: { isFeatured: true }, take: 1, select: { id: true } },
             sizes: {
-              select: {
-                trackingMode: true,
-                inventoryPools: {
-                  where: { location: { isActive: true } },
-                  select: { onHandQuantity: true },
-                },
-                _count: {
-                  select: {
-                    stockUnits: { where: { disposition: 'ACTIVE', deletedAt: null } },
-                  },
-                },
-              },
+              select: { id: true },
             },
           },
         },
@@ -1158,29 +1407,31 @@ export class ProductService {
     if (!product) throw new NotFoundException('Product not found');
 
     const hasFeaturedImage = product.variants.some((variant) => variant.images.length > 0);
-    const hasCapacity = product.variants.some((variant) =>
-      variant.sizes.some((size) =>
-        size.trackingMode === 'POOLED'
-          ? size.inventoryPools.some((pool) => pool.onHandQuantity > 0)
-          : size._count.stockUnits > 0,
-      ),
-    );
     const hasActivePricing = Boolean(
       product.pricingProfile?.policyVersions.some((version) => version.ratePlans.length > 0),
     );
 
-    const missing: string[] = [];
-    if (!product.categoryId) missing.push('category');
-    if (product.variants.length === 0) missing.push('variant');
-    if (!hasFeaturedImage) missing.push('featured image');
-    if (!hasCapacity) missing.push('rentable inventory');
-    if (!hasActivePricing) missing.push('active pricing');
+    const readiness = this.productReadiness({
+      hasProductType: Boolean(product.productTypeId),
+      hasVariant: product.variants.length > 0,
+      hasSku: product.variants.some((variant) => variant.sizes.length > 0),
+      hasFeaturedImage,
+      hasActivePricing,
+    });
 
-    if (missing.length > 0) {
+    if (!readiness.ready) {
+      const labels: Record<string, string> = {
+        PRODUCT_TYPE: 'product type',
+        VARIANT: 'variant',
+        RENTABLE_SKU: 'rentable SKU',
+        FEATURED_IMAGE: 'featured image',
+        ACTIVE_PRICING: 'active pricing',
+      };
+      const missingLabels = readiness.missing.map((code) => labels[code] ?? code);
       throw new UnprocessableEntityException({
         code: 'PRODUCT_NOT_READY_TO_PUBLISH',
-        message: `Product cannot be published until it has: ${missing.join(', ')}`,
-        missing,
+        message: `Product cannot be published until it has: ${missingLabels.join(', ')}`,
+        missing: readiness.missing,
       });
     }
   }

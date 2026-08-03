@@ -104,7 +104,7 @@ export interface GuestPaginatedProducts {
     page: number;
     limit: number;
     total: number;
-    pages: number;
+    totalPages: number;
   };
 }
 

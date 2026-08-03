@@ -122,12 +122,24 @@ describe('rental inventory database concurrency', () => {
     const product = await prisma.product.create({
       data: {
         tenantId: tenant.id,
+        creationKey: `product-create-${suffix}`,
         categoryId: category.id,
         name: 'Serialized Integration Dress',
         slug: `serialized-dress-${suffix}`,
         status: 'published',
       },
     });
+    await expect(
+      prisma.product.create({
+        data: {
+          tenantId: tenant.id,
+          creationKey: `product-create-${suffix}`,
+          categoryId: category.id,
+          name: 'Duplicate Product Creation Request',
+          slug: `duplicate-product-${suffix}`,
+        },
+      }),
+    ).rejects.toBeDefined();
     const variant = await prisma.productVariant.create({
       data: {
         tenantId: tenant.id,

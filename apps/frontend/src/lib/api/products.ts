@@ -54,23 +54,41 @@ export interface ProductListItem {
   id: string;
   name: string;
   slug: string;
-  status: string;
+  status: 'draft' | 'published' | 'archived';
   rentalPrice: number;
-  pricingMode: string;
-  targetRentals: number;
+  headlineLabel: string | null;
+  pricingMode: string | null;
+  targetRentals: number | null;
   totalBookings: number;
   createdAt: string;
-  category?: { id: string; name: string };
-  variants: Array<{
-    id: string;
-    colorName: string;
-    colorHex: string | null;
-    images: Array<{ id: string; url: string; isFeatured: boolean }>;
-  }>;
-  _count?: { bookingItems: number };
-  updatedAt?: string;
+  updatedAt: string;
+  category: { id: string; name: string; slug: string };
+  productType: { id: string; name: string; slug: string } | null;
+  thumbnailUrl: string | null;
+  variantCount: number;
+  skuCount: number;
+  trackingMode: 'NONE' | 'POOLED' | 'SERIALIZED' | 'MIXED';
+  inventory: {
+    onHand: number;
+    pooledOnHand: number;
+    serializedUnits: number;
+    hasStock: boolean;
+  };
+  readiness: {
+    ready: boolean;
+    missing: ProductReadinessCode[];
+  };
+  deletedBy: { id: string; fullName: string } | null;
+  _count: { bookingItems: number };
   deletedAt?: string | null;
 }
+
+export type ProductReadinessCode =
+  | 'PRODUCT_TYPE'
+  | 'VARIANT'
+  | 'RENTABLE_SKU'
+  | 'FEATURED_IMAGE'
+  | 'ACTIVE_PRICING';
 
 export interface PricingProfileData {
   profileId: string;
@@ -106,7 +124,7 @@ export interface SizeSchemaData {
   name: string;
   description?: string | null;
   schemaType: string;
-  status: string;
+  status: 'draft' | 'active' | 'deprecated';
   definition: SizeSchemaDefinition | Record<string, unknown>;
   instances?: SizeInstanceData[];
   sizeCharts?: SizeChartData[];
@@ -131,6 +149,19 @@ export interface SizeChartData {
     measurements: Record<string, unknown>;
     sortOrder: number;
   }>;
+}
+
+export interface CreateSizeInstanceInput {
+  normalizedKey: string;
+  displayLabel: string;
+  payload?: Record<string, unknown>;
+  sortOrder?: number;
+}
+
+export interface CreateSizeChartRowInput {
+  sizeLabel: string;
+  measurements: Record<string, unknown>;
+  sortOrder?: number;
 }
 
 export interface SizingPayload {
@@ -196,7 +227,7 @@ export interface ProductDetail {
   description: string | null;
   categoryId: string;
   subcategoryId: string | null;
-  status: string;
+  status: 'draft' | 'published' | 'archived';
   isAvailable: boolean;
   storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION';
   availableFrom: string | null;
@@ -219,6 +250,8 @@ export interface ProductDetail {
   events: Array<{ event: { id: string; name: string; slug: string } }>;
   pricing: PricingProfileData | null;
   productType: ProductTypeData | null;
+  productTypeId: string | null;
+  sizeSchemaOverrideId: string | null;
   sizeSchemaOverride: SizeSchemaData | null;
   sizing: SizingPayload | null;
   variants: ProductVariantData[];
@@ -229,10 +262,14 @@ export interface ProductDetail {
 export interface ProductListQuery {
   page?: number;
   limit?: number;
-  status?: string;
+  status?: 'draft' | 'published' | 'archived';
   search?: string;
   categoryId?: string;
-  sort?: string;
+  productTypeId?: string;
+  trackingMode?: InventoryTrackingMode;
+  readiness?: 'ready' | 'needs_attention';
+  stockState?: 'in_stock' | 'no_stock';
+  sort?: 'name' | 'status' | 'createdAt' | 'updatedAt';
   order?: 'asc' | 'desc';
 }
 
@@ -320,8 +357,15 @@ export const productApi = {
     return data.data;
   },
 
-  createProduct: async (payload: Record<string, unknown>): Promise<{ id: string }> => {
-    const { data } = await apiClient.post<ApiResponse<{ id: string }>>('/owner/products', payload);
+  createProduct: async (
+    payload: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<{ id: string }> => {
+    const { data } = await apiClient.post<ApiResponse<{ id: string }>>(
+      '/owner/products',
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
     return data.data;
   },
 
@@ -330,7 +374,7 @@ export const productApi = {
     return data.data;
   },
 
-  uploadImage: async (variantId: string, file: File, isFeatured: boolean = false): Promise<Record<string, unknown>> => {
+  uploadImage: async (variantId: string, file: File, isFeatured: boolean = false): Promise<UploadedProductImage> => {
     const formData = new FormData();
     formData.append('variantId', variantId);
     formData.append('file', file);
@@ -338,7 +382,7 @@ export const productApi = {
       formData.append('isFeatured', 'true');
     }
 
-    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>('/owner/upload/product-image', formData, {
+    const { data } = await apiClient.post<ApiResponse<UploadedProductImage>>('/owner/upload/product-image', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -511,6 +555,13 @@ export const productApi = {
 
 export type InventoryTrackingMode = 'POOLED' | 'SERIALIZED';
 
+export interface UploadedProductImage {
+  id: string;
+  url: string;
+  thumbnailUrl?: string;
+  isFeatured: boolean;
+}
+
 export interface VariantSizeInventoryInput {
   sizeInstanceId: string;
   trackingMode: InventoryTrackingMode;
@@ -646,12 +697,24 @@ export const sizingApi = {
     return data.data;
   },
 
-  createSchema: async (payload: { code: string; name: string; description?: string; schemaType?: string; definition: any; instances?: any[] }): Promise<SizeSchemaData> => {
+  createSchema: async (payload: {
+    code: string;
+    name: string;
+    description?: string;
+    schemaType?: string;
+    definition: SizeSchemaDefinition | Record<string, unknown>;
+    instances?: CreateSizeInstanceInput[];
+  }): Promise<SizeSchemaData> => {
     const { data } = await apiClient.post<ApiResponse<SizeSchemaData>>('/owner/size-schemas', payload);
     return data.data;
   },
 
-  updateSchema: async (id: string, payload: { name?: string; description?: string; status?: string; definition?: any }): Promise<SizeSchemaData> => {
+  updateSchema: async (id: string, payload: {
+    name?: string;
+    description?: string;
+    status?: string;
+    definition?: SizeSchemaDefinition | Record<string, unknown>;
+  }): Promise<SizeSchemaData> => {
     const { data } = await apiClient.patch<ApiResponse<SizeSchemaData>>(`/owner/size-schemas/${id}`, payload);
     return data.data;
   },
@@ -678,7 +741,12 @@ export const sizingApi = {
     return data.data;
   },
 
-  createSizeChart: async (payload: { sizeSchemaId: string; productId?: string; title?: string; rows?: any[] }): Promise<SizeChartData> => {
+  createSizeChart: async (payload: {
+    sizeSchemaId: string;
+    productId?: string;
+    title?: string;
+    rows?: CreateSizeChartRowInput[];
+  }): Promise<SizeChartData> => {
     const { data } = await apiClient.post<ApiResponse<SizeChartData>>('/owner/size-schemas/charts', payload);
     return data.data;
   },

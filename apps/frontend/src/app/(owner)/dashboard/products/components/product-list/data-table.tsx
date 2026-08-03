@@ -1,37 +1,29 @@
 'use client';
 
-import * as React from 'react';
+import { useState } from 'react';
+import Link from 'next/link';
 import {
-  ColumnDef,
-  ColumnFiltersState,
-  SortingState,
-  VisibilityState,
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from '@tanstack/react-table';
-import { ArrowUpDown, MoreHorizontal, Settings, Image as ImageIcon, Loader2, Trash2 } from 'lucide-react';
-
+  Boxes,
+  AlertCircle,
+  Eye,
+  Image as ImageIcon,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Send,
+  Trash2,
+  Undo2,
+} from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
@@ -43,94 +35,138 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
-import Link from 'next/link';
-import { ProductStatus } from '@closetrent/types';
-import { useSoftDeleteProduct } from '../../hooks/use-product-apis';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { OwnerListPagination } from '@/components/owner/workspace';
+import type { PaginationMeta, ProductStatus } from '@closetrent/types';
+import type { ProductListItem, ProductReadinessCode } from '@/lib/api/products';
+import {
+  useSoftDeleteProduct,
+  useUpdateProductStatus,
+} from '../../hooks/use-product-apis';
 
-export type ProductRow = {
-  id: string;
-  name: string;
-  categoryId: string;
-  status: ProductStatus;
-  price: number;
-  targetRentals?: number;
-  totalOrders: number;
-  thumbnailUrl?: string;
+const moneyFormatter = new Intl.NumberFormat('en-BD', {
+  style: 'currency',
+  currency: 'BDT',
+  maximumFractionDigits: 0,
+});
+
+const readinessLabels: Record<ProductReadinessCode, string> = {
+  PRODUCT_TYPE: 'Product type',
+  VARIANT: 'Variant',
+  RENTABLE_SKU: 'Rentable SKU',
+  FEATURED_IMAGE: 'Featured image',
+  ACTIVE_PRICING: 'Active pricing',
 };
 
-// ─── Actions Cell ─────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: ProductStatus }) {
+  if (status === 'published') return <Badge>Published</Badge>;
+  if (status === 'draft') return <Badge variant="secondary">Draft</Badge>;
+  return <Badge variant="outline">Archived</Badge>;
+}
 
-function ProductActions({ product }: { product: ProductRow }) {
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const softDelete = useSoftDeleteProduct();
-
-  const handleMoveToTrash = () => {
-    softDelete.mutate(product.id, {
-      onSettled: () => setConfirmOpen(false),
-    });
+function TrackingBadge({ mode }: { mode: ProductListItem['trackingMode'] }) {
+  const labels: Record<ProductListItem['trackingMode'], string> = {
+    NONE: 'Not configured',
+    POOLED: 'Pooled',
+    SERIALIZED: 'Physical items',
+    MIXED: 'Mixed',
   };
+  return <Badge variant="outline">{labels[mode]}</Badge>;
+}
+
+function Readiness({ product }: { product: ProductListItem }) {
+  if (product.readiness.ready) {
+    return <Badge variant="secondary">Ready</Badge>;
+  }
+  const missing = product.readiness.missing.map((code) => readinessLabels[code]).join(', ');
+  return (
+    <div className="flex max-w-48 flex-col items-start gap-1">
+      <Badge variant="outline"><AlertCircle data-icon="inline-start" />Needs attention</Badge>
+      <span className="text-xs text-muted-foreground">Missing: {missing}</span>
+    </div>
+  );
+}
+
+function ProductActions({ product }: { product: ProductListItem }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const softDelete = useSoftDeleteProduct();
+  const updateStatus = useUpdateProductStatus();
+  const isPublished = product.status === 'published';
+  const statusMutationPending = updateStatus.isPending && updateStatus.variables?.id === product.id;
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="h-8 w-8 p-0">
-            <span className="sr-only">Open menu</span>
-            <MoreHorizontal className="h-4 w-4" />
+          <Button variant="ghost" size="icon" aria-label={`Actions for ${product.name}`}>
+            <MoreHorizontal />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-          <DropdownMenuItem asChild>
-            <Link href={`/dashboard/products/${product.id}`}>View Details</Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href={`/dashboard/products/${product.id}/edit`}>Edit Product</Link>
-          </DropdownMenuItem>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel>{product.name}</DropdownMenuLabel>
+          <DropdownMenuGroup>
+            <DropdownMenuItem asChild>
+              <Link href={`/dashboard/products/${product.id}`}><Eye data-icon="inline-start" />View product</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/dashboard/products/${product.id}/edit`}><Pencil data-icon="inline-start" />Edit catalog</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/dashboard/products/${product.id}/inventory`}><Boxes data-icon="inline-start" />Manage inventory</Link>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive focus:bg-destructive/10"
-            onClick={() => setConfirmOpen(true)}
-            disabled={softDelete.isPending}
-          >
-            {softDelete.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4 mr-2" />
-            )}
-            Move to Trash
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              disabled={statusMutationPending || (!isPublished && !product.readiness.ready)}
+              onClick={() => updateStatus.mutate({
+                id: product.id,
+                status: isPublished ? 'draft' : 'published',
+              })}
+            >
+              {statusMutationPending ? <Loader2 className="animate-spin" /> : isPublished ? <Undo2 /> : <Send />}
+              {isPublished ? 'Unpublish to draft' : product.readiness.ready ? 'Publish product' : 'Complete setup to publish'}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={softDelete.isPending}
+              onSelect={() => setConfirmOpen(true)}
+            >
+              <Trash2 />Move to trash
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Confirmation dialog */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Move to Trash?</AlertDialogTitle>
+            <AlertDialogTitle>Move “{product.name}” to trash?</AlertDialogTitle>
             <AlertDialogDescription>
-              <strong>&ldquo;{product.name}&rdquo;</strong> will be archived and removed from your
-              catalog. You can restore it anytime from the{' '}
-              <span className="font-medium text-foreground">Trash</span> page.
-              <br /><br />
-              <span className="text-amber-600 dark:text-amber-400 font-medium">
-                ⚠ This will fail if the product has active or upcoming bookings.
-              </span>
+              The product will leave the active catalog and can be restored later. Products with
+              active or upcoming bookings cannot be moved to trash.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={softDelete.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleMoveToTrash}
               disabled={softDelete.isPending}
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              onClick={() => softDelete.mutate(product.id, {
+                onSettled: () => setConfirmOpen(false),
+              })}
             >
-              {softDelete.isPending ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Moving…</>
-              ) : (
-                <><Trash2 className="h-4 w-4 mr-2" />Move to Trash</>
-              )}
+              {softDelete.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              Move to trash
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -139,220 +175,109 @@ function ProductActions({ product }: { product: ProductRow }) {
   );
 }
 
-// ─── Columns ──────────────────────────────────────────────────────────────────
-
-export const columns: ColumnDef<ProductRow>[] = [
-  {
-    accessorKey: 'thumbnailUrl',
-    header: '',
-    cell: ({ row }) => {
-      const url = row.getValue('thumbnailUrl') as string | undefined;
-      return (
-        <div className="h-10 w-10 flex items-center justify-center rounded-md bg-muted border overflow-hidden shrink-0">
-          {url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt={row.getValue('name')} className="object-cover w-full h-full" />
-          ) : (
-            <ImageIcon className="h-4 w-4 text-muted-foreground" />
-          )}
-        </div>
-      );
-    },
-  },
-  {
-    accessorKey: 'name',
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-        className="-ml-4 font-semibold"
-      >
-        Product Name
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-    cell: ({ row }) => (
-      <div className="font-medium">
-        <Link href={`/dashboard/products/${row.original.id}`} className="hover:underline">
-          {row.getValue('name')}
-        </Link>
-      </div>
-    ),
-  },
-  {
-    accessorKey: 'categoryId',
-    header: 'Category',
-    cell: ({ row }) => (
-      <div className="text-muted-foreground">
-        {row.getValue('categoryId') || 'Uncategorized'}
-      </div>
-    ),
-  },
-  {
-    accessorKey: 'status',
-    header: 'Status',
-    cell: ({ row }) => {
-      const status = row.getValue('status') as ProductStatus;
-      const map: Record<ProductStatus, React.ReactElement> = {
-        draft: <Badge variant="secondary">Draft</Badge>,
-        published: <Badge variant="default" className="bg-green-600 hover:bg-green-700">Published</Badge>,
-        archived: <Badge variant="destructive">Archived</Badge>,
-      };
-      return map[status] || <Badge variant="outline">{status}</Badge>;
-    },
-  },
-  {
-    accessorKey: 'price',
-    header: () => <div className="text-right">Price (৳)</div>,
-    cell: ({ row }) => {
-      const amount = parseFloat(row.getValue('price'));
-      return <div className="text-right font-medium">{amount}</div>;
-    },
-  },
-  {
-    accessorKey: 'targetRentals',
-    header: () => <div className="text-right">Target</div>,
-    cell: ({ row }) => {
-      const amount = row.getValue('targetRentals') as number | undefined;
-      return <div className="text-right">{amount || '-'}</div>;
-    },
-  },
-  {
-    accessorKey: 'totalOrders',
-    header: () => <div className="text-right">Orders</div>,
-    cell: ({ row }) => {
-      const amount = parseInt(row.getValue('totalOrders'));
-      return <div className="text-right">{amount}</div>;
-    },
-  },
-  {
-    id: 'actions',
-    enableHiding: false,
-    cell: ({ row }) => <ProductActions product={row.original} />,
-  },
-];
-
-// ─── DataTable Component ──────────────────────────────────────────────────────
-
-export function ProductsDataTable({ data }: { data: ProductRow[] }) {
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
-  const [rowSelection, setRowSelection] = React.useState({});
-
-  const table = useReactTable({
-    data,
-    columns,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: setRowSelection,
-    state: { sorting, columnFilters, columnVisibility, rowSelection },
-  });
-
+function ProductIdentity({ product }: { product: ProductListItem }) {
   return (
-    <div className="w-full">
-      <div className="flex items-center py-4 gap-2">
-        <Input
-          placeholder="Filter products by name..."
-          value={(table.getColumn('name')?.getFilterValue() as string) ?? ''}
-          onChange={(event) => table.getColumn('name')?.setFilterValue(event.target.value)}
-          className="max-w-sm"
-        />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="ml-auto">
-              <Settings className="mr-2 h-4 w-4" />
-              View
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {table
-              .getAllColumns()
-              .filter((column) => column.getCanHide())
-              .map((column) => (
-                <DropdownMenuItem
-                  key={column.id}
-                  className="capitalize"
-                  onClick={() => column.toggleVisibility(!column.getIsVisible())}
-                >
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={column.getIsVisible()}
-                      className="mr-2"
-                      readOnly
-                    />
-                    {column.id.replace(/([A-Z])/g, ' $1').trim()}
-                  </div>
-                </DropdownMenuItem>
-              ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+        {product.thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={product.thumbnailUrl} alt="" className="size-full object-cover" />
+        ) : (
+          <ImageIcon className="text-muted-foreground" />
+        )}
       </div>
-      <div className="rounded-md border bg-card">
+      <div className="min-w-0">
+        <Link href={`/dashboard/products/${product.id}`} className="block truncate font-medium hover:underline">
+          {product.name}
+        </Link>
+        <p className="truncate text-xs text-muted-foreground">
+          {product.category.name} · {product.productType?.name ?? 'No product type'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function ProductsDataTable({
+  data,
+  meta,
+  isPending,
+  onPageChange,
+}: {
+  data: ProductListItem[];
+  meta: PaginationMeta;
+  isPending: boolean;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border bg-card">
+      <div className="flex flex-col divide-y md:hidden">
+        {data.map((product) => (
+          <article key={product.id} className="flex flex-col gap-3 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <ProductIdentity product={product} />
+              <ProductActions product={product} />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={product.status as ProductStatus} />
+              <TrackingBadge mode={product.trackingMode} />
+              <Readiness product={product} />
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div><p className="text-muted-foreground">SKUs</p><p className="font-medium">{product.skuCount}</p></div>
+              <div><p className="text-muted-foreground">On hand</p><p className="font-medium">{product.inventory.onHand}</p></div>
+              <div><p className="text-muted-foreground">Price</p><p className="font-medium">{moneyFormatter.format(product.rentalPrice / 100)}</p></div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <Table>
           <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className="first:pl-4">
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
+            <TableRow>
+              <TableHead className="min-w-64">Product</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Readiness</TableHead>
+              <TableHead>Inventory</TableHead>
+              <TableHead>Catalog</TableHead>
+              <TableHead className="text-right">Price</TableHead>
+              <TableHead><span className="sr-only">Actions</span></TableHead>
+            </TableRow>
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="first:pl-4 py-3">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
-                  No products found.
+            {data.map((product) => (
+              <TableRow key={product.id}>
+                <TableCell><ProductIdentity product={product} /></TableCell>
+                <TableCell><StatusBadge status={product.status as ProductStatus} /></TableCell>
+                <TableCell><Readiness product={product} /></TableCell>
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <span className="font-medium">{product.inventory.onHand} on hand</span>
+                    <TrackingBadge mode={product.trackingMode} />
+                  </div>
                 </TableCell>
+                <TableCell>
+                  <span className="text-sm">{product.variantCount} variants · {product.skuCount} SKUs</span>
+                </TableCell>
+                <TableCell className="text-right font-medium">
+                  {moneyFormatter.format(product.rentalPrice / 100)}
+                </TableCell>
+                <TableCell className="w-12"><ProductActions product={product} /></TableCell>
               </TableRow>
-            )}
+            ))}
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-end space-x-2 py-4">
-        <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} total products.
-        </div>
-        <div className="space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+
+      <OwnerListPagination
+        page={meta.page}
+        totalPages={meta.totalPages}
+        total={meta.total}
+        pageSize={meta.limit}
+        isPending={isPending}
+        onPageChange={onPageChange}
+      />
     </div>
   );
 }

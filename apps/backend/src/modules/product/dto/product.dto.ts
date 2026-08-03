@@ -10,6 +10,8 @@ import {
   MinLength,
   MaxLength,
   Min,
+  Max,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { InventoryTrackingMode, StorefrontItemVisibilityMode } from '@prisma/client';
@@ -112,7 +114,7 @@ export class UpdateProductStatusDto {
 // --- Product Query DTO ---
 export class ProductQueryDto {
   @IsOptional() @IsInt() @Min(1) @Type(() => Number) page?: number;
-  @IsOptional() @IsInt() @Min(1) @Type(() => Number) limit?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(100) @Type(() => Number) limit?: number;
   @IsOptional() @IsString() sort?: string;
   @IsOptional() @IsString() order?: string;
   @IsOptional() @IsString() search?: string;
@@ -126,6 +128,40 @@ export class ProductQueryDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() availableFrom?: string;
   @IsOptional() @IsString() availableTo?: string;
+}
+
+export class OwnerProductQueryDto extends ProductQueryDto {
+  @IsOptional()
+  @IsIn(['draft', 'published', 'archived', 'trash'])
+  status?: 'draft' | 'published' | 'archived' | 'trash';
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  productTypeId?: string;
+
+  @IsOptional()
+  @IsEnum(InventoryTrackingMode)
+  trackingMode?: InventoryTrackingMode;
+
+  @IsOptional()
+  @IsIn(['ready', 'needs_attention'])
+  readiness?: 'ready' | 'needs_attention';
+
+  @IsOptional()
+  @IsIn(['in_stock', 'no_stock'])
+  stockState?: 'in_stock' | 'no_stock';
+
+  @IsOptional()
+  @IsIn(['name', 'status', 'createdAt', 'updatedAt'])
+  sort?: 'name' | 'status' | 'createdAt' | 'updatedAt';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  order?: 'asc' | 'desc';
 }
 
 // --- Create Product DTO (full nested) ---
