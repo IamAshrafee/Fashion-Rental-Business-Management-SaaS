@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -15,11 +16,52 @@ import {
 } from 'class-validator';
 import {
   AvailabilityPolicyScope,
+  InventoryTrackingMode,
   InventoryLocationType,
   StockConditionGrade,
   StockUnitDisposition,
   StockUnitOperationalState,
 } from '@prisma/client';
+
+export class InventorySkusQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 25;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @IsOptional()
+  @IsEnum(InventoryTrackingMode)
+  trackingMode?: InventoryTrackingMode;
+
+  @IsOptional()
+  @IsUUID()
+  locationId?: string;
+
+  @IsOptional()
+  @IsIn(['AVAILABLE', 'LOW_STOCK', 'UNAVAILABLE', 'UNCONFIGURED'])
+  stockState?: 'AVAILABLE' | 'LOW_STOCK' | 'UNAVAILABLE' | 'UNCONFIGURED';
+
+  @IsOptional()
+  @IsIn(['PRODUCT', 'ON_HAND', 'AVAILABLE', 'RESERVED'])
+  sort?: 'PRODUCT' | 'ON_HAND' | 'AVAILABLE' | 'RESERVED' = 'PRODUCT';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  order?: 'asc' | 'desc' = 'asc';
+}
 
 export class InventoryItemsQueryDto {
   @IsOptional()

@@ -23,6 +23,12 @@ const humanize = (value: string) =>
     .toLowerCase()
     .replace(/^./, (letter) => letter.toUpperCase());
 
+const formatMoney = (minorUnits: number) => new Intl.NumberFormat('en-BD', {
+  style: 'currency',
+  currency: 'BDT',
+  maximumFractionDigits: 2,
+}).format(minorUnits / 100);
+
 export default function InventoryOverviewPage() {
   const query = useQuery({ queryKey: ['inventory-overview'], queryFn: inventoryApi.overview });
   if (query.isLoading) {
@@ -62,6 +68,12 @@ export default function InventoryOverviewPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild>
+            <Link href="/dashboard/inventory/stock">
+              <Boxes className="mr-2 h-4 w-4" />
+              Stock by SKU
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/dashboard/inventory/items">
               <Boxes className="mr-2 h-4 w-4" />
               Physical items
@@ -119,19 +131,19 @@ export default function InventoryOverviewPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Acquisition cost</CardDescription>
-            <CardTitle>৳{data.economics.acquisitionCost.toLocaleString()}</CardTitle>
+            <CardTitle>{formatMoney(data.economics.acquisitionCost)}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Estimated current value</CardDescription>
-            <CardTitle>৳{data.economics.estimatedCurrentValue.toLocaleString()}</CardTitle>
+            <CardTitle>{formatMoney(data.economics.estimatedCurrentValue)}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Completed service cost</CardDescription>
-            <CardTitle>৳{data.economics.completedServiceCost.toLocaleString()}</CardTitle>
+            <CardTitle>{formatMoney(data.economics.completedServiceCost)}</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
             {data.economics.completedServiceOrders} completed service orders
@@ -244,9 +256,12 @@ export default function InventoryOverviewPage() {
                     {pool.variantSize.sizeInstance.displayLabel} · {pool.location.name}
                   </p>
                 </div>
-                <Badge variant="outline">
-                  {pool.onHandQuantity} / {pool.reorderThreshold}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{pool.onHandQuantity} / {pool.reorderThreshold}</Badge>
+                  <Button size="sm" variant="ghost" asChild>
+                    <Link href={`/dashboard/products/${pool.variantSize.variant.product.id}/inventory`}>Restock</Link>
+                  </Button>
+                </div>
               </div>
             ))}
           </CardContent>

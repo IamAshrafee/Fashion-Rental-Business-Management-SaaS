@@ -131,6 +131,67 @@ export interface InventoryItem {
   rentalMetrics: { completedRentals: number; totalRentalDays: number };
 }
 
+export interface InventoryItemsQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  locationId?: string;
+  disposition?: StockUnitDisposition;
+  operationalState?: StockUnitOperationalState;
+  condition?: StockConditionGrade;
+}
+
+export type InventoryStockState =
+  | 'AVAILABLE'
+  | 'LOW_STOCK'
+  | 'UNAVAILABLE'
+  | 'UNCONFIGURED';
+
+export interface InventorySku {
+  id: string;
+  trackingMode: 'POOLED' | 'SERIALIZED';
+  productId: string;
+  productName: string;
+  productStatus: string;
+  variantId: string;
+  variantName: string | null;
+  sizeLabel: string;
+  poolCount: number;
+  serializedCount: number;
+  activeUnitCount: number;
+  availableUnitCount: number;
+  onHandQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  inventoryState: InventoryStockState;
+}
+
+export interface InventorySkuQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  trackingMode?: 'POOLED' | 'SERIALIZED';
+  locationId?: string;
+  stockState?: InventoryStockState;
+  sort?: 'PRODUCT' | 'ON_HAND' | 'AVAILABLE' | 'RESERVED';
+  order?: 'asc' | 'desc';
+}
+
+export interface CreateInventoryItemInput {
+  locationId: string;
+  assetCode: string;
+  barcode?: string;
+  condition?: StockConditionGrade;
+  purchaseDate?: string;
+  purchasePrice?: number;
+  notes?: string;
+}
+
+export interface PaginatedInventory<T> {
+  data: T[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
 export type AvailabilityPolicyScope = 'TENANT' | 'LOCATION' | 'PRODUCT' | 'SKU';
 export interface AvailabilityPolicy {
   id: string;
@@ -237,8 +298,14 @@ export const inventoryApi = {
   overview: async (): Promise<InventoryOverview> =>
     unwrap(await apiClient.get<ApiResponse<InventoryOverview>>('/owner/inventory/overview')),
 
-  listItems: async (params?: Record<string, string | number | undefined>) =>
-    unwrap(await apiClient.get<ApiResponse<{ data: InventoryItem[]; meta: { page: number; limit: number; total: number; totalPages: number } }>>('/owner/inventory/items', { params })),
+  listItems: async (params?: InventoryItemsQuery) =>
+    unwrap(await apiClient.get<ApiResponse<PaginatedInventory<InventoryItem>>>('/owner/inventory/items', { params })),
+
+  listSkus: async (params?: InventorySkuQuery): Promise<PaginatedInventory<InventorySku>> =>
+    unwrap(await apiClient.get<ApiResponse<PaginatedInventory<InventorySku>>>('/owner/inventory/skus', { params })),
+
+  createItem: async (variantSizeId: string, payload: CreateInventoryItemInput): Promise<{ id: string; assetCode: string }> =>
+    unwrap(await apiClient.post<ApiResponse<{ id: string; assetCode: string }>>(`/owner/variant-sizes/${variantSizeId}/stock-units`, payload)),
 
   operations: async (): Promise<InventoryOperationsQueue> =>
     unwrap(await apiClient.get<ApiResponse<InventoryOperationsQueue>>('/owner/inventory/operations')),

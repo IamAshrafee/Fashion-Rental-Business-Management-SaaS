@@ -23,6 +23,7 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
   CreateInventoryLocationDto,
   InventoryItemsQueryDto,
+  InventorySkusQueryDto,
   SetInventoryPoolQuantityDto,
   UpdateInventoryLocationDto,
   UpsertAvailabilityPolicyDto,
@@ -59,6 +60,15 @@ export class InventoryFoundationController {
     @Query() query: InventoryItemsQueryDto,
   ) {
     return this.dashboard.listItems(tenant.id, query);
+  }
+
+  @Get('skus')
+  @Roles('owner', 'manager', 'staff')
+  listSkus(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: InventorySkusQueryDto,
+  ) {
+    return this.dashboard.listSkus(tenant.id, query);
   }
 
   @Get('operations')

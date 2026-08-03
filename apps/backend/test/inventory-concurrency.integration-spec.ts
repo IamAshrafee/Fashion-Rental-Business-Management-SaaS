@@ -10,10 +10,12 @@ import {
 } from '@prisma/client';
 import { AuthService } from '../src/modules/auth/auth.service';
 import { InventoryAssignmentService } from '../src/modules/inventory/inventory-assignment.service';
+import { InventoryDashboardService } from '../src/modules/inventory/inventory-dashboard.service';
 
 describe('rental inventory database concurrency', () => {
   const prisma = new PrismaClient();
   const assignmentService = new InventoryAssignmentService(prisma as never);
+  const dashboardService = new InventoryDashboardService(prisma as never);
 
   afterAll(async () => {
     await prisma.$disconnect();
@@ -196,6 +198,29 @@ describe('rental inventory database concurrency', () => {
         assetCode: `DRESS-${suffix}`,
       },
     });
+    const skuWorkspace = await dashboardService.listSkus(tenant.id, {
+      page: 1,
+      limit: 25,
+      sort: 'PRODUCT',
+      order: 'asc',
+    });
+    expect(skuWorkspace.meta.total).toBe(2);
+    expect(skuWorkspace.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: sku.id,
+        trackingMode: 'SERIALIZED',
+        onHandQuantity: 1,
+        availableQuantity: 1,
+        inventoryState: 'AVAILABLE',
+      }),
+      expect.objectContaining({
+        id: pooledSku.id,
+        trackingMode: 'POOLED',
+        onHandQuantity: 1,
+        availableQuantity: 1,
+        inventoryState: 'AVAILABLE',
+      }),
+    ]));
     const customer = await prisma.customer.create({
       data: {
         tenantId: tenant.id,
