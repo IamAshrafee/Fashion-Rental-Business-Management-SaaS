@@ -165,7 +165,10 @@ export class AuthService {
         },
       });
 
-      // 6. Create Subscription
+      // 6. Create the tenant's authoritative rental-inventory foundation.
+      await this.seedRentalFoundation(tx, tenant.id, user.id);
+
+      // 7. Create Subscription
       if (targetPlan) {
         const now = new Date();
         const isFree = targetPlan.slug === 'free';
@@ -195,7 +198,7 @@ export class AuthService {
         });
       }
 
-      // 7. Seed starter template (categories, events)
+      // 8. Seed starter template (categories, events)
       await this.seedStarterData(tx, tenant.id);
 
       return { user, tenant };
@@ -818,5 +821,127 @@ export class AuthService {
         data: { ...event, tenantId },
       });
     }
+  }
+
+  private async seedRentalFoundation(
+    tx: Parameters<Parameters<typeof this.prisma.$transaction>[0]>[0],
+    tenantId: string,
+    ownerUserId: string,
+  ): Promise<void> {
+    await tx.inventoryLocation.create({
+      data: {
+        tenantId,
+        code: 'MAIN',
+        name: 'Main location',
+        locationType: 'WAREHOUSE',
+        timezone: 'Asia/Dhaka',
+        country: 'BD',
+        canStoreInventory: true,
+        canFulfillRentals: true,
+        canCustomerPickup: true,
+        canAcceptReturns: true,
+        canClean: true,
+        canRepair: false,
+        canTransfer: true,
+        isDefault: true,
+        createdByUserId: ownerUserId,
+      },
+    });
+
+    await tx.availabilityPolicy.create({
+      data: {
+        tenantId,
+        scope: 'TENANT',
+        scopeKey: 'TENANT',
+        preparationBufferMinutes: 1_440,
+        deliveryBufferMinutes: 0,
+        returnBufferMinutes: 0,
+        inspectionBufferMinutes: 0,
+        cleaningBufferMinutes: 1_440,
+        minimumNoticeMinutes: 0,
+        maximumAdvanceDays: 365,
+        pendingHoldMinutes: 30,
+        allowShortage: false,
+        shortageLimit: 0,
+        requireSingleLocationForBundle: true,
+        allowCrossLocationTransfers: false,
+        transferLeadTimeMinutes: 0,
+        eligibleConditionGrades: ['NEW', 'EXCELLENT', 'GOOD', 'FAIR'],
+        eligibleOperationalStates: ['AVAILABLE'],
+      },
+    });
+
+    const apparelSchema = await tx.sizeSchema.create({
+      data: {
+        tenantId,
+        code: 'APPAREL_ALPHA',
+        name: 'Standard apparel',
+        description: 'Common letter sizes for dresses, gowns, sherwani, suits, and apparel.',
+        schemaType: 'STANDARD',
+        status: 'active',
+        instances: {
+          create: ['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((size, index) => ({
+            normalizedKey: size,
+            displayLabel: size,
+            sortOrder: index,
+          })),
+        },
+      },
+    });
+    const freeSizeSchema = await tx.sizeSchema.create({
+      data: {
+        tenantId,
+        code: 'FREE_SIZE',
+        name: 'Free size',
+        description: 'Single-size fashion, sarees, jewellery, bags, and accessories.',
+        schemaType: 'FREE_SIZE',
+        status: 'active',
+        instances: {
+          create: [{ normalizedKey: 'FREE', displayLabel: 'Free size', sortOrder: 0 }],
+        },
+      },
+    });
+    const footwearSchema = await tx.sizeSchema.create({
+      data: {
+        tenantId,
+        code: 'FOOTWEAR_EU',
+        name: 'Footwear (EU)',
+        description: 'European shoe sizes for heels, shoes, sandals, and footwear.',
+        schemaType: 'STANDARD',
+        status: 'active',
+        instances: {
+          create: Array.from({ length: 12 }, (_, index) => {
+            const size = String(35 + index);
+            return { normalizedKey: `EU-${size}`, displayLabel: `EU ${size}`, sortOrder: index };
+          }),
+        },
+      },
+    });
+
+    await tx.productType.createMany({
+      data: [
+        {
+          tenantId,
+          name: 'Apparel',
+          slug: 'apparel',
+          description: 'Dresses, gowns, suits, sherwani, and sized clothing.',
+          defaultSizeSchemaId: apparelSchema.id,
+        },
+        {
+          tenantId,
+          name: 'Free-size fashion & accessories',
+          slug: 'free-size-fashion-accessories',
+          description: 'Sarees, jewellery, bags, hair accessories, and single-size pieces.',
+          defaultSizeSchemaId: freeSizeSchema.id,
+        },
+        {
+          tenantId,
+          name: 'Footwear',
+          slug: 'footwear',
+          description: 'Shoes, heels, sandals, and other sized footwear.',
+          defaultSizeSchemaId: footwearSchema.id,
+        },
+      ],
+    });
   }
 }

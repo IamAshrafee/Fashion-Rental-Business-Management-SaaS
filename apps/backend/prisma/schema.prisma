@@ -344,7 +344,6 @@ enum FulfillmentSelectionSource {
   PARENT_DERIVED
   STAFF
   SUBSTITUTION
-  LEGACY_BACKFILL
 }
 
 enum FulfillmentRequirementStatus {

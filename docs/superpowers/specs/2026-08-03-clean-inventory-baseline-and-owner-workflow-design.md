@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03
 
-**Status:** Implemented architecture baseline
+**Status:** Implemented and verified architecture baseline
 
 **Scope:** Replace transitional inventory compatibility with one authoritative rental domain and reorganize the owner dashboard around real operational workflows.
 
@@ -382,3 +382,16 @@ The clean architecture is delivered in deployable internal checkpoints, but the 
 - Every backend capability has a typed, discoverable frontend workflow.
 - Concurrency tests prove that inventory cannot be over-reserved or double-assigned.
 - The repository builds and tests from a fresh database using the single clean baseline migration and deterministic seed.
+
+## 14. Verification record
+
+The clean-cutover acceptance gates were completed on 2026-08-03:
+
+- Prisma client generation and schema validation pass against the authoritative schema.
+- A temporary empty PostgreSQL database accepts the single baseline migration and deterministic seed; a second seed run is idempotent.
+- New-tenant registration creates the default inventory location, availability policy, starter size systems, and starter product types.
+- PostgreSQL integration tests prove competing serialized assignments cannot double-assign one physical item and pool constraints reject negative on-hand stock.
+- All backend unit suites pass and the backend production build succeeds.
+- The frontend production build succeeds for all owner and storefront routes. Existing repository lint warnings remain non-blocking and are tracked separately from the inventory cutover.
+- The local `closetrent_dev` database was reset to `20260803200000_complete_saas_baseline`, seeded, and checked for required reference data.
+- A pre-reset development backup was preserved at `/private/tmp/closetrent_dev_pre_clean_baseline.dump` for recovery if needed.

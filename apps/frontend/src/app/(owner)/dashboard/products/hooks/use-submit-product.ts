@@ -27,7 +27,6 @@ export function useSubmitProduct(clearDraft: () => void) {
         productTypeId: data.productTypeId,
         sizeSchemaOverrideId: data.sizeSchemaOverrideId,
 
-        // Legacy shipping (still on product, not on pricing engine)
         faqs: data.faqs?.map(faq => ({
           question: faq.question,
           answer: faq.answer,
