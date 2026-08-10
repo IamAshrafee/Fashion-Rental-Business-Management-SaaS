@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -36,11 +36,24 @@ import {
 } from 'lucide-react';
 import { customerApi } from '@/lib/api/customers';
 import { productApi, type PricingProfileData } from '@/lib/api/products';
-import { bookingApi, type ValidateCartResponse } from '@/lib/api/bookings';
+import {
+  bookingApi,
+  type CreateManualBookingPayload,
+  type ManualBookingQuoteResponse,
+  type ManualRentalPlan,
+  type ValidateCartResponse,
+} from '@/lib/api/bookings';
+import { inventoryApi } from '@/lib/api/inventory';
 import { fulfillmentApi } from '@/lib/api/fulfillment';
 import { BundleConfigurator, type BundleSelection } from '@/app/(guest)/products/[slug]/bundle-configurator';
 import type { Customer } from '@closetrent/types';
 import { useAuth } from '@/hooks/use-auth';
+import { formatMinorMoney } from '@/lib/money';
+import {
+  manualBookingDraftStorageKey,
+  useManualBookingDraft,
+} from '../hooks/use-manual-booking-draft';
+import { RentalPlanStep } from './rental-plan-step';
 
 // ─── Extended customer type (the list endpoint returns full model) ──────────
 /** The backend customer list returns all Prisma columns, but the shared
@@ -120,6 +133,7 @@ interface BookingItemLine {
   backupSize?: string;
   tryOn?: boolean;
   priceOverride?: number;
+  priceOverrideReason?: string;
   minInternalPrice: number;
   // Set after validation
   price: number;
@@ -161,11 +175,7 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () =
 }
 
 function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-BD', {
-    style: 'currency',
-    currency: 'BDT',
-    maximumFractionDigits: 2,
-  }).format(amount / 100);
+  return formatMinorMoney(amount);
 }
 
 // ─── Zod Schema ────────────────────────────────────────────────────────────────
@@ -205,19 +215,12 @@ const schema = z.object({
   // Initial payment
   initialPaymentEnabled: z.boolean().optional(),
   initialPaymentAmount: z.number().min(0).optional(),
+  initialPaymentDepositAmount: z.number().min(0).optional(),
   initialPaymentMethod: z.enum(['cod', 'bkash', 'nagad', 'sslcommerz']).optional(),
   initialPaymentTxId: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
-
-interface ManualBookingDraft {
-  version: 1;
-  creationKey: string;
-  step: number;
-  form: FormValues;
-  cartItems: BookingItemLine[];
-}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -240,8 +243,14 @@ export function ManualBookingForm() {
   const [backupSize, setBackupSize] = useState('');
   const [tryOn, setTryOn] = useState(false);
   const [itemPriceOverride, setItemPriceOverride] = useState('');
+  const [itemPriceOverrideReason, setItemPriceOverrideReason] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [sourceLocationId, setSourceLocationId] = useState('');
+  const [handoverMethod, setHandoverMethod] = useState<ManualRentalPlan['handoverMethod']>('DELIVERY');
+  const [returnMethod, setReturnMethod] = useState<ManualRentalPlan['returnMethod']>('BUSINESS_PICKUP');
+  const [handoverNotes, setHandoverNotes] = useState('');
+  const [allowTransferPlan, setAllowTransferPlan] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -272,7 +281,19 @@ export function ManualBookingForm() {
 
   // Validated cart state (from backend /bookings/validate)
   const [validatedCart, setValidatedCart] = useState<ValidateCartResponse | null>(null);
+  const [acceptedQuote, setAcceptedQuote] = useState<ManualBookingQuoteResponse | null>(null);
+  const [creationConflict, setCreationConflict] = useState<{
+    code: string;
+    message: string;
+    affectedLines?: Array<{ lineId: string; currentTotal?: number; previousTotal?: number | null }>;
+  } | null>(null);
   const [isValidating, setIsValidating] = useState(false);
+
+  const locationsQuery = useQuery({
+    queryKey: ['inventory-locations', 'manual-booking'],
+    queryFn: () => inventoryApi.listLocations(false),
+    staleTime: 60_000,
+  });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -297,6 +318,7 @@ export function ManualBookingForm() {
       discountReason: '',
       initialPaymentEnabled: false,
       initialPaymentAmount: 0,
+      initialPaymentDepositAmount: 0,
       initialPaymentMethod: 'bkash',
       initialPaymentTxId: '',
       internalNotes: '',
@@ -310,60 +332,60 @@ export function ManualBookingForm() {
   const watchDiscountEnabled = form.watch('discountEnabled');
   const watchDiscountType = form.watch('discountType');
   const watchDiscountValue = form.watch('discountValue') || 0;
+  const watchDiscountReason = form.watch('discountReason') || '';
   const watchInitialPaymentEnabled = form.watch('initialPaymentEnabled');
   const watchInitialPaymentAmount = form.watch('initialPaymentAmount') || 0;
+  const watchInitialPaymentDepositAmount = form.watch('initialPaymentDepositAmount') || 0;
 
   useEffect(() => {
-    if (!tenantId) return;
-    const storageKey = `closetrent:manual-booking:${tenantId}:v1`;
-    if (loadedDraftKey.current === storageKey) return;
-    loadedDraftKey.current = storageKey;
-    creationKey.current = crypto.randomUUID();
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const draft = JSON.parse(stored) as ManualBookingDraft;
-        if (draft.version === 1 && draft.creationKey) {
-          form.reset(draft.form);
-          setCartItems(Array.isArray(draft.cartItems) ? draft.cartItems : []);
-          setStep(draft.step > 1 && draft.cartItems?.length ? 2 : 1);
-          creationKey.current = draft.creationKey;
-          toast.info('Your unfinished booking draft was restored');
-        }
-      }
-    } catch {
-      localStorage.removeItem(storageKey);
-    } finally {
-      setDraftReady(true);
-    }
-  }, [form, tenantId]);
+    setAcceptedQuote(null);
+  }, [watchDiscountEnabled, watchDiscountReason, watchDiscountType, watchDiscountValue]);
+
+  const rentalPlan = useMemo<ManualRentalPlan>(() => ({
+    startDate,
+    endDate,
+    sourceLocationId,
+    handoverMethod,
+    returnMethod,
+    handoverNotes: handoverNotes || undefined,
+    allowTransferPlan,
+  }), [allowTransferPlan, endDate, handoverMethod, handoverNotes, returnMethod, sourceLocationId, startDate]);
+  const applyRentalPlan = useCallback((plan: ManualRentalPlan) => {
+    setStartDate(plan.startDate);
+    setEndDate(plan.endDate);
+    setSourceLocationId(plan.sourceLocationId);
+    setHandoverMethod(plan.handoverMethod);
+    setReturnMethod(plan.returnMethod);
+    setHandoverNotes(plan.handoverNotes ?? '');
+    setAllowTransferPlan(Boolean(plan.allowTransferPlan));
+    setAcceptedQuote(null);
+  }, []);
+  const notifyDraftRestored = useCallback(() => {
+    toast.info('Draft restored. Pricing and availability must be refreshed.');
+  }, []);
+  useManualBookingDraft({
+    tenantId,
+    ready: draftReady,
+    setReady: setDraftReady,
+    form,
+    step,
+    setStep,
+    cartItems,
+    setCartItems,
+    plan: rentalPlan,
+    applyPlan: applyRentalPlan,
+    creationKey,
+    loadedDraftKey,
+    bookingCreated,
+    onRestored: notifyDraftRestored,
+  });
 
   useEffect(() => {
-    if (!tenantId || !draftReady) return;
-    const storageKey = `closetrent:manual-booking:${tenantId}:v1`;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const save = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (bookingCreated.current) return;
-        const draft: ManualBookingDraft = {
-          version: 1,
-          creationKey: creationKey.current || crypto.randomUUID(),
-          step,
-          form: form.getValues(),
-          cartItems,
-        };
-        creationKey.current = draft.creationKey;
-        localStorage.setItem(storageKey, JSON.stringify(draft));
-      }, 250);
-    };
-    save();
-    const subscription = form.watch(save);
-    return () => {
-      if (timer) clearTimeout(timer);
-      subscription.unsubscribe();
-    };
-  }, [cartItems, draftReady, form, step, tenantId]);
+    if (sourceLocationId || !locationsQuery.data?.length) return;
+    const preferred = locationsQuery.data.find((location) => location.isDefault)
+      ?? locationsQuery.data[0];
+    setSourceLocationId(preferred.id);
+  }, [locationsQuery.data, sourceLocationId]);
 
   // ── Customer search ──────────────────────────────────────────────────────
 
@@ -435,6 +457,7 @@ export function ManualBookingForm() {
     setBackupSize('');
     setTryOn(false);
     setItemPriceOverride('');
+    setItemPriceOverrideReason('');
     setCompositionSelections([]);
 
     // Fetch full product detail for size config + services
@@ -474,8 +497,8 @@ export function ManualBookingForm() {
       setAvailabilityResult(null);
       return;
     }
-    if (new Date(start) >= new Date(end)) {
-      setAvailabilityResult({ available: false, message: 'End date must be after start date' });
+    if (new Date(start) > new Date(end)) {
+      setAvailabilityResult({ available: false, message: 'End date must be on or after start date' });
       return;
     }
 
@@ -509,7 +532,10 @@ export function ManualBookingForm() {
 
   const handleStartDateChange = (val: string) => {
     setStartDate(val);
+    setCartItems((items) => items.map((item) => ({ ...item, startDate: val })));
     setAvailabilityResult(null);
+    setValidatedCart(null);
+    setAcceptedQuote(null);
     if (selectedProduct && selectedVariantSizeId && val && endDate) {
       checkAvailability(selectedProduct.id, selectedVariantSizeId, val, endDate);
     }
@@ -517,10 +543,42 @@ export function ManualBookingForm() {
 
   const handleEndDateChange = (val: string) => {
     setEndDate(val);
+    setCartItems((items) => items.map((item) => ({ ...item, endDate: val })));
     setAvailabilityResult(null);
+    setValidatedCart(null);
+    setAcceptedQuote(null);
     if (selectedProduct && selectedVariantSizeId && startDate && val) {
       checkAvailability(selectedProduct.id, selectedVariantSizeId, startDate, val);
     }
+  };
+
+  const handleRentalPlanChange = (patch: Partial<ManualRentalPlan>) => {
+    if (patch.startDate !== undefined) handleStartDateChange(patch.startDate);
+    if (patch.endDate !== undefined) handleEndDateChange(patch.endDate);
+    if (patch.sourceLocationId !== undefined) setSourceLocationId(patch.sourceLocationId);
+    if (patch.handoverMethod !== undefined) setHandoverMethod(patch.handoverMethod);
+    if (patch.returnMethod !== undefined) setReturnMethod(patch.returnMethod);
+    if (patch.handoverNotes !== undefined) setHandoverNotes(patch.handoverNotes);
+    if (patch.allowTransferPlan !== undefined) setAllowTransferPlan(patch.allowTransferPlan);
+    setValidatedCart(null);
+    setAcceptedQuote(null);
+  };
+
+  const handleContinueRentalPlan = () => {
+    if (!startDate || !endDate || !sourceLocationId) {
+      toast.error('Choose rental dates and a fulfillment location.');
+      return;
+    }
+    if (new Date(startDate) > new Date(endDate)) {
+      toast.error('Rental end must be on or after rental start.');
+      return;
+    }
+    const selectedLocation = locationsQuery.data?.find((location) => location.id === sourceLocationId);
+    if (handoverMethod === 'CUSTOMER_PICKUP' && !selectedLocation?.canCustomerPickup) {
+      toast.error('The selected location does not support customer pickup.');
+      return;
+    }
+    setStep(3);
   };
 
   // ── Add item to cart ──────────────────────────────────────────────────
@@ -530,8 +588,8 @@ export function ManualBookingForm() {
       toast.error('Please select a product, variant, size, and rental dates.');
       return;
     }
-    if (new Date(startDate) >= new Date(endDate)) {
-      toast.error('End date must be after start date.');
+    if (new Date(startDate) > new Date(endDate)) {
+      toast.error('End date must be on or after start date.');
       return;
     }
     if (availabilityResult && !availabilityResult.available) {
@@ -570,6 +628,10 @@ export function ManualBookingForm() {
       toast.error('Invalid price override value.');
       return;
     }
+    if (parsedOverride !== undefined && !itemPriceOverrideReason.trim()) {
+      toast.error('Add a reason for the price override.');
+      return;
+    }
 
     const variant = selectedProduct.variants.find(v => v.id === selectedVariantId);
     const selectedSku = variant?.sizes.find(size => size.variantSizeId === selectedVariantSizeId);
@@ -591,6 +653,7 @@ export function ManualBookingForm() {
       backupSize: backupSize || undefined,
       tryOn: tryOn || undefined,
       priceOverride: parsedOverride,
+      priceOverrideReason: parsedOverride !== undefined ? itemPriceOverrideReason.trim() : undefined,
       minInternalPrice: selectedProduct.minInternalPrice,
       price: parsedOverride ?? availabilityResult?.pricing?.baseRental ?? selectedProduct.rentalPrice,
       deposit: availabilityResult?.pricing?.deposit ?? 0,
@@ -607,18 +670,19 @@ export function ManualBookingForm() {
     setBackupSize('');
     setTryOn(false);
     setItemPriceOverride('');
-    setStartDate('');
-    setEndDate('');
+    setItemPriceOverrideReason('');
     setProductSearch('');
     setSearchResults([]);
     setAvailabilityResult(null);
     setCompositionSelections([]);
     setValidatedCart(null);
+    setAcceptedQuote(null);
   };
 
   const removeItem = (idx: number) => {
     setCartItems(prev => prev.filter((_, i) => i !== idx));
     setValidatedCart(null);
+    setAcceptedQuote(null);
   };
 
   // ── Validate cart (Step 2 → Step 3) ────────────────────────────────────
@@ -667,7 +731,7 @@ export function ManualBookingForm() {
       }));
 
       setValidatedCart(result);
-      setStep(3);
+      setStep(4);
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? 'Failed to validate cart';
       toast.error(msg);
@@ -678,49 +742,134 @@ export function ManualBookingForm() {
 
   // ── Discount calculation ──────────────────────────────────────────────
 
-  const rawSubtotal = validatedCart?.summary?.subtotal
+  const rawSubtotal = acceptedQuote?.valid ? acceptedQuote.totals.subtotal : validatedCart?.summary?.subtotal
     ?? cartItems.reduce((sum, i) => sum + i.price, 0);
-  const rawTotalFees = validatedCart?.summary?.totalFees ?? 0;
-  const rawTotalDeposit = validatedCart?.summary?.totalDeposit
+  const rawTotalFees = acceptedQuote?.valid ? acceptedQuote.totals.totalFees : validatedCart?.summary?.totalFees ?? 0;
+  const rawTotalDeposit = acceptedQuote?.valid ? acceptedQuote.totals.totalDeposit : validatedCart?.summary?.totalDeposit
     ?? cartItems.reduce((sum, i) => sum + i.deposit, 0);
-  const rawShippingFee = validatedCart?.summary?.shippingFee ?? 0;
+  const rawShippingFee = acceptedQuote?.valid ? acceptedQuote.totals.shippingFee : validatedCart?.summary?.shippingFee ?? 0;
   const rawGrandTotal = rawSubtotal + rawTotalFees + rawShippingFee + rawTotalDeposit;
 
-  let discountAmount = 0;
-  if (watchDiscountEnabled && watchDiscountValue > 0) {
+  let discountAmount = acceptedQuote?.valid ? acceptedQuote.totals.discountAmount : 0;
+  if (!acceptedQuote?.valid && watchDiscountEnabled && watchDiscountValue > 0) {
     if (watchDiscountType === 'flat') {
-      discountAmount = Math.min(Math.round(watchDiscountValue * 100), rawGrandTotal);
+      discountAmount = Math.min(Math.round(watchDiscountValue * 100), rawSubtotal + rawTotalFees + rawShippingFee);
     } else {
       const pct = Math.min(watchDiscountValue, 100);
-      discountAmount = Math.ceil((rawSubtotal + rawTotalFees) * (pct / 100));
-      discountAmount = Math.min(discountAmount, rawGrandTotal);
+      discountAmount = Math.ceil((rawSubtotal + rawTotalFees + rawShippingFee) * (pct / 100));
+      discountAmount = Math.min(discountAmount, rawSubtotal + rawTotalFees + rawShippingFee);
     }
   }
 
-  const grandTotal = rawGrandTotal - discountAmount;
+  const grandTotal = acceptedQuote?.valid ? acceptedQuote.totals.grandTotal : rawGrandTotal - discountAmount;
   const initialPaymentMinor = Math.round(watchInitialPaymentAmount * 100);
-  const balanceDue = grandTotal - (watchInitialPaymentEnabled ? Math.min(initialPaymentMinor, grandTotal) : 0);
+  const initialPaymentDepositMinor = Math.round(watchInitialPaymentDepositAmount * 100);
+  const balanceDue = grandTotal - (watchInitialPaymentEnabled ? initialPaymentMinor : 0);
 
   // ── Submit ──────────────────────────────────────────────────────────────
 
+  const currentPlan = (): ManualRentalPlan => ({
+    startDate,
+    endDate,
+    sourceLocationId,
+    handoverMethod,
+    returnMethod,
+    handoverNotes: handoverNotes.trim() || undefined,
+    allowTransferPlan,
+  });
+
+  const manualItems = () => cartItems.map((item) => ({
+    productId: item.productId,
+    variantId: item.variantId,
+    variantSizeId: item.variantSizeId,
+    quantity: item.quantity,
+    startDate,
+    endDate,
+    selectedSize: item.selectedSize,
+    backupSize: item.backupSize,
+    tryOn: item.tryOn,
+    priceOverride: item.priceOverride,
+    priceOverrideReason: item.priceOverrideReason,
+    compositionSelections: item.compositionSelections?.map(({ label: _label, ...selection }) => selection),
+  }));
+
+  const currentDiscount = () => watchDiscountEnabled && watchDiscountValue > 0
+    ? {
+        type: watchDiscountType ?? 'flat',
+        value: watchDiscountType === 'percentage'
+          ? watchDiscountValue
+          : Math.round(watchDiscountValue * 100),
+        reason: form.getValues('discountReason')?.trim() ?? '',
+      }
+    : undefined;
+
+  const quoteMutation = useMutation({
+    mutationFn: () => bookingApi.quoteManual({
+      plan: currentPlan(),
+      items: manualItems(),
+      discount: currentDiscount(),
+    }),
+    onSuccess: (quote) => {
+      setCreationConflict(null);
+      setAcceptedQuote(quote);
+      if (!quote.valid) {
+        toast.error(quote.conflicts[0]?.message ?? 'The rental plan has an availability conflict');
+        return;
+      }
+      setCartItems((items) => items.map((item, index) => ({
+        ...item,
+        price: quote.lines[index]?.finalItemTotal ?? item.price,
+        deposit: quote.lines[index]?.depositAmount ?? item.deposit,
+      })));
+      toast.success('Pricing and availability are locked for 10 minutes');
+    },
+    onError: (err: unknown) => {
+      setAcceptedQuote(null);
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? 'Could not create an authoritative quote';
+      toast.error(message);
+    },
+  });
+
   const mutation = useMutation({
-    mutationFn: (payload: Parameters<typeof bookingApi.create>[0]) =>
-      bookingApi.create(payload, creationKey.current || (creationKey.current = crypto.randomUUID())),
+    mutationFn: (payload: CreateManualBookingPayload) =>
+      bookingApi.createManual(payload, creationKey.current || (creationKey.current = crypto.randomUUID())),
     onSuccess: (result) => {
+      setCreationConflict(null);
       bookingCreated.current = true;
-      if (tenantId) localStorage.removeItem(`closetrent:manual-booking:${tenantId}:v1`);
+      if (tenantId) localStorage.removeItem(manualBookingDraftStorageKey(tenantId));
       toast.success(`Booking ${result?.bookingNumber} created successfully!`);
       router.push(`/dashboard/bookings/${result?.bookingId}`);
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        ?? 'Failed to create booking. Please try again.';
+      const response = (err as { response?: { data?: { code?: string; message?: string | { message?: string }; affectedLines?: unknown[] } } })?.response?.data;
+      const code = response?.code;
+      if (code && ['QUOTE_EXPIRED', 'QUOTE_STALE', 'QUOTE_INPUTS_CHANGED', 'PRICING_CHANGED', 'QUOTE_TOTAL_CHANGED', 'AVAILABILITY_CHANGED', 'FULFILLMENT_LOCATION_CHANGED'].includes(code)) {
+        setAcceptedQuote(null);
+        setStep(4);
+      }
+      const msg = typeof response?.message === 'string'
+        ? response.message
+        : response?.message?.message ?? 'Failed to create booking. Your draft is preserved; refresh the quote and try again.';
+      if (code) {
+        setCreationConflict({
+          code,
+          message: msg,
+          affectedLines: response?.affectedLines as Array<{ lineId: string; currentTotal?: number; previousTotal?: number | null }> | undefined,
+        });
+      }
       toast.error(msg);
     },
   });
 
-  const buildPayload = (values: FormValues) => {
-    const payload: Parameters<typeof bookingApi.create>[0] = {
+  const buildPayload = (values: FormValues): CreateManualBookingPayload => {
+    if (!acceptedQuote?.valid || !acceptedQuote.quoteId || !acceptedQuote.quoteHash) {
+      throw new Error('Refresh and accept the authoritative quote before creating the booking');
+    }
+    const payload: CreateManualBookingPayload = {
+      quoteId: acceptedQuote.quoteId,
+      quoteHash: acceptedQuote.quoteHash,
+      plan: currentPlan(),
       customer: {
         fullName: values.fullName,
         phone: values.phone,
@@ -740,19 +889,7 @@ export function ManualBookingForm() {
           deliveryAltPhone: values.deliveryAltPhone || undefined,
         } : {}),
       },
-      items: cartItems.map(item => ({
-        productId: item.productId,
-        variantId: item.variantId,
-        variantSizeId: item.variantSizeId,
-        quantity: item.quantity,
-        startDate: item.startDate,
-        endDate: item.endDate,
-        selectedSize: item.selectedSize,
-        backupSize: item.backupSize,
-        tryOn: item.tryOn,
-        priceOverride: item.priceOverride,
-        compositionSelections: item.compositionSelections?.map(({ label: _label, ...selection }) => selection),
-      })),
+      items: manualItems(),
       paymentMethod: values.paymentMethod,
       customerNotes: values.customerNotes || undefined,
       internalNotes: values.internalNotes || undefined,
@@ -766,7 +903,7 @@ export function ManualBookingForm() {
         value: values.discountType === 'percentage'
           ? values.discountValue ?? 0
           : Math.round((values.discountValue ?? 0) * 100),
-        reason: values.discountReason || undefined,
+        reason: values.discountReason?.trim() || '',
       };
     }
 
@@ -774,6 +911,7 @@ export function ManualBookingForm() {
     if (values.initialPaymentEnabled && (values.initialPaymentAmount ?? 0) > 0) {
       payload.initialPayment = {
         amount: Math.round((values.initialPaymentAmount ?? 0) * 100),
+        depositAmount: Math.round((values.initialPaymentDepositAmount ?? 0) * 100),
         method: values.initialPaymentMethod || 'bkash',
         transactionId: values.initialPaymentTxId || undefined,
       };
@@ -785,7 +923,30 @@ export function ManualBookingForm() {
   const handleSubmitClick = form.handleSubmit(() => {
     if (cartItems.length === 0) {
       toast.error('Please add at least one product.');
-      setStep(2);
+      setStep(3);
+      return;
+    }
+    if (!acceptedQuote?.valid || !acceptedQuote.quoteId || !acceptedQuote.quoteHash) {
+      toast.error('Refresh pricing and availability before creating the booking.');
+      setStep(4);
+      return;
+    }
+    if (acceptedQuote.expiresAt && new Date(acceptedQuote.expiresAt) <= new Date()) {
+      setAcceptedQuote(null);
+      toast.error('The quote expired. Refresh it before creating the booking.');
+      setStep(4);
+      return;
+    }
+    if (watchInitialPaymentEnabled && initialPaymentMinor > grandTotal) {
+      toast.error('Upfront payment cannot exceed the final booking total.');
+      return;
+    }
+    if (watchInitialPaymentEnabled && (
+      initialPaymentDepositMinor > initialPaymentMinor
+      || initialPaymentDepositMinor > rawTotalDeposit
+      || initialPaymentMinor - initialPaymentDepositMinor > grandTotal - rawTotalDeposit
+    )) {
+      toast.error('Split the upfront payment correctly between rental charges and security deposits.');
       return;
     }
     setShowConfirmDialog(true);
@@ -1014,24 +1175,40 @@ export function ManualBookingForm() {
                       if (ok) setStep(2);
                     }}
                   >
-                    Continue to Items
+                    Continue to Rental Plan
                   </Button>
                 </div>
               </CardContent>
             )}
           </Card>
 
-          {/* ── Step 2: Items ── */}
+          {/* ── Step 2: Rental plan ── */}
           {step >= 2 && (
+            <RentalPlanStep
+              active={step === 2}
+              complete={step > 2}
+              today={today}
+              plan={rentalPlan}
+              locations={locationsQuery.data ?? []}
+              locationsLoading={locationsQuery.isLoading}
+              onEdit={() => goToStep(2)}
+              onBack={() => setStep(1)}
+              onContinue={handleContinueRentalPlan}
+              onPlanChange={handleRentalPlanChange}
+            />
+          )}
+
+          {/* ── Step 3: Items ── */}
+          {step >= 3 && (
             <Card className="shadow-none border">
               <CardHeader
                 className="pb-3 bg-muted/30 cursor-pointer"
-                onClick={() => step > 2 && goToStep(2)}
+                onClick={() => step > 3 && goToStep(3)}
               >
                 <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
                   <span className="flex items-center gap-2">
-                    <span className={`h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center ${step > 2 ? 'bg-green-600 text-white' : 'bg-primary text-primary-foreground'}`}>
-                      {step > 2 ? <CheckCircle className="h-3 w-3" /> : '2'}
+                    <span className={`h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center ${step > 3 ? 'bg-green-600 text-white' : 'bg-primary text-primary-foreground'}`}>
+                      {step > 3 ? <CheckCircle className="h-3 w-3" /> : '3'}
                     </span>
                     Rental Items
                   </span>
@@ -1039,8 +1216,8 @@ export function ManualBookingForm() {
                     {cartItems.length > 0 && (
                       <Badge variant="secondary">{cartItems.length} item{cartItems.length !== 1 ? 's' : ''}</Badge>
                     )}
-                    {step > 2 && (
-                      <Button type="button" variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); setStep(2); }}>
+                    {step > 3 && (
+                      <Button type="button" variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); setStep(3); }}>
                         <Pencil className="h-3 w-3 mr-1" /> Edit
                       </Button>
                     )}
@@ -1048,7 +1225,7 @@ export function ManualBookingForm() {
                 </CardTitle>
               </CardHeader>
 
-              {step === 2 && (
+              {step === 3 && (
                 <CardContent className="pt-4 space-y-4">
                   {/* Added items */}
                   {cartItems.length > 0 && (
@@ -1231,21 +1408,19 @@ export function ManualBookingForm() {
 
                           {/* Date pickers */}
                           <div className="space-y-1">
-                            <Label className="text-xs">From Date *</Label>
+                            <Label className="text-xs">Rental start</Label>
                             <Input
                               type="date"
                               value={startDate}
-                              min={today}
-                              onChange={e => handleStartDateChange(e.target.value)}
+                              disabled
                             />
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-xs">To Date *</Label>
+                            <Label className="text-xs">Rental end</Label>
                             <Input
                               type="date"
                               value={endDate}
-                              min={startDate || today}
-                              onChange={e => handleEndDateChange(e.target.value)}
+                              disabled
                             />
                           </div>
                         </div>
@@ -1306,6 +1481,14 @@ export function ManualBookingForm() {
                               <Badge variant="outline" className="text-[9px] border-yellow-500 text-yellow-600">Below min</Badge>
                             )}
                           </div>
+                          {itemPriceOverride && (
+                            <Input
+                              placeholder="Required reason for this override"
+                              value={itemPriceOverrideReason}
+                              onChange={(event) => setItemPriceOverrideReason(event.target.value)}
+                              maxLength={500}
+                            />
+                          )}
                         </div>
 
                         {/* Availability feedback */}
@@ -1363,7 +1546,7 @@ export function ManualBookingForm() {
 
                   {/* Navigation */}
                   <div className="flex justify-between pt-2">
-                    <Button type="button" variant="outline" onClick={() => setStep(1)}>
+                    <Button type="button" variant="outline" onClick={() => setStep(2)}>
                       Back
                     </Button>
                     <Button
@@ -1374,7 +1557,7 @@ export function ManualBookingForm() {
                       {isValidating ? (
                         <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Validating...</>
                       ) : (
-                        'Continue to Payment'
+                        'Continue to Quote & Payment'
                       )}
                     </Button>
                   </div>
@@ -1383,15 +1566,15 @@ export function ManualBookingForm() {
             </Card>
           )}
 
-          {/* ── Step 3: Payment, Notes, Discount ── */}
-          {step >= 3 && (
+          {/* ── Step 4: Authoritative quote, payment, and notes ── */}
+          {step >= 4 && (
             <Card className="shadow-none border">
               <CardHeader className="pb-3 bg-muted/30">
                 <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                   <span className="h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center bg-primary text-primary-foreground">
-                    3
+                    4
                   </span>
-                  Payment & Options
+                  Quote, Payment & Options
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-4 space-y-5">
@@ -1505,6 +1688,68 @@ export function ManualBookingForm() {
                   )}
                 </div>
 
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Authoritative quote</p>
+                      <p className="text-xs text-muted-foreground">Locks current policy versions and checks every component at {locationsQuery.data?.find((location) => location.id === sourceLocationId)?.name ?? 'the selected location'}.</p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        if (watchDiscountEnabled && watchDiscountValue > 0 && !watchDiscountReason.trim()) {
+                          toast.error('Add a discount reason before requesting the quote.');
+                          return;
+                        }
+                        quoteMutation.mutate();
+                      }}
+                      disabled={quoteMutation.isPending || !validatedCart}
+                    >
+                      {quoteMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                      {acceptedQuote?.valid ? 'Refresh quote' : 'Check & lock quote'}
+                    </Button>
+                  </div>
+                  {acceptedQuote?.valid && acceptedQuote.expiresAt && (
+                    <div className="rounded bg-green-50 p-2 text-xs text-green-800 dark:bg-green-950/30 dark:text-green-300">
+                      Quote accepted · expires {new Date(acceptedQuote.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {acceptedQuote.availabilityPlan.length} fulfillment requirement{acceptedQuote.availabilityPlan.length === 1 ? '' : 's'} checked
+                    </div>
+                  )}
+                  {creationConflict && (
+                    <div className="rounded border border-amber-400/50 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                      <p className="font-medium">{creationConflict.message}</p>
+                      {creationConflict.affectedLines?.map((line) => {
+                        const index = Number(line.lineId.split(':')[0]);
+                        return (
+                          <p key={line.lineId} className="mt-1">
+                            {cartItems[index]?.productName ?? 'Changed item'}
+                            {line.previousTotal != null && line.currentTotal != null
+                              ? `: ${formatCurrency(line.previousTotal)} → ${formatCurrency(line.currentTotal)}`
+                              : ''}
+                          </p>
+                        );
+                      })}
+                      <p className="mt-1">Your customer, plan, items, payment, and notes are preserved. Refresh the quote to continue.</p>
+                    </div>
+                  )}
+                  {acceptedQuote && !acceptedQuote.valid && (
+                    <div className="space-y-2">
+                      {acceptedQuote.conflicts.map((conflict, index) => (
+                        <div key={`${conflict.lineId}-${conflict.code}-${index}`} className="rounded border border-destructive/30 bg-destructive/5 p-2 text-xs">
+                          <p className="font-medium text-destructive">{conflict.message}</p>
+                          {conflict.transferRequired && (
+                            <p className="mt-1 text-muted-foreground">Inventory exists at another location. Arrange and complete a transfer, or change the fulfillment location before quoting again.</p>
+                          )}
+                        </div>
+                      ))}
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button type="button" size="sm" variant="outline" onClick={() => setStep(2)}>Change dates or location</Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setStep(3)}>Change items</Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => quoteMutation.mutate()} disabled={quoteMutation.isPending}>Recheck</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* ── Initial Payment Section ── */}
                 <div className="rounded-md border p-3 space-y-3">
                   <FormField control={form.control} name="initialPaymentEnabled" render={({ field }) => (
@@ -1523,7 +1768,7 @@ export function ManualBookingForm() {
                   )} />
 
                   {watchInitialPaymentEnabled && (
-                    <div className="grid grid-cols-3 gap-3 pt-1">
+                    <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2 lg:grid-cols-4">
                       <FormField control={form.control} name="initialPaymentAmount" render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-xs">Amount *</FormLabel>
@@ -1531,6 +1776,21 @@ export function ManualBookingForm() {
                             <Input
                               type="number"
                               placeholder="Amount"
+                              value={field.value || ''}
+                              onChange={e => field.onChange(e.target.value ? Number(e.target.value) : 0)}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="initialPaymentDepositAmount" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Deposit portion</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={rawTotalDeposit / 100}
+                              placeholder="Security deposit"
                               value={field.value || ''}
                               onChange={e => field.onChange(e.target.value ? Number(e.target.value) : 0)}
                             />
@@ -1623,7 +1883,7 @@ export function ManualBookingForm() {
 
                 {/* Back button */}
                 <div className="flex justify-start pt-2">
-                  <Button type="button" variant="outline" onClick={() => setStep(2)}>
+                  <Button type="button" variant="outline" onClick={() => setStep(3)}>
                     Back
                   </Button>
                 </div>
@@ -1718,23 +1978,28 @@ export function ManualBookingForm() {
                           <CreditCard className="h-3 w-3" />
                           Upfront Payment
                         </span>
-                        <span>-{formatCurrency(Math.min(initialPaymentMinor, grandTotal))}</span>
+                        <span>-{formatCurrency(initialPaymentMinor)}</span>
                       </div>
                       <div className="flex justify-between text-sm font-medium">
                         <span>Balance Due</span>
-                        <span>{formatCurrency(Math.max(balanceDue, 0))}</span>
+                        <span className={balanceDue < 0 ? 'text-destructive' : undefined}>{balanceDue < 0 ? `Over by ${formatCurrency(Math.abs(balanceDue))}` : formatCurrency(balanceDue)}</span>
                       </div>
                     </>
                   )}
 
                   {/* Status badges */}
                   <div className="space-y-1.5">
-                    {validatedCart && (
+                    {acceptedQuote?.valid ? (
                       <div className="flex items-center gap-1.5 text-xs text-green-600">
                         <CheckCircle className="h-3 w-3" />
-                        Pricing verified by server
+                        Quote and location capacity verified
                       </div>
-                    )}
+                    ) : validatedCart ? (
+                      <div className="flex items-center gap-1.5 text-xs text-yellow-600">
+                        <AlertCircle className="h-3 w-3" />
+                        Items validated; authoritative quote still required
+                      </div>
+                    ) : null}
                     {watchAutoConfirm && (
                       <div className="flex items-center gap-1.5 text-xs text-yellow-600">
                         <Zap className="h-3 w-3" />
@@ -1745,12 +2010,12 @@ export function ManualBookingForm() {
                 </>
               )}
 
-              {step >= 3 && (
+              {step >= 4 && (
                 <Button
                   type="submit"
                   className="w-full mt-2"
                   size="lg"
-                  disabled={mutation.isPending || cartItems.length === 0}
+                  disabled={mutation.isPending || quoteMutation.isPending || cartItems.length === 0 || !acceptedQuote?.valid || (watchInitialPaymentEnabled && (initialPaymentMinor > grandTotal || initialPaymentDepositMinor > initialPaymentMinor || initialPaymentDepositMinor > rawTotalDeposit || initialPaymentMinor - initialPaymentDepositMinor > grandTotal - rawTotalDeposit))}
                 >
                   {mutation.isPending ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</>
@@ -1807,7 +2072,7 @@ export function ManualBookingForm() {
                   {watchInitialPaymentEnabled && watchInitialPaymentAmount > 0 && (
                     <div className="flex justify-between text-xs text-blue-600">
                       <span>Upfront Payment</span>
-                      <span>{formatCurrency(Math.min(initialPaymentMinor, grandTotal))}</span>
+                      <span>{formatCurrency(initialPaymentMinor)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-xs">

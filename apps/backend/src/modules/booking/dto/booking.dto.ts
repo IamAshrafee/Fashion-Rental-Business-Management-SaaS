@@ -13,9 +13,10 @@ import {
   IsNotEmpty,
   MaxLength,
   MinLength,
-  IsNumber,
   IsUUID,
   ArrayMaxSize,
+  ArrayMinSize,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -33,6 +34,9 @@ export type DamageLevelType = (typeof DAMAGE_LEVELS)[number];
 
 export const DISCOUNT_TYPES = ['flat', 'percentage'] as const;
 export type DiscountType = (typeof DISCOUNT_TYPES)[number];
+
+export const BOOKING_HANDOVER_METHODS = ['DELIVERY', 'CUSTOMER_PICKUP'] as const;
+export const BOOKING_RETURN_METHODS = ['BUSINESS_PICKUP', 'CUSTOMER_RETURN'] as const;
 
 // ============================================================================
 // CART VALIDATION
@@ -109,6 +113,7 @@ export class BookingCompositionSelectionDto {
 
 export class ValidateCartDto {
   @IsArray()
+  @ArrayMinSize(1)
   @ArrayMaxSize(20) // H5 FIX: Prevent excessively large cart validations
   @ValidateNested({ each: true })
   @Type(() => CartItemDto)
@@ -203,13 +208,27 @@ export class BookingItemDto extends CartItemDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(100_000_000)
   priceOverride?: number;
+
+  @ValidateIf((item: BookingItemDto) => item.priceOverride !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  priceOverrideReason?: string;
 }
 
 export class InitialPaymentDto {
   @IsInt()
   @Min(1)
+  @Max(100_000_000)
   amount!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100_000_000)
+  depositAmount?: number;
 
   @IsEnum(PAYMENT_METHODS)
   method!: PaymentMethodType;
@@ -228,14 +247,59 @@ export class DiscountDto {
   @IsEnum(DISCOUNT_TYPES)
   type!: DiscountType;
 
-  @IsNumber()
+  @IsInt()
   @Min(0)
+  @Max(100_000_000)
   value!: number; // flat amount in paisa OR percentage (e.g. 10 = 10%)
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class ManualRentalPlanDto {
+  @IsDateString()
+  startDate!: string;
+
+  @IsDateString()
+  endDate!: string;
+
+  @IsUUID()
+  sourceLocationId!: string;
+
+  @IsIn(BOOKING_HANDOVER_METHODS)
+  handoverMethod!: (typeof BOOKING_HANDOVER_METHODS)[number];
+
+  @IsIn(BOOKING_RETURN_METHODS)
+  returnMethod!: (typeof BOOKING_RETURN_METHODS)[number];
 
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  reason?: string;
+  handoverNotes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowTransferPlan?: boolean;
+}
+
+export class CreateManualBookingQuoteDto {
+  @ValidateNested()
+  @Type(() => ManualRentalPlanDto)
+  plan!: ManualRentalPlanDto;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => BookingItemDto)
+  items!: BookingItemDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DiscountDto)
+  discount?: DiscountDto;
 }
 
 export class CreateBookingDto {
@@ -248,6 +312,7 @@ export class CreateBookingDto {
   delivery!: DeliveryAddressDto;
 
   @IsArray()
+  @ArrayMinSize(1)
   @ArrayMaxSize(20) // H5 FIX: Prevent excessively large bookings
   @ValidateNested({ each: true })
   @Type(() => BookingItemDto)
@@ -293,6 +358,20 @@ export class CreateBookingDto {
   @ValidateNested()
   @Type(() => DiscountDto)
   discount?: DiscountDto;
+}
+
+export class CreateManualBookingDto extends CreateBookingDto {
+  @IsUUID()
+  quoteId!: string;
+
+  @IsString()
+  @MinLength(64)
+  @MaxLength(64)
+  quoteHash!: string;
+
+  @ValidateNested()
+  @Type(() => ManualRentalPlanDto)
+  plan!: ManualRentalPlanDto;
 }
 
 // ============================================================================

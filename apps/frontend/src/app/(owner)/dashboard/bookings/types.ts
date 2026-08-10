@@ -84,6 +84,8 @@ export interface Payment {
   id: string;
   bookingId: string;
   amount: number;
+  rentalAmount: number;
+  depositAmount: number;
   method: string;
   status: string;
   transactionId?: string | null;

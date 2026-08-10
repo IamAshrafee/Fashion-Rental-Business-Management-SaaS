@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { BookingService, computeCartSummary } from './booking.service';
 import type { CreateBookingDto } from './dto/booking.dto';
@@ -137,6 +137,13 @@ describe('BookingService', () => {
         'manual-booking-draft-1',
       ),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects owner-only pricing controls at the public booking boundary', async () => {
+    await expect(serviceWith({}).createGuestBooking('tenant-1', {
+      ...request,
+      discount: { type: 'flat', value: 1_000, reason: 'Attempted public override' },
+    }, 'guest-key')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('builds the assignment queue and operational projection on the server', async () => {

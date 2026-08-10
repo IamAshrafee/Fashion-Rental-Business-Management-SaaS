@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  Headers,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -173,6 +174,7 @@ export class PaymentOwnerController {
     @Param('id') bookingId: string,
     @Body() dto: RecordPaymentDto,
     @Req() req: Request & { user?: { id: string } },
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     const recordedBy = req.user?.id ?? 'unknown';
     const payment = await this.paymentService.recordPayment(
@@ -180,6 +182,7 @@ export class PaymentOwnerController {
       bookingId,
       dto,
       recordedBy,
+      idempotencyKey,
     );
     return { success: true, data: payment };
   }

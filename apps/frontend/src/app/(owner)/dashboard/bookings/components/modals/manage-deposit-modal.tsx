@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Loader2, CheckCircle2, Undo2, Ban } from 'lucide-react';
 import { bookingApi } from '@/lib/api/bookings';
+import { formatMinorMoney, majorInputToMinor, minorToMajorInput } from '@/lib/money';
 
 interface ManageDepositModalProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export function ManageDepositModal({
   const [forfeitReason, setForfeitReason] = useState('');
   const [refundNotes, setRefundNotes] = useState('');
 
-  const parsedDeduction = parseInt(deduction, 10) || 0;
+  const parsedDeduction = majorInputToMinor(deduction) ?? 0;
   const refundAmount = Math.max(0, depositAmount - parsedDeduction);
 
   // ── Collect deposit mutation ──
@@ -69,7 +70,7 @@ export function ManageDepositModal({
       toast.success(
         refundAmount === depositAmount
           ? 'Full deposit refunded'
-          : `Partial refund of ৳${refundAmount.toLocaleString()} processed`,
+          : `Partial refund of ${formatMinorMoney(refundAmount)} processed`,
       );
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       onOpenChange(false);
@@ -126,7 +127,7 @@ export function ManageDepositModal({
               Status: <span className="font-semibold">{depositStatus.replace('_', ' ')}</span>
             </div>
           </div>
-          <span className="font-bold text-lg">৳{depositAmount.toLocaleString()}</span>
+          <span className="font-bold text-lg">{formatMinorMoney(depositAmount)}</span>
         </div>
 
         {isTerminal ? (
@@ -181,7 +182,7 @@ export function ManageDepositModal({
             {/* Collect — simple confirmation */}
             {action === 'collect' && (
               <div className="text-sm bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 rounded-md">
-                This will mark the deposit of <strong>৳{depositAmount.toLocaleString()}</strong> as
+                This will mark the deposit of <strong>{formatMinorMoney(depositAmount)}</strong> as
                 collected. Use this when you have confirmed receipt of the deposit payment.
               </div>
             )}
@@ -201,7 +202,8 @@ export function ManageDepositModal({
                     onChange={(e) => setDeduction(e.target.value)}
                     className="col-span-3"
                     min={0}
-                    max={depositAmount}
+                    max={depositAmount / 100}
+                    step="0.01"
                   />
                 </div>
                 
@@ -212,7 +214,7 @@ export function ManageDepositModal({
                   <Input
                     id="refundAmount"
                     type="number"
-                    value={refundAmount}
+                    value={minorToMajorInput(refundAmount)}
                     disabled
                     className="col-span-3 font-semibold text-lg bg-green-50/50 dark:bg-green-950/20"
                   />
@@ -256,7 +258,7 @@ export function ManageDepositModal({
             {action === 'forfeit' && (
               <>
                 <div className="text-sm border-l-4 border-destructive bg-destructive/10 p-4 text-destructive-foreground">
-                  You are about to <strong>forfeit the entire deposit of ৳{depositAmount.toLocaleString()}</strong>.
+                  You are about to <strong>forfeit the entire deposit of {formatMinorMoney(depositAmount)}</strong>.
                   <br /><br />
                   This is irreversible. Typically used for severe damage, loss, or breach of rental terms.
                 </div>
@@ -284,12 +286,12 @@ export function ManageDepositModal({
           {!isTerminal && (
             <Button
               onClick={handleSubmit}
-              disabled={isPending || (action === 'forfeit' && !forfeitReason.trim())}
+              disabled={isPending || parsedDeduction > depositAmount || (action === 'forfeit' && !forfeitReason.trim())}
               variant={action === 'forfeit' ? 'destructive' : 'default'}
             >
               {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {action === 'collect' && 'Confirm Collection'}
-              {action === 'refund' && `Process Refund ৳${refundAmount.toLocaleString()}`}
+              {action === 'refund' && `Process Refund ${formatMinorMoney(refundAmount)}`}
               {action === 'forfeit' && 'Forfeit Deposit'}
             </Button>
           )}

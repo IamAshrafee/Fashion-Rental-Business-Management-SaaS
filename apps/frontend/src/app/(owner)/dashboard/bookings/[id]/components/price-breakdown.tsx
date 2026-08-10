@@ -2,6 +2,7 @@ import { Booking } from '../../types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import { formatMinorMoney } from '@/lib/money';
 
 // Fix #8: Map payment method codes to display labels
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -36,37 +37,37 @@ export function PriceBreakdown({ booking }: { booking: Booking }) {
         <div className="space-y-2 text-sm">
           <div className="flex justify-between items-center">
             <span className="text-muted-foreground">Subtotal</span>
-            <span className="font-medium">৳{booking.subtotal.toLocaleString()}</span>
+            <span className="font-medium">{formatMinorMoney(booking.subtotal)}</span>
           </div>
           
           {cleaningFeeTotal > 0 && (
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Cleaning Fee</span>
-              <span>৳{cleaningFeeTotal.toLocaleString()}</span>
+              <span>{formatMinorMoney(cleaningFeeTotal)}</span>
             </div>
           )}
           
           {backupSizeFeeTotal > 0 && (
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Backup Size Fee</span>
-              <span>৳{backupSizeFeeTotal.toLocaleString()}</span>
+              <span>{formatMinorMoney(backupSizeFeeTotal)}</span>
             </div>
           )}
           
           <div className="flex justify-between items-center">
             <span className="text-muted-foreground">Shipping</span>
-            <span>{booking.shippingFee === 0 ? 'Free' : `৳${booking.shippingFee.toLocaleString()}`}</span>
+            <span>{booking.shippingFee === 0 ? 'Free' : formatMinorMoney(booking.shippingFee)}</span>
           </div>
           
           <div className="flex justify-between items-center">
             <span className="text-muted-foreground">Security Deposit</span>
-            <span>৳{booking.totalDeposit.toLocaleString()}</span>
+            <span>{formatMinorMoney(booking.totalDeposit)}</span>
           </div>
 
           {lateFeeTotal > 0 && (
             <div className="flex justify-between items-center text-red-600 font-medium">
               <span>Late Fees</span>
-              <span>+৳{lateFeeTotal.toLocaleString()}</span>
+              <span>+{formatMinorMoney(lateFeeTotal)}</span>
             </div>
           )}
         </div>
@@ -76,18 +77,18 @@ export function PriceBreakdown({ booking }: { booking: Booking }) {
         <div className="space-y-2">
           <div className="flex justify-between items-center text-lg font-bold">
             <span>Grand Total</span>
-            <span>৳{booking.grandTotal.toLocaleString()}</span>
+            <span>{formatMinorMoney(booking.grandTotal)}</span>
           </div>
           
           <div className="flex justify-between items-center text-sm font-medium text-green-600 mt-2">
             <span>Paid</span>
-            <span>৳{booking.totalPaid.toLocaleString()}</span>
+            <span>{formatMinorMoney(booking.totalPaid)}</span>
           </div>
           
           {booking.balance > 0 ? (
             <div className="flex justify-between items-center text-sm font-semibold mt-1">
               <span className="text-muted-foreground">Balance Due</span>
-              <span className="text-lg text-red-600">৳{booking.balance.toLocaleString()}</span>
+              <span className="text-lg text-red-600">{formatMinorMoney(booking.balance)}</span>
             </div>
           ) : (
             <div className="flex justify-between items-center text-sm font-semibold mt-1 text-green-600">

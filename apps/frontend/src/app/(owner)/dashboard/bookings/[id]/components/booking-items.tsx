@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Eye, ShieldAlert } from 'lucide-react';
 import { ManageDepositModal } from '../../components/modals/manage-deposit-modal';
 import { ReportDamageModal } from '../../components/modals/report-damage-modal';
+import { formatMinorMoney } from '@/lib/money';
 
 interface BookingItemsProps {
   items: BookingItem[];
@@ -83,26 +84,26 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                 <TableCell className="text-sm">
                   <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
                     <span className="text-muted-foreground">Rental:</span>
-                    <span className="text-right">৳{(item.baseRental + item.extendedCost).toLocaleString()}</span>
+                    <span className="text-right">{formatMinorMoney(item.baseRental + item.extendedCost)}</span>
                     
                     {item.cleaningFee > 0 && (
                       <>
                         <span className="text-muted-foreground">Cleaning:</span>
-                        <span className="text-right">৳{item.cleaningFee.toLocaleString()}</span>
+                        <span className="text-right">{formatMinorMoney(item.cleaningFee)}</span>
                       </>
                     )}
                     
                     {item.backupSizeFee > 0 && (
                       <>
                         <span className="text-muted-foreground">Backup Size:</span>
-                        <span className="text-right">৳{item.backupSizeFee.toLocaleString()}</span>
+                        <span className="text-right">{formatMinorMoney(item.backupSizeFee)}</span>
                       </>
                     )}
                     
                     {item.lateFee > 0 && (
                       <>
                         <span className="text-red-500 flex items-center">Late Fee:</span>
-                        <span className="text-right text-red-500 font-semibold">৳{item.lateFee.toLocaleString()}</span>
+                        <span className="text-right text-red-500 font-semibold">{formatMinorMoney(item.lateFee)}</span>
                       </>
                     )}
                   </div>
@@ -110,7 +111,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
 
                 {/* DEPOSIT CELL */}
                 <TableCell>
-                  <div className="font-medium">৳{item.depositAmount.toLocaleString()}</div>
+                  <div className="font-medium">{formatMinorMoney(item.depositAmount)}</div>
                   <div className="mt-1">
                     {item.depositStatus === 'pending' && <Badge variant="outline" className="text-yellow-600 bg-yellow-50 border-yellow-200 shadow-none">Pending</Badge>}
                     {item.depositStatus === 'collected' && <Badge variant="outline" className="text-blue-600 bg-blue-50 border-blue-200 shadow-none">Collected</Badge>}
@@ -146,7 +147,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                 {/* TOTAL CELL */}
                 <TableCell className="text-right">
                   <div className="text-lg font-bold">
-                    ৳{item.itemTotal.toLocaleString()}
+                    {formatMinorMoney(item.itemTotal)}
                   </div>
                   
                   {(bookingStatus === 'returned' || bookingStatus === 'inspected') && !item.damageReport && (

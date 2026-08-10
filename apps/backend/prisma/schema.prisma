@@ -121,6 +121,21 @@ enum BookingStatus {
   completed
 }
 
+enum BookingChannel {
+  STOREFRONT
+  OWNER_MANUAL
+}
+
+enum BookingHandoverMethod {
+  DELIVERY
+  CUSTOMER_PICKUP
+}
+
+enum BookingReturnMethod {
+  BUSINESS_PICKUP
+  CUSTOMER_RETURN
+}
+
 enum PaymentMethod {
   cod
   bkash
@@ -620,6 +635,7 @@ model Tenant {
   variantSizes                   VariantSize[]
   events                         Event[]
   bookings                       Booking[]
+  bookingQuotes                  BookingQuote[]
   customers                      Customer[]
   notifications                  Notification[]
   auditLogs                      AuditLog[]
@@ -1182,6 +1198,41 @@ model QuoteLineItem {
   @@map("quote_line_items")
 }
 
+/// Short-lived authoritative quote for a complete owner-created rental.
+model BookingQuote {
+  id               String                @id @default(uuid())
+  tenantId         String                @map("tenant_id")
+  inputsHash       String                @map("inputs_hash")
+  quoteHash        String                @map("quote_hash")
+  currency         String                @default("BDT") @db.Char(3)
+  sourceLocationId String                @map("source_location_id")
+  rentalStartDate  DateTime              @map("rental_start_date") @db.Date
+  rentalEndDate    DateTime              @map("rental_end_date") @db.Date
+  handoverMethod   BookingHandoverMethod @map("handover_method")
+  returnMethod     BookingReturnMethod   @map("return_method")
+  requestSnapshot  Json                  @map("request_snapshot") @db.JsonB
+  itemizedLines    Json                  @map("itemized_lines") @db.JsonB
+  availabilityPlan Json                  @map("availability_plan") @db.JsonB
+  policyVersionIds Json                  @map("policy_version_ids") @db.JsonB
+  subtotal         Int
+  totalFees        Int                   @default(0) @map("total_fees")
+  shippingFee      Int                   @default(0) @map("shipping_fee")
+  totalDeposit     Int                   @default(0) @map("total_deposit")
+  discountAmount   Int                   @default(0) @map("discount_amount")
+  grandTotal       Int                   @map("grand_total")
+  expiresAt        DateTime              @map("expires_at") @db.Timestamptz
+  createdByUserId  String?               @map("created_by_user_id")
+  createdAt        DateTime              @default(now()) @map("created_at")
+
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceLocation InventoryLocation @relation(fields: [sourceLocationId], references: [id], onDelete: Restrict)
+  booking        Booking?
+
+  @@index([tenantId, expiresAt])
+  @@index([tenantId, inputsHash])
+  @@map("booking_quotes")
+}
+
 // ============================================================================
 // SIZING MODULE — Schema-Driven Architecture
 // ============================================================================
@@ -1425,61 +1476,70 @@ model CustomerTag {
 // ============================================================================
 
 model Booking {
-  id                   String        @id @default(uuid())
-  tenantId             String        @map("tenant_id")
-  creationKey          String?       @map("creation_key")
-  creationRequestHash  String?       @map("creation_request_hash")
-  bookingNumber        String        @map("booking_number")
-  customerId           String        @map("customer_id")
-  policyVersionId      String?       @map("policy_version_id") // Pricing Engine v2: frozen pricing snapshot
-  status               BookingStatus @default(pending)
-  paymentMethod        PaymentMethod @map("payment_method")
-  paymentStatus        PaymentStatus @default(unpaid) @map("payment_status")
+  id                   String                 @id @default(uuid())
+  tenantId             String                 @map("tenant_id")
+  creationKey          String?                @map("creation_key")
+  creationRequestHash  String?                @map("creation_request_hash")
+  bookingNumber        String                 @map("booking_number")
+  customerId           String                 @map("customer_id")
+  quoteId              String?                @unique @map("quote_id")
+  policyVersionId      String?                @map("policy_version_id") // Pricing Engine v2: frozen pricing snapshot
+  channel              BookingChannel         @default(STOREFRONT)
+  rentalStartDate      DateTime?              @map("rental_start_date") @db.Date
+  rentalEndDate        DateTime?              @map("rental_end_date") @db.Date
+  sourceLocationId     String?                @map("source_location_id")
+  handoverMethod       BookingHandoverMethod? @map("handover_method")
+  returnMethod         BookingReturnMethod?   @map("return_method")
+  status               BookingStatus          @default(pending)
+  paymentMethod        PaymentMethod          @map("payment_method")
+  paymentStatus        PaymentStatus          @default(unpaid) @map("payment_status")
   subtotal             Int
-  totalFees            Int           @default(0) @map("total_fees")
-  shippingFee          Int           @default(0) @map("shipping_fee")
-  totalDeposit         Int           @default(0) @map("total_deposit")
-  grandTotal           Int           @map("grand_total")
-  totalPaid            Int           @default(0) @map("total_paid")
-  discountAmount       Int           @default(0) @map("discount_amount")
-  discountType         String?       @map("discount_type") // 'flat' | 'percentage'
-  discountReason       String?       @map("discount_reason")
-  deliveryName         String        @map("delivery_name")
-  deliveryPhone        String        @map("delivery_phone")
-  deliveryAltPhone     String?       @map("delivery_alt_phone")
-  deliveryAddressLine1 String        @map("delivery_address_line1")
-  deliveryAddressLine2 String?       @map("delivery_address_line2")
-  deliveryCity         String        @map("delivery_city")
-  deliveryState        String?       @map("delivery_state")
-  deliveryPostalCode   String?       @map("delivery_postal_code")
-  deliveryCountry      String        @map("delivery_country")
-  deliveryExtra        Json?         @map("delivery_extra") @db.JsonB
-  customerNotes        String?       @map("customer_notes")
-  internalNotes        String?       @map("internal_notes")
-  trackingNumber       String?       @map("tracking_number")
-  courierProvider      String?       @map("courier_provider")
-  courierConsignmentId String?       @map("courier_consignment_id")
-  courierStatus        String?       @map("courier_status")
-  courierStatusHistory Json?         @map("courier_status_history") @db.JsonB
-  pickupRequestedAt    DateTime?     @map("pickup_requested_at")
-  pickupJobId          String?       @map("pickup_job_id")
-  scheduledPickupAt    DateTime?     @map("scheduled_pickup_at")
-  deliveryLeadDays     Int?          @map("delivery_lead_days")
-  courierErrorReason   String?       @map("courier_error_reason")
-  cancellationReason   String?       @map("cancellation_reason")
-  cancelledBy          CancelledBy?  @map("cancelled_by")
-  cancelledAt          DateTime?     @map("cancelled_at")
-  confirmedAt          DateTime?     @map("confirmed_at")
-  deliveredAt          DateTime?     @map("delivered_at")
-  returnedAt           DateTime?     @map("returned_at")
-  completedAt          DateTime?     @map("completed_at")
-  deletedAt            DateTime?     @map("deleted_at")
-  createdAt            DateTime      @default(now()) @map("created_at")
-  updatedAt            DateTime      @updatedAt @map("updated_at")
+  totalFees            Int                    @default(0) @map("total_fees")
+  shippingFee          Int                    @default(0) @map("shipping_fee")
+  totalDeposit         Int                    @default(0) @map("total_deposit")
+  grandTotal           Int                    @map("grand_total")
+  totalPaid            Int                    @default(0) @map("total_paid")
+  discountAmount       Int                    @default(0) @map("discount_amount")
+  discountType         String?                @map("discount_type") // 'flat' | 'percentage'
+  discountReason       String?                @map("discount_reason")
+  deliveryName         String                 @map("delivery_name")
+  deliveryPhone        String                 @map("delivery_phone")
+  deliveryAltPhone     String?                @map("delivery_alt_phone")
+  deliveryAddressLine1 String                 @map("delivery_address_line1")
+  deliveryAddressLine2 String?                @map("delivery_address_line2")
+  deliveryCity         String                 @map("delivery_city")
+  deliveryState        String?                @map("delivery_state")
+  deliveryPostalCode   String?                @map("delivery_postal_code")
+  deliveryCountry      String                 @map("delivery_country")
+  deliveryExtra        Json?                  @map("delivery_extra") @db.JsonB
+  customerNotes        String?                @map("customer_notes")
+  internalNotes        String?                @map("internal_notes")
+  trackingNumber       String?                @map("tracking_number")
+  courierProvider      String?                @map("courier_provider")
+  courierConsignmentId String?                @map("courier_consignment_id")
+  courierStatus        String?                @map("courier_status")
+  courierStatusHistory Json?                  @map("courier_status_history") @db.JsonB
+  pickupRequestedAt    DateTime?              @map("pickup_requested_at")
+  pickupJobId          String?                @map("pickup_job_id")
+  scheduledPickupAt    DateTime?              @map("scheduled_pickup_at")
+  deliveryLeadDays     Int?                   @map("delivery_lead_days")
+  courierErrorReason   String?                @map("courier_error_reason")
+  cancellationReason   String?                @map("cancellation_reason")
+  cancelledBy          CancelledBy?           @map("cancelled_by")
+  cancelledAt          DateTime?              @map("cancelled_at")
+  confirmedAt          DateTime?              @map("confirmed_at")
+  deliveredAt          DateTime?              @map("delivered_at")
+  returnedAt           DateTime?              @map("returned_at")
+  completedAt          DateTime?              @map("completed_at")
+  deletedAt            DateTime?              @map("deleted_at")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
 
   tenant                 Tenant                   @relation(fields: [tenantId], references: [id])
   customer               Customer                 @relation(fields: [customerId], references: [id])
+  quote                  BookingQuote?            @relation(fields: [quoteId], references: [id], onDelete: Restrict)
   policyVersion          PricePolicyVersion?      @relation(fields: [policyVersionId], references: [id])
+  sourceLocation         InventoryLocation?       @relation(fields: [sourceLocationId], references: [id], onDelete: Restrict)
   items                  BookingItem[]
   payments               Payment[]
   inventoryReservations  InventoryReservation[]
@@ -1492,6 +1552,7 @@ model Booking {
   @@index([tenantId, courierStatus])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([customerId])
+  @@index([tenantId, sourceLocationId, rentalStartDate, rentalEndDate])
   @@index([policyVersionId])
   @@map("bookings")
 }
@@ -1526,6 +1587,9 @@ model BookingItem {
   tryOnFee            Int           @default(0) @map("try_on_fee")
   tryOnCredited       Boolean       @default(false) @map("try_on_credited")
   itemTotal           Int           @map("item_total")
+  quotedItemTotal     Int?          @map("quoted_item_total")
+  priceOverrideAmount Int?          @map("price_override_amount")
+  priceOverrideReason String?       @map("price_override_reason")
   lateFee             Int           @default(0) @map("late_fee")
   lateDays            Int           @default(0) @map("late_days")
   createdAt           DateTime      @default(now()) @map("created_at")
@@ -1612,6 +1676,8 @@ model InventoryLocation {
   incomingTransfers    InventoryTransfer[]      @relation("TransferDestination")
   originMovements      InventoryMovement[]      @relation("InventoryMovementOrigin")
   destinationMovements InventoryMovement[]      @relation("InventoryMovementDestination")
+  bookings             Booking[]
+  bookingQuotes        BookingQuote[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive, locationType])
@@ -2548,7 +2614,11 @@ model Payment {
   id               String            @id @default(uuid())
   tenantId         String            @map("tenant_id")
   bookingId        String            @map("booking_id")
+  idempotencyKey   String?           @map("idempotency_key")
+  requestHash      String?           @map("request_hash")
   amount           Int
+  rentalAmount     Int               @default(0) @map("rental_amount")
+  depositAmount    Int               @default(0) @map("deposit_amount")
   method           PaymentMethod
   status           TransactionStatus @default(pending)
   transactionId    String?           @map("transaction_id")
@@ -2563,9 +2633,10 @@ model Payment {
 
   booking Booking @relation(fields: [bookingId], references: [id])
 
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, transactionId])
   @@index([bookingId])
   @@index([tenantId])
-  @@index([transactionId])
   @@map("payments")
 }
 

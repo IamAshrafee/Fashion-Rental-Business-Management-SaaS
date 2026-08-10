@@ -86,6 +86,7 @@ interface CreateRequirementsInput {
   expiresAt?: Date | null;
   proposals: RequirementProposal[];
   itemRevenue: number;
+  sourceLocationId?: string;
 }
 
 @Injectable()
@@ -865,6 +866,7 @@ export class FulfillmentService {
         isActive: true,
         canStoreInventory: true,
         canFulfillRentals: true,
+        ...(input.sourceLocationId ? { id: input.sourceLocationId } : {}),
       },
       select: { id: true, isDefault: true },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -898,6 +900,13 @@ export class FulfillmentService {
       }
     }
     if (bestCommon) return this.expandAvailabilityGroups(groups, bestCommon.results);
+    if (input.sourceLocationId) {
+      throw new ConflictException({
+        code: 'FULFILLMENT_LOCATION_CHANGED',
+        message: 'The accepted fulfillment location can no longer satisfy the complete rental plan',
+        sourceLocationId: input.sourceLocationId,
+      });
+    }
 
     const mainProposal = input.proposals.find((proposal) => proposal.requirementKey === 'MAIN')
       ?? input.proposals[0];

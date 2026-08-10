@@ -3,7 +3,47 @@ import type { ApiResponse, PaginatedResponse } from '@closetrent/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface CreateBookingPayload {
+export interface ManualRentalPlan {
+  startDate: string;
+  endDate: string;
+  sourceLocationId: string;
+  handoverMethod: 'DELIVERY' | 'CUSTOMER_PICKUP';
+  returnMethod: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN';
+  handoverNotes?: string;
+  allowTransferPlan?: boolean;
+}
+
+export interface ManualBookingItemInput {
+  productId: string;
+  variantId: string;
+  variantSizeId: string;
+  preferredStockUnitId?: string;
+  quantity: number;
+  startDate: string;
+  endDate: string;
+  selectedSize?: string;
+  backupSize?: string;
+  tryOn?: boolean;
+  compositionSelections?: Array<{
+    compositionRuleId: string;
+    productId?: string;
+    variantSizeId?: string;
+    quantity?: number;
+  }>;
+  priceOverride?: number;
+  priceOverrideReason?: string;
+}
+
+export interface ManualBookingDiscount {
+  type: 'flat' | 'percentage';
+  value: number;
+  reason: string;
+}
+
+export interface CreateManualBookingPayload {
+  quoteId: string;
+  quoteHash: string;
+  plan: ManualRentalPlan;
   customer: {
     fullName: string;
     phone: string;
@@ -24,26 +64,7 @@ export interface CreateBookingPayload {
     deliveryPhone?: string;
     deliveryAltPhone?: string;
   };
-  items: Array<{
-    productId: string;
-    variantId: string;
-    variantSizeId: string;
-    preferredStockUnitId?: string;
-    quantity: number;
-    startDate: string;
-    endDate: string;
-    selectedSize?: string;
-    backupSize?: string;
-    tryOn?: boolean;
-    compositionSelections?: Array<{
-      compositionRuleId: string;
-      productId?: string;
-      variantSizeId?: string;
-      quantity?: number;
-    }>;
-    /** Per-item price override (manual booking only) */
-    priceOverride?: number;
-  }>;
+  items: ManualBookingItemInput[];
   paymentMethod: 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
   customerNotes?: string;
   bkashTransactionId?: string;
@@ -56,16 +77,72 @@ export interface CreateBookingPayload {
   /** Record an upfront payment atomically with the booking */
   initialPayment?: {
     amount: number;
+    depositAmount?: number;
     method: 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
     transactionId?: string;
     notes?: string;
   };
   /** Discount applied to the order */
-  discount?: {
-    type: 'flat' | 'percentage';
-    value: number;
-    reason?: string;
+  discount?: ManualBookingDiscount;
+}
+
+export interface ManualBookingQuoteResponse {
+  valid: boolean;
+  quoteId: string | null;
+  quoteHash: string | null;
+  expiresAt: string | null;
+  location: { id: string; code: string; name: string; canCustomerPickup: boolean };
+  plan: ManualRentalPlan;
+  lines: Array<{
+    lineId: string;
+    productId: string;
+    variantId: string;
+    variantSizeId: string;
+    productName: string;
+    quantity: number;
+    rentalDays: number;
+    quotedItemTotal: number;
+    priceOverrideAmount: number | null;
+    priceOverrideReason: string | null;
+    finalItemTotal: number;
+    depositAmount: number;
+    fees: { cleaning: number; backupSize: number; tryOn: number; shipping: number };
+    policyVersionId: string;
+  }>;
+  availabilityPlan: Array<{
+    lineId: string;
+    requirementKey: string;
+    productId: string;
+    variantSizeId: string;
+    quantity: number;
+    sourceLocationId: string | null;
+    sourceLocationName: string;
+    trackingMode: 'POOLED' | 'SERIALIZED';
+    blockedRange: { start: string; end: string };
+    remainingQuantity: number;
+    transferRequired: boolean;
+    transferFromLocationId?: string;
+    transferFromLocationName?: string;
+  }>;
+  totals: {
+    subtotal: number;
+    totalFees: number;
+    totalDeposit: number;
+    shippingFee: number;
+    discountAmount: number;
+    grandTotal: number;
   };
+  conflicts: Array<{
+    code: string;
+    lineId: string;
+    productId?: string;
+    variantSizeId?: string;
+    requestedQuantity?: number;
+    remainingQuantity?: number;
+    transferRequired?: boolean;
+    transferFromLocationId?: string;
+    message: string;
+  }>;
 }
 
 export interface BookingCreatedResponse {
@@ -200,6 +277,8 @@ export interface BookingDetailItem {
 export interface BookingDetailPayment {
   id: string;
   amount: number;
+  rentalAmount: number;
+  depositAmount: number;
   method: string;
   status: string;
   transactionId: string | null;
@@ -212,6 +291,14 @@ export interface BookingDetailResponse {
   id: string;
   tenantId: string;
   bookingNumber: string;
+  channel: 'STOREFRONT' | 'OWNER_MANUAL';
+  quoteId: string | null;
+  rentalStartDate: string | null;
+  rentalEndDate: string | null;
+  sourceLocationId: string | null;
+  handoverMethod: 'DELIVERY' | 'CUSTOMER_PICKUP' | null;
+  returnMethod: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN' | null;
+  sourceLocation: { id: string; code: string; name: string; timezone: string } | null;
   customerId: string;
   status: string;
   paymentMethod: string;
@@ -393,14 +480,10 @@ export interface BookingListQuery {
 // ─── API Functions ────────────────────────────────────────────────────────────
 
 export const bookingApi = {
-  /**
-   * POST /api/v1/bookings
-   * Creates a new booking (public endpoint — used for both guest and owner).
-   * The owner form uses this directly since the backend handles find-or-create customer.
-   */
-  create: async (payload: CreateBookingPayload, creationKey?: string): Promise<BookingCreatedResponse> => {
+  /** Creates a staff booking from an unexpired authoritative owner quote. */
+  createManual: async (payload: CreateManualBookingPayload, creationKey?: string): Promise<BookingCreatedResponse> => {
     const { data } = await apiClient.post<ApiResponse<BookingCreatedResponse>>(
-      '/bookings',
+      '/owner/bookings',
       payload,
       {
         withCredentials: true,
@@ -408,6 +491,16 @@ export const bookingApi = {
       },
     );
     if (!data.success) throw new Error(data.message || 'Failed to create booking');
+    return data.data;
+  },
+
+  quoteManual: async (payload: {
+    plan: ManualRentalPlan;
+    items: ManualBookingItemInput[];
+    discount?: ManualBookingDiscount;
+  }): Promise<ManualBookingQuoteResponse> => {
+    const { data } = await apiClient.post<ApiResponse<ManualBookingQuoteResponse>>('/owner/bookings/quote', payload);
+    if (!data.success) throw new Error(data.message || 'Failed to quote booking');
     return data.data;
   },
 
@@ -543,11 +636,14 @@ export const bookingApi = {
    */
   recordPayment: async (id: string, payload: {
     amount: number;
+    depositAmount?: number;
     method: string;
     transactionId?: string;
     notes?: string;
-  }): Promise<void> => {
-    await apiClient.post(`/owner/bookings/${id}/payments`, payload);
+  }, idempotencyKey: string): Promise<void> => {
+    await apiClient.post(`/owner/bookings/${id}/payments`, payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
   },
 
   /**
@@ -556,6 +652,8 @@ export const bookingApi = {
   getPayments: async (id: string): Promise<Array<{
     id: string;
     amount: number;
+    rentalAmount: number;
+    depositAmount: number;
     method: string;
     status: string;
     transactionId?: string;
@@ -565,6 +663,8 @@ export const bookingApi = {
     const { data } = await apiClient.get<ApiResponse<Array<{
       id: string;
       amount: number;
+      rentalAmount: number;
+      depositAmount: number;
       method: string;
       status: string;
       transactionId?: string;

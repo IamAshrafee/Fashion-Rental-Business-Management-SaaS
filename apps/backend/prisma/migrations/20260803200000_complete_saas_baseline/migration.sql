@@ -41,6 +41,15 @@ CREATE TYPE "ConditionOperator" AS ENUM ('EQ', 'IN', 'GTE', 'LTE', 'BETWEEN', 'O
 CREATE TYPE "BookingStatus" AS ENUM ('pending', 'confirmed', 'cancelled', 'delivered', 'overdue', 'returned', 'inspected', 'completed');
 
 -- CreateEnum
+CREATE TYPE "BookingChannel" AS ENUM ('STOREFRONT', 'OWNER_MANUAL');
+
+-- CreateEnum
+CREATE TYPE "BookingHandoverMethod" AS ENUM ('DELIVERY', 'CUSTOMER_PICKUP');
+
+-- CreateEnum
+CREATE TYPE "BookingReturnMethod" AS ENUM ('BUSINESS_PICKUP', 'CUSTOMER_RETURN');
+
+-- CreateEnum
 CREATE TYPE "PaymentMethod" AS ENUM ('cod', 'bkash', 'nagad', 'sslcommerz');
 
 -- CreateEnum
@@ -631,6 +640,35 @@ CREATE TABLE "quote_line_items" (
 );
 
 -- CreateTable
+CREATE TABLE "booking_quotes" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "inputs_hash" TEXT NOT NULL,
+    "quote_hash" TEXT NOT NULL,
+    "currency" CHAR(3) NOT NULL DEFAULT 'BDT',
+    "source_location_id" TEXT NOT NULL,
+    "rental_start_date" DATE NOT NULL,
+    "rental_end_date" DATE NOT NULL,
+    "handover_method" "BookingHandoverMethod" NOT NULL,
+    "return_method" "BookingReturnMethod" NOT NULL,
+    "request_snapshot" JSONB NOT NULL,
+    "itemized_lines" JSONB NOT NULL,
+    "availability_plan" JSONB NOT NULL,
+    "policy_version_ids" JSONB NOT NULL,
+    "subtotal" INTEGER NOT NULL,
+    "total_fees" INTEGER NOT NULL DEFAULT 0,
+    "shipping_fee" INTEGER NOT NULL DEFAULT 0,
+    "total_deposit" INTEGER NOT NULL DEFAULT 0,
+    "discount_amount" INTEGER NOT NULL DEFAULT 0,
+    "grand_total" INTEGER NOT NULL,
+    "expires_at" TIMESTAMPTZ NOT NULL,
+    "created_by_user_id" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "booking_quotes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "product_types" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
@@ -810,7 +848,14 @@ CREATE TABLE "bookings" (
     "creation_request_hash" TEXT,
     "booking_number" TEXT NOT NULL,
     "customer_id" TEXT NOT NULL,
+    "quote_id" TEXT,
     "policy_version_id" TEXT,
+    "channel" "BookingChannel" NOT NULL DEFAULT 'STOREFRONT',
+    "rental_start_date" DATE,
+    "rental_end_date" DATE,
+    "source_location_id" TEXT,
+    "handover_method" "BookingHandoverMethod",
+    "return_method" "BookingReturnMethod",
     "status" "BookingStatus" NOT NULL DEFAULT 'pending',
     "payment_method" "PaymentMethod" NOT NULL,
     "payment_status" "PaymentStatus" NOT NULL DEFAULT 'unpaid',
@@ -890,6 +935,9 @@ CREATE TABLE "booking_items" (
     "try_on_fee" INTEGER NOT NULL DEFAULT 0,
     "try_on_credited" BOOLEAN NOT NULL DEFAULT false,
     "item_total" INTEGER NOT NULL,
+    "quoted_item_total" INTEGER,
+    "price_override_amount" INTEGER,
+    "price_override_reason" TEXT,
     "late_fee" INTEGER NOT NULL DEFAULT 0,
     "late_days" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1552,7 +1600,11 @@ CREATE TABLE "payments" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
     "booking_id" TEXT NOT NULL,
+    "idempotency_key" TEXT,
+    "request_hash" TEXT,
     "amount" INTEGER NOT NULL,
+    "rental_amount" INTEGER NOT NULL DEFAULT 0,
+    "deposit_amount" INTEGER NOT NULL DEFAULT 0,
     "method" "PaymentMethod" NOT NULL,
     "status" "TransactionStatus" NOT NULL DEFAULT 'pending',
     "transaction_id" TEXT,
@@ -1874,6 +1926,12 @@ CREATE INDEX "quotes_tenant_id_inputs_hash_idx" ON "quotes"("tenant_id", "inputs
 CREATE INDEX "quote_line_items_quote_id_idx" ON "quote_line_items"("quote_id");
 
 -- CreateIndex
+CREATE INDEX "booking_quotes_tenant_id_expires_at_idx" ON "booking_quotes"("tenant_id", "expires_at");
+
+-- CreateIndex
+CREATE INDEX "booking_quotes_tenant_id_inputs_hash_idx" ON "booking_quotes"("tenant_id", "inputs_hash");
+
+-- CreateIndex
 CREATE INDEX "product_types_tenant_id_idx" ON "product_types"("tenant_id");
 
 -- CreateIndex
@@ -1965,6 +2023,12 @@ CREATE INDEX "bookings_customer_id_idx" ON "bookings"("customer_id");
 
 -- CreateIndex
 CREATE INDEX "bookings_policy_version_id_idx" ON "bookings"("policy_version_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "bookings_quote_id_key" ON "bookings"("quote_id");
+
+-- CreateIndex
+CREATE INDEX "bookings_tenant_id_source_location_id_rental_start_date_rental_end_date_idx" ON "bookings"("tenant_id", "source_location_id", "rental_start_date", "rental_end_date");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "bookings_tenant_id_booking_number_key" ON "bookings"("tenant_id", "booking_number");
@@ -2420,7 +2484,10 @@ CREATE INDEX "payments_booking_id_idx" ON "payments"("booking_id");
 CREATE INDEX "payments_tenant_id_idx" ON "payments"("tenant_id");
 
 -- CreateIndex
-CREATE INDEX "payments_transaction_id_idx" ON "payments"("transaction_id");
+CREATE UNIQUE INDEX "payments_tenant_id_idempotency_key_key" ON "payments"("tenant_id", "idempotency_key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "payments_tenant_id_transaction_id_key" ON "payments"("tenant_id", "transaction_id");
 
 -- CreateIndex
 CREATE INDEX "reviews_product_id_idx" ON "reviews"("product_id");
@@ -2606,6 +2673,12 @@ ALTER TABLE "quotes" ADD CONSTRAINT "quotes_policy_version_id_fkey" FOREIGN KEY 
 ALTER TABLE "quote_line_items" ADD CONSTRAINT "quote_line_items_quote_id_fkey" FOREIGN KEY ("quote_id") REFERENCES "quotes"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "product_types" ADD CONSTRAINT "product_types_default_size_schema_id_fkey" FOREIGN KEY ("default_size_schema_id") REFERENCES "size_schemas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -2654,7 +2727,13 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_tenant_id_fkey" FOREIGN KEY ("te
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_quote_id_fkey" FOREIGN KEY ("quote_id") REFERENCES "booking_quotes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_policy_version_id_fkey" FOREIGN KEY ("policy_version_id") REFERENCES "price_policy_versions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "booking_items" ADD CONSTRAINT "booking_items_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

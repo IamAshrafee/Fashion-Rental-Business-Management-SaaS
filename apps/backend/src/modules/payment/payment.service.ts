@@ -21,6 +21,7 @@ import {
   RefundDepositDto,
   ForfeitDepositDto,
 } from './dto/payment.dto';
+import { createHash } from 'crypto';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -31,6 +32,8 @@ export interface PaymentSummary {
   totalPaid: number;
   balance: number;
   paymentStatus: string;
+  rentalPaid: number;
+  depositPaid: number;
 }
 
 interface SslcommerzInitResult {
@@ -63,39 +66,86 @@ export class PaymentService {
     bookingId: string,
     dto: RecordPaymentDto,
     recordedBy: string,
+    rawIdempotencyKey?: string,
   ) {
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId, deletedAt: null },
-    });
-    if (!booking) throw new NotFoundException('Booking not found');
-
-    // L1 FIX: Guard against overpayment
-    const remaining = booking.grandTotal - booking.totalPaid;
-    if (dto.amount > remaining) {
-      throw new BadRequestException(
-        `Payment amount (${dto.amount}) exceeds remaining balance (${remaining})`,
-      );
-    }
-
-    // Prevent duplicate transaction IDs
-    if (dto.transactionId) {
-      const existing = await this.prisma.payment.findFirst({
-        where: { tenantId, transactionId: dto.transactionId },
-      });
-      if (existing) {
-        throw new ConflictException(
-          `Payment with transaction ID "${dto.transactionId}" already exists`,
-        );
-      }
-    }
+    const idempotencyKey = rawIdempotencyKey?.trim();
+    if (!idempotencyKey) throw new BadRequestException('Idempotency-Key is required when recording a payment');
+    if (idempotencyKey.length > 200) throw new BadRequestException('Idempotency-Key cannot exceed 200 characters');
+    const requestHash = createHash('sha256').update(JSON.stringify({
+      bookingId,
+      amount: dto.amount,
+      depositAmount: dto.depositAmount ?? 0,
+      method: dto.method,
+      transactionId: dto.transactionId?.trim() || null,
+      notes: dto.notes?.trim() || null,
+    })).digest('hex');
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM bookings
+        WHERE tenant_id = ${tenantId} AND id = ${bookingId}
+        FOR UPDATE
+      `);
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, tenantId, deletedAt: null },
+      });
+      if (!booking) throw new NotFoundException('Booking not found');
+
+      const replay = await tx.payment.findFirst({ where: { tenantId, idempotencyKey } });
+      if (replay) {
+        if (replay.bookingId !== bookingId || replay.requestHash !== requestHash) {
+          throw new ConflictException({ code: 'PAYMENT_IDEMPOTENCY_REUSED', message: 'This payment key belongs to another request' });
+        }
+        return { payment: replay, bookingNumber: booking.bookingNumber, replayed: true };
+      }
+
+      const paid = await tx.payment.aggregate({
+        where: { tenantId, bookingId, status: 'verified' },
+        _sum: { amount: true, rentalAmount: true, depositAmount: true },
+      });
+      const alreadyPaid = paid._sum.amount ?? 0;
+      const remaining = booking.grandTotal - alreadyPaid;
+      if (dto.amount > remaining) {
+        throw new ConflictException({
+          code: 'PAYMENT_EXCEEDS_BALANCE',
+          message: `Payment amount (${dto.amount}) exceeds remaining balance (${remaining})`,
+          remainingBalance: remaining,
+        });
+      }
+      const depositAmount = dto.depositAmount ?? 0;
+      if (depositAmount > dto.amount) throw new BadRequestException('Deposit allocation cannot exceed the payment amount');
+      const remainingDeposit = booking.totalDeposit - (paid._sum.depositAmount ?? 0);
+      if (depositAmount > remainingDeposit) {
+        throw new ConflictException({
+          code: 'DEPOSIT_ALLOCATION_EXCEEDS_BALANCE',
+          message: `Deposit allocation (${depositAmount}) exceeds uncollected deposits (${remainingDeposit})`,
+          remainingDeposit,
+        });
+      }
+      const rentalAmount = dto.amount - depositAmount;
+      const remainingRental = booking.grandTotal - booking.totalDeposit - (paid._sum.rentalAmount ?? 0);
+      if (rentalAmount > remainingRental) {
+        throw new ConflictException({
+          code: 'RENTAL_ALLOCATION_EXCEEDS_BALANCE',
+          message: `Rental allocation (${rentalAmount}) exceeds remaining rental charges (${remainingRental})`,
+          remainingRental,
+        });
+      }
+      if (dto.transactionId) {
+        const duplicate = await tx.payment.findFirst({ where: { tenantId, transactionId: dto.transactionId } });
+        if (duplicate) throw new ConflictException({ code: 'PAYMENT_TRANSACTION_DUPLICATE', message: `Transaction ID "${dto.transactionId}" is already recorded` });
+      }
+
       // Create payment record (manual payments are immediately verified)
       const payment = await tx.payment.create({
         data: {
           tenantId,
           bookingId,
+          idempotencyKey,
+          requestHash,
           amount: dto.amount,
+          rentalAmount,
+          depositAmount,
           method: dto.method as PaymentMethod,
           status: 'verified' as TransactionStatus,
           transactionId: dto.transactionId ?? null,
@@ -106,7 +156,7 @@ export class PaymentService {
       });
 
       // Update booking totalPaid
-      const newTotalPaid = booking.totalPaid + dto.amount;
+      const newTotalPaid = alreadyPaid + dto.amount;
 
       // Calculate payment status
       const paymentStatus = this.calculatePaymentStatus(
@@ -122,24 +172,28 @@ export class PaymentService {
         },
       });
 
-      return payment;
-    });
+      return { payment, bookingNumber: booking.bookingNumber, replayed: false };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 
     // Emit event (ADR-05)
-    this.eventEmitter.emit('payment.received', {
-      tenantId,
-      bookingId,
-      paymentId: result.id,
-      amount: result.amount,
-      method: result.method,
-      bookingNumber: booking.bookingNumber,
-    });
+    if (!result.replayed) {
+      this.eventEmitter.emit('payment.received', {
+        tenantId,
+        bookingId,
+        paymentId: result.payment.id,
+        amount: result.payment.amount,
+        rentalAmount: result.payment.rentalAmount,
+        depositAmount: result.payment.depositAmount,
+        method: result.payment.method,
+        bookingNumber: result.bookingNumber,
+      });
+    }
 
     this.logger.log(
-      `Payment recorded: ${dto.amount} via ${dto.method} for booking ${booking.bookingNumber}`,
+      `Payment ${result.replayed ? 'replayed' : 'recorded'}: ${dto.amount} minor BDT via ${dto.method} for booking ${result.bookingNumber}`,
     );
 
-    return result;
+    return result.payment;
   }
 
   // =========================================================================
@@ -155,8 +209,7 @@ export class PaymentService {
       select: {
         id: true,
         grandTotal: true,
-        totalPaid: true,
-        paymentStatus: true,
+        totalDeposit: true,
       },
     });
     if (!booking) throw new NotFoundException('Booking not found');
@@ -167,6 +220,8 @@ export class PaymentService {
       select: {
         id: true,
         amount: true,
+        rentalAmount: true,
+        depositAmount: true,
         method: true,
         status: true,
         transactionId: true,
@@ -179,11 +234,15 @@ export class PaymentService {
       },
     });
 
+    const verifiedPayments = payments.filter((payment) => payment.status === 'verified');
+    const ledgerTotalPaid = verifiedPayments.reduce((sum, payment) => sum + payment.amount, 0);
     const summary: PaymentSummary = {
       totalDue: booking.grandTotal,
-      totalPaid: booking.totalPaid,
-      balance: booking.grandTotal - booking.totalPaid,
-      paymentStatus: booking.paymentStatus,
+      totalPaid: ledgerTotalPaid,
+      balance: booking.grandTotal - ledgerTotalPaid,
+      paymentStatus: this.calculatePaymentStatus(ledgerTotalPaid, booking.grandTotal),
+      rentalPaid: verifiedPayments.reduce((sum, payment) => sum + payment.rentalAmount, 0),
+      depositPaid: verifiedPayments.reduce((sum, payment) => sum + payment.depositAmount, 0),
     };
 
     return { data: payments, summary };
@@ -209,6 +268,7 @@ export class PaymentService {
         bookingNumber: true,
         grandTotal: true,
         totalPaid: true,
+        totalDeposit: true,
         deliveryName: true,
         deliveryPhone: true,
         deliveryAddressLine1: true,
@@ -217,7 +277,11 @@ export class PaymentService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    const remainingAmount = booking.grandTotal - booking.totalPaid;
+    const paid = await this.prisma.payment.aggregate({
+      where: { tenantId, bookingId, status: 'verified' },
+      _sum: { amount: true, rentalAmount: true, depositAmount: true },
+    });
+    const remainingAmount = booking.grandTotal - (paid._sum.amount ?? 0);
     if (remainingAmount <= 0) {
       throw new UnprocessableEntityException('Booking is already fully paid');
     }
@@ -240,6 +304,18 @@ export class PaymentService {
 
     // Generate a unique transaction ID
     const transactionId = `BOOKING-${booking.id}-${Date.now()}`;
+    const existingPending = await this.prisma.payment.findFirst({
+      where: { tenantId, bookingId, method: 'sslcommerz', status: 'pending' },
+      select: { id: true },
+    });
+    if (existingPending) {
+      throw new ConflictException({ code: 'PAYMENT_SESSION_PENDING', message: 'A payment session is already pending for this booking' });
+    }
+    const depositAmount = Math.max(0, booking.totalDeposit - (paid._sum.depositAmount ?? 0));
+    const rentalAmount = remainingAmount - depositAmount;
+    if (rentalAmount < 0) {
+      throw new ConflictException({ code: 'PAYMENT_ALLOCATION_INCONSISTENT', message: 'Payment allocations exceed the remaining booking balance' });
+    }
 
     // Build SSLCommerz init payload
     const baseUrl = this.configService.get<string>('app.backendUrl', 'http://localhost:4000');
@@ -248,7 +324,7 @@ export class PaymentService {
     const payload = new URLSearchParams({
       store_id: storeSettings.sslcommerzStoreId,
       store_passwd: storeSettings.sslcommerzStorePass,
-      total_amount: String(remainingAmount),
+      total_amount: (remainingAmount / 100).toFixed(2),
       currency: storeSettings.currencyCode || 'BDT',
       tran_id: transactionId,
       success_url: `${baseUrl}/api/v1/payments/sslcommerz/success`,
@@ -277,7 +353,11 @@ export class PaymentService {
       data: {
         tenantId,
         bookingId: booking.id,
+        idempotencyKey: `ssl:${transactionId}`,
+        requestHash: createHash('sha256').update(`${booking.id}:${remainingAmount}`).digest('hex'),
         amount: remainingAmount,
+        rentalAmount,
+        depositAmount,
         method: 'sslcommerz' as PaymentMethod,
         status: 'pending' as TransactionStatus,
         transactionId,
@@ -335,12 +415,12 @@ export class PaymentService {
       status,
       amount,
       store_id: storeId,
-      val_id: _validationId,
+      val_id: validationId,
       verify_sign: _verifySign,
     } = ipnPayload;
 
-    if (!transactionId || !status) {
-      this.logger.warn('Invalid IPN payload — missing tran_id or status');
+    if (!transactionId || !status || ((status === 'VALID' || status === 'VALIDATED') && !validationId)) {
+      this.logger.warn('Invalid IPN payload — missing required transaction fields');
       return;
     }
 
@@ -377,7 +457,11 @@ export class PaymentService {
       },
     });
 
-    if (storeSettings?.sslcommerzStoreId !== storeId) {
+    if (
+      !storeSettings?.sslcommerzStoreId
+      || !storeSettings.sslcommerzStorePass
+      || storeSettings.sslcommerzStoreId !== storeId
+    ) {
       this.logger.warn(
         `IPN store_id mismatch for ${transactionId}: expected ${storeSettings?.sslcommerzStoreId}, got ${storeId}`,
       );
@@ -385,9 +469,32 @@ export class PaymentService {
     }
 
     if (status === 'VALID' || status === 'VALIDATED') {
+      const validation = await this.validateSslcommerzTransaction({
+        validationId,
+        storeId: storeSettings.sslcommerzStoreId,
+        storePassword: storeSettings.sslcommerzStorePass,
+        sandbox: storeSettings.sslcommerzSandbox,
+      });
+      if (
+        !['VALID', 'VALIDATED'].includes(validation.status)
+        || validation.tran_id !== transactionId
+        || validation.val_id !== validationId
+      ) {
+        this.logger.warn(`SSLCommerz validation failed for ${transactionId}`);
+        return;
+      }
+      if (String(validation.risk_level ?? '0') === '1') {
+        this.logger.warn(`SSLCommerz marked ${transactionId} as high risk; payment remains pending for manual review`);
+        await this.prisma.payment.updateMany({
+          where: { id: payment.id, status: 'pending' },
+          data: { providerResponse: validation as unknown as Prisma.InputJsonValue },
+        });
+        return;
+      }
       // Verify amount matches
-      const ipnAmount = parseInt(String(amount), 10);
-      if (ipnAmount !== payment.amount) {
+      const ipnAmount = Math.round(Number(amount) * 100);
+      const validatedAmount = Math.round(Number(validation.amount) * 100);
+      if (!Number.isFinite(ipnAmount) || ipnAmount !== payment.amount || validatedAmount !== payment.amount) {
         this.logger.warn(
           `IPN amount mismatch for ${transactionId}: expected ${payment.amount}, got ${ipnAmount}`,
         );
@@ -402,9 +509,13 @@ export class PaymentService {
       }
 
       // Payment is valid — update in transaction
-      await this.prisma.$transaction(async (tx) => {
+      const processed = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM payments WHERE id = ${payment.id} FOR UPDATE`);
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM bookings WHERE id = ${booking.id} FOR UPDATE`);
+        const currentPayment = await tx.payment.findUnique({ where: { id: payment.id } });
+        if (!currentPayment || currentPayment.status !== 'pending') return false;
         await tx.payment.update({
-          where: { id: payment.id },
+          where: { id: currentPayment.id },
           data: {
             status: 'verified' as TransactionStatus,
             verifiedAt: new Date(),
@@ -412,7 +523,11 @@ export class PaymentService {
           },
         });
 
-        const newTotalPaid = booking.totalPaid + payment.amount;
+        const verified = await tx.payment.aggregate({
+          where: { tenantId: booking.tenantId, bookingId: booking.id, status: 'verified' },
+          _sum: { amount: true },
+        });
+        const newTotalPaid = verified._sum.amount ?? 0;
         const paymentStatus = this.calculatePaymentStatus(
           newTotalPaid,
           booking.grandTotal,
@@ -425,19 +540,23 @@ export class PaymentService {
             paymentStatus: paymentStatus as PaymentStatus,
           },
         });
-      });
+        return true;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+      if (!processed) return;
 
       this.eventEmitter.emit('payment.received', {
         tenantId: booking.tenantId,
         bookingId: booking.id,
         paymentId: payment.id,
         amount: payment.amount,
+        rentalAmount: payment.rentalAmount,
+        depositAmount: payment.depositAmount,
         method: 'sslcommerz',
         bookingNumber: booking.bookingNumber,
       });
 
       this.logger.log(
-        `SSLCommerz payment verified for booking ${booking.bookingNumber}: ${payment.amount}`,
+        `SSLCommerz payment verified for booking ${booking.bookingNumber}: ${payment.amount} minor BDT`,
       );
     } else {
       // Payment failed or was cancelled
@@ -451,6 +570,34 @@ export class PaymentService {
 
       this.logger.warn(
         `SSLCommerz payment failed for ${transactionId}: status=${status}`,
+      );
+    }
+  }
+
+  private async validateSslcommerzTransaction(input: {
+    validationId: string;
+    storeId: string;
+    storePassword: string;
+    sandbox: boolean;
+  }): Promise<Record<string, string>> {
+    const baseUrl = input.sandbox
+      ? 'https://sandbox.sslcommerz.com'
+      : 'https://securepay.sslcommerz.com';
+    const query = new URLSearchParams({
+      val_id: input.validationId,
+      store_id: input.storeId,
+      store_passwd: input.storePassword,
+      v: '1',
+      format: 'json',
+    });
+    try {
+      const response = await fetch(`${baseUrl}/validator/api/validationserverAPI.php?${query.toString()}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as Record<string, string>;
+    } catch (error) {
+      this.logger.error(`SSLCommerz validation API unavailable: ${error}`);
+      throw new UnprocessableEntityException(
+        'Payment validation is temporarily unavailable; the notification can be retried safely',
       );
     }
   }

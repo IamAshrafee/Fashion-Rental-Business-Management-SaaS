@@ -22,6 +22,7 @@ import { format, parseISO, differenceInDays } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import type { BookingStatus, BookingTimelineEvent, BookingItem, Payment, Booking, DamageLevel } from '../types';
+import { formatMinorMoney } from '@/lib/money';
 
 // ── Copy-to-clipboard hook ───────────────────────────────────────────────────
 function useCopyToClipboard() {
@@ -188,6 +189,8 @@ export default function BookingDetailPage() {
     id: p.id,
     bookingId: booking.id,
     amount: p.amount,
+    rentalAmount: p.rentalAmount,
+    depositAmount: p.depositAmount,
     method: p.method,
     status: p.status || 'pending',
     transactionId: p.transactionId,
@@ -324,6 +327,34 @@ export default function BookingDetailPage() {
         
         {/* Main Content: Left Column (Takes up 2/3) */}
         <div className="md:col-span-2 space-y-6">
+          {booking.rentalStartDate && booking.rentalEndDate && (
+            <Card className="shadow-none border">
+              <CardHeader className="pb-3 bg-muted/30">
+                <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Rental & Fulfillment Plan
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Rental dates</p>
+                  <p className="text-sm font-medium">{format(parseISO(booking.rentalStartDate), 'MMM d, yyyy')} → {format(parseISO(booking.rentalEndDate), 'MMM d, yyyy')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Fulfillment location</p>
+                  <p className="text-sm font-medium">{booking.sourceLocation?.name ?? 'Not resolved'}</p>
+                  {booking.sourceLocation?.code && <p className="text-xs text-muted-foreground">{booking.sourceLocation.code}</p>}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Handover</p>
+                  <p className="text-sm font-medium">{booking.handoverMethod === 'CUSTOMER_PICKUP' ? 'Customer pickup' : 'Delivery'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Return</p>
+                  <p className="text-sm font-medium">{booking.returnMethod === 'CUSTOMER_RETURN' ? 'Customer return' : 'Business pickup'}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           <Card className="shadow-none border">
             <CardHeader className="pb-3 bg-muted/30">
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -354,7 +385,7 @@ export default function BookingDetailPage() {
                   </div>
                 )}
                 <div className="text-xs text-muted-foreground mt-2">
-                  {booking.customer.totalBookings} booking{booking.customer.totalBookings !== 1 ? 's' : ''} · ৳{booking.customer.totalSpent?.toLocaleString() ?? 0} spent
+                  {booking.customer.totalBookings} booking{booking.customer.totalBookings !== 1 ? 's' : ''} · {formatMinorMoney(booking.customer.totalSpent ?? 0)} spent
                 </div>
               </div>
               <div>
@@ -411,7 +442,12 @@ export default function BookingDetailPage() {
           <InventoryAssignments bookingId={booking.id} items={booking.items} />
           
           <div className="grid sm:grid-cols-2 gap-6">
-            <PaymentHistory payments={mappedPayments} bookingId={booking.id} balanceDue={booking.grandTotal - booking.totalPaid} />
+            <PaymentHistory
+              payments={mappedPayments}
+              bookingId={booking.id}
+              balanceDue={booking.grandTotal - booking.totalPaid}
+              depositBalance={Math.max(0, booking.totalDeposit - mappedPayments.filter((payment) => payment.status === 'verified').reduce((sum, payment) => sum + payment.depositAmount, 0))}
+            />
             <PriceBreakdown booking={bookingForBreakdown} />
           </div>
 
@@ -504,16 +540,16 @@ export default function BookingDetailPage() {
               <Separator />
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Grand Total</span>
-                <span className="font-semibold">৳{booking.grandTotal.toLocaleString()}</span>
+                <span className="font-semibold">{formatMinorMoney(booking.grandTotal)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Paid</span>
-                <span className="font-medium text-green-600">৳{booking.totalPaid.toLocaleString()}</span>
+                <span className="font-medium text-green-600">{formatMinorMoney(booking.totalPaid)}</span>
               </div>
               {booking.grandTotal - booking.totalPaid > 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Balance Due</span>
-                  <span className="font-semibold text-red-600">৳{(booking.grandTotal - booking.totalPaid).toLocaleString()}</span>
+                  <span className="font-semibold text-red-600">{formatMinorMoney(booking.grandTotal - booking.totalPaid)}</span>
                 </div>
               )}
               <Separator />

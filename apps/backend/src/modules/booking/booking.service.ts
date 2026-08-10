@@ -10,7 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CustomerService } from '../customer/customer.service';
 import { PricingEngineService } from '../pricing-engine/pricing-engine.service';
-import { BookingStatus, CancelledBy, DamageLevel, FulfillmentRequirementStatus, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
+import { BookingChannel, BookingStatus, CancelledBy, DamageLevel, FulfillmentRequirementStatus, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service';
 import { InventoryReservationService } from '../inventory/inventory-reservation.service';
 import { FulfillmentService, RequirementProposal } from '../inventory/fulfillment.service';
@@ -18,6 +18,8 @@ import type { LateFeePolicy } from '@closetrent/types';
 import { createHash } from 'crypto';
 import {
   CreateBookingDto,
+  CreateManualBookingDto,
+  CreateManualBookingQuoteDto,
   ValidateCartDto,
   CartItemDto,
   BookingQueryDto,
@@ -31,6 +33,7 @@ import {
 // ---------------------------------------------------------------------------
 
 interface PricingSnapshot {
+  policyVersionId: string;
   baseRental: number;
   extendedDays: number;
   extendedCost: number;
@@ -41,6 +44,28 @@ interface PricingSnapshot {
   shippingFee: number;
   itemTotal: number;
   rentalDays: number;
+}
+
+export interface ManualQuoteLine {
+  lineId: string;
+  productId: string;
+  variantId: string;
+  variantSizeId: string;
+  productName: string;
+  quantity: number;
+  rentalDays: number;
+  quotedItemTotal: number;
+  priceOverrideAmount: number | null;
+  priceOverrideReason: string | null;
+  finalItemTotal: number;
+  depositAmount: number;
+  fees: {
+    cleaning: number;
+    backupSize: number;
+    tryOn: number;
+    shipping: number;
+  };
+  policyVersionId: string;
 }
 
 interface CartItemResult extends PricingSnapshot {
@@ -352,6 +377,291 @@ export class BookingService {
   // BOOKING CREATION (ATOMIC)
   // =========================================================================
 
+  async createManualQuote(
+    tenantId: string,
+    dto: CreateManualBookingQuoteDto,
+    actorUserId?: string,
+  ) {
+    const normalizedItems = dto.items.map((item) => ({
+      ...item,
+      startDate: dto.plan.startDate,
+      endDate: dto.plan.endDate,
+    }));
+    if (dto.items.some((item) => item.startDate !== dto.plan.startDate || item.endDate !== dto.plan.endDate)) {
+      throw new BadRequestException('Every item must use the rental-plan dates');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const location = await tx.inventoryLocation.findFirst({
+        where: {
+          id: dto.plan.sourceLocationId,
+          tenantId,
+          isActive: true,
+          canStoreInventory: true,
+          canFulfillRentals: true,
+        },
+        select: { id: true, code: true, name: true, canCustomerPickup: true },
+      });
+      if (!location) throw new BadRequestException('Select an active rental fulfillment location');
+      if (dto.plan.handoverMethod === 'CUSTOMER_PICKUP' && !location.canCustomerPickup) {
+        throw new BadRequestException('The selected location does not support customer pickup');
+      }
+
+      const results: CartItemResult[] = [];
+      const lines: ManualQuoteLine[] = [];
+      const policyVersionIds = new Set<string>();
+      const availabilityPlan: Array<Record<string, unknown>> = [];
+      const conflicts: Array<Record<string, unknown>> = [];
+      const checks: Array<{
+        lineId: string;
+        variantSizeId: string;
+        quantity: number;
+        blockedStart: string;
+        blockedEnd: string;
+        remainingQuantity: number;
+        available: boolean;
+        reason?: string;
+      }> = [];
+
+      for (const [index, item] of normalizedItems.entries()) {
+        const lineId = `${index}:${item.variantSizeId}`;
+        const proposals = await this.fulfillment.expandProposal(tx, {
+          tenantId,
+          productId: item.productId,
+          variantSizeId: item.variantSizeId,
+          preferredStockUnitId: item.preferredStockUnitId,
+          quantity: item.quantity,
+          selections: item.compositionSelections,
+        });
+        const result = await this.validateSingleItemTx(tx, tenantId, item, location.id);
+        result.itemTotal += proposals.reduce((sum, proposal) => sum + proposal.priceAdjustment, 0);
+        const quotedItemTotal = result.itemTotal;
+
+        if (item.priceOverride !== undefined) {
+          if (item.priceOverride > 100_000_000) {
+            throw new BadRequestException('A price override cannot exceed ৳1,000,000');
+          }
+          result.baseRental = item.priceOverride;
+          result.extendedDays = 0;
+          result.extendedCost = 0;
+          result.itemTotal = item.priceOverride
+            + result.cleaningFee
+            + result.backupSizeFee
+            + result.tryOnFee
+            + proposals.reduce((sum, proposal) => sum + proposal.priceAdjustment, 0);
+        }
+        if (dto.plan.handoverMethod === 'CUSTOMER_PICKUP') result.shippingFee = 0;
+        results.push(result);
+        policyVersionIds.add(result.policyVersionId);
+
+        lines.push({
+          lineId,
+          productId: result.productId,
+          variantId: result.variantId,
+          variantSizeId: result.variantSizeId,
+          productName: result.productName,
+          quantity: result.quantity,
+          rentalDays: result.rentalDays,
+          quotedItemTotal,
+          priceOverrideAmount: item.priceOverride ?? null,
+          priceOverrideReason: item.priceOverrideReason?.trim() ?? null,
+          finalItemTotal: result.itemTotal,
+          depositAmount: result.depositAmount,
+          fees: {
+            cleaning: result.cleaningFee,
+            backupSize: result.backupSizeFee,
+            tryOn: result.tryOnFee,
+            shipping: result.shippingFee,
+          },
+          policyVersionId: result.policyVersionId,
+        });
+
+        if (!result.available) {
+          conflicts.push({
+            code: 'LINE_UNAVAILABLE',
+            lineId,
+            productId: item.productId,
+            variantSizeId: item.variantSizeId,
+            message: result.errors?.join('. ') ?? 'The selected item is unavailable',
+          });
+        }
+
+        for (const proposal of proposals) {
+          const availability = await this.inventoryAvailability.check({
+            tenantId,
+            productId: proposal.productId,
+            variantSizeId: proposal.variantSizeId,
+            preferredStockUnitId: proposal.preferredStockUnitId,
+            sourceLocationId: location.id,
+            startDate: dto.plan.startDate,
+            endDate: dto.plan.endDate,
+            quantity: proposal.quantity,
+            enforcePublished: false,
+          }, tx);
+          const planEntry: Record<string, unknown> = {
+            lineId,
+            requirementKey: proposal.requirementKey,
+            productId: proposal.productId,
+            variantSizeId: proposal.variantSizeId,
+            quantity: proposal.quantity,
+            sourceLocationId: availability.sourceLocationId,
+            sourceLocationName: availability.sourceLocation?.name ?? location.name,
+            trackingMode: availability.trackingMode,
+            blockedRange: availability.effectiveBlockedRange,
+            remainingQuantity: availability.remainingQuantity,
+            transferRequired: false,
+          };
+          if (!availability.available && dto.plan.allowTransferPlan) {
+            const alternate = await this.inventoryAvailability.check({
+              tenantId,
+              productId: proposal.productId,
+              variantSizeId: proposal.variantSizeId,
+              preferredStockUnitId: proposal.preferredStockUnitId,
+              startDate: dto.plan.startDate,
+              endDate: dto.plan.endDate,
+              quantity: proposal.quantity,
+              enforcePublished: false,
+            }, tx);
+            if (alternate.available && alternate.sourceLocationId !== location.id) {
+              planEntry.transferRequired = true;
+              planEntry.transferFromLocationId = alternate.sourceLocationId;
+              planEntry.transferFromLocationName = alternate.sourceLocation?.name;
+            }
+          }
+          availabilityPlan.push(planEntry);
+          checks.push({
+            lineId,
+            variantSizeId: proposal.variantSizeId,
+            quantity: proposal.quantity,
+            blockedStart: availability.effectiveBlockedRange.start,
+            blockedEnd: availability.effectiveBlockedRange.end,
+            remainingQuantity: availability.remainingQuantity,
+            available: availability.available,
+            reason: availability.reason,
+          });
+        }
+      }
+
+      for (const check of checks) {
+        const combinedDemand = checks
+          .filter((candidate) =>
+            candidate.variantSizeId === check.variantSizeId
+            && candidate.blockedStart <= check.blockedEnd
+            && candidate.blockedEnd >= check.blockedStart,
+          )
+          .reduce((sum, candidate) => sum + candidate.quantity, 0);
+        if (!check.available || combinedDemand > check.remainingQuantity) {
+          if (!conflicts.some((conflict) => conflict.lineId === check.lineId && conflict.code === 'CAPACITY_CHANGED')) {
+            const planEntry = availabilityPlan.find((entry) => entry.lineId === check.lineId && entry.variantSizeId === check.variantSizeId);
+            conflicts.push({
+              code: 'CAPACITY_CHANGED',
+              lineId: check.lineId,
+              variantSizeId: check.variantSizeId,
+              requestedQuantity: combinedDemand,
+              remainingQuantity: check.remainingQuantity,
+              transferRequired: planEntry?.transferRequired === true,
+              transferFromLocationId: planEntry?.transferFromLocationId,
+              message: check.reason ?? 'The selected location cannot satisfy the complete rental plan',
+            });
+          }
+        }
+      }
+
+      const summary = computeCartSummary(results);
+      const discountAmount = this.computeDiscountAmount(dto.discount, summary);
+      const totals = { ...summary, discountAmount, grandTotal: summary.grandTotal - discountAmount };
+      const requestSnapshot = {
+        plan: dto.plan,
+        items: normalizedItems,
+        discount: dto.discount ?? null,
+      };
+      const inputsHash = this.canonicalHash(requestSnapshot);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      const quoteHash = this.canonicalHash({
+        inputsHash,
+        policyVersionIds: [...policyVersionIds].sort(),
+        lines,
+        availabilityPlan,
+        totals,
+        expiresAt: expiresAt.toISOString(),
+      });
+
+      if (conflicts.length > 0) {
+        return {
+          valid: false,
+          quoteId: null,
+          quoteHash: null,
+          expiresAt: null,
+          location,
+          plan: dto.plan,
+          lines,
+          availabilityPlan,
+          totals,
+          conflicts,
+        };
+      }
+
+      const quote = await tx.bookingQuote.create({
+        data: {
+          tenantId,
+          inputsHash,
+          quoteHash,
+          sourceLocationId: location.id,
+          rentalStartDate: new Date(dto.plan.startDate),
+          rentalEndDate: new Date(dto.plan.endDate),
+          handoverMethod: dto.plan.handoverMethod,
+          returnMethod: dto.plan.returnMethod,
+          requestSnapshot: requestSnapshot as unknown as Prisma.InputJsonValue,
+          itemizedLines: lines as unknown as Prisma.InputJsonValue,
+          availabilityPlan: availabilityPlan as unknown as Prisma.InputJsonValue,
+          policyVersionIds: [...policyVersionIds].sort(),
+          subtotal: totals.subtotal,
+          totalFees: totals.totalFees,
+          shippingFee: totals.shippingFee,
+          totalDeposit: totals.totalDeposit,
+          discountAmount,
+          grandTotal: totals.grandTotal,
+          expiresAt,
+          createdByUserId: actorUserId ?? null,
+        },
+      });
+      return {
+        valid: true,
+        quoteId: quote.id,
+        quoteHash,
+        expiresAt: expiresAt.toISOString(),
+        location,
+        plan: dto.plan,
+        lines,
+        availabilityPlan,
+        totals,
+        conflicts: [],
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async createGuestBooking(tenantId: string, dto: CreateBookingDto, creationKey?: string) {
+    if (
+      dto.autoConfirm
+      || dto.initialPayment
+      || dto.discount
+      || dto.internalNotes
+      || dto.items.some((item) => item.priceOverride !== undefined)
+    ) {
+      throw new BadRequestException('Owner-only booking controls are not accepted by the storefront endpoint');
+    }
+    return this.createBooking(tenantId, dto, creationKey);
+  }
+
+  async createManualBooking(
+    tenantId: string,
+    dto: CreateManualBookingDto,
+    creationKey?: string,
+  ) {
+    if (!creationKey?.trim()) throw new BadRequestException('Idempotency-Key is required for manual booking creation');
+    return this.createBooking(tenantId, dto, creationKey);
+  }
+
   /**
    * Creates a booking atomically:
    * 1. Find/create customer by phone
@@ -364,6 +674,7 @@ export class BookingService {
    * 8. Emit booking.created (and booking.confirmed) event
    */
   async createBooking(tenantId: string, dto: CreateBookingDto, rawCreationKey?: string) {
+    const manualDto = 'quoteId' in dto ? dto as CreateManualBookingDto : null;
     const creationKey = rawCreationKey?.trim() || null;
     const creationRequestHash = creationKey ? this.bookingRequestHash(dto) : null;
     if (creationKey && creationKey.length > 200) {
@@ -377,6 +688,30 @@ export class BookingService {
       if (existing) {
         this.assertMatchingBookingRequest(existing, creationRequestHash);
         return this.toBookingCreatedResponse(existing);
+      }
+    }
+    let acceptedQuote = null;
+    if (manualDto) {
+      if (manualDto.items.some((item) => item.startDate !== manualDto.plan.startDate || item.endDate !== manualDto.plan.endDate)) {
+        throw new BadRequestException('Every item must use the accepted rental-plan dates');
+      }
+      acceptedQuote = await this.prisma.bookingQuote.findFirst({
+        where: { id: manualDto.quoteId, tenantId },
+        include: { booking: { select: { id: true } } },
+      });
+      if (!acceptedQuote) throw new ConflictException({ code: 'QUOTE_NOT_FOUND', message: 'The accepted quote no longer exists' });
+      if (acceptedQuote.booking) throw new ConflictException({ code: 'QUOTE_ALREADY_USED', message: 'This quote already created a booking' });
+      if (acceptedQuote.expiresAt <= new Date()) throw new ConflictException({ code: 'QUOTE_EXPIRED', message: 'The accepted quote has expired; refresh pricing and availability' });
+      if (acceptedQuote.quoteHash !== manualDto.quoteHash) {
+        throw new ConflictException({ code: 'QUOTE_MISMATCH', message: 'The accepted quote identity does not match the current request' });
+      }
+      const inputsHash = this.canonicalHash({
+        plan: manualDto.plan,
+        items: manualDto.items,
+        discount: manualDto.discount ?? null,
+      });
+      if (acceptedQuote.inputsHash !== inputsHash) {
+        throw new ConflictException({ code: 'QUOTE_INPUTS_CHANGED', message: 'Rental dates, location, items, or adjustments changed after quoting' });
       }
     }
     const pendingReservationExpiresAt = dto.autoConfirm
@@ -404,6 +739,48 @@ export class BookingService {
     let booking: BookingCreatedRecord | null;
     try {
       booking = await this.runSerializableTransaction(async (tx) => {
+      if (manualDto) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM booking_quotes
+          WHERE tenant_id = ${tenantId} AND id = ${manualDto.quoteId}
+          FOR UPDATE
+        `);
+        const lockedQuote = await tx.bookingQuote.findFirst({
+          where: { id: manualDto.quoteId, tenantId },
+          include: { booking: { select: { id: true } } },
+        });
+        if (!lockedQuote || lockedQuote.booking || lockedQuote.expiresAt <= new Date()) {
+          throw new ConflictException({ code: 'QUOTE_STALE', message: 'The accepted quote expired or was already used' });
+        }
+        const currentLocation = await tx.inventoryLocation.findFirst({
+          where: {
+            id: manualDto.plan.sourceLocationId,
+            tenantId,
+            isActive: true,
+            canFulfillRentals: true,
+          },
+          select: { id: true, name: true, canCustomerPickup: true },
+        });
+        if (
+          !currentLocation
+          || (manualDto.plan.handoverMethod === 'CUSTOMER_PICKUP' && !currentLocation.canCustomerPickup)
+        ) {
+          throw new ConflictException({
+            code: 'FULFILLMENT_LOCATION_CHANGED',
+            message: 'The selected location can no longer fulfill this handover plan; choose another location and refresh the quote',
+            sourceLocationId: manualDto.plan.sourceLocationId,
+          });
+        }
+        const quotedPolicyIds = lockedQuote.policyVersionIds as string[];
+        if (quotedPolicyIds.length > 0) {
+          await tx.$queryRaw(Prisma.sql`
+            SELECT id FROM price_policy_versions
+            WHERE id IN (${Prisma.join([...quotedPolicyIds].sort())})
+            ORDER BY id
+            FOR SHARE
+          `);
+        }
+      }
       const fulfillmentProposals: RequirementProposal[][] = [];
       for (const item of dto.items) {
         fulfillmentProposals.push(await this.fulfillment.expandProposal(tx, {
@@ -419,13 +796,23 @@ export class BookingService {
 
       // Step 2: Validate all items INSIDE the transaction
       const validatedItems: CartItemResult[] = [];
+      const quotedItemTotals: number[] = [];
       for (const item of dto.items) {
-        const result = await this.validateSingleItemTx(tx, tenantId, item);
+        const result = await this.validateSingleItemTx(tx, tenantId, item, manualDto?.plan.sourceLocationId);
         if (!result.available) {
-          throw new ConflictException(
-            `Product "${result.productName}" is not available for the selected dates: ${item.startDate} – ${item.endDate}`,
-          );
+          throw new ConflictException({
+            code: 'AVAILABILITY_CHANGED',
+            message: `Product "${result.productName}" is no longer available for the accepted rental plan`,
+            productId: item.productId,
+            variantSizeId: item.variantSizeId,
+            errors: result.errors,
+          });
         }
+
+        const compositionAdjustment = fulfillmentProposals[validatedItems.length]
+          .reduce((sum, proposal) => sum + proposal.priceAdjustment, 0);
+        result.itemTotal += compositionAdjustment;
+        quotedItemTotals.push(result.itemTotal);
 
         // Apply per-item price override if provided (manual booking power-up)
         if ('priceOverride' in item && item.priceOverride !== undefined && item.priceOverride !== null) {
@@ -434,19 +821,52 @@ export class BookingService {
           result.baseRental = item.priceOverride;
           result.extendedDays = 0;
           result.extendedCost = 0;
-          result.itemTotal = result.baseRental + result.cleaningFee + result.backupSizeFee + result.tryOnFee;
+          result.itemTotal = result.baseRental + result.cleaningFee + result.backupSizeFee + result.tryOnFee + compositionAdjustment;
           this.logger.log(
-            `Price override applied for "${result.productName}": ৳${originalBaseRental} → ৳${item.priceOverride}`,
+            `Price override applied for "${result.productName}": ${originalBaseRental} → ${item.priceOverride} minor BDT`,
           );
         }
 
-        result.itemTotal += fulfillmentProposals[validatedItems.length]
-          .reduce((sum, proposal) => sum + proposal.priceAdjustment, 0);
+        if (manualDto?.plan.handoverMethod === 'CUSTOMER_PICKUP') result.shippingFee = 0;
 
         validatedItems.push(result);
       }
 
       const summary = computeCartSummary(validatedItems);
+
+      if (manualDto && acceptedQuote) {
+        const expectedLines = acceptedQuote.itemizedLines as unknown as ManualQuoteLine[];
+        const changedLines = validatedItems.flatMap((item, index) => {
+          const expected = expectedLines[index];
+          if (
+            !expected
+            || expected.productId !== item.productId
+            || expected.variantSizeId !== item.variantSizeId
+            || expected.policyVersionId !== item.policyVersionId
+            || expected.quotedItemTotal !== quotedItemTotals[index]
+            || expected.finalItemTotal !== item.itemTotal
+            || expected.depositAmount !== item.depositAmount
+          ) {
+            return [{
+              lineId: `${index}:${item.variantSizeId}`,
+              productId: item.productId,
+              variantSizeId: item.variantSizeId,
+              previousTotal: expected?.finalItemTotal ?? null,
+              currentTotal: item.itemTotal,
+              previousPolicyVersionId: expected?.policyVersionId ?? null,
+              currentPolicyVersionId: item.policyVersionId,
+            }];
+          }
+          return [];
+        });
+        if (changedLines.length > 0) {
+          throw new ConflictException({
+            code: 'PRICING_CHANGED',
+            message: 'Pricing changed after the quote was accepted; review the updated lines',
+            affectedLines: changedLines,
+          });
+        }
+      }
 
       // Step 3: Generate booking number (with row-level locking)
       const year = new Date().getFullYear();
@@ -459,20 +879,26 @@ export class BookingService {
 
       if (dto.discount) {
         discountType = dto.discount.type;
-        discountReason = dto.discount.reason ?? null;
-
-        if (dto.discount.type === 'flat') {
-          discountAmount = Math.min(dto.discount.value, summary.grandTotal);
-        } else if (dto.discount.type === 'percentage') {
-          const pct = Math.min(dto.discount.value, 100);
-          discountAmount = Math.ceil((summary.subtotal + summary.totalFees) * (pct / 100));
-          discountAmount = Math.min(discountAmount, summary.grandTotal);
-        }
-
-        if (discountAmount < 0) discountAmount = 0;
+        discountReason = dto.discount.reason;
+        discountAmount = this.computeDiscountAmount(dto.discount, summary);
       }
 
       const grandTotalAfterDiscount = summary.grandTotal - discountAmount;
+      if (manualDto && acceptedQuote && (
+        acceptedQuote.subtotal !== summary.subtotal
+        || acceptedQuote.totalFees !== summary.totalFees
+        || acceptedQuote.shippingFee !== summary.shippingFee
+        || acceptedQuote.totalDeposit !== summary.totalDeposit
+        || acceptedQuote.discountAmount !== discountAmount
+        || acceptedQuote.grandTotal !== grandTotalAfterDiscount
+      )) {
+        throw new ConflictException({
+          code: 'QUOTE_TOTAL_CHANGED',
+          message: 'The authoritative booking total changed; refresh the quote before creating the booking',
+          previousTotal: acceptedQuote.grandTotal,
+          currentTotal: grandTotalAfterDiscount,
+        });
+      }
 
       // Build delivery address extra (area, thana, district)
       const deliveryExtra: Record<string, string> = {};
@@ -502,6 +928,13 @@ export class BookingService {
           creationRequestHash,
           bookingNumber,
           customerId: customer.id,
+          quoteId: manualDto?.quoteId ?? null,
+          channel: manualDto ? BookingChannel.OWNER_MANUAL : BookingChannel.STOREFRONT,
+          rentalStartDate: manualDto ? new Date(manualDto.plan.startDate) : null,
+          rentalEndDate: manualDto ? new Date(manualDto.plan.endDate) : null,
+          sourceLocationId: manualDto?.plan.sourceLocationId ?? null,
+          handoverMethod: manualDto?.plan.handoverMethod,
+          returnMethod: manualDto?.plan.returnMethod,
           status: initialStatus,
           paymentMethod: dto.paymentMethod as PaymentMethod,
           paymentStatus: 'unpaid',
@@ -568,6 +1001,9 @@ export class BookingService {
             backupSizeFee: item.backupSizeFee,
             tryOnFee: effectiveTryOnFee,
             itemTotal: adjustedItemTotal,
+            quotedItemTotal: quotedItemTotals[itemIndex],
+            priceOverrideAmount: cartItem.priceOverride ?? null,
+            priceOverrideReason: cartItem.priceOverrideReason?.trim() ?? null,
             lateFee: 0,
             lateDays: 0,
           },
@@ -583,17 +1019,48 @@ export class BookingService {
           expiresAt: pendingReservationExpiresAt,
           proposals: fulfillmentProposals[itemIndex],
           itemRevenue: adjustedItemTotal,
+          sourceLocationId: manualDto?.plan.sourceLocationId,
         });
       }
 
       // Step 7: Record initial payment if provided
       if (dto.initialPayment) {
-        const paymentAmount = Math.min(dto.initialPayment.amount, grandTotalAfterDiscount);
+        if (dto.initialPayment.amount > grandTotalAfterDiscount) {
+          throw new BadRequestException('Initial payment cannot exceed the final booking total');
+        }
+        const paymentAmount = dto.initialPayment.amount;
+        const paymentDepositAmount = dto.initialPayment.depositAmount ?? 0;
+        if (paymentDepositAmount > paymentAmount) {
+          throw new BadRequestException('Initial deposit allocation cannot exceed the payment amount');
+        }
+        if (paymentDepositAmount > summary.totalDeposit) {
+          throw new BadRequestException('Initial deposit allocation cannot exceed the booking deposits');
+        }
+        const paymentRentalAmount = paymentAmount - paymentDepositAmount;
+        if (paymentRentalAmount > grandTotalAfterDiscount - summary.totalDeposit) {
+          throw new BadRequestException('Initial rental allocation cannot exceed the non-deposit balance');
+        }
+        if (dto.initialPayment.transactionId) {
+          const duplicateTransaction = await tx.payment.findFirst({
+            where: { tenantId, transactionId: dto.initialPayment.transactionId },
+            select: { id: true },
+          });
+          if (duplicateTransaction) {
+            throw new ConflictException({
+              code: 'PAYMENT_TRANSACTION_DUPLICATE',
+              message: `Transaction ID "${dto.initialPayment.transactionId}" is already recorded`,
+            });
+          }
+        }
         await tx.payment.create({
           data: {
             tenantId,
             bookingId: newBooking.id,
+            idempotencyKey: creationKey ? `initial:${createHash('sha256').update(creationKey).digest('hex')}` : null,
+            requestHash: this.canonicalHash(dto.initialPayment),
             amount: paymentAmount,
+            rentalAmount: paymentRentalAmount,
+            depositAmount: paymentDepositAmount,
             method: dto.initialPayment.method as PaymentMethod,
             status: 'verified',
             transactionId: dto.initialPayment.transactionId ?? null,
@@ -661,7 +1128,7 @@ export class BookingService {
       `Booking created: ${booking.bookingNumber} (tenant: ${tenantId})` +
       `${dto.autoConfirm ? ' [auto-confirmed]' : ''}` +
       `${dto.discount ? ` [discount: ${dto.discount.type} ${dto.discount.value}]` : ''}` +
-      `${dto.initialPayment ? ` [initial payment: ৳${dto.initialPayment.amount}]` : ''}`,
+      `${dto.initialPayment ? ` [initial payment: ${dto.initialPayment.amount} minor BDT]` : ''}`,
     );
 
     return this.toBookingCreatedResponse(booking);
@@ -701,6 +1168,28 @@ export class BookingService {
   }
 
   private bookingRequestHash(dto: CreateBookingDto): string {
+    return this.canonicalHash(dto);
+  }
+
+  private computeDiscountAmount(
+    discount: CreateManualBookingQuoteDto['discount'],
+    summary: CartSummary,
+  ) {
+    if (!discount) return 0;
+    const discountableAmount = summary.subtotal + summary.totalFees + summary.shippingFee;
+    if (discount.type === 'percentage') {
+      if (!Number.isInteger(discount.value) || discount.value > 100) {
+        throw new BadRequestException('Percentage discount must be a whole number from 0 to 100');
+      }
+      return Math.ceil(discountableAmount * (discount.value / 100));
+    }
+    if (!Number.isInteger(discount.value) || discount.value > discountableAmount) {
+      throw new BadRequestException('Flat discount cannot exceed the non-deposit rental charges');
+    }
+    return discount.value;
+  }
+
+  private canonicalHash(value: unknown): string {
     const canonicalize = (value: unknown): unknown => {
       if (Array.isArray(value)) return value.map(canonicalize);
       if (value && typeof value === 'object') {
@@ -714,7 +1203,7 @@ export class BookingService {
       return value;
     };
     return createHash('sha256')
-      .update(JSON.stringify(canonicalize(dto)))
+      .update(JSON.stringify(canonicalize(value)))
       .digest('hex');
   }
 
@@ -930,6 +1419,9 @@ export class BookingService {
       include: {
         customer: {
           include: { tags: true },
+        },
+        sourceLocation: {
+          select: { id: true, code: true, name: true, timezone: true },
         },
         items: {
           include: {
@@ -1549,6 +2041,7 @@ export class BookingService {
     tx: Prisma.TransactionClient | PrismaService,
     tenantId: string,
     item: CartItemDto,
+    sourceLocationId?: string,
   ): Promise<CartItemResult> {
     const errors: string[] = [];
     const quantity = item.quantity ?? 1;
@@ -1593,6 +2086,7 @@ export class BookingService {
         variantName: null,
         colorName: '',
         featuredImageUrl: '',
+        policyVersionId: '',
         errors: ['Product not found'],
         baseRental: 0,
         extendedDays: 0,
@@ -1652,6 +2146,7 @@ export class BookingService {
           productId: item.productId,
           variantSizeId: item.variantSizeId,
           preferredStockUnitId: item.preferredStockUnitId,
+          sourceLocationId,
           startDate: item.startDate,
           endDate: item.endDate,
           quantity,
@@ -1667,6 +2162,8 @@ export class BookingService {
     const unitPricing = await this.calculatePricingForDates(
       product.id,
       item,
+      tx,
+      sourceLocationId,
     );
     const preferredUnit = item.preferredStockUnitId
       ? await tx.stockUnit.findFirst({
@@ -1723,12 +2220,20 @@ export class BookingService {
   private async calculatePricingForDates(
     productId: string,
     item: { startDate: string; endDate: string; backupSize?: string; tryOn?: boolean },
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+    sourceLocationId?: string,
   ): Promise<PricingSnapshot> {
     return this.pricingEngineService.computeBookingPricing(
       productId,
       item.startDate,
       item.endDate,
-      { backupSize: item.backupSize, tryOn: item.tryOn },
+      {
+        backupSize: item.backupSize,
+        tryOn: item.tryOn,
+        location: sourceLocationId,
+        channel: sourceLocationId ? 'owner_manual' : 'storefront',
+      },
+      db,
     );
   }
 

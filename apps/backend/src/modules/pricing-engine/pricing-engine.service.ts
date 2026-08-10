@@ -2,6 +2,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createHash } from 'crypto';
+import { Prisma } from '@prisma/client';
 import type {
   PerDayConfig,
   FlatPeriodConfig,
@@ -76,7 +77,10 @@ export class PricingEngineService {
    * Main entry point. Loads the active policy version for a product
    * and computes a deterministic, itemized quote.
    */
-  async computeQuote(input: QuoteInput): Promise<QuoteResult> {
+  async computeQuote(
+    input: QuoteInput,
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<QuoteResult> {
     if (!Number.isFinite(input.startAt.getTime()) || !Number.isFinite(input.endAt.getTime())) {
       throw new BadRequestException('Rental dates must be valid ISO date-time values');
     }
@@ -85,7 +89,7 @@ export class PricingEngineService {
     }
 
     // 1. Load pricing profile + active policy version
-    const profile = await this.prisma.pricingProfile.findFirst({
+    const profile = await db.pricingProfile.findFirst({
       where: {
         productId: input.productId,
         tenantId: input.tenantId,
@@ -290,9 +294,10 @@ export class PricingEngineService {
     productId: string,
     startDate: string,
     endDate: string,
-    options?: { backupSize?: string; tryOn?: boolean },
+    options?: { backupSize?: string; tryOn?: boolean; location?: string; channel?: string },
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
-    const product = await this.prisma.product.findUnique({
+    const product = await db.product.findUnique({
       where: { id: productId },
       select: { purchasePrice: true, tenantId: true },
     });
@@ -304,11 +309,15 @@ export class PricingEngineService {
       startAt: new Date(startDate),
       endAt: new Date(endDate),
       retailPriceMinor: product.purchasePrice ?? undefined,
+      context: {
+        location: options?.location,
+        channel: options?.channel,
+      },
       selectedAddons: [
         ...(options?.backupSize ? ['BACKUP_SIZE'] : []),
         ...(options?.tryOn ? ['TRY_ON'] : []),
       ],
-    });
+    }, db);
 
     const amount = (type: string) =>
       result.lineItems

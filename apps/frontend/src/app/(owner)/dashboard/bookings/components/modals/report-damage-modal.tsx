@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Loader2, UploadCloud, X, ImageIcon } from 'lucide-react';
 import { bookingApi } from '@/lib/api/bookings';
 import Image from 'next/image';
+import { formatMinorMoney, majorInputToMinor } from '@/lib/money';
 
 interface ReportDamageModalProps {
   isOpen: boolean;
@@ -55,18 +56,18 @@ export function ReportDamageModal({
   const [additionalCharge, setAdditionalCharge] = useState('0');
   const [photos, setPhotos] = useState<PhotoPreview[]>([]);
 
-  const parsedRepairCost = parseInt(repairCost, 10) || 0;
-  const parsedDeduction = parseInt(deduction, 10) || 0;
-  const parsedAdditional = parseInt(additionalCharge, 10) || 0;
+  const parsedRepairCost = majorInputToMinor(repairCost) ?? 0;
+  const parsedDeduction = majorInputToMinor(deduction) ?? 0;
+  const parsedAdditional = majorInputToMinor(additionalCharge) ?? 0;
 
   // Auto-suggest deduction from repair cost (capped at deposit)
   const handleRepairCostChange = (val: string) => {
     setRepairCost(val);
-    const cost = parseInt(val, 10) || 0;
+    const cost = majorInputToMinor(val) ?? 0;
     const autoDeduction = Math.min(cost, depositAmount);
     const autoAdditional = Math.max(0, cost - depositAmount);
-    setDeduction(String(autoDeduction));
-    setAdditionalCharge(String(autoAdditional));
+    setDeduction(String(autoDeduction / 100));
+    setAdditionalCharge(String(autoAdditional / 100));
   };
 
   // ── Photo handling ──────────────────────────────────────────────────────
@@ -200,6 +201,7 @@ export function ReportDamageModal({
                 value={repairCost}
                 onChange={(e) => handleRepairCostChange(e.target.value)}
                 min={0}
+                step="0.01"
               />
             </div>
           </div>
@@ -217,10 +219,11 @@ export function ReportDamageModal({
                 value={deduction}
                 onChange={(e) => setDeduction(e.target.value)}
                 min={0}
-                max={depositAmount}
+                max={depositAmount / 100}
+                step="0.01"
               />
               <p className="text-[11px] text-muted-foreground mt-1">
-                Customer&apos;s deposit: ৳{depositAmount.toLocaleString()}
+                Customer&apos;s deposit: {formatMinorMoney(depositAmount)}
               </p>
             </div>
           </div>
@@ -238,6 +241,7 @@ export function ReportDamageModal({
                 value={additionalCharge}
                 onChange={(e) => setAdditionalCharge(e.target.value)}
                 min={0}
+                step="0.01"
               />
               <p className="text-[11px] text-muted-foreground mt-1">
                 Extra amount to charge if repair cost exceeds deposit
@@ -316,18 +320,18 @@ export function ReportDamageModal({
           <div className="space-y-1">
             <div className="flex justify-between items-center text-sm">
               <span className="text-orange-900 dark:text-orange-300">Deposit Deduction</span>
-              <span className="font-semibold text-destructive">−৳{parsedDeduction.toLocaleString()}</span>
+              <span className="font-semibold text-destructive">−{formatMinorMoney(parsedDeduction)}</span>
             </div>
             {parsedAdditional > 0 && (
               <div className="flex justify-between items-center text-sm">
                 <span className="text-orange-900 dark:text-orange-300">Additional Charge</span>
-                <span className="font-semibold text-orange-600">+৳{parsedAdditional.toLocaleString()}</span>
+                <span className="font-semibold text-orange-600">+{formatMinorMoney(parsedAdditional)}</span>
               </div>
             )}
             <div className="flex justify-between items-center text-sm pt-1 border-t border-orange-200 dark:border-orange-700 mt-1">
               <span className="font-medium text-orange-900 dark:text-orange-300">Total Customer Impact</span>
               <span className="font-bold text-orange-900 dark:text-orange-300">
-                ৳{(parsedDeduction + parsedAdditional).toLocaleString()}
+                {formatMinorMoney(parsedDeduction + parsedAdditional)}
               </span>
             </div>
           </div>
@@ -342,7 +346,7 @@ export function ReportDamageModal({
           </Button>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !description.trim()}
+            disabled={mutation.isPending || !description.trim() || parsedDeduction > depositAmount}
           >
             {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Submit Damage Report

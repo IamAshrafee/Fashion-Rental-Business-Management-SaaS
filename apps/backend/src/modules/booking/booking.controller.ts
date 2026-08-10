@@ -17,6 +17,8 @@ import { BookingService } from './booking.service';
 import { CustomerService } from '../customer/customer.service';
 import {
   CreateBookingDto,
+  CreateManualBookingDto,
+  CreateManualBookingQuoteDto,
   ValidateCartDto,
   UpdateBookingStatusDto,
   CancelBookingDto,
@@ -97,7 +99,7 @@ export class BookingGuestController {
     @Body() dto: CreateBookingDto,
     @Headers('idempotency-key') creationKey?: string,
   ) {
-    return this.bookingService.createBooking(tenant.id, dto, creationKey);
+    return this.bookingService.createGuestBooking(tenant.id, dto, creationKey);
   }
 
   /**
@@ -140,6 +142,28 @@ export class BookingGuestController {
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class BookingOwnerController {
   constructor(private readonly bookingService: BookingService) {}
+
+  @Post('quote')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.OK)
+  async createManualQuote(
+    @CurrentTenant() tenant: TenantContext,
+    @Body() dto: CreateManualBookingQuoteDto,
+    @Req() req: Request & { user?: { id: string } },
+  ) {
+    return this.bookingService.createManualQuote(tenant.id, dto, req.user?.id);
+  }
+
+  @Post()
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.CREATED)
+  async createManualBooking(
+    @CurrentTenant() tenant: TenantContext,
+    @Body() dto: CreateManualBookingDto,
+    @Headers('idempotency-key') creationKey?: string,
+  ) {
+    return this.bookingService.createManualBooking(tenant.id, dto, creationKey);
+  }
 
   /**
    * GET /api/v1/owner/bookings/stats

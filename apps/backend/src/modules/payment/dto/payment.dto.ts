@@ -21,6 +21,11 @@ export class RecordPaymentDto {
   @Min(1)
   amount!: number;
 
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  depositAmount?: number;
+
   @IsIn(PAYMENT_METHODS)
   method!: (typeof PAYMENT_METHODS)[number];
 

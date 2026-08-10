@@ -15,6 +15,12 @@ import { InventoryManagementService } from '../src/modules/inventory/inventory-m
 import { InventoryPoolService } from '../src/modules/inventory/inventory-pool.service';
 import { InventoryServiceOrderService } from '../src/modules/inventory/inventory-service-order.service';
 import { StockUnitLifecycleService } from '../src/modules/inventory/stock-unit-lifecycle.service';
+import { InventoryReservationService } from '../src/modules/inventory/inventory-reservation.service';
+import { FulfillmentService } from '../src/modules/inventory/fulfillment.service';
+import { PricingEngineService } from '../src/modules/pricing-engine/pricing-engine.service';
+import { CustomerService } from '../src/modules/customer/customer.service';
+import { BookingService } from '../src/modules/booking/booking.service';
+import { PaymentService } from '../src/modules/payment/payment.service';
 
 describe('inventory control PostgreSQL contracts', () => {
   const prisma = new PrismaClient();
@@ -27,12 +33,28 @@ describe('inventory control PostgreSQL contracts', () => {
   const blocks = new InventoryBlockService(prisma as never);
   const dashboard = new InventoryDashboardService(prisma as never, availability);
   const serviceOrders = new InventoryServiceOrderService(prisma as never, lifecycle, locations);
+  const reservations = new InventoryReservationService(availability);
+  const fulfillment = new FulfillmentService(prisma as never, availability, reservations, lifecycle);
+  const pricing = new PricingEngineService(prisma as never);
+  const customers = new CustomerService(prisma as never);
+  const bookings = new BookingService(
+    prisma as never,
+    customers,
+    { emit: jest.fn() } as never,
+    pricing,
+    availability,
+    reservations,
+    fulfillment,
+  );
+  const payments = new PaymentService(prisma as never, { emit: jest.fn() } as never, {} as never);
   let tenantId: string;
   let ownerId: string;
   let productId: string;
   let locationId: string;
   let pooledSkuId: string;
   let serializedSkuId: string;
+  let variantId: string;
+  let ratePlanId: string;
 
   beforeAll(async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -60,6 +82,7 @@ describe('inventory control PostgreSQL contracts', () => {
     const variant = await prisma.productVariant.create({
       data: { tenantId, productId, mainColorId: color.id, variantName: 'Red' },
     });
+    variantId = variant.id;
     const [serializedSku, pooledSku, location] = await Promise.all([
       prisma.variantSize.create({ data: { tenantId, variantId: variant.id, sizeInstanceId: serializedSize.id, trackingMode: InventoryTrackingMode.SERIALIZED } }),
       prisma.variantSize.create({ data: { tenantId, variantId: variant.id, sizeInstanceId: pooledSize.id, trackingMode: InventoryTrackingMode.POOLED } }),
@@ -69,6 +92,31 @@ describe('inventory control PostgreSQL contracts', () => {
     pooledSkuId = pooledSku.id;
     locationId = location.id;
     await prisma.inventoryPool.create({ data: { tenantId, variantSizeId: pooledSkuId, locationId, onHandQuantity: 10 } });
+    const profile = await prisma.pricingProfile.create({
+      data: { tenantId, productId, currency: 'BDT' },
+    });
+    const policy = await prisma.pricePolicyVersion.create({
+      data: { pricingProfileId: profile.id, version: 1, status: 'ACTIVE', publishedAt: new Date() },
+    });
+    const ratePlan = await prisma.ratePlan.create({
+      data: {
+        policyVersionId: policy.id,
+        type: 'PER_DAY',
+        priority: 100,
+        config: { unitPriceMinor: 25_000, minDays: 1 },
+      },
+    });
+    ratePlanId = ratePlan.id;
+    await prisma.priceComponent.create({
+      data: {
+        policyVersionId: policy.id,
+        type: 'DEPOSIT',
+        priority: 100,
+        refundable: true,
+        chargeTiming: 'AT_BOOKING',
+        config: { label: 'Security deposit', pricing: { mode: 'FLAT', amountMinor: 10_000 } },
+      },
+    });
   });
 
   afterAll(async () => prisma.$disconnect());
@@ -157,5 +205,110 @@ describe('inventory control PostgreSQL contracts', () => {
     expect(availableItems.meta.total).toBe(2);
     expect(availableItems.data.map((item) => item.id)).not.toContain(unit.id);
     expect(availableItems.data.map((item) => item.id)).not.toContain(serviceUnit.id);
+  });
+
+  it('binds owner booking creation to a fresh location-aware quote and safely replays it', async () => {
+    const plan = {
+      startDate: '2026-11-10',
+      endDate: '2026-11-12',
+      sourceLocationId: locationId,
+      handoverMethod: 'DELIVERY' as const,
+      returnMethod: 'BUSINESS_PICKUP' as const,
+      allowTransferPlan: false,
+    };
+    const items = [{
+      productId,
+      variantId,
+      variantSizeId: pooledSkuId,
+      quantity: 2,
+      startDate: plan.startDate,
+      endDate: plan.endDate,
+      priceOverride: 60_000,
+      priceOverrideReason: 'Approved package rate',
+    }];
+    const staleQuote = await bookings.createManualQuote(tenantId, {
+      plan,
+      items,
+      discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
+    }, ownerId);
+    expect(staleQuote).toMatchObject({ valid: true, quoteId: expect.any(String), quoteHash: expect.any(String) });
+
+    await prisma.ratePlan.update({
+      where: { id: ratePlanId },
+      data: { config: { unitPriceMinor: 30_000, minDays: 1 } },
+    });
+    await expect(bookings.createManualBooking(tenantId, {
+      quoteId: staleQuote.quoteId!,
+      quoteHash: staleQuote.quoteHash!,
+      plan,
+      customer: { fullName: 'Stale Quote Customer', phone: `018${Date.now().toString().slice(-8)}` },
+      delivery: { address: 'Dhanmondi 27', city: 'Dhaka', country: 'BD' },
+      items,
+      paymentMethod: 'cod',
+      discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
+    }, randomUUID())).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PRICING_CHANGED' }) });
+
+    const quote = await bookings.createManualQuote(tenantId, {
+      plan,
+      items,
+      discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
+    }, ownerId);
+    expect(quote.valid).toBe(true);
+
+    const request = {
+      quoteId: quote.quoteId!,
+      quoteHash: quote.quoteHash!,
+      plan,
+      customer: { fullName: 'Manual Quote Customer', phone: `017${Date.now().toString().slice(-8)}` },
+      delivery: { address: 'Dhanmondi 27', city: 'Dhaka', country: 'BD' },
+      items,
+      paymentMethod: 'cod' as const,
+      discount: { type: 'flat' as const, value: 5_000, reason: 'Repeat customer' },
+      initialPayment: { amount: 20_000, depositAmount: 10_000, method: 'bkash' as const, transactionId: randomUUID() },
+    };
+    const creationKey = randomUUID();
+    const created = await bookings.createManualBooking(tenantId, request, creationKey);
+    const replay = await bookings.createManualBooking(tenantId, request, creationKey);
+    expect(replay.bookingId).toBe(created.bookingId);
+    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+      quoteId: quote.quoteId,
+      channel: 'OWNER_MANUAL',
+      sourceLocationId: locationId,
+      grandTotal: quote.totals.grandTotal,
+      totalPaid: 20_000,
+    });
+
+    const remaining = quote.totals.grandTotal - 20_000;
+    const competingKeys = [randomUUID(), randomUUID()];
+    const competingPayments = await Promise.allSettled(competingKeys.map((key) =>
+      payments.recordPayment(tenantId, created.bookingId, {
+        amount: remaining,
+        depositAmount: 10_000,
+        method: 'cod',
+        notes: 'Final counter payment',
+      }, ownerId, key),
+    ));
+    expect(competingPayments.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const winningIndex = competingPayments.findIndex((result) => result.status === 'fulfilled');
+    const replayedPayment = await payments.recordPayment(tenantId, created.bookingId, {
+      amount: remaining,
+      depositAmount: 10_000,
+      method: 'cod',
+      notes: 'Final counter payment',
+    }, ownerId, competingKeys[winningIndex]);
+    expect(replayedPayment.id).toBe((competingPayments[winningIndex] as PromiseFulfilledResult<{ id: string }>).value.id);
+    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+      totalPaid: quote.totals.grandTotal,
+      paymentStatus: 'paid',
+    });
+    const allocations = await prisma.payment.aggregate({
+      where: { bookingId: created.bookingId, status: 'verified' },
+      _sum: { amount: true, rentalAmount: true, depositAmount: true },
+    });
+    expect(allocations._sum).toEqual({
+      amount: quote.totals.grandTotal,
+      rentalAmount: quote.totals.grandTotal - quote.totals.totalDeposit,
+      depositAmount: quote.totals.totalDeposit,
+    });
   });
 });

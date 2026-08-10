@@ -8,14 +8,16 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, Clock, CheckCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { RecordPaymentModal } from '../../components/modals/record-payment-modal';
+import { formatMinorMoney } from '@/lib/money';
 
 interface PaymentHistoryProps {
   payments: Payment[];
   bookingId: string;
   balanceDue: number;
+  depositBalance: number;
 }
 
-export function PaymentHistory({ payments, bookingId, balanceDue }: PaymentHistoryProps) {
+export function PaymentHistory({ payments, bookingId, balanceDue, depositBalance }: PaymentHistoryProps) {
   const [showRecordModal, setShowRecordModal] = useState(false);
 
   return (
@@ -41,7 +43,10 @@ export function PaymentHistory({ payments, bookingId, balanceDue }: PaymentHisto
                 <div key={payment.id} className="p-3 bg-muted/40 rounded-lg flex flex-col gap-2 relative">
                   <div className="flex justify-between items-start">
                     <div>
-                      <div className="font-semibold text-base">৳{(payment.amount).toLocaleString()}</div>
+                      <div className="font-semibold text-base">{formatMinorMoney(payment.amount)}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Rental {formatMinorMoney(payment.rentalAmount)} · Deposit {formatMinorMoney(payment.depositAmount)}
+                      </div>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="secondary" className="text-[10px] font-normal px-1.5 shadow-none bg-background border uppercase">{payment.method}</Badge>
                         <span className="text-xs text-muted-foreground flex items-center">
@@ -81,6 +86,7 @@ export function PaymentHistory({ payments, bookingId, balanceDue }: PaymentHisto
         onOpenChange={setShowRecordModal}
         bookingId={bookingId}
         balanceDue={balanceDue}
+        depositBalance={depositBalance}
       />
     </>
   );
