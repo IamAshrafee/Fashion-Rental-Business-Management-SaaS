@@ -7,7 +7,7 @@ describe('InventoryAvailabilityService', () => {
     variantSize: { findFirst: jest.fn() },
     inventoryLocation: { findMany: jest.fn() },
     inventoryPool: { findUnique: jest.fn() },
-    inventoryBlock: { findFirst: jest.fn(), aggregate: jest.fn() },
+    inventoryBlock: { findFirst: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     inventoryReservation: { aggregate: jest.fn(), findMany: jest.fn() },
     stockUnit: { count: jest.fn(), findFirst: jest.fn() },
   };
@@ -67,11 +67,12 @@ describe('InventoryAvailabilityService', () => {
     service = new InventoryAvailabilityService(prisma as never, policies as never);
     prisma.variantSize.findFirst.mockResolvedValue(baseSku);
     prisma.inventoryLocation.findMany.mockResolvedValue([
-      { id: 'location-1', code: 'MAIN', name: 'Main', isDefault: true },
+      { id: 'location-1', code: 'MAIN', name: 'Main', timezone: 'Asia/Dhaka', isDefault: true },
     ]);
     prisma.inventoryPool.findUnique.mockResolvedValue({ id: 'pool-1', onHandQuantity: 3 });
     prisma.inventoryBlock.findFirst.mockResolvedValue(null);
     prisma.inventoryBlock.aggregate.mockResolvedValue({ _sum: { quantity: null } });
+    prisma.inventoryBlock.findMany.mockResolvedValue([]);
     prisma.inventoryReservation.aggregate.mockResolvedValue({ _sum: { quantity: 1 } });
     prisma.inventoryReservation.findMany.mockResolvedValue([]);
     prisma.stockUnit.count.mockResolvedValue(0);
@@ -213,5 +214,48 @@ describe('InventoryAvailabilityService', () => {
 
   it('reports malformed date input as a bad request', () => {
     expect(() => service.parseDate('not-a-date', 'startDate')).toThrow(BadRequestException);
+  });
+
+  it('evaluates date-only notice windows in the fulfillment location timezone', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-09T20:30:00.000Z').getTime());
+    const result = await service.check({
+      tenantId: 'tenant-1',
+      productId: 'product-1',
+      variantSizeId: 'sku-1',
+      startDate: '2026-08-10',
+      endDate: '2026-08-12',
+    });
+
+    expect(result.available).toBe(false);
+    expect(result.reason).toBe('The rental does not meet the minimum notice period');
+  });
+
+  it('derives next-available candidates from conflict boundaries instead of scanning every day', async () => {
+    prisma.inventoryReservation.findMany.mockResolvedValue([
+      { blockedEndDate: new Date('2026-08-14') },
+    ]);
+    const current = await service.check({
+      tenantId: 'tenant-1',
+      productId: 'product-1',
+      variantSizeId: 'sku-1',
+      startDate: '2026-08-10',
+      endDate: '2026-08-12',
+      quantity: 3,
+    });
+    const check = jest.spyOn(service, 'check').mockResolvedValue({ ...current, available: true });
+
+    await expect(service.findNextAvailable({
+      tenantId: 'tenant-1',
+      productId: 'product-1',
+      variantSizeId: 'sku-1',
+      startDate: '2026-08-10',
+      endDate: '2026-08-12',
+      quantity: 3,
+    }, current)).resolves.toBe('2026-08-16');
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledWith(expect.objectContaining({
+      startDate: '2026-08-16',
+      endDate: '2026-08-18',
+    }));
   });
 });

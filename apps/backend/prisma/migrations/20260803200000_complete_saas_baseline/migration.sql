@@ -200,13 +200,18 @@ CREATE TABLE "users" (
 -- CreateTable
 CREATE TABLE "colors" (
     "id" TEXT NOT NULL,
+    "system_key" TEXT,
     "name" TEXT NOT NULL,
     "hex_code" TEXT NOT NULL,
-    "is_system" BOOLEAN NOT NULL DEFAULT true,
+    "is_system" BOOLEAN NOT NULL DEFAULT false,
     "tenant_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "colors_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "colors_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "colors_scope_check" CHECK (
+      ("is_system" = true AND "tenant_id" IS NULL AND "system_key" IS NOT NULL)
+      OR ("is_system" = false AND "tenant_id" IS NOT NULL AND "system_key" IS NULL)
+    )
 );
 
 -- CreateTable
@@ -1341,6 +1346,24 @@ CREATE TABLE "fulfillment_substitutions" (
 );
 
 -- CreateTable
+CREATE TABLE "fulfillment_extensions" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "booking_id" TEXT NOT NULL,
+    "previous_end_date" DATE NOT NULL,
+    "rental_end_date" DATE NOT NULL,
+    "extension_charge" INTEGER NOT NULL DEFAULT 0,
+    "approval_evidence" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "actor_user_id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "fulfillment_extensions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "fulfillment_requirement_events" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
@@ -1807,6 +1830,9 @@ CREATE INDEX "users_phone_idx" ON "users"("phone");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "colors_name_tenant_id_key" ON "colors"("name", "tenant_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "colors_system_key_key" ON "colors"("system_key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "subscription_plans_slug_key" ON "subscription_plans"("slug");
@@ -2298,6 +2324,15 @@ CREATE UNIQUE INDEX "fulfillment_substitutions_requirement_id_to_version_key" ON
 CREATE UNIQUE INDEX "fulfillment_substitutions_tenant_id_idempotency_key_key" ON "fulfillment_substitutions"("tenant_id", "idempotency_key");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "fulfillment_extensions_tenant_id_idempotency_key_key" ON "fulfillment_extensions"("tenant_id", "idempotency_key");
+
+-- CreateIndex
+CREATE INDEX "fulfillment_extensions_tenant_id_booking_id_created_at_idx" ON "fulfillment_extensions"("tenant_id", "booking_id", "created_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "fulfillment_extensions_actor_user_id_idx" ON "fulfillment_extensions"("actor_user_id");
+
+-- CreateIndex
 CREATE INDEX "fulfillment_requirement_events_tenant_id_requirement_id_cre_idx" ON "fulfillment_requirement_events"("tenant_id", "requirement_id", "created_at" DESC);
 
 -- CreateIndex
@@ -2620,6 +2655,12 @@ ALTER TABLE "tenants" ADD CONSTRAINT "tenants_plan_id_fkey" FOREIGN KEY ("plan_i
 
 -- AddForeignKey
 ALTER TABLE "tenants" ADD CONSTRAINT "tenants_promo_code_id_fkey" FOREIGN KEY ("promo_code_id") REFERENCES "promo_codes"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "colors" ADD CONSTRAINT "colors_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payments" ADD CONSTRAINT "payments_recorded_by_fkey" FOREIGN KEY ("recorded_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "tenant_usage_snapshots" ADD CONSTRAINT "tenant_usage_snapshots_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -2995,6 +3036,15 @@ ALTER TABLE "fulfillment_substitutions" ADD CONSTRAINT "fulfillment_substitution
 
 -- AddForeignKey
 ALTER TABLE "fulfillment_substitutions" ADD CONSTRAINT "fulfillment_substitutions_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "fulfillment_extensions" ADD CONSTRAINT "fulfillment_extensions_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "fulfillment_extensions" ADD CONSTRAINT "fulfillment_extensions_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "fulfillment_extensions" ADD CONSTRAINT "fulfillment_extensions_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "fulfillment_requirement_events" ADD CONSTRAINT "fulfillment_requirement_events_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -148,6 +148,18 @@ type BookingCreatedRecord = Prisma.BookingGetPayload<{
   include: typeof BOOKING_CREATED_INCLUDE;
 }>;
 
+export interface BookingOperationalTimelineEvent {
+  id: string;
+  category: 'BOOKING' | 'COURIER' | 'FULFILLMENT' | 'COMMERCIAL' | 'RETURN';
+  code: string;
+  label: string;
+  occurredAt: Date | string;
+  actor: { id: string; fullName: string } | null;
+  reason: string | null;
+  amountMinor: number | null;
+  metadata?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // Status transition map (ADR-02)
 // ---------------------------------------------------------------------------
@@ -210,7 +222,21 @@ export class BookingService {
       endDate,
       quantity,
     });
-    if (!inventory.available) return inventory;
+    if (!inventory.available) {
+      const nextAvailable = await this.inventoryAvailability.findNextAvailable({
+        tenantId,
+        productId,
+        variantSizeId,
+        startDate,
+        endDate,
+        quantity,
+      }, inventory);
+      return {
+        ...inventory,
+        conflictDates: [inventory.effectiveBlockedRange.start, inventory.effectiveBlockedRange.end],
+        ...(nextAvailable ? { nextAvailable } : {}),
+      };
+    }
 
     // Calculate pricing
     const pricing = await this.calculatePricingForDates(
@@ -1515,6 +1541,46 @@ export class BookingService {
     };
   }
 
+  async getBookingCalendar(tenantId: string, startDate: string, endDate: string) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
+      throw new BadRequestException({ code: 'INVALID_CALENDAR_RANGE', message: 'Calendar end date must be on or after its start date' });
+    }
+    const rangeDays = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+    if (rangeDays > 124) {
+      throw new BadRequestException({ code: 'CALENDAR_RANGE_TOO_LARGE', message: 'Calendar ranges cannot exceed 124 days' });
+    }
+    const rows = await this.prisma.booking.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: { not: 'cancelled' },
+        items: { some: { endDate: { gte: start }, startDate: { lte: end } } },
+      },
+      orderBy: [{ rentalStartDate: 'asc' }, { id: 'asc' }],
+      take: 5_001,
+      select: {
+        id: true,
+        bookingNumber: true,
+        status: true,
+        customer: { select: { id: true, fullName: true, phone: true } },
+        items: {
+          where: { endDate: { gte: start }, startDate: { lte: end } },
+          orderBy: [{ startDate: 'asc' }, { id: 'asc' }],
+          select: { id: true, productName: true, startDate: true, endDate: true },
+        },
+      },
+    });
+    if (rows.length > 5_000) {
+      throw new ConflictException({
+        code: 'CALENDAR_RANGE_TOO_DENSE',
+        message: 'This calendar range contains more than 5,000 bookings; select a narrower range',
+      });
+    }
+    return rows;
+  }
+
   async getBookingById(tenantId: string, bookingId: string) {
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, tenantId, deletedAt: null },
@@ -1565,12 +1631,250 @@ export class BookingService {
         },
         payments: {
           orderBy: { createdAt: 'desc' },
+          take: 201,
+        },
+        fulfillmentExtensions: {
+          orderBy: { createdAt: 'desc' },
+          take: 201,
+          include: { actor: { select: { id: true, fullName: true } } },
         },
       },
     });
 
     if (!booking) throw new NotFoundException('Booking not found');
-    return booking;
+    const operationalTimeline = await this.getOperationalTimeline(tenantId, booking);
+    return { ...booking, operationalTimeline };
+  }
+
+  private async getOperationalTimeline(
+    tenantId: string,
+    booking: {
+      id: string;
+      status: BookingStatus;
+      createdAt: Date;
+      confirmedAt: Date | null;
+      deliveredAt: Date | null;
+      returnedAt: Date | null;
+      completedAt: Date | null;
+      cancelledAt: Date | null;
+      cancellationReason: string | null;
+      updatedAt: Date;
+      courierStatusHistory: Prisma.JsonValue | null;
+    },
+  ) {
+    const sourceLimit = 201;
+    const [events, versions, substitutions, extensions, payments, settlements, damageReports] =
+      await Promise.all([
+        this.prisma.fulfillmentRequirementEvent.findMany({
+          where: { tenantId, requirement: { bookingId: booking.id } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+          include: {
+            actor: { select: { id: true, fullName: true } },
+            requirement: { select: { productNameSnapshot: true } },
+          },
+        }),
+        this.prisma.fulfillmentRequirementVersion.findMany({
+          where: { tenantId, requirement: { bookingId: booking.id } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+          include: {
+            actor: { select: { id: true, fullName: true } },
+            requirement: { select: { productNameSnapshot: true } },
+          },
+        }),
+        this.prisma.fulfillmentSubstitution.findMany({
+          where: { tenantId, requirement: { bookingId: booking.id } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+          include: {
+            actor: { select: { id: true, fullName: true } },
+            requirement: { select: { productNameSnapshot: true } },
+          },
+        }),
+        this.prisma.fulfillmentExtension.findMany({
+          where: { tenantId, bookingId: booking.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+          include: { actor: { select: { id: true, fullName: true } } },
+        }),
+        this.prisma.payment.findMany({
+          where: { tenantId, bookingId: booking.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+          include: { recorder: { select: { id: true, fullName: true } } },
+        }),
+        this.prisma.depositSettlement.findMany({
+          where: { tenantId, bookingId: booking.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+          include: { actor: { select: { id: true, fullName: true } } },
+        }),
+        this.prisma.damageReport.findMany({
+          where: { tenantId, bookingItem: { bookingId: booking.id } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+          include: { reporter: { select: { id: true, fullName: true } } },
+        }),
+      ]);
+
+    const timeline: BookingOperationalTimelineEvent[] = [
+      this.timelineEvent('booking-created', 'BOOKING', 'BOOKING_CREATED', 'Booking created', booking.createdAt),
+    ];
+    const bookingStages: Array<[Date | null, string, string, string | null]> = [
+      [booking.confirmedAt, 'BOOKING_CONFIRMED', 'Booking confirmed', null],
+      [booking.deliveredAt, 'BOOKING_DELIVERED', 'Rental handed over', null],
+      [booking.returnedAt, 'BOOKING_RETURNED', 'Rental returned', null],
+      [booking.completedAt, 'BOOKING_COMPLETED', 'Booking completed', null],
+      [booking.cancelledAt, 'BOOKING_CANCELLED', 'Booking cancelled', booking.cancellationReason],
+    ];
+    for (const [at, code, label, reason] of bookingStages) {
+      if (at) timeline.push(this.timelineEvent(`booking-${code}`, 'BOOKING', code, label, at, null, reason));
+    }
+    if (booking.status === BookingStatus.overdue) {
+      timeline.push(this.timelineEvent('booking-overdue', 'BOOKING', 'BOOKING_OVERDUE', 'Rental overdue', booking.updatedAt));
+    }
+
+    if (Array.isArray(booking.courierStatusHistory)) {
+      for (const [index, raw] of booking.courierStatusHistory.entries()) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const event = raw as Record<string, unknown>;
+        if (typeof event.timestamp !== 'string' || typeof event.status !== 'string') continue;
+        timeline.push(this.timelineEvent(
+          `courier-${index}-${event.timestamp}`,
+          'COURIER',
+          `COURIER_${event.status.toUpperCase()}`,
+          typeof event.label === 'string' ? event.label : event.status.replace(/_/g, ' '),
+          event.timestamp,
+        ));
+      }
+    }
+
+    for (const event of events) {
+      timeline.push(this.timelineEvent(
+        `fulfillment-event-${event.id}`,
+        'FULFILLMENT',
+        event.eventType,
+        `${event.requirement.productNameSnapshot}: ${event.eventType.toLowerCase().replace(/_/g, ' ')}`,
+        event.createdAt,
+        event.actor,
+        event.reason,
+        null,
+        { quantity: event.quantity, fromStatus: event.fromStatus, toStatus: event.toStatus },
+      ));
+    }
+    for (const version of versions) {
+      timeline.push(this.timelineEvent(
+        `fulfillment-version-${version.id}`,
+        'FULFILLMENT',
+        `REQUIREMENT_${version.action}`,
+        `${version.requirement.productNameSnapshot}: plan ${version.action.toLowerCase().replace(/_/g, ' ')}`,
+        version.createdAt,
+        version.actor,
+        version.reason,
+        version.priceImpact,
+        { version: version.version },
+      ));
+    }
+    for (const substitution of substitutions) {
+      timeline.push(this.timelineEvent(
+        `substitution-${substitution.id}`,
+        'FULFILLMENT',
+        'ITEM_SUBSTITUTED',
+        `${substitution.requirement.productNameSnapshot}: item substituted`,
+        substitution.createdAt,
+        substitution.actor,
+        substitution.reason,
+        substitution.priceImpact,
+        { approvalStatus: substitution.approvalStatus, approvalEvidence: substitution.approvalEvidence },
+      ));
+    }
+    for (const extension of extensions) {
+      timeline.push(this.timelineEvent(
+        `extension-${extension.id}`,
+        'COMMERCIAL',
+        'RENTAL_EXTENDED',
+        'Rental dates extended',
+        extension.createdAt,
+        extension.actor,
+        extension.reason,
+        extension.extensionCharge,
+        {
+          previousEndDate: extension.previousEndDate,
+          rentalEndDate: extension.rentalEndDate,
+          approvalEvidence: extension.approvalEvidence,
+        },
+      ));
+    }
+    for (const payment of payments) {
+      timeline.push(this.timelineEvent(
+        `payment-${payment.id}`,
+        'COMMERCIAL',
+        `PAYMENT_${payment.status.toUpperCase()}`,
+        `${payment.status === 'verified' ? 'Payment received' : `Payment ${payment.status}`}`,
+        payment.verifiedAt ?? payment.createdAt,
+        payment.recorder,
+        payment.notes,
+        payment.amount,
+        { method: payment.method, transactionId: payment.transactionId },
+      ));
+    }
+    for (const settlement of settlements) {
+      timeline.push(this.timelineEvent(
+        `deposit-${settlement.id}`,
+        'COMMERCIAL',
+        'DEPOSIT_SETTLED',
+        'Security deposit settled',
+        settlement.createdAt,
+        settlement.actor,
+        settlement.reason,
+        settlement.additionalCharge - settlement.refundAmount,
+        {
+          refundAmount: settlement.refundAmount,
+          deductionAmount: settlement.deductionAmount,
+          forfeitedAmount: settlement.forfeitedAmount,
+        },
+      ));
+    }
+    for (const report of damageReports) {
+      timeline.push(this.timelineEvent(
+        `damage-${report.id}`,
+        'RETURN',
+        'DAMAGE_REPORTED',
+        `Damage reported: ${report.damageLevel.toLowerCase()}`,
+        report.createdAt,
+        report.reporter,
+        report.description,
+        report.additionalCharge,
+        { deductionAmount: report.deductionAmount, estimatedRepairCost: report.estimatedRepairCost },
+      ));
+    }
+
+    timeline.sort((left, right) => {
+      const byDate = new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime();
+      return byDate || right.id.localeCompare(left.id);
+    });
+    const limit = 200;
+    return {
+      events: timeline.slice(0, limit),
+      truncated: timeline.length > limit || [events, versions, substitutions, extensions, payments, settlements, damageReports]
+        .some((source) => source.length === sourceLimit),
+      limit,
+    };
+  }
+
+  private timelineEvent(
+    id: string,
+    category: BookingOperationalTimelineEvent['category'],
+    code: string,
+    label: string,
+    occurredAt: Date | string,
+    actor: BookingOperationalTimelineEvent['actor'] = null,
+    reason: string | null = null,
+    amountMinor: number | null = null,
+    metadata?: Record<string, unknown>,
+  ): BookingOperationalTimelineEvent {
+    return { id, category, code, label, occurredAt, actor, reason, amountMinor, ...(metadata ? { metadata } : {}) };
   }
 
   async getBookingByNumber(tenantId: string, bookingNumber: string) {

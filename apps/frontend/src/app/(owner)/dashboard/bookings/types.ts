@@ -123,7 +123,7 @@ export interface BookingTimelineEvent {
   user?: string;
   note?: string;
   label?: string;
-  type?: 'business' | 'courier';
+  type?: 'business' | 'courier' | 'operation' | 'payment' | 'return';
 }
 
 /**

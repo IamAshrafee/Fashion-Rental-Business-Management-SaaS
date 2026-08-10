@@ -1,5 +1,6 @@
 import { PrismaClient, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { SYSTEM_COLORS } from '../src/modules/product/system-colors';
 
 const prisma = new PrismaClient();
 
@@ -67,50 +68,6 @@ const SUBSCRIPTION_PLANS = [
     removeBranding: true,
     displayOrder: 2,
   },
-];
-
-const SYSTEM_COLORS = [
-  { name: 'Red', hex: '#EF4444' },
-  { name: 'Maroon', hex: '#7F1D1D' },
-  { name: 'Pink', hex: '#EC4899' },
-  { name: 'Rose', hex: '#F43F5E' },
-  { name: 'Orange', hex: '#F97316' },
-  { name: 'Gold', hex: '#EAB308' },
-  { name: 'Yellow', hex: '#FACC15' },
-  { name: 'Green', hex: '#22C55E' },
-  { name: 'Teal', hex: '#14B8A6' },
-  { name: 'Cyan', hex: '#06B6D4' },
-  { name: 'Blue', hex: '#3B82F6' },
-  { name: 'Navy', hex: '#1E3A5F' },
-  { name: 'Indigo', hex: '#6366F1' },
-  { name: 'Purple', hex: '#A855F7' },
-  { name: 'Violet', hex: '#8B5CF6' },
-  { name: 'Magenta', hex: '#D946EF' },
-  { name: 'Brown', hex: '#92400E' },
-  { name: 'Beige', hex: '#D4A574' },
-  { name: 'Cream', hex: '#FFFDD0' },
-  { name: 'Ivory', hex: '#FFFFF0' },
-  { name: 'White', hex: '#FFFFFF' },
-  { name: 'Off-White', hex: '#FAF9F6' },
-  { name: 'Silver', hex: '#C0C0C0' },
-  { name: 'Grey', hex: '#6B7280' },
-  { name: 'Charcoal', hex: '#374151' },
-  { name: 'Black', hex: '#000000' },
-  { name: 'Peach', hex: '#FFDAB9' },
-  { name: 'Coral', hex: '#FF7F50' },
-  { name: 'Salmon', hex: '#FA8072' },
-  { name: 'Burgundy', hex: '#800020' },
-  { name: 'Wine', hex: '#722F37' },
-  { name: 'Rust', hex: '#B7410E' },
-  { name: 'Copper', hex: '#B87333' },
-  { name: 'Bronze', hex: '#CD7F32' },
-  { name: 'Olive', hex: '#808000' },
-  { name: 'Mint', hex: '#98FF98' },
-  { name: 'Lavender', hex: '#E6E6FA' },
-  { name: 'Lilac', hex: '#C8A2C8' },
-  { name: 'Sky Blue', hex: '#87CEEB' },
-  { name: 'Baby Pink', hex: '#F4C2C2' },
-  { name: 'Multi-Color', hex: '#GRADIENT' },
 ];
 
 const STARTER_TEMPLATE = {
@@ -234,13 +191,12 @@ async function main() {
   let colorCount = 0;
   for (const color of SYSTEM_COLORS) {
     await prisma.color.upsert({
-      where: {
-        name_tenantId: { name: color.name, tenantId: '' },
-      },
-      update: { hexCode: color.hex },
+      where: { systemKey: color.key },
+      update: { name: color.name, hexCode: color.hexCode },
       create: {
+        systemKey: color.key,
         name: color.name,
-        hexCode: color.hex,
+        hexCode: color.hexCode,
         isSystem: true,
         tenantId: null,
       },

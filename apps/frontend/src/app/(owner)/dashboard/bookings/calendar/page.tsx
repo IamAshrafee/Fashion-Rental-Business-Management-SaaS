@@ -19,23 +19,19 @@ export default function CalendarPage() {
     const from = startOfMonth(subMonths(currentDate, 1));
     const to = endOfMonth(addMonths(currentDate, 1));
     return {
-      itemDateFrom: format(from, 'yyyy-MM-dd'),
-      itemDateTo: format(to, 'yyyy-MM-dd'),
+      startDate: format(from, 'yyyy-MM-dd'),
+      endDate: format(to, 'yyyy-MM-dd'),
     };
   }, [currentDate]);
 
   // Fetch bookings whose item rental dates overlap with the visible range
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['bookings', 'calendar', dateRange],
-    queryFn: () => bookingApi.list({
-      limit: 200,
-      itemDateFrom: dateRange.itemDateFrom,
-      itemDateTo: dateRange.itemDateTo,
-    }),
+    queryFn: () => bookingApi.calendar(dateRange.startDate, dateRange.endDate),
     placeholderData: (prev) => prev,
   });
 
-  const bookings = data?.data ?? [];
+  const bookings = data ?? [];
 
   return (
     <div className="space-y-6">

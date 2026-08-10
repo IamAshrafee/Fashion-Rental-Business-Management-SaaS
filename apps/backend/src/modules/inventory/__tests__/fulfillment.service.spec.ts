@@ -369,6 +369,15 @@ describe('FulfillmentService', () => {
     }));
     const tx = {
       $queryRaw: jest.fn(),
+      fulfillmentExtension: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      booking: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'booking-1', status: 'confirmed', grandTotal: 10_000, totalPaid: 0,
+          items: [{ id: 'item-1', baseRental: 5_000, endDate: new Date('2026-08-12') }],
+        }),
+        update: jest.fn(),
+      },
+      bookingItem: { update: jest.fn() },
       fulfillmentRequirement: {
         findMany: jest.fn().mockResolvedValue(requirements),
         update: jest.fn(),
@@ -396,7 +405,12 @@ describe('FulfillmentService', () => {
     await expect(service.extendBookingRequirements('tenant-1', 'booking-1', {
       rentalEndDate: '2026-08-15',
       reason: 'Customer requested an extension',
-    }, 'user-1')).rejects.toThrow('Component has a later commitment');
+      extensionCharge: 1_000,
+      approvalEvidence: 'Customer message reference',
+      idempotencyKey: 'extension-1',
+    }, 'user-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'RENTAL_EXTENSION_CONFLICT' }),
+    });
 
     expect(tx.inventoryReservation.update).not.toHaveBeenCalled();
     expect(tx.fulfillmentRequirement.update).not.toHaveBeenCalled();

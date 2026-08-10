@@ -41,13 +41,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { fulfillmentApi, type FulfillmentRequirement } from '@/lib/api/fulfillment';
 import { productApi, type ProductListItem } from '@/lib/api/products';
 import { formatMinorMoney, majorInputToMinor } from '@/lib/money';
-
-function apiError(error: unknown, fallback: string) {
-  return (
-    (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message ||
-    fallback
-  );
-}
+import { getApiErrorMessage } from '@/lib/api-error';
 
 function humanize(value: string) {
   return value
@@ -93,7 +87,7 @@ function AssignmentPanel({
       await refresh();
       toast.success('Physical units assigned');
     },
-    onError: (error) => toast.error(String(apiError(error, 'Could not assign units'))),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not assign units')),
   });
   const release = useMutation({
     mutationFn: (assignmentId: string) =>
@@ -108,7 +102,7 @@ function AssignmentPanel({
       await refresh();
       toast.success('Assignment released');
     },
-    onError: (error) => toast.error(String(apiError(error, 'Could not release assignment'))),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not release assignment')),
   });
 
   if (requirement.variantSize?.trackingMode !== 'SERIALIZED') {
@@ -284,7 +278,7 @@ function EventDialog({
       await refresh();
       toast.success(`${humanize(eventType)} recorded`);
     },
-    onError: (error) => toast.error(String(apiError(error, 'Could not record fulfillment event'))),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not record fulfillment event')),
   });
   const validQuantity = serialized
     ? selected.length > 0 && selected.length <= max
@@ -399,7 +393,7 @@ function PreparationDialog({
       await refresh();
       toast.success(targetStatus === 'READY' ? 'Item preparation completed' : 'Preparation started');
     },
-    onError: (error) => toast.error(String(apiError(error, 'Could not update preparation'))),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not update preparation')),
   });
   const ready = targetStatus === 'READY';
   return (
@@ -508,7 +502,7 @@ function SubstituteDialog({
       await refresh();
       toast.success('Component substituted and availability re-reserved');
     },
-    onError: (error) => toast.error(String(apiError(error, 'Could not substitute component'))),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not substitute component')),
   });
   return (
     <Dialog
@@ -772,6 +766,9 @@ export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: 
   const [extendOpen, setExtendOpen] = useState(false);
   const [endDate, setEndDate] = useState('');
   const [extendReason, setExtendReason] = useState('');
+  const [extensionCharge, setExtensionCharge] = useState('0');
+  const [extensionEvidence, setExtensionEvidence] = useState('');
+  const [extensionKey, setExtensionKey] = useState(() => crypto.randomUUID());
   const query = useQuery({
     queryKey: ['booking-fulfillment', bookingId],
     queryFn: () => fulfillmentApi.listBookingRequirements(bookingId),
@@ -788,13 +785,24 @@ export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: 
     ]);
   };
   const extend = useMutation({
-    mutationFn: () => fulfillmentApi.extendBookingDates(bookingId, endDate, extendReason),
+    mutationFn: () => fulfillmentApi.extendBookingDates(bookingId, {
+      rentalEndDate: endDate,
+      reason: extendReason.trim(),
+      extensionCharge: majorInputToMinor(extensionCharge) ?? 0,
+      approvalEvidence: extensionEvidence.trim(),
+      idempotencyKey: extensionKey,
+    }),
     onSuccess: async () => {
       setExtendOpen(false);
+      setEndDate('');
+      setExtendReason('');
+      setExtensionCharge('0');
+      setExtensionEvidence('');
+      setExtensionKey(crypto.randomUUID());
       await refresh();
       toast.success('All fulfillment dates updated atomically');
     },
-    onError: (error) => toast.error(String(apiError(error, 'Could not update rental dates'))),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not update rental dates')),
   });
   const grouped = useMemo(
     () =>
@@ -835,15 +843,15 @@ export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: 
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
               <CalendarClock className="mr-2 h-4 w-4" />
-              Change fulfillment dates
+              Extend rental
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Change all component dates</DialogTitle>
+              <DialogTitle>Extend the full rental</DialogTitle>
               <DialogDescription>
-                The change succeeds only if every component remains available; otherwise nothing is
-                changed.
+                Availability, component reservations, booking dates, item totals, and payment balance
+                update together. If any component conflicts, nothing changes.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
@@ -862,17 +870,25 @@ export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: 
                   onChange={(event) => setExtendReason(event.target.value)}
                 />
               </div>
+              <div className="grid gap-2">
+                <Label>Extension charge (৳)</Label>
+                <Input type="number" min="0" step="0.01" value={extensionCharge} onChange={(event) => setExtensionCharge(event.target.value)} />
+                <p className="text-xs text-muted-foreground">Enter 0 only for an explicitly approved complimentary extension.</p>
+              </div>
+              <div className="grid gap-2">
+                <Label>Customer or manager approval evidence</Label>
+                <Textarea value={extensionEvidence} onChange={(event) => setExtensionEvidence(event.target.value)} placeholder="Message reference, call note, or manager approval" />
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setExtendOpen(false)}>
                 Cancel
               </Button>
               <Button
-                disabled={!endDate || !extendReason.trim() || extend.isPending}
+                disabled={!endDate || !extendReason.trim() || !extensionEvidence.trim() || majorInputToMinor(extensionCharge) === undefined || extend.isPending}
                 onClick={() => extend.mutate()}
               >
-                {extend.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update
-                atomically
+                {extend.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Extend atomically
               </Button>
             </DialogFooter>
           </DialogContent>

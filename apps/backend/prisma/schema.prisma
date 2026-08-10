@@ -539,8 +539,10 @@ model User {
   createdCompositionRules      ProductCompositionRule[]        @relation("CompositionRuleCreator")
   fulfillmentVersions          FulfillmentRequirementVersion[] @relation("FulfillmentVersionActor")
   fulfillmentSubstitutions     FulfillmentSubstitution[]       @relation("FulfillmentSubstitutionActor")
+  fulfillmentExtensions        FulfillmentExtension[]          @relation("FulfillmentExtensionActor")
   fulfillmentEvents            FulfillmentRequirementEvent[]   @relation("FulfillmentEventActor")
   depositSettlements           DepositSettlement[]             @relation("DepositSettlementActor")
+  recordedBookingPayments      Payment[]                       @relation("BookingPaymentRecorder")
   createdInventoryLocations    InventoryLocation[]             @relation("InventoryLocationCreator")
   createdInventoryTransfers    InventoryTransfer[]             @relation("InventoryTransferCreator")
   approvedInventoryTransfers   InventoryTransfer[]             @relation("InventoryTransferApprover")
@@ -554,12 +556,14 @@ model User {
 
 model Color {
   id        String   @id @default(uuid())
+  systemKey String?  @unique @map("system_key")
   name      String
   hexCode   String   @map("hex_code")
-  isSystem  Boolean  @default(true) @map("is_system")
+  isSystem  Boolean  @default(false) @map("is_system")
   tenantId  String?  @map("tenant_id")
   createdAt DateTime @default(now()) @map("created_at")
 
+  tenant        Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   mainVariants  ProductVariant[] @relation("MainColor")
   variantColors VariantColor[]
 
@@ -641,6 +645,7 @@ model Tenant {
   tenantUsers                    TenantUser[]
   products                       Product[]
   categories                     Category[]
+  colors                         Color[]
   subcategories                  Subcategory[]
   variantSizes                   VariantSize[]
   events                         Event[]
@@ -675,6 +680,7 @@ model Tenant {
   fulfillmentRequirementVersions FulfillmentRequirementVersion[]
   fulfillmentSelectionSnapshots  FulfillmentSelectionSnapshot[]
   fulfillmentSubstitutions       FulfillmentSubstitution[]
+  fulfillmentExtensions          FulfillmentExtension[]
   fulfillmentRequirementEvents   FulfillmentRequirementEvent[]
   inventoryLocations             InventoryLocation[]
   inventoryPools                 InventoryPool[]
@@ -1557,6 +1563,7 @@ model Booking {
   reviews                Review[]
   FulfillmentRequirement FulfillmentRequirement[]
   depositSettlements     DepositSettlement[]
+  fulfillmentExtensions  FulfillmentExtension[]
 
   @@unique([tenantId, bookingNumber])
   @@unique([tenantId, creationKey])
@@ -2195,6 +2202,31 @@ model FulfillmentSubstitution {
   @@map("fulfillment_substitutions")
 }
 
+/// One atomic, auditable extension of every active requirement in a booking.
+model FulfillmentExtension {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  bookingId        String   @map("booking_id")
+  previousEndDate  DateTime @map("previous_end_date") @db.Date
+  rentalEndDate    DateTime @map("rental_end_date") @db.Date
+  extensionCharge  Int      @default(0) @map("extension_charge")
+  approvalEvidence String   @map("approval_evidence")
+  reason           String
+  idempotencyKey   String   @map("idempotency_key")
+  requestHash      String   @map("request_hash")
+  actorUserId      String   @map("actor_user_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  actor   User    @relation("FulfillmentExtensionActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, bookingId, createdAt(sort: Desc)])
+  @@index([actorUserId])
+  @@map("fulfillment_extensions")
+}
+
 model FulfillmentRequirementEvent {
   id             String                        @id @default(uuid())
   tenantId       String                        @map("tenant_id")
@@ -2683,7 +2715,8 @@ model Payment {
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  booking Booking @relation(fields: [bookingId], references: [id])
+  booking  Booking @relation(fields: [bookingId], references: [id])
+  recorder User?   @relation("BookingPaymentRecorder", fields: [recordedBy], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, transactionId])

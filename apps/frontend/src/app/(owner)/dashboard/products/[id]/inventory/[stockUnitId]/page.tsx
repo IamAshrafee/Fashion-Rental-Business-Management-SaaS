@@ -18,6 +18,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatMinorMoney, majorInputToMinor, minorToMajorInput } from '@/lib/money';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -1498,9 +1499,9 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
   const unit = data.stockUnit;
   const [storefrontVisible, setStorefrontVisible] = useState(unit.storefrontVisible);
   const [conditionNote, setConditionNote] = useState(unit.publicConditionNote || '');
-  const [priceAdjustment, setPriceAdjustment] = useState(String(unit.rentalPriceAdjustment));
+  const [priceAdjustment, setPriceAdjustment] = useState(String(minorToMajorInput(unit.rentalPriceAdjustment)));
   const [currentValue, setCurrentValue] = useState(
-    unit.estimatedCurrentValue == null ? '' : String(unit.estimatedCurrentValue),
+    unit.estimatedCurrentValue == null ? '' : String(minorToMajorInput(unit.estimatedCurrentValue)),
   );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [referenceCaption, setReferenceCaption] = useState('');
@@ -1509,8 +1510,8 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
       productApi.updateStockUnit(unit.id, {
         storefrontVisible,
         publicConditionNote: conditionNote,
-        rentalPriceAdjustment: Number(priceAdjustment) || 0,
-        estimatedCurrentValue: currentValue === '' ? undefined : Number(currentValue),
+        rentalPriceAdjustment: Math.round((Number(priceAdjustment) || 0) * 100),
+        estimatedCurrentValue: majorInputToMinor(currentValue),
       }),
     onSuccess: async () => {
       await refresh();
@@ -1624,7 +1625,7 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
           </div>
           <div>
             <p className="text-muted-foreground">Purchase cost</p>
-            <p>{unit.purchasePrice == null ? '—' : `৳${unit.purchasePrice.toLocaleString()}`}</p>
+            <p>{unit.purchasePrice == null ? '—' : formatMinorMoney(unit.purchasePrice)}</p>
           </div>
           <div className="sm:col-span-2">
             <p className="text-muted-foreground">Notes</p>
@@ -1933,7 +1934,7 @@ export default function StockUnitOperationsPage() {
                     <p className="text-sm text-muted-foreground">{movement.reason}</p>
                     {movement.movementType === 'VALUATION_CHANGED' && (
                       <p className="text-xs text-muted-foreground">
-                        ৳{Number(movement.beforeState?.estimatedCurrentValue ?? 0).toLocaleString()} → ৳{Number(movement.afterState?.estimatedCurrentValue ?? 0).toLocaleString()}
+                        {formatMinorMoney(Number(movement.beforeState?.estimatedCurrentValue ?? 0))} → {formatMinorMoney(Number(movement.afterState?.estimatedCurrentValue ?? 0))}
                       </p>
                     )}
                   </div>

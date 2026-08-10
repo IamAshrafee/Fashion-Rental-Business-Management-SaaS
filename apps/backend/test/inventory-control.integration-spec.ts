@@ -329,6 +329,23 @@ describe('inventory control PostgreSQL contracts', () => {
     const originalRequirement = await prisma.fulfillmentRequirement.findFirstOrThrow({
       where: { bookingId: created.bookingId },
     });
+    const extensionKey = randomUUID();
+    const extensionRequest = {
+      rentalEndDate: '2026-11-13',
+      extensionCharge: 1_500,
+      approvalEvidence: 'Customer approval recorded in integration contract',
+      reason: 'Customer requested one additional rental day',
+      idempotencyKey: extensionKey,
+    };
+    const extended = await fulfillment.extendBookingRequirements(tenantId, created.bookingId, extensionRequest, ownerId);
+    const extensionReplay = await fulfillment.extendBookingRequirements(tenantId, created.bookingId, extensionRequest, ownerId);
+    expect(extensionReplay[0].rentalEndDate).toEqual(extended[0].rentalEndDate);
+    await expect(prisma.fulfillmentExtension.count({ where: { bookingId: created.bookingId } })).resolves.toBe(1);
+    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+      rentalEndDate: new Date('2026-11-13'),
+      grandTotal: quote.totals.grandTotal + 1_500,
+      paymentStatus: 'partial',
+    });
     const sizeSchema = await prisma.sizeSchema.findFirstOrThrow({ where: { tenantId } });
     const substituteSize = await prisma.sizeInstance.create({
       data: {
@@ -364,11 +381,11 @@ describe('inventory control PostgreSQL contracts', () => {
     })).resolves.toBe(1);
     await expect(prisma.bookingItem.findUniqueOrThrow({ where: { id: bookingItem.id } })).resolves.toMatchObject({
       fulfillmentAdjustment: 1_000,
-      itemTotal: bookingItem.itemTotal + 1_000,
+      itemTotal: bookingItem.itemTotal + 2_500,
     });
     await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
-      subtotal: quote.totals.subtotal + 1_000,
-      grandTotal: quote.totals.grandTotal + 1_000,
+      subtotal: quote.totals.subtotal + 2_500,
+      grandTotal: quote.totals.grandTotal + 2_500,
       paymentStatus: 'partial',
     });
 
@@ -456,11 +473,11 @@ describe('inventory control PostgreSQL contracts', () => {
       depositRefundAmount: bookingItem.depositAmount - 5_000,
     });
     await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
-      grandTotal: quote.totals.grandTotal + 3_000,
+      grandTotal: quote.totals.grandTotal + 4_500,
       paymentStatus: 'partial',
     });
     await payments.recordPayment(tenantId, created.bookingId, {
-      amount: 3_000,
+      amount: 4_500,
       depositAmount: 0,
       method: 'cod',
       notes: 'Approved post-return additional charge',
@@ -482,5 +499,18 @@ describe('inventory control PostgreSQL contracts', () => {
       EXCEPTION: expect.any(Number),
     });
     expect(operationalStats.queueCounts.ALL).toBeGreaterThanOrEqual(1);
+    const calendar = await bookings.getBookingCalendar(tenantId, '2026-11-01', '2026-11-30');
+    expect(calendar).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: created.bookingId,
+        bookingNumber: created.bookingNumber,
+        items: expect.arrayContaining([
+          expect.objectContaining({ endDate: new Date('2026-11-13') }),
+        ]),
+      }),
+    ]));
+    await expect(bookings.getBookingCalendar(tenantId, '2026-01-01', '2026-06-01')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CALENDAR_RANGE_TOO_LARGE' }),
+    });
   });
 });

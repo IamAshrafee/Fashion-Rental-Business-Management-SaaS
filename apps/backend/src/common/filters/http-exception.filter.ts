@@ -25,7 +25,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status: number;
     let message: string;
     let code: string;
-    let details: Record<string, string[]> | undefined;
+    let details: Record<string, unknown> | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -37,12 +37,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
       } else if (typeof exceptionResponse === 'object') {
         const responseObj = exceptionResponse as Record<string, unknown>;
         message = (responseObj.message as string) || exception.message;
-        code = (responseObj.error as string) || HttpStatus[status] || 'UNKNOWN_ERROR';
+        code = (responseObj.code as string) || (responseObj.error as string) || HttpStatus[status] || 'UNKNOWN_ERROR';
 
         // Handle class-validator errors (array of messages)
         if (Array.isArray(responseObj.message)) {
           message = 'Validation failed';
           details = { validation: responseObj.message as string[] };
+        } else {
+          const structured = Object.fromEntries(
+            Object.entries(responseObj).filter(([key]) => !['statusCode', 'message', 'error', 'code'].includes(key)),
+          );
+          if (Object.keys(structured).length) details = structured;
         }
       } else {
         message = exception.message;

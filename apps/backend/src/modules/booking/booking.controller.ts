@@ -25,6 +25,7 @@ import {
   AddNoteDto,
   CreateDamageReportDto,
   BookingQueryDto,
+  BookingCalendarQueryDto,
   CheckAvailabilityDto,
 } from './dto/booking.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -173,6 +174,16 @@ export class BookingOwnerController {
   @Roles('owner', 'manager', 'staff')
   async getStats(@CurrentTenant() tenant: TenantContext) {
     return this.bookingService.getBookingStats(tenant.id);
+  }
+
+  /** Compact, non-truncating projection for the owner rental calendar. */
+  @Get('calendar')
+  @Roles('owner', 'manager', 'staff')
+  async getCalendar(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: BookingCalendarQueryDto,
+  ) {
+    return this.bookingService.getBookingCalendar(tenant.id, query.startDate, query.endDate);
   }
 
   /**

@@ -126,7 +126,7 @@ export class InventoryAvailabilityService {
         canFulfillRentals: true,
         ...(input.sourceLocationId ? { id: input.sourceLocationId } : {}),
       },
-      select: { id: true, code: true, name: true, isDefault: true },
+      select: { id: true, code: true, name: true, timezone: true, isDefault: true },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     });
     if (input.sourceLocationId && locations.length === 0) {
@@ -153,6 +153,99 @@ export class InventoryAvailabilityService {
       if (left.available !== right.available) return left.available ? -1 : 1;
       return right.remainingQuantity - left.remainingQuantity;
     })[0];
+  }
+
+  /**
+   * Finds the first date on which the same rental duration can fit. Candidate
+   * dates are derived from the ends of actual reservations/blocks, so this
+   * avoids a query-heavy day-by-day scan while preserving authoritative checks.
+   */
+  async findNextAvailable(
+    input: InventoryAvailabilityInput,
+    current: InventoryAvailabilityResult,
+  ): Promise<string | null> {
+    if (current.available || !current.availabilityPolicy) return null;
+    const rentalStart = this.parseDate(input.startDate, 'startDate');
+    const rentalEnd = this.parseDate(input.endDate, 'endDate');
+    const durationDays = Math.floor((rentalEnd.getTime() - rentalStart.getTime()) / 86_400_000);
+    const policy = current.availabilityPolicy;
+    const horizon = new Date(rentalStart);
+    horizon.setUTCDate(horizon.getUTCDate() + Math.min(365, policy.maximumAdvanceDays));
+    const blockedStart = new Date(current.effectiveBlockedRange.start);
+
+    const [reservations, blocks] = await Promise.all([
+      this.prisma.inventoryReservation.findMany({
+        where: {
+          tenantId: input.tenantId,
+          variantSizeId: input.variantSizeId,
+          ...(input.sourceLocationId ? { sourceLocationId: input.sourceLocationId } : {}),
+          ...(input.excludeReservationId ? { id: { not: input.excludeReservationId } } : {}),
+          blockedEndDate: { gte: blockedStart },
+          blockedStartDate: { lte: horizon },
+          OR: [
+            { status: 'CONFIRMED' },
+            { status: 'PENDING', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          ],
+        },
+        select: { blockedEndDate: true },
+        orderBy: { blockedEndDate: 'asc' },
+        take: 250,
+      }),
+      this.prisma.inventoryBlock.findMany({
+        where: {
+          tenantId: input.tenantId,
+          endDate: { gte: blockedStart },
+          startDate: { lte: horizon },
+          ...(input.sourceLocationId
+            ? { AND: [{ OR: [{ locationId: null }, { locationId: input.sourceLocationId }] }] }
+            : {}),
+          OR: [
+            { productId: input.productId },
+            { variantId: current.variantId },
+            { variantSizeId: input.variantSizeId },
+            ...(input.preferredStockUnitId ? [{ stockUnitId: input.preferredStockUnitId }] : []),
+            { blockType: 'LOCATION_BLACKOUT' },
+            { inventoryPool: { variantSizeId: input.variantSizeId } },
+          ],
+        },
+        select: { endDate: true },
+        orderBy: { endDate: 'asc' },
+        take: 250,
+      }),
+    ]);
+
+    const preparationDays = Math.ceil(
+      (policy.preparationBufferMinutes + policy.deliveryBufferMinutes) / 1_440,
+    );
+    const candidateTimestamps = new Set<number>();
+    for (const conflictEnd of [
+      ...reservations.map((row) => row.blockedEndDate),
+      ...blocks.map((row) => row.endDate),
+    ]) {
+      const candidate = new Date(conflictEnd);
+      candidate.setUTCDate(candidate.getUTCDate() + preparationDays + 1);
+      if (candidate > rentalStart && candidate <= horizon) candidateTimestamps.add(candidate.getTime());
+    }
+
+    const candidates = [...candidateTimestamps]
+      .sort((left, right) => left - right)
+      .slice(0, 60)
+      .map((timestamp) => new Date(timestamp));
+    for (let index = 0; index < candidates.length; index += 5) {
+      const batch = candidates.slice(index, index + 5);
+      const checks = await Promise.all(batch.map((candidateStart) => {
+        const candidateEnd = new Date(candidateStart);
+        candidateEnd.setUTCDate(candidateEnd.getUTCDate() + durationDays);
+        return this.check({
+          ...input,
+          startDate: this.formatDate(candidateStart),
+          endDate: this.formatDate(candidateEnd),
+        });
+      }));
+      const availableIndex = checks.findIndex((result) => result.available);
+      if (availableIndex >= 0) return this.formatDate(batch[availableIndex]);
+    }
+    return null;
   }
 
   async listPublicItemOptions(
@@ -310,7 +403,7 @@ export class InventoryAvailabilityService {
       sizeInstanceId: string;
       trackingMode: InventoryTrackingMode;
     },
-    location: { id: string; code: string; name: string },
+    location: { id: string; code: string; name: string; timezone: string },
     quantity: number,
     rentalStart: Date,
     rentalEnd: Date,
@@ -327,7 +420,7 @@ export class InventoryAvailabilityService {
       rentalEnd,
       policy,
     );
-    const policyReason = this.policyUnavailableReason(policy, rentalStart);
+    const policyReason = this.policyUnavailableReason(policy, rentalStart, location.timezone);
     if (policyReason) {
       return this.locationResult(input, sku, location, quantity, rentalStart, rentalEnd, blockedStart, blockedEnd, policy, {
         totalCapacity: 0,
@@ -492,7 +585,7 @@ export class InventoryAvailabilityService {
     db: InventoryDatabase,
     input: InventoryAvailabilityInput,
     sku: { id: string; variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
-    location: { id: string; code: string; name: string },
+    location: { id: string; code: string; name: string; timezone: string },
     rentalStart: Date,
     rentalEnd: Date,
     blockedStart: Date,
@@ -606,8 +699,12 @@ export class InventoryAvailabilityService {
     return null;
   }
 
-  private policyUnavailableReason(policy: EffectiveAvailabilityPolicy, rentalStart: Date) {
-    const start = rentalStart.getTime();
+  private policyUnavailableReason(
+    policy: EffectiveAvailabilityPolicy,
+    rentalStart: Date,
+    timeZone: string,
+  ) {
+    const start = this.localDateStartInstant(rentalStart, timeZone).getTime();
     const now = Date.now();
     if (start < now + policy.minimumNoticeMinutes * 60_000) {
       return 'The rental does not meet the minimum notice period';
@@ -618,10 +715,41 @@ export class InventoryAvailabilityService {
     return null;
   }
 
+  private localDateStartInstant(date: Date, timeZone: string): Date {
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth();
+    const day = date.getUTCDate();
+    const utcGuess = new Date(Date.UTC(year, month, day));
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+    const values = Object.fromEntries(
+      formatter.formatToParts(utcGuess)
+        .filter((part) => part.type !== 'literal')
+        .map((part) => [part.type, Number(part.value)]),
+    ) as Record<string, number>;
+    const representedLocalTime = Date.UTC(
+      values.year,
+      values.month - 1,
+      values.day,
+      values.hour,
+      values.minute,
+      values.second,
+    );
+    return new Date(utcGuess.getTime() - (representedLocalTime - utcGuess.getTime()));
+  }
+
   private locationResult(
     input: InventoryAvailabilityInput,
     sku: { id: string; variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
-    location: { id: string; code: string; name: string },
+    location: { id: string; code: string; name: string; timezone: string },
     quantity: number,
     rentalStart: Date,
     rentalEnd: Date,

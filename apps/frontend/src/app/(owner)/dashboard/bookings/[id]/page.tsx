@@ -91,65 +91,25 @@ export default function BookingDetailPage() {
   const customerName = booking.customer?.fullName || 'Unknown';
   const displayNumber = booking.bookingNumber || booking.id;
 
-  // ── Build timeline events from booking timestamps & courier history ──
-  const timelineEvents: BookingTimelineEvent[] = [];
-  let eventCounter = 0;
-
-  const addTimelineEvent = (status: BookingStatus | string, label: string, timestamp: string | null, type: 'business' | 'courier' = 'business', note?: string) => {
-    if (!timestamp) return;
-    timelineEvents.push({
-      id: String(++eventCounter),
-      status,
-      label,
-      timestamp,
-      type,
-      note,
-    });
-  };
-
-  // Business events
-  addTimelineEvent('pending', 'Order Placed', booking.createdAt, 'business', 'Booking created');
-  addTimelineEvent('confirmed', 'Order Confirmed', booking.confirmedAt, 'business');
-
-  // Merge courier status history events chronologically
-  if (Array.isArray(booking.courierStatusHistory)) {
-    const history = booking.courierStatusHistory as Array<{
-      status: string;
-      label: string;
-      timestamp: string;
-      source: string;
-    }>;
-    for (const event of history) {
-      if (
-        event.status === 'prepare_parcel' || event.status === 'error' ||
-        event.status === 'pickup_pending' || event.status === 'pickup_assigned' ||
-        event.status === 'pickup_failed' || event.status === 'picked_up' ||
-        event.status === 'at_hub' || event.status === 'in_transit' ||
-        event.status === 'at_destination' || event.status === 'out_for_delivery' ||
-        event.status === 'partial_delivered' || event.status === 'returned_to_sender' ||
-        event.status === 'on_hold' || event.status === 'unknown'
-      ) {
-        addTimelineEvent(event.status, event.label, event.timestamp, 'courier');
-      }
-    }
-  }
-
-  addTimelineEvent('delivered', 'Delivered', booking.deliveredAt, 'business');
-  addTimelineEvent('returned', 'Returned', booking.returnedAt, 'business');
-  addTimelineEvent('completed', 'Completed', booking.completedAt, 'business');
-
-  // Cancelled event
-  if (booking.status === 'cancelled') {
-    addTimelineEvent('cancelled', 'Cancelled', booking.cancelledAt || booking.updatedAt, 'business', booking.cancellationReason || undefined);
-  }
-
-  // Synthetic overdue timeline event
-  if (booking.status === 'overdue') {
-    addTimelineEvent('overdue', 'Overdue', booking.updatedAt, 'business', 'Rental period has exceeded the return date');
-  }
-
-  // Sort timeline chronologically (courier events mixed with business)
-  timelineEvents.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const timelineEvents: BookingTimelineEvent[] = booking.operationalTimeline.events.map((event) => ({
+    id: event.id,
+    status: event.code.toLowerCase(),
+    label: event.label,
+    timestamp: event.occurredAt,
+    user: event.actor?.fullName,
+    note: [event.reason, event.amountMinor !== null ? formatMinorMoney(event.amountMinor) : null]
+      .filter(Boolean)
+      .join(' · ') || undefined,
+    type: event.category === 'COURIER'
+      ? 'courier'
+      : event.category === 'COMMERCIAL'
+        ? 'payment'
+        : event.category === 'RETURN'
+          ? 'return'
+          : event.category === 'FULFILLMENT'
+            ? 'operation'
+            : 'business',
+  }));
 
   // ── Map items — types are now aligned with backend, minimal mapping needed ──
   const mappedItems: BookingItem[] = booking.items.map((item) => ({
@@ -360,6 +320,22 @@ export default function BookingDetailPage() {
                   <p className="text-sm font-medium">{booking.returnMethod === 'CUSTOMER_RETURN' ? 'Customer return' : 'Business pickup'}</p>
                 </div>
               </CardContent>
+              {!!booking.fulfillmentExtensions?.length && (
+                <CardContent className="border-t pt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Extension history</p>
+                  <div className="space-y-2">
+                    {booking.fulfillmentExtensions.map((extension) => (
+                      <div key={extension.id} className="rounded-md border p-3 text-sm">
+                        <p className="font-medium">
+                          {format(parseISO(extension.previousEndDate), 'MMM d, yyyy')} → {format(parseISO(extension.rentalEndDate), 'MMM d, yyyy')} · {formatMinorMoney(extension.extensionCharge)}
+                        </p>
+                        <p className="text-muted-foreground">{extension.reason}</p>
+                        <p className="text-xs text-muted-foreground">Approval: {extension.approvalEvidence} · {extension.actor.fullName} · {format(parseISO(extension.createdAt), 'MMM d, yyyy h:mm a')}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              )}
             </Card>
           )}
           <Card className="shadow-none border">
@@ -530,7 +506,7 @@ export default function BookingDetailPage() {
 
         {/* Fix #11: Sidebar — Timeline + Quick Info */}
         <div className="md:col-span-1 space-y-6">
-          <StatusTimeline events={timelineEvents} />
+          <StatusTimeline events={timelineEvents} truncated={booking.operationalTimeline.truncated} />
 
           {/* Quick info card */}
           <Card className="shadow-none border">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { BookingListItem } from '@/lib/api/bookings';
+import type { BookingCalendarItem } from '@/lib/api/bookings';
 import {
   format,
   startOfMonth,
@@ -27,14 +27,14 @@ import Link from 'next/link';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface BookingCalendarProps {
-  bookings: BookingListItem[];
+  bookings: BookingCalendarItem[];
   currentDate: Date;
   onDateChange: (date: Date) => void;
   isFetching?: boolean;
 }
 
 interface DayEvent {
-  booking: BookingListItem;
+  booking: BookingCalendarItem;
   isStart: boolean;
   isEnd: boolean;
 }

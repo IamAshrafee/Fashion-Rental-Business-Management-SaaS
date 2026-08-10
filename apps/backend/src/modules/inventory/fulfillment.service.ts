@@ -297,7 +297,35 @@ export class FulfillmentService {
     actorUserId?: string,
   ) {
     const requestedEnd = new Date(dto.rentalEndDate);
+    if (!actorUserId) throw new BadRequestException('An authenticated actor is required');
+    const requestHash = this.hashRequest({
+      bookingId,
+      rentalEndDate: dto.rentalEndDate,
+      extensionCharge: dto.extensionCharge,
+      approvalEvidence: dto.approvalEvidence.trim(),
+      reason: dto.reason.trim(),
+    });
     return this.prisma.$transaction(async (tx) => {
+      const replay = await tx.fulfillmentExtension.findFirst({ where: { tenantId, idempotencyKey: dto.idempotencyKey } });
+      if (replay) {
+        if (replay.bookingId !== bookingId || replay.requestHash !== requestHash) {
+          throw new ConflictException({ code: 'EXTENSION_IDEMPOTENCY_REUSED', message: 'This extension key belongs to another request' });
+        }
+        return tx.fulfillmentRequirement.findMany({
+          where: { tenantId, bookingId },
+          include: this.requirementInclude(),
+          orderBy: [{ bookingItemId: 'asc' }, { createdAt: 'asc' }],
+        });
+      }
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM bookings WHERE tenant_id = ${tenantId} AND id = ${bookingId} FOR UPDATE`);
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, tenantId },
+        include: { items: { orderBy: { id: 'asc' } } },
+      });
+      if (!booking) throw new NotFoundException('Booking not found');
+      if (!['pending', 'confirmed', 'delivered', 'overdue'].includes(booking.status)) {
+        throw new ConflictException({ code: 'EXTENSION_STATUS_INVALID', message: 'Only pending, confirmed, active, or overdue rentals can be extended' });
+      }
       await tx.$queryRaw(Prisma.sql`
         SELECT id FROM fulfillment_requirements
         WHERE tenant_id = ${tenantId} AND booking_id = ${bookingId}
@@ -319,6 +347,10 @@ export class FulfillmentService {
       }
       if (requirements.some((item) => requestedEnd <= item.rentalStartDate)) {
         throw new BadRequestException('Rental end date must be after the rental start date');
+      }
+      const previousEnd = requirements.reduce((latest, item) => item.rentalEndDate > latest ? item.rentalEndDate : latest, requirements[0].rentalEndDate);
+      if (requestedEnd <= previousEnd) {
+        throw new BadRequestException({ code: 'EXTENSION_MUST_INCREASE_END_DATE', message: 'The new return date must be later than the current return date' });
       }
       if (requirements.some((item) => item.handedOutQuantity > 0 && requestedEnd < item.rentalEndDate)) {
         throw new ConflictException('A handed-out component cannot be shortened below its current return date');
@@ -346,9 +378,13 @@ export class FulfillmentService {
           excludeReservationId: requirement.reservation!.id,
         }, tx);
         if (!availability.available || !availability.availabilityPolicy) {
-          throw new ConflictException(
-            `${requirement.productNameSnapshot} cannot be extended: ${availability.reason ?? 'inventory is unavailable'}`,
-          );
+          throw new ConflictException({
+            code: 'RENTAL_EXTENSION_CONFLICT',
+            message: `${requirement.productNameSnapshot} cannot be extended`,
+            requirementId: requirement.id,
+            productName: requirement.productNameSnapshot,
+            reason: availability.reason ?? 'Inventory is unavailable',
+          });
         }
         checks.push({ requirement, availability });
       }
@@ -414,6 +450,49 @@ export class FulfillmentService {
           });
         }
       }
+      const totalWeight = booking.items.reduce((sum, item) => sum + Math.max(1, item.baseRental), 0);
+      let allocatedCharge = 0;
+      for (const [index, item] of booking.items.entries()) {
+        const itemCharge = index === booking.items.length - 1
+          ? dto.extensionCharge - allocatedCharge
+          : Math.floor(dto.extensionCharge * Math.max(1, item.baseRental) / totalWeight);
+        allocatedCharge += itemCharge;
+        const addedDays = Math.max(0, Math.round((requestedEnd.getTime() - item.endDate.getTime()) / 86_400_000));
+        await tx.bookingItem.update({
+          where: { id: item.id },
+          data: {
+            endDate: requestedEnd,
+            rentalDays: { increment: addedDays },
+            extendedDays: { increment: addedDays },
+            extendedCost: { increment: itemCharge },
+            itemTotal: { increment: itemCharge },
+          },
+        });
+      }
+      const nextGrandTotal = booking.grandTotal + dto.extensionCharge;
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          rentalEndDate: requestedEnd,
+          subtotal: { increment: dto.extensionCharge },
+          grandTotal: nextGrandTotal,
+          paymentStatus: booking.totalPaid <= 0 ? 'unpaid' : booking.totalPaid >= nextGrandTotal ? 'paid' : 'partial',
+        },
+      });
+      await tx.fulfillmentExtension.create({
+        data: {
+          tenantId,
+          bookingId,
+          previousEndDate: previousEnd,
+          rentalEndDate: requestedEnd,
+          extensionCharge: dto.extensionCharge,
+          approvalEvidence: dto.approvalEvidence.trim(),
+          reason: dto.reason.trim(),
+          idempotencyKey: dto.idempotencyKey,
+          requestHash,
+          actorUserId,
+        },
+      });
       return tx.fulfillmentRequirement.findMany({
         where: { tenantId, bookingId },
         include: this.requirementInclude(),

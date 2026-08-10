@@ -452,6 +452,7 @@ export class InventoryServiceOrderService {
       where: { tenantId, stockUnitId },
       include: this.orderInclude(),
       orderBy: { createdAt: 'desc' },
+      take: 300,
     });
   }
 

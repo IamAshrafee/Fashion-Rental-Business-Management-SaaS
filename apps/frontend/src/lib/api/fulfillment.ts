@@ -187,8 +187,8 @@ export const fulfillmentApi = {
   },
   listBookingRequirements: async (bookingId: string): Promise<FulfillmentRequirement[]> =>
     unwrap(await apiClient.get<ApiResponse<FulfillmentRequirement[]>>(`/owner/bookings/${bookingId}/fulfillment`)),
-  extendBookingDates: async (bookingId: string, rentalEndDate: string, reason: string): Promise<FulfillmentRequirement[]> =>
-    unwrap(await apiClient.patch<ApiResponse<FulfillmentRequirement[]>>(`/owner/bookings/${bookingId}/fulfillment/dates`, { rentalEndDate, reason })),
+  extendBookingDates: async (bookingId: string, payload: { rentalEndDate: string; reason: string; extensionCharge: number; approvalEvidence: string; idempotencyKey: string }): Promise<FulfillmentRequirement[]> =>
+    unwrap(await apiClient.patch<ApiResponse<FulfillmentRequirement[]>>(`/owner/bookings/${bookingId}/fulfillment/dates`, payload)),
   getAssignmentOptions: async (bookingId: string, bookingItemId: string, requirementId: string): Promise<RequirementAssignmentOptions> =>
     unwrap(await apiClient.get<ApiResponse<RequirementAssignmentOptions>>(`/owner/bookings/${bookingId}/items/${bookingItemId}/requirements/${requirementId}/assignments`)),
   assignUnits: async (bookingId: string, bookingItemId: string, requirementId: string, stockUnitIds: string[]): Promise<void> => {

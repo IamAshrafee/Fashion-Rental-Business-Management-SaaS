@@ -512,6 +512,14 @@ export class BookingQueryDto {
   sort?: 'createdAt' | 'grandTotal';
 }
 
+export class BookingCalendarQueryDto {
+  @IsDateString()
+  startDate!: string;
+
+  @IsDateString()
+  endDate!: string;
+}
+
 export class CheckAvailabilityDto {
   @IsUUID()
   variantSizeId!: string;

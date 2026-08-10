@@ -2,6 +2,7 @@
 
 import { X, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatMinorMoney } from '@/lib/money';
 import { useState } from 'react';
 import type { FilterCounts } from '@/lib/api/guest-products';
 
@@ -311,7 +312,7 @@ function buildPriceBuckets(
     if (step > max) break;
     if (step > min) {
       buckets.push({
-        label: prev === 0 ? `Under ৳${formatK(step)}` : `৳${formatK(prev)} – ৳${formatK(step)}`,
+        label: prev === 0 ? `Under ${formatMinorMoney(step)}` : `${formatMinorMoney(prev)} – ${formatMinorMoney(step)}`,
         min: prev === 0 ? undefined : prev,
         max: step,
       });
@@ -321,15 +322,11 @@ function buildPriceBuckets(
 
   if (prev < max) {
     buckets.push({
-      label: `Over ৳${formatK(prev)}`,
+      label: `Over ${formatMinorMoney(prev)}`,
       min: prev,
       max: undefined,
     });
   }
 
   return buckets;
-}
-
-function formatK(n: number): string {
-  return n >= 1000 ? `${n / 1000}K` : String(n);
 }

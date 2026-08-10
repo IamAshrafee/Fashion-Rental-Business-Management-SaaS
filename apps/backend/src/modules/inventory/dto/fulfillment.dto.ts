@@ -239,4 +239,20 @@ export class ExtendFulfillmentRequirementDto {
   @IsNotEmpty()
   @MaxLength(1000)
   reason!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000_000)
+  extensionCharge!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  approvalEvidence!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  idempotencyKey!: string;
 }

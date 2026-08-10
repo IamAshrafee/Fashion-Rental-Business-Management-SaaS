@@ -523,6 +523,7 @@ export class StockUnitInspectionService {
         where: { tenantId, stockUnitId },
         include: this.inspectionInclude(),
         orderBy: { createdAt: 'desc' },
+        take: 300,
       }),
       this.prisma.stockUnitIssue.findMany({
         where: { tenantId, stockUnitId },
@@ -534,6 +535,7 @@ export class StockUnitInspectionService {
           damageReport: true,
         },
         orderBy: { createdAt: 'desc' },
+        take: 300,
       }),
       this.prisma.stockUnitLifecycleEvent.findMany({
         where: { tenantId, stockUnitId },

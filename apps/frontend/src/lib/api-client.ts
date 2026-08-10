@@ -10,6 +10,7 @@
 
 import axios from 'axios';
 import { getAccessToken, refreshAccessToken, clearAccessToken, getTenantId } from './auth';
+import { getApiProblem } from './api-error';
 
 // ----------------------------------------------------------------
 // Dynamic Base URL
@@ -133,6 +134,10 @@ apiClient.interceptors.response.use(
       }
     }
 
+    const problem = getApiProblem(error);
+    error.message = problem.message;
+    error.code = problem.code;
+    error.problem = problem;
     return Promise.reject(error);
   },
 );

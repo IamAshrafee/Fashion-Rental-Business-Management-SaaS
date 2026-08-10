@@ -8,6 +8,7 @@ import { ShopUtilityBar } from '@/components/guest/ui/shop-utility-bar';
 import { ShopFilterDrawer } from '@/components/guest/ui/shop-filter-drawer';
 import { SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatMinorMoney } from '@/lib/money';
 import {
   getGuestProducts,
   getProductFilters,
@@ -190,7 +191,7 @@ function GuestProductsContent() {
             )}
             {(currentMinPrice || currentMaxPrice) && (
                <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
-                 {currentMinPrice ? `৳${currentMinPrice}` : '৳0'} - {currentMaxPrice ? `৳${currentMaxPrice}` : 'Max'}
+                 {formatMinorMoney(currentMinPrice ?? 0)} - {currentMaxPrice ? formatMinorMoney(currentMaxPrice) : 'Max'}
                  <button type="button" onClick={() => { handleFilterChange('minPrice', undefined); handleFilterChange('maxPrice', undefined); }} className="text-slate-400 hover:text-slate-900">×</button>
                </span>
             )}

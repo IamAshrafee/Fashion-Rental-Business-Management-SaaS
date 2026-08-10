@@ -6,6 +6,7 @@ import { Check, Layers3, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getProductBySlug, type GuestProductDetail } from '@/lib/api/guest-products';
 import type { CompositionRule } from '@/lib/api/fulfillment';
+import { formatMinorMoney } from '@/lib/money';
 
 export interface BundleSelection {
   compositionRuleId: string;
@@ -69,7 +70,7 @@ function RuleSelector({ rule, value, onChange }: { rule: CompositionRule; value?
       {productQuery.isLoading ? <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading available sizes…</p> : <div className="flex flex-wrap gap-2">{skus.map((sku) => <button type="button" key={sku.id} onClick={() => selectSku(sku.id)} className={cn('rounded-lg border px-3 py-2 text-xs font-medium', value?.variantSizeId === sku.id ? 'border-black bg-black text-white' : 'border-black/10 hover:border-black/30')}>{sku.label}</button>)}</div>}
       {!productQuery.isLoading && !skus.length && <p className="text-xs text-red-600">No rentable SKU is configured for this component.</p>}
     </div>}
-    {enabled && rule.pricingBehavior !== 'INCLUDED' && <p className="mt-3 text-xs font-medium">Additional charge: ৳{(rule.priceAdjustment || 0).toLocaleString()}</p>}
+    {enabled && rule.pricingBehavior !== 'INCLUDED' && <p className="mt-3 text-xs font-medium">Additional charge: {formatMinorMoney(rule.priceAdjustment)}</p>}
   </div>;
 }
 

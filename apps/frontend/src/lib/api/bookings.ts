@@ -226,6 +226,14 @@ export interface BookingListItem {
   };
 }
 
+export interface BookingCalendarItem {
+  id: string;
+  bookingNumber: string;
+  status: string;
+  customer: { id: string; fullName: string; phone: string };
+  items: Array<{ id: string; productName: string; startDate: string; endDate: string }>;
+}
+
 // ─── Booking Detail (richer than list item) ──────────────────────────────────
 
 export interface BookingDetailItem {
@@ -397,6 +405,31 @@ export interface BookingDetailResponse {
   };
   items: BookingDetailItem[];
   payments: BookingDetailPayment[];
+  fulfillmentExtensions: Array<{
+    id: string;
+    previousEndDate: string;
+    rentalEndDate: string;
+    extensionCharge: number;
+    approvalEvidence: string;
+    reason: string;
+    createdAt: string;
+    actor: { id: string; fullName: string };
+  }>;
+  operationalTimeline: {
+    events: Array<{
+      id: string;
+      category: 'BOOKING' | 'COURIER' | 'FULFILLMENT' | 'COMMERCIAL' | 'RETURN';
+      code: string;
+      label: string;
+      occurredAt: string;
+      actor: { id: string; fullName: string } | null;
+      reason: string | null;
+      amountMinor: number | null;
+      metadata?: Record<string, unknown>;
+    }>;
+    truncated: boolean;
+    limit: number;
+  };
 }
 
 // ─── Cart Validation ─────────────────────────────────────────────────────────
@@ -584,6 +617,14 @@ export const bookingApi = {
   getStats: async (): Promise<BookingStats> => {
     const { data } = await apiClient.get<ApiResponse<BookingStats>>('/owner/bookings/stats');
     if (!data.success) throw new Error(data.message || 'Failed to load stats');
+    return data.data;
+  },
+
+  calendar: async (startDate: string, endDate: string): Promise<BookingCalendarItem[]> => {
+    const { data } = await apiClient.get<ApiResponse<BookingCalendarItem[]>>('/owner/bookings/calendar', {
+      params: { startDate, endDate },
+    });
+    if (!data.success) throw new Error(data.message || 'Failed to load rental calendar');
     return data.data;
   },
 

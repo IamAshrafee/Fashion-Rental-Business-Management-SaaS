@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle2, Package, DollarSign, PenTool, XCircle, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export function StatusTimeline({ events }: { events: BookingTimelineEvent[] }) {
+export function StatusTimeline({ events, truncated = false }: { events: BookingTimelineEvent[]; truncated?: boolean }) {
   
   const getIcon = (status: string) => {
     switch(status) {
@@ -41,6 +41,11 @@ export function StatusTimeline({ events }: { events: BookingTimelineEvent[] }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-6 relative">
+        {truncated && (
+          <p className="mb-4 rounded-md border bg-muted/50 p-2 text-xs text-muted-foreground">
+            Showing the latest 200 operational events. Earlier records remain in their source ledgers.
+          </p>
+        )}
         <div className="absolute left-7 top-6 bottom-6 w-0.5 bg-border pointer-events-none" />
         
         <div className="space-y-6">

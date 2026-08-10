@@ -142,6 +142,8 @@ export interface SearchSuggestion {
 
 export interface DateRangeCheck {
   available: boolean;
+  conflictDates?: [string, string];
+  nextAvailable?: string;
   rentalDays?: number;
   pricing?: {
     baseRental: number;

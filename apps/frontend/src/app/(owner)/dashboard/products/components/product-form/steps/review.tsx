@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useCategories, useEvents, useColors } from '../../../hooks/use-product-apis';
 import { Button } from '@/components/ui/button';
+import { formatMinorMoney } from '@/lib/money';
 
 interface ReviewStepProps {
   onGoToStep?: (step: number) => void;
@@ -112,10 +113,10 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
     if (!data.ratePlanType || !data.ratePlanConfig) return 'Not configured';
     const config = data.ratePlanConfig as any;
     switch (data.ratePlanType) {
-      case 'FLAT_PERIOD': return `৳${config.flatPriceMinor || 0} for ${config.includedDays || '?'} days`;
-      case 'PER_DAY': return `৳${config.unitPriceMinor || 0}/day (min ${config.minDays || 1}d)`;
+      case 'FLAT_PERIOD': return `${formatMinorMoney(config.flatPriceMinor)} for ${config.includedDays || '?'} days`;
+      case 'PER_DAY': return `${formatMinorMoney(config.unitPriceMinor)}/day (min ${config.minDays || 1}d)`;
       case 'TIERED_DAILY': return `Tiered (${config.tiers?.length || 0} tiers)`;
-      case 'WEEKLY_MONTHLY': return `৳${config.dailyPriceMinor || 0}/d | ৳${config.weeklyPriceMinor || 0}/w`;
+      case 'WEEKLY_MONTHLY': return `${formatMinorMoney(config.dailyPriceMinor)}/d | ${formatMinorMoney(config.weeklyPriceMinor)}/w`;
       case 'PERCENT_RETAIL': return `${config.percent || 0}% of retail`;
     }
     return data.ratePlanType;
@@ -191,13 +192,13 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
             <div className="space-y-1.5 text-sm">
               <Row label="Rate Plan" value={pricingLabel} />
               {data.pricingComponents?.map((comp, idx) => (
-                <Row key={idx} label={comp.type.replace(/_/g, ' ')} value={`৳${comp.config?.amountMinor || 0}${comp.type === 'DEPOSIT' ? ' (refundable)' : ''}`} />
+                <Row key={idx} label={comp.type.replace(/_/g, ' ')} value={`${formatMinorMoney(comp.config?.amountMinor)}${comp.type === 'DEPOSIT' ? ' (refundable)' : ''}`} />
               ))}
               {data.lateFeeEnabled && (
-                <Row label="Late Fee" value={`৳${data.lateFeeAmountMinor || 0}/day (after ${data.lateFeeGraceHours}h)`} />
+                <Row label="Late Fee" value={`${formatMinorMoney(data.lateFeeAmountMinor)}/day (after ${data.lateFeeGraceHours}h)`} />
               )}
               {data.shippingMode === 'flat' && (data.flatShippingFee ?? 0) > 0 && (
-                <Row label="Shipping" value={`৳${data.flatShippingFee?.toLocaleString()}`} />
+                <Row label="Shipping" value={formatMinorMoney(data.flatShippingFee)} />
               )}
             </div>
           </CardContent>
@@ -233,7 +234,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
             </div>
           )}
           {data.targetRentals && <Row label="Target Rentals" value={data.targetRentals.toString()} />}
-          {data.purchasePrice && <Row label="Purchase Price" value={`৳${data.purchasePrice}`} />}
+          {data.purchasePrice && <Row label="Purchase Price" value={formatMinorMoney(data.purchasePrice)} />}
         </ReviewCard>
 
         {/* ── Variants & Media ─────────────────────────────── */}
@@ -285,7 +286,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
               label="Shipping"
               value={
                 data.shippingMode === 'flat'
-                  ? `Flat ৳${data.flatShippingFee || 0}`
+                  ? `Flat ${formatMinorMoney(data.flatShippingFee)}`
                   : 'Free'
               }
             />
@@ -293,10 +294,10 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
           
           <div className="border-t mt-2 pt-2">
             {data.pricingComponents?.filter(c => c.type === 'DEPOSIT').map((c, i) => (
-              <Row key={i} label="Security Deposit" value={`৳${c.config?.amountMinor || 0}`} />
+              <Row key={i} label="Security Deposit" value={formatMinorMoney(c.config?.amountMinor)} />
             ))}
             {data.pricingComponents?.filter(c => c.type !== 'DEPOSIT').map((c, i) => (
-              <Row key={i} label={c.type.replace(/_/g, ' ')} value={`৳${c.config?.amountMinor || 0}`} />
+              <Row key={i} label={c.type.replace(/_/g, ' ')} value={formatMinorMoney(c.config?.amountMinor)} />
             ))}
           </div>
         </ReviewCard>
