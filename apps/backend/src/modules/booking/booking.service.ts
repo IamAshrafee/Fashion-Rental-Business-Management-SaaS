@@ -23,6 +23,7 @@ import {
   BookingQueryDto,
   CreateDamageReportDto,
   CancelBookingDto,
+  BOOKING_LIST_MAX_LIMIT,
 } from './dto/booking.dto';
 
 // ---------------------------------------------------------------------------
@@ -714,7 +715,7 @@ export class BookingService {
 
   async getBookingList(tenantId: string, query: BookingQueryDto) {
     const page = query.page || 1;
-    const limit = Math.min(query.limit || 20, 100);
+    const limit = Math.min(query.limit || 20, BOOKING_LIST_MAX_LIMIT);
     const skip = (page - 1) * limit;
 
     const where: Prisma.BookingWhereInput = {

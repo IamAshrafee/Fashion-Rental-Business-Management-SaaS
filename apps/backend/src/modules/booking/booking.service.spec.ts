@@ -173,4 +173,23 @@ describe('BookingService', () => {
       nextAction: 'ASSIGN_ITEMS',
     });
   });
+
+  it('uses the validated 250-row maximum as a defensive service bound', async () => {
+    const prisma = {
+      booking: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+
+    const result = await serviceWith(prisma).getBookingList('tenant-1', {
+      page: 1,
+      limit: 999,
+    });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: 250 }),
+    );
+    expect(result.meta).toMatchObject({ limit: 250, total: 0 });
+  });
 });

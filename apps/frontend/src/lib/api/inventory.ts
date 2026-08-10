@@ -1,4 +1,4 @@
-import type { ApiResponse } from '@closetrent/types';
+import type { ApiResponse, PaginatedResponse } from '@closetrent/types';
 import apiClient from '../api-client';
 import type {
   StockConditionGrade,
@@ -187,11 +187,6 @@ export interface CreateInventoryItemInput {
   notes?: string;
 }
 
-export interface PaginatedInventory<T> {
-  data: T[];
-  meta: { page: number; limit: number; total: number; totalPages: number };
-}
-
 export type AvailabilityPolicyScope = 'TENANT' | 'LOCATION' | 'PRODUCT' | 'SKU';
 export interface AvailabilityPolicy {
   id: string;
@@ -298,11 +293,15 @@ export const inventoryApi = {
   overview: async (): Promise<InventoryOverview> =>
     unwrap(await apiClient.get<ApiResponse<InventoryOverview>>('/owner/inventory/overview')),
 
-  listItems: async (params?: InventoryItemsQuery) =>
-    unwrap(await apiClient.get<ApiResponse<PaginatedInventory<InventoryItem>>>('/owner/inventory/items', { params })),
+  listItems: async (params?: InventoryItemsQuery): Promise<PaginatedResponse<InventoryItem>> => {
+    const { data } = await apiClient.get<PaginatedResponse<InventoryItem>>('/owner/inventory/items', { params });
+    return data;
+  },
 
-  listSkus: async (params?: InventorySkuQuery): Promise<PaginatedInventory<InventorySku>> =>
-    unwrap(await apiClient.get<ApiResponse<PaginatedInventory<InventorySku>>>('/owner/inventory/skus', { params })),
+  listSkus: async (params?: InventorySkuQuery): Promise<PaginatedResponse<InventorySku>> => {
+    const { data } = await apiClient.get<PaginatedResponse<InventorySku>>('/owner/inventory/skus', { params });
+    return data;
+  },
 
   createItem: async (variantSizeId: string, payload: CreateInventoryItemInput): Promise<{ id: string; assetCode: string }> =>
     unwrap(await apiClient.post<ApiResponse<{ id: string; assetCode: string }>>(`/owner/variant-sizes/${variantSizeId}/stock-units`, payload)),

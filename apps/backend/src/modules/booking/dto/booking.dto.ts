@@ -26,6 +26,8 @@ import { Type } from 'class-transformer';
 export const PAYMENT_METHODS = ['cod', 'bkash', 'nagad', 'sslcommerz'] as const;
 export type PaymentMethodType = (typeof PAYMENT_METHODS)[number];
 
+export const BOOKING_LIST_MAX_LIMIT = 250;
+
 export const DAMAGE_LEVELS = ['none', 'minor', 'moderate', 'severe', 'destroyed', 'lost'] as const;
 export type DamageLevelType = (typeof DAMAGE_LEVELS)[number];
 
@@ -377,7 +379,7 @@ export class BookingQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(BOOKING_LIST_MAX_LIMIT)
   limit?: number = 20;
 
   @IsOptional()

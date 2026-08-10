@@ -58,6 +58,7 @@ describe('InventoryAvailabilityService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-01T00:00:00.000Z').getTime());
     policies.resolve.mockResolvedValue(policy);
     policies.calculateBlockedRange.mockImplementation((start: Date, end: Date) => ({
       blockedStart: new Date(start.getTime() - 86_400_000),
@@ -75,6 +76,10 @@ describe('InventoryAvailabilityService', () => {
     prisma.inventoryReservation.findMany.mockResolvedValue([]);
     prisma.stockUnit.count.mockResolvedValue(0);
     prisma.stockUnit.findFirst.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('subtracts overlapping reservations from pooled capacity and applies buffer days', async () => {
