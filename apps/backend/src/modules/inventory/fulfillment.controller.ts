@@ -23,6 +23,7 @@ import { AssignStockUnitsDto, ReleaseAssignmentDto } from './dto/inventory.dto';
 import {
   CreateCompositionRuleDto,
   ExtendFulfillmentRequirementDto,
+  PrepareFulfillmentRequirementDto,
   RecordFulfillmentEventDto,
   SubstituteFulfillmentRequirementDto,
   UpdateCompositionRuleDto,
@@ -138,6 +139,17 @@ export class FulfillmentOwnerController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.fulfillment.recordEvent(tenant.id, requirementId, dto, request.user?.id);
+  }
+
+  @Patch('fulfillment/requirements/:requirementId/preparation')
+  @Roles('owner', 'manager', 'staff')
+  prepareRequirement(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('requirementId') requirementId: string,
+    @Body() dto: PrepareFulfillmentRequirementDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.fulfillment.prepareRequirement(tenant.id, requirementId, dto, request.user?.id);
   }
 
   @Get('bookings/:bookingId/items/:bookingItemId/requirements/:requirementId/assignments')

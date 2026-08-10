@@ -55,6 +55,7 @@ export default function BookingDetailPage() {
     queryKey: ['bookings', 'detail', bookingId],
     queryFn: () => bookingApi.getById(bookingId),
     enabled: !!bookingId,
+    refetchInterval: 30_000,
   });
 
   // Fix #4: Add Note mutation
@@ -169,6 +170,11 @@ export default function BookingDetailPage() {
     depositAmount: item.depositAmount,
     lateFee: item.lateFee,
     itemTotal: item.itemTotal,
+    fulfillmentAdjustment: item.fulfillmentAdjustment,
+    requiresExactDamageIssue: item.fulfillmentRequirements?.some(
+      (requirement) => requirement.trackingModeSnapshot === 'SERIALIZED',
+    ) ?? false,
+    stockUnitIssues: item.stockUnitIssues,
     depositStatus: (item.depositStatus || 'pending') as BookingItem['depositStatus'],
     damageReport: item.damageReport ? {
       id: item.damageReport.id,
@@ -182,6 +188,7 @@ export default function BookingDetailPage() {
       reportedBy: item.damageReport.reportedBy,
       createdAt: item.damageReport.createdAt,
     } : undefined,
+    depositSettlement: item.depositSettlement ?? undefined,
   }));
 
   // ── Map payments ───────────────────────────────────────────────────────
@@ -439,7 +446,7 @@ export default function BookingDetailPage() {
             <BookingItems items={mappedItems} bookingId={booking.id} bookingStatus={booking.status} />
           </div>
 
-          <InventoryAssignments bookingId={booking.id} items={booking.items} />
+          <InventoryAssignments bookingId={booking.id} bookingStatus={booking.status} />
           
           <div className="grid sm:grid-cols-2 gap-6">
             <PaymentHistory

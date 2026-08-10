@@ -28,7 +28,7 @@ export interface BookingCancelledEvent {
   bookingNumber: string;
   customerId: string;
   reason: string;
-  cancelledBy: 'customer' | 'owner';
+  cancelledBy: 'customer' | 'owner' | 'system';
 }
 
 export interface BookingOverdueEvent {
@@ -58,21 +58,20 @@ export interface PaymentReceivedEvent {
   method: string;
 }
 
-export interface DepositRefundedEvent {
+export interface DepositSettledEvent {
+  id: string;
   tenantId: string;
   bookingId: string;
   bookingItemId: string;
+  damageReportId: string | null;
   refundAmount: number;
-  depositAmount: number;
-  refundMethod: string;
-}
-
-export interface DepositForfeitedEvent {
-  tenantId: string;
-  bookingId: string;
-  bookingItemId: string;
-  depositAmount: number;
+  deductionAmount: number;
+  forfeitedAmount: number;
+  additionalCharge: number;
+  refundMethod: string | null;
   reason: string;
+  actorUserId: string;
+  createdAt: Date;
 }
 
 // --- Tenant Events ---

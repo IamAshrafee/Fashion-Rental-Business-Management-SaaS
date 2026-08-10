@@ -9,8 +9,7 @@ import type {
   BookingCancelledEvent,
   BookingOverdueEvent,
   PaymentReceivedEvent,
-  DepositRefundedEvent,
-  DepositForfeitedEvent,
+  DepositSettledEvent,
   TenantSuspendedEvent,
   TenantSubscriptionExpiringEvent,
 } from '@closetrent/types';
@@ -321,8 +320,8 @@ export class NotificationListener {
   // DEPOSIT EVENTS
   // --------------------------------------------------------------------------
 
-  @OnEvent('deposit.refunded')
-  async handleDepositRefunded(event: DepositRefundedEvent) {
+  @OnEvent('deposit.settled')
+  async handleDepositSettled(event: DepositSettledEvent) {
     try {
       const booking = await this.prisma.booking.findUnique({
         where: { id: event.bookingId },
@@ -330,36 +329,26 @@ export class NotificationListener {
       });
       if (!booking) return;
 
+      const outcome = event.forfeitedAmount > 0
+        ? 'forfeited'
+        : event.deductionAmount > 0 ? 'partially refunded' : 'refunded';
       await this.notificationService.create({
         tenantId: event.tenantId,
-        type: 'deposit_refunded',
-        title: `Deposit of ৳${event.refundAmount} refunded`,
-        message: `For booking ${booking.bookingNumber} via ${event.refundMethod}`,
-        data: { bookingId: event.bookingId, amount: event.refundAmount },
+        type: 'deposit_settled',
+        title: `Deposit ${outcome} on ${booking.bookingNumber}`,
+        message: event.reason,
+        data: {
+          bookingId: event.bookingId,
+          bookingItemId: event.bookingItemId,
+          settlementId: event.id,
+          refundAmount: event.refundAmount,
+          deductionAmount: event.deductionAmount,
+          forfeitedAmount: event.forfeitedAmount,
+          additionalCharge: event.additionalCharge,
+        },
       });
     } catch (err) {
-      this.logger.error(`handleDepositRefunded failed: ${(err as Error).message}`);
-    }
-  }
-
-  @OnEvent('deposit.forfeited')
-  async handleDepositForfeited(event: DepositForfeitedEvent) {
-    try {
-      const booking = await this.prisma.booking.findUnique({
-        where: { id: event.bookingId },
-        select: { bookingNumber: true },
-      });
-      if (!booking) return;
-
-      await this.notificationService.create({
-        tenantId: event.tenantId,
-        type: 'deposit_forfeited',
-        title: `Deposit forfeited on ${booking.bookingNumber}`,
-        message: `Reason: ${event.reason}`,
-        data: { bookingId: event.bookingId, reason: event.reason },
-      });
-    } catch (err) {
-      this.logger.error(`handleDepositForfeited failed: ${(err as Error).message}`);
+      this.logger.error(`handleDepositSettled failed: ${(err as Error).message}`);
     }
   }
 

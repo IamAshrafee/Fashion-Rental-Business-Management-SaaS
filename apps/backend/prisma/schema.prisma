@@ -152,6 +152,7 @@ enum PaymentStatus {
 enum CancelledBy {
   customer
   owner
+  system
 }
 
 enum InventoryTrackingMode {
@@ -377,6 +378,12 @@ enum FulfillmentRequirementStatus {
   SUPERSEDED
 }
 
+enum FulfillmentPreparationStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY
+}
+
 enum FulfillmentVersionAction {
   CREATED
   MODIFIED
@@ -397,6 +404,8 @@ enum FulfillmentEventType {
   RESERVED
   ASSIGNED
   ASSIGNMENT_RELEASED
+  PREPARATION_STARTED
+  PREPARATION_COMPLETED
   HANDED_OUT
   RETURNED
   MARKED_LOST
@@ -531,6 +540,7 @@ model User {
   fulfillmentVersions          FulfillmentRequirementVersion[] @relation("FulfillmentVersionActor")
   fulfillmentSubstitutions     FulfillmentSubstitution[]       @relation("FulfillmentSubstitutionActor")
   fulfillmentEvents            FulfillmentRequirementEvent[]   @relation("FulfillmentEventActor")
+  depositSettlements           DepositSettlement[]             @relation("DepositSettlementActor")
   createdInventoryLocations    InventoryLocation[]             @relation("InventoryLocationCreator")
   createdInventoryTransfers    InventoryTransfer[]             @relation("InventoryTransferCreator")
   approvedInventoryTransfers   InventoryTransfer[]             @relation("InventoryTransferApprover")
@@ -636,6 +646,7 @@ model Tenant {
   events                         Event[]
   bookings                       Booking[]
   bookingQuotes                  BookingQuote[]
+  depositSettlements             DepositSettlement[]
   customers                      Customer[]
   notifications                  Notification[]
   auditLogs                      AuditLog[]
@@ -1545,6 +1556,7 @@ model Booking {
   inventoryReservations  InventoryReservation[]
   reviews                Review[]
   FulfillmentRequirement FulfillmentRequirement[]
+  depositSettlements     DepositSettlement[]
 
   @@unique([tenantId, bookingNumber])
   @@unique([tenantId, creationKey])
@@ -1558,42 +1570,43 @@ model Booking {
 }
 
 model BookingItem {
-  id                  String        @id @default(uuid())
-  tenantId            String        @map("tenant_id")
-  bookingId           String        @map("booking_id")
-  productId           String?       @map("product_id")
-  variantId           String        @map("variant_id")
-  variantSizeId       String?       @map("variant_size_id")
-  quantity            Int           @default(1)
-  productName         String        @map("product_name")
-  variantName         String?       @map("variant_name")
-  colorName           String        @map("color_name")
-  sizeInfo            String?       @map("size_info")
-  featuredImageUrl    String        @map("featured_image_url")
-  startDate           DateTime      @map("start_date") @db.Date
-  endDate             DateTime      @map("end_date") @db.Date
-  rentalDays          Int           @map("rental_days")
-  baseRental          Int           @map("base_rental")
-  extendedDays        Int           @default(0) @map("extended_days")
-  extendedCost        Int           @default(0) @map("extended_cost")
-  depositAmount       Int           @default(0) @map("deposit_amount")
-  depositStatus       DepositStatus @default(pending) @map("deposit_status")
-  depositRefundAmount Int?          @map("deposit_refund_amount")
-  depositRefundDate   DateTime?     @map("deposit_refund_date")
-  depositRefundMethod String?       @map("deposit_refund_method")
-  cleaningFee         Int           @default(0) @map("cleaning_fee")
-  backupSize          String?       @map("backup_size")
-  backupSizeFee       Int           @default(0) @map("backup_size_fee")
-  tryOnFee            Int           @default(0) @map("try_on_fee")
-  tryOnCredited       Boolean       @default(false) @map("try_on_credited")
-  itemTotal           Int           @map("item_total")
-  quotedItemTotal     Int?          @map("quoted_item_total")
-  priceOverrideAmount Int?          @map("price_override_amount")
-  priceOverrideReason String?       @map("price_override_reason")
-  lateFee             Int           @default(0) @map("late_fee")
-  lateDays            Int           @default(0) @map("late_days")
-  createdAt           DateTime      @default(now()) @map("created_at")
-  updatedAt           DateTime      @updatedAt @map("updated_at")
+  id                    String        @id @default(uuid())
+  tenantId              String        @map("tenant_id")
+  bookingId             String        @map("booking_id")
+  productId             String?       @map("product_id")
+  variantId             String        @map("variant_id")
+  variantSizeId         String?       @map("variant_size_id")
+  quantity              Int           @default(1)
+  productName           String        @map("product_name")
+  variantName           String?       @map("variant_name")
+  colorName             String        @map("color_name")
+  sizeInfo              String?       @map("size_info")
+  featuredImageUrl      String        @map("featured_image_url")
+  startDate             DateTime      @map("start_date") @db.Date
+  endDate               DateTime      @map("end_date") @db.Date
+  rentalDays            Int           @map("rental_days")
+  baseRental            Int           @map("base_rental")
+  extendedDays          Int           @default(0) @map("extended_days")
+  extendedCost          Int           @default(0) @map("extended_cost")
+  depositAmount         Int           @default(0) @map("deposit_amount")
+  depositStatus         DepositStatus @default(pending) @map("deposit_status")
+  depositRefundAmount   Int?          @map("deposit_refund_amount")
+  depositRefundDate     DateTime?     @map("deposit_refund_date")
+  depositRefundMethod   String?       @map("deposit_refund_method")
+  cleaningFee           Int           @default(0) @map("cleaning_fee")
+  backupSize            String?       @map("backup_size")
+  backupSizeFee         Int           @default(0) @map("backup_size_fee")
+  tryOnFee              Int           @default(0) @map("try_on_fee")
+  tryOnCredited         Boolean       @default(false) @map("try_on_credited")
+  itemTotal             Int           @map("item_total")
+  fulfillmentAdjustment Int           @default(0) @map("fulfillment_adjustment")
+  quotedItemTotal       Int?          @map("quoted_item_total")
+  priceOverrideAmount   Int?          @map("price_override_amount")
+  priceOverrideReason   String?       @map("price_override_reason")
+  lateFee               Int           @default(0) @map("late_fee")
+  lateDays              Int           @default(0) @map("late_days")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
 
   booking                       Booking                        @relation(fields: [bookingId], references: [id])
   product                       Product?                       @relation(fields: [productId], references: [id])
@@ -1604,6 +1617,7 @@ model BookingItem {
   fulfillmentSelectionSnapshots FulfillmentSelectionSnapshot[]
   stockUnitInspections          StockUnitInspection[]
   stockUnitIssues               StockUnitIssue[]
+  depositSettlement             DepositSettlement?
 
   @@index([bookingId])
   @@index([productId])
@@ -1626,12 +1640,44 @@ model DamageReport {
   createdAt           DateTime    @default(now()) @map("created_at")
   updatedAt           DateTime    @updatedAt @map("updated_at")
 
-  bookingItem    BookingItem     @relation(fields: [bookingItemId], references: [id])
-  reporter       User            @relation(fields: [reportedBy], references: [id])
-  stockUnitIssue StockUnitIssue? @relation(fields: [stockUnitIssueId], references: [id], onDelete: SetNull)
+  bookingItem       BookingItem        @relation(fields: [bookingItemId], references: [id])
+  reporter          User               @relation(fields: [reportedBy], references: [id])
+  stockUnitIssue    StockUnitIssue?    @relation(fields: [stockUnitIssueId], references: [id], onDelete: SetNull)
+  depositSettlement DepositSettlement?
 
   @@index([tenantId])
   @@map("damage_reports")
+}
+
+/// Immutable commercial decision that closes one booking item's security deposit.
+model DepositSettlement {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  bookingId        String   @map("booking_id")
+  bookingItemId    String   @unique @map("booking_item_id")
+  damageReportId   String?  @unique @map("damage_report_id")
+  refundAmount     Int      @default(0) @map("refund_amount")
+  deductionAmount  Int      @default(0) @map("deduction_amount")
+  forfeitedAmount  Int      @default(0) @map("forfeited_amount")
+  additionalCharge Int      @default(0) @map("additional_charge")
+  refundMethod     String?  @map("refund_method")
+  reason           String
+  evidenceSnapshot Json?    @map("evidence_snapshot") @db.JsonB
+  idempotencyKey   String   @map("idempotency_key")
+  requestHash      String   @map("request_hash")
+  actorUserId      String   @map("actor_user_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  booking      Booking       @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingItem  BookingItem   @relation(fields: [bookingItemId], references: [id], onDelete: Restrict)
+  damageReport DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: SetNull)
+  actor        User          @relation("DepositSettlementActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, bookingId, createdAt(sort: Desc)])
+  @@index([actorUserId])
+  @@map("deposit_settlements")
 }
 
 model InventoryLocation {
@@ -2006,6 +2052,8 @@ model FulfillmentRequirement {
   role                       ProductCompositionRole
   selectionSource            FulfillmentSelectionSource   @map("selection_source")
   status                     FulfillmentRequirementStatus @default(PLANNED)
+  preparationStatus          FulfillmentPreparationStatus @default(NOT_STARTED) @map("preparation_status")
+  preparedAt                 DateTime?                    @map("prepared_at")
   productId                  String                       @map("product_id")
   variantSizeId              String                       @map("variant_size_id")
   sourceLocationId           String                       @map("source_location_id")
@@ -2128,8 +2176,11 @@ model FulfillmentSubstitution {
   compatibilityResult Json?                     @map("compatibility_result") @db.JsonB
   approvalStatus      FulfillmentApprovalStatus @default(NOT_REQUIRED) @map("approval_status")
   customerApprovedAt  DateTime?                 @map("customer_approved_at")
+  approvalEvidence    String?                   @map("approval_evidence")
   priceImpact         Int                       @default(0) @map("price_impact")
   reason              String
+  idempotencyKey      String                    @map("idempotency_key")
+  requestHash         String                    @map("request_hash")
   actorUserId         String?                   @map("actor_user_id")
   createdAt           DateTime                  @default(now()) @map("created_at")
 
@@ -2138,6 +2189,7 @@ model FulfillmentSubstitution {
   actor       User?                  @relation("FulfillmentSubstitutionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@unique([requirementId, toVersion])
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, requirementId, createdAt(sort: Desc)])
   @@index([actorUserId])
   @@map("fulfillment_substitutions")

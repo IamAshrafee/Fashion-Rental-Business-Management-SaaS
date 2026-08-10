@@ -1,17 +1,21 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import {
   CompositionPricingBehavior,
   CompositionSkuResolution,
   CompositionSubstitutionPolicy,
   FulfillmentApprovalStatus,
   FulfillmentEventType,
+  FulfillmentPreparationStatus,
   FulfillmentRequirementStatus,
   FulfillmentSelectionSource,
   FulfillmentVersionAction,
   InventoryReservationStatus,
+  InventoryMovementType,
   InventoryTrackingMode,
   Prisma,
   ProductCompositionRole,
+  StockConditionGrade,
   StockUnitDisposition,
   StockUnitInspectionStatus,
   StockUnitInspectionType,
@@ -21,6 +25,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   ExtendFulfillmentRequirementDto,
   FulfillmentSelectionDto,
+  PrepareFulfillmentRequirementDto,
   RecordFulfillmentEventDto,
   SubstituteFulfillmentRequirementDto,
 } from './dto/fulfillment.dto';
@@ -238,6 +243,8 @@ export class FulfillmentService {
         where: { id: requirement.id },
         data: {
           status: FulfillmentRequirementStatus.RESERVED,
+          preparationStatus: FulfillmentPreparationStatus.NOT_STARTED,
+          preparedAt: null,
           rentalStartDate: reservation.rentalStartDate,
           rentalEndDate: reservation.rentalEndDate,
           blockedStartDate: reservation.blockedStartDate,
@@ -461,6 +468,56 @@ export class FulfillmentService {
             'Complete the return inspection for every returned physical item first',
           );
         }
+        if (bookingStatus === 'completed') {
+          const [unsettledDeposits, booking, unresolvedIssues, openServiceOrders] = await Promise.all([
+            tx.bookingItem.count({
+              where: { tenantId, bookingId, depositAmount: { gt: 0 }, depositSettlement: null },
+            }),
+            tx.booking.findFirst({
+              where: { id: bookingId, tenantId },
+              select: { grandTotal: true, totalPaid: true },
+            }),
+            tx.stockUnitIssue.count({
+              where: {
+                tenantId,
+                bookingItem: { bookingId },
+                status: { in: ['OPEN', 'IN_SERVICE'] },
+              },
+            }),
+            tx.inventoryServiceOrder.count({
+              where: {
+                tenantId,
+                status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] },
+                OR: [
+                  { issue: { bookingItem: { bookingId } } },
+                  { sourceInspection: { bookingItem: { bookingId } } },
+                ],
+              },
+            }),
+          ]);
+          if (unsettledDeposits > 0) {
+            throw new ConflictException({
+              code: 'DEPOSIT_SETTLEMENT_REQUIRED',
+              message: `${unsettledDeposits} item deposit${unsettledDeposits === 1 ? '' : 's'} still require an authorized settlement`,
+              unsettledDeposits,
+            });
+          }
+          if (!booking || booking.totalPaid < booking.grandTotal) {
+            throw new ConflictException({
+              code: 'BOOKING_BALANCE_DUE',
+              message: 'The booking balance must be fully paid before commercial completion',
+              balanceDue: booking ? booking.grandTotal - booking.totalPaid : null,
+            });
+          }
+          if (unresolvedIssues > 0 || openServiceOrders > 0) {
+            throw new ConflictException({
+              code: 'RETURN_WORK_UNRESOLVED',
+              message: 'Resolve or waive return issues and finish or cancel linked service work before completion',
+              unresolvedIssues,
+              openServiceOrders,
+            });
+          }
+        }
       }
       return;
     }
@@ -510,7 +567,32 @@ export class FulfillmentService {
     dto: SubstituteFulfillmentRequirementDto,
     actorUserId?: string,
   ) {
+    const requestHash = this.hashRequest({
+      requirementId,
+      productId: dto.productId,
+      variantSizeId: dto.variantSizeId,
+      reason: dto.reason.trim(),
+      compatibilityResult: dto.compatibilityResult ?? null,
+      approvalStatus: dto.approvalStatus ?? null,
+      approvalEvidence: dto.approvalEvidence?.trim() ?? null,
+      priceImpact: dto.priceImpact,
+    });
     return this.prisma.$transaction(async (tx) => {
+      const replay = await tx.fulfillmentSubstitution.findFirst({
+        where: { tenantId, idempotencyKey: dto.idempotencyKey },
+      });
+      if (replay) {
+        if (replay.requirementId !== requirementId || replay.requestHash !== requestHash) {
+          throw new ConflictException({
+            code: 'SUBSTITUTION_IDEMPOTENCY_REUSED',
+            message: 'The idempotency key belongs to a different substitution request',
+          });
+        }
+        return tx.fulfillmentRequirement.findUniqueOrThrow({
+          where: { id: requirementId },
+          include: this.requirementInclude(),
+        });
+      }
       await tx.$queryRaw(Prisma.sql`
         SELECT id FROM fulfillment_requirements
         WHERE tenant_id = ${tenantId} AND id = ${requirementId}
@@ -523,6 +605,9 @@ export class FulfillmentService {
       if (!requirement) throw new NotFoundException('Fulfillment requirement not found');
       if (['HANDED_OUT', 'PARTIALLY_HANDED_OUT', 'PARTIALLY_RETURNED', 'RETURNED', 'LOST', 'CANCELLED', 'SUPERSEDED'].includes(requirement.status)) {
         throw new ConflictException('This requirement can no longer be substituted');
+      }
+      if (requirement.productId === dto.productId && requirement.variantSizeId === dto.variantSizeId) {
+        throw new BadRequestException('Select a different product or SKU for a substitution');
       }
       const activeAssignments = requirement.reservation
         ? await tx.stockUnitAssignment.count({ where: { tenantId, reservationId: requirement.reservation.id, releasedAt: null } })
@@ -547,7 +632,21 @@ export class FulfillmentService {
 
       const targetSku = await this.getSku(tx, tenantId, dto.productId, dto.variantSizeId);
       const nextVersion = requirement.currentVersion + 1;
-      const approvalStatus = this.resolveSubstitutionApproval(requirement.compositionRule?.substitutionPolicy, dto.approvalStatus);
+      const approvalStatus = this.resolveSubstitutionApproval(
+        requirement.compositionRule?.substitutionPolicy,
+        requirement.compositionRule?.customerApprovalRequired ?? false,
+        dto.approvalStatus,
+        dto.approvalEvidence,
+      );
+      if (
+        requirement.compositionRule?.substitutionPolicy === CompositionSubstitutionPolicy.STAFF_APPROVAL
+        && !actorUserId
+      ) {
+        throw new ConflictException({
+          code: 'STAFF_APPROVAL_ACTOR_REQUIRED',
+          message: 'An authenticated manager must approve this substitution',
+        });
+      }
       if (requirement.reservation) {
         await tx.inventoryReservation.update({
           where: { id: requirement.reservation.id },
@@ -617,11 +716,45 @@ export class FulfillmentService {
           compatibilityResult: this.json(dto.compatibilityResult),
           approvalStatus,
           customerApprovedAt: approvalStatus === FulfillmentApprovalStatus.APPROVED ? new Date() : null,
+          approvalEvidence: dto.approvalEvidence?.trim() || null,
           priceImpact: dto.priceImpact,
           reason: dto.reason.trim(),
+          idempotencyKey: dto.idempotencyKey,
+          requestHash,
           actorUserId: actorUserId ?? null,
         },
       });
+      if (dto.priceImpact !== 0) {
+        const bookingItem = await tx.bookingItem.findFirst({
+          where: { id: requirement.bookingItemId, tenantId },
+          include: { booking: { select: { id: true, subtotal: true, grandTotal: true, totalPaid: true } } },
+        });
+        if (!bookingItem) throw new NotFoundException('Booking item not found');
+        const nextItemTotal = bookingItem.itemTotal + dto.priceImpact;
+        const nextSubtotal = bookingItem.booking.subtotal + dto.priceImpact;
+        const nextGrandTotal = bookingItem.booking.grandTotal + dto.priceImpact;
+        if (nextItemTotal < 0 || nextSubtotal < 0 || nextGrandTotal < 0) {
+          throw new BadRequestException('Substitution price impact cannot make booking totals negative');
+        }
+        const paymentStatus = bookingItem.booking.totalPaid <= 0
+          ? 'unpaid'
+          : bookingItem.booking.totalPaid >= nextGrandTotal ? 'paid' : 'partial';
+        await tx.bookingItem.update({
+          where: { id: bookingItem.id },
+          data: {
+            fulfillmentAdjustment: { increment: dto.priceImpact },
+            itemTotal: nextItemTotal,
+          },
+        });
+        await tx.booking.update({
+          where: { id: bookingItem.booking.id },
+          data: {
+            subtotal: nextSubtotal,
+            grandTotal: nextGrandTotal,
+            paymentStatus,
+          },
+        });
+      }
       return tx.fulfillmentRequirement.update({
         where: { id: requirementId },
         data: {
@@ -635,6 +768,8 @@ export class FulfillmentService {
           sizeSnapshot: targetSku.sizeInstance.displayLabel,
           selectionSource: FulfillmentSelectionSource.SUBSTITUTION,
           status: FulfillmentRequirementStatus.RESERVED,
+          preparationStatus: FulfillmentPreparationStatus.NOT_STARTED,
+          preparedAt: null,
           currentVersion: nextVersion,
           priceAdjustment: { increment: dto.priceImpact },
           rentalStartDate: new Date(availability.rentalRange.start),
@@ -654,14 +789,28 @@ export class FulfillmentService {
     actorUserId?: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
-      if (dto.idempotencyKey) {
-        const existing = await tx.fulfillmentRequirementEvent.findFirst({ where: { tenantId, idempotencyKey: dto.idempotencyKey } });
-        if (existing) {
-          if (existing.requirementId !== requirementId || existing.eventType !== dto.eventType || existing.quantity !== dto.quantity) {
-            throw new ConflictException('The idempotency key belongs to another fulfillment event');
-          }
-          return tx.fulfillmentRequirement.findUniqueOrThrow({ where: { id: requirementId }, include: this.requirementInclude() });
+      const requestHash = this.hashRequest({
+        requirementId,
+        eventType: dto.eventType,
+        quantity: dto.quantity,
+        reason: dto.reason.trim(),
+        assignmentIds: [...new Set(dto.assignmentIds ?? [])].sort(),
+      });
+      const existing = await tx.fulfillmentRequirementEvent.findFirst({ where: { tenantId, idempotencyKey: dto.idempotencyKey } });
+      if (existing) {
+        const metadata = existing.metadata as { requestHash?: unknown } | null;
+        if (
+          existing.requirementId !== requirementId
+          || existing.eventType !== dto.eventType
+          || existing.quantity !== dto.quantity
+          || metadata?.requestHash !== requestHash
+        ) {
+          throw new ConflictException({
+            code: 'FULFILLMENT_IDEMPOTENCY_REUSED',
+            message: 'The idempotency key belongs to a different fulfillment event request',
+          });
         }
+        return tx.fulfillmentRequirement.findUniqueOrThrow({ where: { id: requirementId }, include: this.requirementInclude() });
       }
       await tx.$queryRaw(Prisma.sql`
         SELECT id FROM fulfillment_requirements
@@ -670,7 +819,7 @@ export class FulfillmentService {
       `);
       const requirement = await tx.fulfillmentRequirement.findFirst({
         where: { id: requirementId, tenantId },
-        include: { variantSize: true, reservation: true },
+        include: { variantSize: true, reservation: true, booking: { select: { status: true } } },
       });
       if (!requirement) throw new NotFoundException('Fulfillment requirement not found');
       if (!requirement.variantSize || !requirement.reservation) throw new ConflictException('Requirement inventory is not resolved');
@@ -682,13 +831,109 @@ export class FulfillmentService {
       if (!supportedEvents.includes(dto.eventType)) {
         throw new BadRequestException('This event must be recorded by its dedicated workflow');
       }
+      const bookingStatusAllowed = dto.eventType === FulfillmentEventType.HANDED_OUT
+        ? requirement.booking.status === 'confirmed'
+        : ['delivered', 'overdue'].includes(requirement.booking.status);
+      if (!bookingStatusAllowed) {
+        throw new ConflictException({
+          code: 'FULFILLMENT_BOOKING_STATUS_INVALID',
+          message: dto.eventType === FulfillmentEventType.HANDED_OUT
+            ? 'Items can only be handed out for a confirmed booking'
+            : 'Returns and losses can only be recorded for an active or overdue rental',
+          bookingStatus: requirement.booking.status,
+        });
+      }
+      if (
+        dto.eventType === FulfillmentEventType.HANDED_OUT
+        && requirement.preparationStatus !== FulfillmentPreparationStatus.READY
+      ) {
+        throw new ConflictException({
+          code: 'PREPARATION_REQUIRED',
+          message: `${requirement.productNameSnapshot} must be marked ready before handout`,
+          requirementId,
+          preparationStatus: requirement.preparationStatus,
+        });
+      }
 
       const assignments = await this.resolveEventAssignments(tx, tenantId, {
         id: requirement.id,
         variantSize: requirement.variantSize,
         reservation: requirement.reservation,
       }, dto);
+      if (dto.eventType === FulfillmentEventType.HANDED_OUT) {
+        const inspectionRequiredConditions: StockConditionGrade[] = [
+          StockConditionGrade.FAIR,
+          StockConditionGrade.POOR,
+          StockConditionGrade.DAMAGED,
+        ];
+        const inspectionRequired = assignments.filter((assignment) =>
+          inspectionRequiredConditions.includes(assignment.stockUnit.condition),
+        );
+        if (inspectionRequired.length > 0) {
+          const completedInspectionCount = await tx.stockUnitInspection.count({
+            where: {
+              tenantId,
+              assignmentId: { in: inspectionRequired.map((assignment) => assignment.id) },
+              inspectionType: StockUnitInspectionType.PRE_RENTAL,
+              status: StockUnitInspectionStatus.COMPLETED,
+            },
+          });
+          if (completedInspectionCount !== inspectionRequired.length) {
+            throw new ConflictException({
+              code: 'PRE_RENTAL_INSPECTION_REQUIRED',
+              message: 'Complete a pre-rental inspection for every fair or lower-condition item before handout',
+              assignmentIds: inspectionRequired.map((assignment) => assignment.id),
+            });
+          }
+        }
+      }
       const next = this.nextCounters(requirement, dto.eventType, dto.quantity);
+      if (
+        dto.eventType === FulfillmentEventType.MARKED_LOST
+        && requirement.variantSize.trackingMode === InventoryTrackingMode.POOLED
+      ) {
+        if (!requirement.reservation.inventoryPoolId) {
+          throw new ConflictException({
+            code: 'INVENTORY_POOL_MISSING',
+            message: 'The pooled reservation has no source inventory pool',
+          });
+        }
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM inventory_pools
+          WHERE tenant_id = ${tenantId} AND id = ${requirement.reservation.inventoryPoolId}
+          FOR UPDATE
+        `);
+        const pool = await tx.inventoryPool.findFirst({
+          where: { id: requirement.reservation.inventoryPoolId, tenantId },
+        });
+        if (!pool || pool.onHandQuantity < dto.quantity) {
+          throw new ConflictException({
+            code: 'POOLED_LOSS_RECONCILIATION_REQUIRED',
+            message: 'The pooled loss exceeds the recorded on-hand quantity and requires a stock count',
+            onHandQuantity: pool?.onHandQuantity ?? null,
+            lostQuantity: dto.quantity,
+          });
+        }
+        const updatedPool = await tx.inventoryPool.update({
+          where: { id: pool.id },
+          data: { onHandQuantity: { decrement: dto.quantity }, version: { increment: 1 } },
+        });
+        await tx.inventoryMovement.create({
+          data: {
+            tenantId,
+            variantSizeId: requirement.variantSizeId,
+            inventoryPoolId: pool.id,
+            originLocationId: requirement.sourceLocationId,
+            reservationId: requirement.reservation.id,
+            movementType: InventoryMovementType.DAMAGE_WRITE_OFF,
+            quantityDelta: -dto.quantity,
+            beforeState: this.json({ onHandQuantity: pool.onHandQuantity, version: pool.version }),
+            afterState: this.json({ onHandQuantity: updatedPool.onHandQuantity, version: updatedPool.version }),
+            reason: dto.reason.trim(),
+            actorUserId: actorUserId ?? null,
+          },
+        });
+      }
       for (const assignment of assignments) {
         if (dto.eventType === FulfillmentEventType.HANDED_OUT) {
           await this.lifecycle.transitionInTransaction(tx, {
@@ -709,6 +954,12 @@ export class FulfillmentService {
             reason: dto.reason.trim(),
           });
         } else {
+          if (!actorUserId) {
+            throw new ConflictException({
+              code: 'LOSS_ACTOR_REQUIRED',
+              message: 'An authenticated staff member is required to record a lost physical item',
+            });
+          }
           await this.lifecycle.transitionInTransaction(tx, {
             tenantId,
             stockUnitId: assignment.stockUnitId,
@@ -716,6 +967,22 @@ export class FulfillmentService {
             assignmentId: assignment.id,
             targetDisposition: StockUnitDisposition.LOST,
             reason: dto.reason.trim(),
+          });
+          await tx.stockUnitIssue.create({
+            data: {
+              tenantId,
+              stockUnitId: assignment.stockUnitId,
+              bookingItemId: requirement.bookingItemId,
+              assignmentId: assignment.id,
+              issueType: 'LOSS',
+              severity: 'CRITICAL',
+              status: 'OPEN',
+              responsibility: 'UNKNOWN',
+              description: dto.reason.trim(),
+              isAvailabilityBlocking: true,
+              estimatedCost: assignment.stockUnit.estimatedCurrentValue,
+              reportedByUserId: actorUserId,
+            },
           });
         }
       }
@@ -736,11 +1003,126 @@ export class FulfillmentService {
           toStatus: next.status,
           reason: dto.reason.trim(),
           actorUserId: actorUserId ?? null,
-          idempotencyKey: dto.idempotencyKey ?? null,
-          metadata: this.json({ assignmentIds: assignments.map((assignment) => assignment.id) }),
+          idempotencyKey: dto.idempotencyKey,
+          metadata: this.json({
+            assignmentIds: assignments.map((assignment) => assignment.id),
+            requestHash,
+          }),
         },
       });
       return tx.fulfillmentRequirement.findUniqueOrThrow({ where: { id: requirementId }, include: this.requirementInclude() });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async prepareRequirement(
+    tenantId: string,
+    requirementId: string,
+    dto: PrepareFulfillmentRequirementDto,
+    actorUserId?: string,
+  ) {
+    const targetStatus = dto.preparationStatus === 'READY'
+      ? FulfillmentPreparationStatus.READY
+      : FulfillmentPreparationStatus.IN_PROGRESS;
+    const eventType = targetStatus === FulfillmentPreparationStatus.READY
+      ? FulfillmentEventType.PREPARATION_COMPLETED
+      : FulfillmentEventType.PREPARATION_STARTED;
+    const requestHash = this.hashRequest({
+      requirementId,
+      preparationStatus: targetStatus,
+      reason: dto.reason.trim(),
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.fulfillmentRequirementEvent.findFirst({
+        where: { tenantId, idempotencyKey: dto.idempotencyKey },
+      });
+      if (existing) {
+        const metadata = existing.metadata as { requestHash?: unknown } | null;
+        if (
+          existing.requirementId !== requirementId
+          || existing.eventType !== eventType
+          || metadata?.requestHash !== requestHash
+        ) {
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_KEY_REUSED',
+            message: 'The idempotency key belongs to a different preparation action',
+          });
+        }
+        return tx.fulfillmentRequirement.findUniqueOrThrow({
+          where: { id: requirementId },
+          include: this.requirementInclude(),
+        });
+      }
+
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM fulfillment_requirements
+        WHERE tenant_id = ${tenantId} AND id = ${requirementId}
+        FOR UPDATE
+      `);
+      const requirement = await tx.fulfillmentRequirement.findFirst({
+        where: { id: requirementId, tenantId },
+        include: { booking: { select: { status: true } }, reservation: true, variantSize: true },
+      });
+      if (!requirement) throw new NotFoundException('Fulfillment requirement not found');
+      if (requirement.booking.status !== 'confirmed') {
+        throw new ConflictException({
+          code: 'PREPARATION_NOT_ALLOWED',
+          message: 'Preparation is only available for a confirmed booking before handout',
+          bookingStatus: requirement.booking.status,
+        });
+      }
+      if (!requirement.variantSize || !requirement.reservation || requirement.status === FulfillmentRequirementStatus.PLANNED) {
+        throw new ConflictException({
+          code: 'INVENTORY_NOT_RESERVED',
+          message: 'Resolve and reserve this inventory requirement before preparation',
+        });
+      }
+      if (requirement.handedOutQuantity > 0) {
+        throw new ConflictException({
+          code: 'PREPARATION_ALREADY_HANDED_OUT',
+          message: 'Preparation cannot change after any quantity has been handed out',
+        });
+      }
+      if (
+        targetStatus === FulfillmentPreparationStatus.READY
+        && requirement.variantSize.trackingMode === InventoryTrackingMode.SERIALIZED
+        && requirement.assignedQuantity !== requirement.quantity
+      ) {
+        throw new ConflictException({
+          code: 'ASSIGNMENT_REQUIRED',
+          message: 'Assign every physical item before marking preparation ready',
+          requiredQuantity: requirement.quantity,
+          assignedQuantity: requirement.assignedQuantity,
+        });
+      }
+
+      const updated = await tx.fulfillmentRequirement.update({
+        where: { id: requirementId },
+        data: {
+          preparationStatus: targetStatus,
+          preparedAt: targetStatus === FulfillmentPreparationStatus.READY ? new Date() : null,
+        },
+        include: this.requirementInclude(),
+      });
+      await tx.fulfillmentRequirementEvent.create({
+        data: {
+          tenantId,
+          requirementId,
+          eventType,
+          quantity: requirement.quantity,
+          fromStatus: requirement.status,
+          toStatus: requirement.status,
+          reason: dto.reason.trim(),
+          actorUserId: actorUserId ?? null,
+          idempotencyKey: dto.idempotencyKey,
+          metadata: this.json({
+            fromPreparationStatus: requirement.preparationStatus,
+            toPreparationStatus: targetStatus,
+            requestHash,
+          }),
+        },
+      });
+      return updated;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
@@ -1060,17 +1442,46 @@ export class FulfillmentService {
     if (requirement.variantSizeId && rule.substitutionPolicy === CompositionSubstitutionPolicy.NOT_ALLOWED) {
       throw new ConflictException('Substitution is not allowed for this component');
     }
+    if (
+      rule.substitutionPolicy === CompositionSubstitutionPolicy.EQUIVALENT_ONLY
+      && dto.compatibilityResult?.compatible !== true
+    ) {
+      throw new ConflictException({
+        code: 'COMPATIBILITY_EVIDENCE_REQUIRED',
+        message: 'Confirm the substitute satisfies the configured compatibility rules',
+      });
+    }
     const allowedProduct = dto.productId === rule.componentProductId || rule.alternatives.some((alternative) => alternative.isActive && alternative.productId === dto.productId && (!alternative.variantSizeId || alternative.variantSizeId === dto.variantSizeId));
     if (!allowedProduct) throw new ConflictException('Selected substitute is not an allowed alternative');
   }
 
   private resolveSubstitutionApproval(
     policy: CompositionSubstitutionPolicy | undefined,
+    customerApprovalRequired: boolean,
     requested: FulfillmentApprovalStatus | undefined,
+    approvalEvidence: string | undefined,
   ) {
-    if (policy === CompositionSubstitutionPolicy.CUSTOMER_APPROVAL) {
+    if (policy === CompositionSubstitutionPolicy.CUSTOMER_APPROVAL || customerApprovalRequired) {
       if (requested !== FulfillmentApprovalStatus.APPROVED) {
-        throw new ConflictException('Customer approval is required before this substitution can be applied');
+        throw new ConflictException({
+          code: 'CUSTOMER_APPROVAL_REQUIRED',
+          message: 'Customer approval is required before this substitution can be applied',
+        });
+      }
+      if (!approvalEvidence?.trim()) {
+        throw new ConflictException({
+          code: 'CUSTOMER_APPROVAL_EVIDENCE_REQUIRED',
+          message: 'Record how and when the customer approved this substitution',
+        });
+      }
+      return FulfillmentApprovalStatus.APPROVED;
+    }
+    if (policy === CompositionSubstitutionPolicy.STAFF_APPROVAL) {
+      if (requested !== FulfillmentApprovalStatus.APPROVED) {
+        throw new ConflictException({
+          code: 'STAFF_APPROVAL_REQUIRED',
+          message: 'Manager approval is required before this substitution can be applied',
+        });
       }
       return FulfillmentApprovalStatus.APPROVED;
     }
@@ -1120,7 +1531,11 @@ export class FulfillmentService {
     }
     const assignments = await tx.stockUnitAssignment.findMany({
       where: { id: { in: ids }, tenantId, reservationId: requirement.reservation.id, releasedAt: null },
-      select: { id: true, stockUnitId: true },
+      select: {
+        id: true,
+        stockUnitId: true,
+        stockUnit: { select: { condition: true, estimatedCurrentValue: true } },
+      },
     });
     if (assignments.length !== ids.length) throw new ConflictException('One or more physical-unit assignments are not active for this requirement');
     return assignments;
@@ -1206,5 +1621,9 @@ export class FulfillmentService {
 
   private json(value: unknown): Prisma.InputJsonValue | undefined {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private hashRequest(value: unknown) {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
   }
 }

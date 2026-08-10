@@ -106,6 +106,13 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                         <span className="text-right text-red-500 font-semibold">{formatMinorMoney(item.lateFee)}</span>
                       </>
                     )}
+
+                    {item.fulfillmentAdjustment !== 0 && (
+                      <>
+                        <span className="text-muted-foreground">Substitution:</span>
+                        <span className="text-right">{item.fulfillmentAdjustment > 0 ? '+' : ''}{formatMinorMoney(item.fulfillmentAdjustment)}</span>
+                      </>
+                    )}
                   </div>
                 </TableCell>
 
@@ -120,6 +127,15 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                     {item.depositStatus === 'partially_refunded' && <Badge variant="outline" className="text-orange-600 bg-orange-50 border-orange-200 shadow-none">Partial Refund</Badge>}
                     {item.depositStatus === 'forfeited' && <Badge variant="outline" className="text-red-600 bg-red-50 border-red-200 shadow-none">Forfeited</Badge>}
                   </div>
+                  {item.depositSettlement && (
+                    <div className="mt-2 space-y-0.5 rounded border bg-muted/30 p-2 text-xs">
+                      {item.depositSettlement.refundAmount > 0 && <p>Refunded: {formatMinorMoney(item.depositSettlement.refundAmount)}</p>}
+                      {item.depositSettlement.deductionAmount > 0 && <p>Deducted: {formatMinorMoney(item.depositSettlement.deductionAmount)}</p>}
+                      {item.depositSettlement.forfeitedAmount > 0 && <p>Forfeited: {formatMinorMoney(item.depositSettlement.forfeitedAmount)}</p>}
+                      {item.depositSettlement.additionalCharge > 0 && <p>Extra charge: {formatMinorMoney(item.depositSettlement.additionalCharge)}</p>}
+                      <p className="text-muted-foreground">{item.depositSettlement.reason}</p>
+                    </div>
+                  )}
                   
                   {/* Manage Deposit Button */}
                   {item.depositAmount > 0 && (
@@ -131,7 +147,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                         onClick={() => setDepositModal({ open: true, item })}
                       >
                         <ShieldAlert className="h-3 w-3 mr-1" />
-                        Manage Deposit
+                        {item.depositSettlement ? 'View Settlement' : 'Settle Deposit'}
                       </Button>
                     </div>
                   )}
@@ -158,7 +174,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                       onClick={() => setDamageModal({ open: true, item })}
                     >
                       <Eye className="h-3 w-3 mr-1" />
-                      Inspect Item
+                      Report damage
                     </Button>
                   )}
                 </TableCell>
@@ -177,6 +193,8 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
           itemId={depositModal.item.id}
           depositAmount={depositModal.item.depositAmount}
           depositStatus={depositModal.item.depositStatus}
+          bookingStatus={bookingStatus}
+          damageReport={depositModal.item.damageReport}
         />
       )}
 
@@ -189,6 +207,8 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
           productName={damageModal.item.productName}
           variantName={damageModal.item.variantName}
           depositAmount={damageModal.item.depositAmount}
+          requiresExactIssue={damageModal.item.requiresExactDamageIssue}
+          stockUnitIssues={damageModal.item.stockUnitIssues}
         />
       )}
     </>

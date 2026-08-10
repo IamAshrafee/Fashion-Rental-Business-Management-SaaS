@@ -19,8 +19,7 @@ import { PaymentService } from './payment.service';
 import {
   RecordPaymentDto,
   InitiatePaymentDto,
-  RefundDepositDto,
-  ForfeitDepositDto,
+  SettleDepositDto,
 } from './dto/payment.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -217,60 +216,23 @@ export class PaymentOwnerController {
 export class DepositController {
   constructor(private readonly paymentService: PaymentService) {}
 
-  /**
-   * PATCH /api/v1/owner/booking-items/:id/deposit/collect
-   * Mark a booking item's deposit as collected.
-   */
-  @Patch(':id/deposit/collect')
+  /** Atomically closes one item's held deposit with an auditable decision. */
+  @Patch(':id/deposit/settle')
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.OK)
-  async collectDeposit(
+  async settleDeposit(
     @CurrentTenant() tenant: TenantContext,
     @Param('id') bookingItemId: string,
+    @Body() dto: SettleDepositDto,
+    @Req() req: Request & { user?: { id: string } },
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    const result = await this.paymentService.collectDeposit(
-      tenant.id,
-      bookingItemId,
-    );
-    return { success: true, data: result };
-  }
-
-  /**
-   * PATCH /api/v1/owner/booking-items/:id/deposit/refund
-   * Process a deposit refund (full or partial).
-   */
-  @Patch(':id/deposit/refund')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async refundDeposit(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') bookingItemId: string,
-    @Body() dto: RefundDepositDto,
-  ) {
-    const result = await this.paymentService.refundDeposit(
+    const result = await this.paymentService.settleDeposit(
       tenant.id,
       bookingItemId,
       dto,
-    );
-    return { success: true, data: result };
-  }
-
-  /**
-   * PATCH /api/v1/owner/booking-items/:id/deposit/forfeit
-   * Forfeit a deposit entirely (severe damage or loss).
-   */
-  @Patch(':id/deposit/forfeit')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async forfeitDeposit(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') bookingItemId: string,
-    @Body() dto: ForfeitDepositDto,
-  ) {
-    const result = await this.paymentService.forfeitDeposit(
-      tenant.id,
-      bookingItemId,
-      dto,
+      req.user!.id,
+      idempotencyKey,
     );
     return { success: true, data: result };
   }

@@ -56,7 +56,7 @@ CREATE TYPE "PaymentMethod" AS ENUM ('cod', 'bkash', 'nagad', 'sslcommerz');
 CREATE TYPE "PaymentStatus" AS ENUM ('unpaid', 'partial', 'paid');
 
 -- CreateEnum
-CREATE TYPE "CancelledBy" AS ENUM ('customer', 'owner');
+CREATE TYPE "CancelledBy" AS ENUM ('customer', 'owner', 'system');
 
 -- CreateEnum
 CREATE TYPE "InventoryTrackingMode" AS ENUM ('POOLED', 'SERIALIZED');
@@ -143,13 +143,16 @@ CREATE TYPE "FulfillmentSelectionSource" AS ENUM ('MAIN_PRODUCT', 'FIXED_RULE', 
 CREATE TYPE "FulfillmentRequirementStatus" AS ENUM ('PLANNED', 'RESERVED', 'PARTIALLY_ASSIGNED', 'ASSIGNED', 'PARTIALLY_HANDED_OUT', 'HANDED_OUT', 'PARTIALLY_RETURNED', 'RETURNED', 'LOST', 'OVERDUE', 'CANCELLED', 'SUPERSEDED');
 
 -- CreateEnum
+CREATE TYPE "FulfillmentPreparationStatus" AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'READY');
+
+-- CreateEnum
 CREATE TYPE "FulfillmentVersionAction" AS ENUM ('CREATED', 'MODIFIED', 'SUBSTITUTED', 'CANCELLED', 'OVERDUE_EXTENDED', 'RESOLVED_LOST');
 
 -- CreateEnum
 CREATE TYPE "FulfillmentApprovalStatus" AS ENUM ('NOT_REQUIRED', 'PENDING', 'APPROVED', 'REJECTED');
 
 -- CreateEnum
-CREATE TYPE "FulfillmentEventType" AS ENUM ('RESERVED', 'ASSIGNED', 'ASSIGNMENT_RELEASED', 'HANDED_OUT', 'RETURNED', 'MARKED_LOST', 'OVERDUE', 'OVERDUE_RESOLVED', 'CANCELLED');
+CREATE TYPE "FulfillmentEventType" AS ENUM ('RESERVED', 'ASSIGNED', 'ASSIGNMENT_RELEASED', 'PREPARATION_STARTED', 'PREPARATION_COMPLETED', 'HANDED_OUT', 'RETURNED', 'MARKED_LOST', 'OVERDUE', 'OVERDUE_RESOLVED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "InventoryMovementType" AS ENUM ('INITIAL_STOCK', 'POOLED_ADDITION', 'POOLED_REDUCTION', 'UNIT_REGISTERED', 'CONDITION_CHANGED', 'VALUATION_CHANGED', 'MAINTENANCE_STARTED', 'MAINTENANCE_ENDED', 'UNIT_RETIRED', 'UNIT_LOST', 'UNIT_RECOVERED', 'ADMIN_CORRECTION', 'TRANSFER_RESERVED', 'TRANSFER_DISPATCHED', 'TRANSFER_RECEIVED', 'TRANSFER_CANCELLED', 'COUNT_CORRECTION', 'DAMAGE_WRITE_OFF');
@@ -935,6 +938,7 @@ CREATE TABLE "booking_items" (
     "try_on_fee" INTEGER NOT NULL DEFAULT 0,
     "try_on_credited" BOOLEAN NOT NULL DEFAULT false,
     "item_total" INTEGER NOT NULL,
+    "fulfillment_adjustment" INTEGER NOT NULL DEFAULT 0,
     "quoted_item_total" INTEGER,
     "price_override_amount" INTEGER,
     "price_override_reason" TEXT,
@@ -963,6 +967,30 @@ CREATE TABLE "damage_reports" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "damage_reports_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "deposit_settlements" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "booking_id" TEXT NOT NULL,
+    "booking_item_id" TEXT NOT NULL,
+    "damage_report_id" TEXT,
+    "refund_amount" INTEGER NOT NULL DEFAULT 0,
+    "deduction_amount" INTEGER NOT NULL DEFAULT 0,
+    "forfeited_amount" INTEGER NOT NULL DEFAULT 0,
+    "additional_charge" INTEGER NOT NULL DEFAULT 0,
+    "refund_method" TEXT,
+    "reason" TEXT NOT NULL,
+    "evidence_snapshot" JSONB,
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "actor_user_id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "deposit_settlements_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "deposit_settlements_nonnegative_check" CHECK ("refund_amount" >= 0 AND "deduction_amount" >= 0 AND "forfeited_amount" >= 0 AND "additional_charge" >= 0),
+    CONSTRAINT "deposit_settlements_effect_check" CHECK (("refund_amount" + "deduction_amount" + "forfeited_amount" + "additional_charge") > 0)
 );
 
 -- CreateTable
@@ -1216,6 +1244,8 @@ CREATE TABLE "fulfillment_requirements" (
     "role" "ProductCompositionRole" NOT NULL,
     "selection_source" "FulfillmentSelectionSource" NOT NULL,
     "status" "FulfillmentRequirementStatus" NOT NULL DEFAULT 'PLANNED',
+    "preparation_status" "FulfillmentPreparationStatus" NOT NULL DEFAULT 'NOT_STARTED',
+    "prepared_at" TIMESTAMP(3),
     "product_id" TEXT NOT NULL,
     "variant_size_id" TEXT NOT NULL,
     "source_location_id" TEXT NOT NULL,
@@ -1299,8 +1329,11 @@ CREATE TABLE "fulfillment_substitutions" (
     "compatibility_result" JSONB,
     "approval_status" "FulfillmentApprovalStatus" NOT NULL DEFAULT 'NOT_REQUIRED',
     "customer_approved_at" TIMESTAMP(3),
+    "approval_evidence" TEXT,
     "price_impact" INTEGER NOT NULL DEFAULT 0,
     "reason" TEXT NOT NULL,
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
     "actor_user_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -2055,6 +2088,21 @@ CREATE UNIQUE INDEX "damage_reports_stock_unit_issue_id_key" ON "damage_reports"
 CREATE INDEX "damage_reports_tenant_id_idx" ON "damage_reports"("tenant_id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "deposit_settlements_booking_item_id_key" ON "deposit_settlements"("booking_item_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "deposit_settlements_damage_report_id_key" ON "deposit_settlements"("damage_report_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "deposit_settlements_tenant_id_idempotency_key_key" ON "deposit_settlements"("tenant_id", "idempotency_key");
+
+-- CreateIndex
+CREATE INDEX "deposit_settlements_tenant_id_booking_id_created_at_idx" ON "deposit_settlements"("tenant_id", "booking_id", "created_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "deposit_settlements_actor_user_id_idx" ON "deposit_settlements"("actor_user_id");
+
+-- CreateIndex
 CREATE INDEX "inventory_locations_tenant_id_is_active_location_type_idx" ON "inventory_locations"("tenant_id", "is_active", "location_type");
 
 -- CreateIndex
@@ -2245,6 +2293,9 @@ CREATE INDEX "fulfillment_substitutions_actor_user_id_idx" ON "fulfillment_subst
 
 -- CreateIndex
 CREATE UNIQUE INDEX "fulfillment_substitutions_requirement_id_to_version_key" ON "fulfillment_substitutions"("requirement_id", "to_version");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "fulfillment_substitutions_tenant_id_idempotency_key_key" ON "fulfillment_substitutions"("tenant_id", "idempotency_key");
 
 -- CreateIndex
 CREATE INDEX "fulfillment_requirement_events_tenant_id_requirement_id_cre_idx" ON "fulfillment_requirement_events"("tenant_id", "requirement_id", "created_at" DESC);
@@ -2754,6 +2805,21 @@ ALTER TABLE "damage_reports" ADD CONSTRAINT "damage_reports_reported_by_fkey" FO
 ALTER TABLE "damage_reports" ADD CONSTRAINT "damage_reports_stock_unit_issue_id_fkey" FOREIGN KEY ("stock_unit_issue_id") REFERENCES "stock_unit_issues"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "deposit_settlements" ADD CONSTRAINT "deposit_settlements_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "deposit_settlements" ADD CONSTRAINT "deposit_settlements_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "deposit_settlements" ADD CONSTRAINT "deposit_settlements_booking_item_id_fkey" FOREIGN KEY ("booking_item_id") REFERENCES "booking_items"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "deposit_settlements" ADD CONSTRAINT "deposit_settlements_damage_report_id_fkey" FOREIGN KEY ("damage_report_id") REFERENCES "damage_reports"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "deposit_settlements" ADD CONSTRAINT "deposit_settlements_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "inventory_locations" ADD CONSTRAINT "inventory_locations_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3241,7 +3307,8 @@ ALTER TABLE "reviews"
   ADD CONSTRAINT "reviews_rating_check" CHECK ("rating" BETWEEN 1 AND 5);
 
 ALTER TABLE "booking_items"
-  ADD CONSTRAINT "booking_items_quantity_check" CHECK ("quantity" > 0);
+  ADD CONSTRAINT "booking_items_quantity_check" CHECK ("quantity" > 0),
+  ADD CONSTRAINT "booking_items_item_total_check" CHECK ("item_total" >= 0);
 
 ALTER TABLE "inventory_pools"
   ADD CONSTRAINT "inventory_pools_quantities_check" CHECK (

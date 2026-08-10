@@ -6,6 +6,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsIn,
   IsNotEmpty,
   IsObject,
   IsOptional,
@@ -163,6 +164,11 @@ export class SubstituteFulfillmentRequirementDto {
   @MaxLength(1000)
   reason!: string;
 
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  idempotencyKey!: string;
+
   @IsOptional()
   @IsObject()
   compatibilityResult?: Record<string, unknown>;
@@ -172,8 +178,15 @@ export class SubstituteFulfillmentRequirementDto {
   approvalStatus?: FulfillmentApprovalStatus;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  approvalEvidence?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(-1_000_000_000)
+  @Max(1_000_000_000)
   priceImpact = 0;
 }
 
@@ -197,10 +210,25 @@ export class RecordFulfillmentEventDto {
   @IsUUID('4', { each: true })
   assignmentIds?: string[];
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(120)
-  idempotencyKey?: string;
+  idempotencyKey!: string;
+}
+
+export class PrepareFulfillmentRequirementDto {
+  @IsIn(['IN_PROGRESS', 'READY'])
+  preparationStatus!: 'IN_PROGRESS' | 'READY';
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  reason!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  idempotencyKey!: string;
 }
 
 export class ExtendFulfillmentRequirementDto {

@@ -3,10 +3,12 @@ import {
   CompositionSkuResolution,
   CompositionSubstitutionPolicy,
   FulfillmentEventType,
+  FulfillmentPreparationStatus,
   FulfillmentRequirementStatus,
   InventoryTrackingMode,
   ProductCompositionRole,
 } from '@prisma/client';
+import { createHash } from 'crypto';
 import { FulfillmentService } from '../fulfillment.service';
 
 function sku(id: string, productId: string, productName: string, size = 'M') {
@@ -89,6 +91,8 @@ describe('FulfillmentService', () => {
       returnedQuantity: 0,
       lostQuantity: 0,
       status: FulfillmentRequirementStatus.HANDED_OUT,
+      preparationStatus: FulfillmentPreparationStatus.READY,
+      booking: { status: 'delivered' },
       variantSize: { trackingMode: InventoryTrackingMode.POOLED },
       reservation: { id: 'reservation-1' },
     };
@@ -99,7 +103,7 @@ describe('FulfillmentService', () => {
         update: jest.fn().mockResolvedValue({}),
         findUniqueOrThrow: jest.fn().mockResolvedValue({ ...requirement, returnedQuantity: 1 }),
       },
-      fulfillmentRequirementEvent: { create: jest.fn().mockResolvedValue({}) },
+      fulfillmentRequirementEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
       stockUnitAssignment: { updateMany: jest.fn() },
     };
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
@@ -109,6 +113,7 @@ describe('FulfillmentService', () => {
       eventType: FulfillmentEventType.RETURNED,
       quantity: 1,
       reason: 'First piece returned',
+      idempotencyKey: 'return-1',
     }, 'user-1');
 
     expect(tx.fulfillmentRequirement.update).toHaveBeenCalledWith({
@@ -124,6 +129,152 @@ describe('FulfillmentService', () => {
         toStatus: FulfillmentRequirementStatus.PARTIALLY_RETURNED,
       }),
     });
+  });
+
+  it('records preparation readiness as an idempotent audited fact', async () => {
+    const requirement = {
+      id: 'req-1',
+      tenantId: 'tenant-1',
+      productNameSnapshot: 'Red dress',
+      quantity: 1,
+      assignedQuantity: 1,
+      handedOutQuantity: 0,
+      status: FulfillmentRequirementStatus.ASSIGNED,
+      preparationStatus: FulfillmentPreparationStatus.IN_PROGRESS,
+      booking: { status: 'confirmed' },
+      variantSize: { trackingMode: InventoryTrackingMode.SERIALIZED },
+      reservation: { id: 'reservation-1' },
+    };
+    const updated = { ...requirement, preparationStatus: FulfillmentPreparationStatus.READY };
+    const preparationRequestHash = createHash('sha256').update(JSON.stringify({
+      requirementId: 'req-1',
+      preparationStatus: FulfillmentPreparationStatus.READY,
+      reason: 'Cleaned, checked, and packed',
+    })).digest('hex');
+    const tx = {
+      $queryRaw: jest.fn(),
+      fulfillmentRequirement: {
+        findFirst: jest.fn().mockResolvedValue(requirement),
+        update: jest.fn().mockResolvedValue(updated),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(updated),
+      },
+      fulfillmentRequirementEvent: {
+        findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+          requirementId: 'req-1',
+          eventType: FulfillmentEventType.PREPARATION_COMPLETED,
+          metadata: { requestHash: preparationRequestHash },
+        }),
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const service = new FulfillmentService(prisma as never, availability as never, reservations as never, lifecycle as never);
+
+    const payload = {
+      preparationStatus: 'READY' as const,
+      reason: 'Cleaned, checked, and packed',
+      idempotencyKey: 'prepare-ready-1',
+    };
+    await service.prepareRequirement('tenant-1', 'req-1', payload, 'user-1');
+    await service.prepareRequirement('tenant-1', 'req-1', payload, 'user-1');
+
+    expect(tx.fulfillmentRequirement.update).toHaveBeenCalledTimes(1);
+    expect(tx.fulfillmentRequirementEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.fulfillmentRequirementEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: FulfillmentEventType.PREPARATION_COMPLETED,
+        idempotencyKey: 'prepare-ready-1',
+        actorUserId: 'user-1',
+      }),
+    });
+  });
+
+  it('writes off pooled on-hand inventory when an active rental piece is lost', async () => {
+    const requirement = {
+      id: 'req-loss',
+      tenantId: 'tenant-1',
+      bookingItemId: 'item-1',
+      sourceLocationId: 'location-1',
+      variantSizeId: 'sku-1',
+      quantity: 2,
+      assignedQuantity: 0,
+      handedOutQuantity: 2,
+      returnedQuantity: 0,
+      lostQuantity: 0,
+      status: FulfillmentRequirementStatus.HANDED_OUT,
+      preparationStatus: FulfillmentPreparationStatus.READY,
+      booking: { status: 'delivered' },
+      variantSize: { trackingMode: InventoryTrackingMode.POOLED },
+      reservation: { id: 'reservation-1', inventoryPoolId: 'pool-1' },
+    };
+    const tx = {
+      $queryRaw: jest.fn(),
+      fulfillmentRequirement: {
+        findFirst: jest.fn().mockResolvedValue(requirement),
+        update: jest.fn(),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({ ...requirement, lostQuantity: 1 }),
+      },
+      fulfillmentRequirementEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      inventoryPool: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pool-1', onHandQuantity: 5, version: 2 }),
+        update: jest.fn().mockResolvedValue({ id: 'pool-1', onHandQuantity: 4, version: 3 }),
+      },
+      inventoryMovement: { create: jest.fn() },
+      stockUnitAssignment: { updateMany: jest.fn() },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const service = new FulfillmentService(prisma as never, availability as never, reservations as never, lifecycle as never);
+
+    await service.recordEvent('tenant-1', 'req-loss', {
+      eventType: FulfillmentEventType.MARKED_LOST,
+      quantity: 1,
+      reason: 'Customer reported one pooled accessory missing',
+      idempotencyKey: 'loss-1',
+    }, 'user-1');
+
+    expect(tx.inventoryPool.update).toHaveBeenCalledWith({
+      where: { id: 'pool-1' },
+      data: { onHandQuantity: { decrement: 1 }, version: { increment: 1 } },
+    });
+    expect(tx.inventoryMovement.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inventoryPoolId: 'pool-1',
+        quantityDelta: -1,
+        reservationId: 'reservation-1',
+      }),
+    });
+  });
+
+  it('does not mark serialized preparation ready until every asset is assigned', async () => {
+    const tx = {
+      $queryRaw: jest.fn(),
+      fulfillmentRequirement: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'req-1',
+          quantity: 2,
+          assignedQuantity: 1,
+          handedOutQuantity: 0,
+          status: FulfillmentRequirementStatus.PARTIALLY_ASSIGNED,
+          preparationStatus: FulfillmentPreparationStatus.IN_PROGRESS,
+          booking: { status: 'confirmed' },
+          variantSize: { trackingMode: InventoryTrackingMode.SERIALIZED },
+          reservation: { id: 'reservation-1' },
+        }),
+        update: jest.fn(),
+      },
+      fulfillmentRequirementEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const service = new FulfillmentService(prisma as never, availability as never, reservations as never, lifecycle as never);
+
+    await expect(service.prepareRequirement('tenant-1', 'req-1', {
+      preparationStatus: 'READY',
+      reason: 'Attempted early readiness',
+      idempotencyKey: 'prepare-ready-early',
+    }, 'user-1')).rejects.toMatchObject({ response: expect.objectContaining({ code: 'ASSIGNMENT_REQUIRED' }) });
+
+    expect(tx.fulfillmentRequirement.update).not.toHaveBeenCalled();
+    expect(tx.fulfillmentRequirementEvent.create).not.toHaveBeenCalled();
   });
 
   it('plans every bundle requirement from one common location when capacity exists', async () => {

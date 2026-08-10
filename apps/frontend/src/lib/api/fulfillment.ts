@@ -117,6 +117,8 @@ export interface FulfillmentRequirement {
   role: 'MAIN' | CompositionRole;
   selectionSource: string;
   status: FulfillmentRequirementStatus;
+  preparationStatus: 'NOT_STARTED' | 'IN_PROGRESS' | 'READY';
+  preparedAt: string | null;
   productId: string | null;
   variantSizeId: string | null;
   sourceLocationId: string;
@@ -147,7 +149,7 @@ export interface FulfillmentRequirement {
     assignments: FulfillmentAssignment[];
   } | null;
   versions: Array<{ id: string; version: number; action: string; reason: string; createdAt: string }>;
-  substitutions: Array<{ id: string; reason: string; approvalStatus: string; createdAt: string }>;
+  substitutions: Array<{ id: string; reason: string; approvalStatus: string; approvalEvidence: string | null; priceImpact: number; createdAt: string }>;
   events: Array<{ id: string; eventType: string; quantity: number; reason: string; metadata?: { assignmentIds?: string[] } | null; createdAt: string; actor?: { id: string; fullName: string } | null }>;
 }
 
@@ -195,8 +197,10 @@ export const fulfillmentApi = {
   releaseUnit: async (bookingId: string, bookingItemId: string, requirementId: string, assignmentId: string, reason: string): Promise<void> => {
     await apiClient.delete(`/owner/bookings/${bookingId}/items/${bookingItemId}/requirements/${requirementId}/assignments/${assignmentId}`, { data: { reason } });
   },
-  recordEvent: async (requirementId: string, payload: { eventType: 'HANDED_OUT' | 'RETURNED' | 'MARKED_LOST'; quantity: number; reason: string; assignmentIds?: string[]; idempotencyKey?: string }): Promise<FulfillmentRequirement> =>
+  recordEvent: async (requirementId: string, payload: { eventType: 'HANDED_OUT' | 'RETURNED' | 'MARKED_LOST'; quantity: number; reason: string; assignmentIds?: string[]; idempotencyKey: string }): Promise<FulfillmentRequirement> =>
     unwrap(await apiClient.post<ApiResponse<FulfillmentRequirement>>(`/owner/fulfillment/requirements/${requirementId}/events`, payload)),
-  substitute: async (requirementId: string, payload: { productId: string; variantSizeId: string; reason: string; approvalStatus?: 'NOT_REQUIRED' | 'APPROVED'; priceImpact?: number }): Promise<FulfillmentRequirement> =>
+  prepareRequirement: async (requirementId: string, payload: { preparationStatus: 'IN_PROGRESS' | 'READY'; reason: string; idempotencyKey: string }): Promise<FulfillmentRequirement> =>
+    unwrap(await apiClient.patch<ApiResponse<FulfillmentRequirement>>(`/owner/fulfillment/requirements/${requirementId}/preparation`, payload)),
+  substitute: async (requirementId: string, payload: { productId: string; variantSizeId: string; reason: string; idempotencyKey: string; compatibilityResult?: Record<string, unknown>; approvalStatus?: 'NOT_REQUIRED' | 'APPROVED'; approvalEvidence?: string; priceImpact?: number }): Promise<FulfillmentRequirement> =>
     unwrap(await apiClient.post<ApiResponse<FulfillmentRequirement>>(`/owner/fulfillment/requirements/${requirementId}/substitute`, payload)),
 };

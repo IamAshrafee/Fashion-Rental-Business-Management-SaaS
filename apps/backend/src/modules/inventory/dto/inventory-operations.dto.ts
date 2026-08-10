@@ -167,10 +167,10 @@ export class TransitionStockUnitOperationalStateDto {
   @MaxLength(500)
   reason!: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(120)
-  idempotencyKey?: string;
+  idempotencyKey!: string;
 
   @IsOptional()
   @IsUUID()

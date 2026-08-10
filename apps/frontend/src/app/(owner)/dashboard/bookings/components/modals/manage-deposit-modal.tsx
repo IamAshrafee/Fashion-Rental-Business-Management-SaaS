@@ -1,23 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Ban, Loader2, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { bookingApi } from '@/lib/api/bookings';
+import { formatMinorMoney, majorInputToMinor, minorToMajorInput } from '@/lib/money';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, CheckCircle2, Undo2, Ban } from 'lucide-react';
-import { bookingApi } from '@/lib/api/bookings';
-import { formatMinorMoney, majorInputToMinor, minorToMajorInput } from '@/lib/money';
 
 interface ManageDepositModalProps {
   isOpen: boolean;
@@ -26,275 +20,109 @@ interface ManageDepositModalProps {
   itemId: string;
   depositAmount: number;
   depositStatus: string;
+  bookingStatus: string;
+  damageReport?: {
+    id: string;
+    deductionAmount: number;
+    additionalCharge: number;
+  } | null;
   onSuccess?: () => void;
 }
 
-export function ManageDepositModal({
-  isOpen, onOpenChange,
-  bookingId: _bookingId, itemId,
-  depositAmount, depositStatus,
-  onSuccess,
-}: ManageDepositModalProps) {
+export function ManageDepositModal({ isOpen, onOpenChange, itemId, depositAmount, depositStatus, bookingStatus, damageReport, onSuccess }: ManageDepositModalProps) {
   const queryClient = useQueryClient();
-  const [action, setAction] = useState<'collect' | 'refund' | 'forfeit'>(
-    depositStatus === 'pending' ? 'collect' : 'refund',
-  );
+  const idempotencyKey = useRef(crypto.randomUUID());
+  const [action, setAction] = useState<'refund' | 'forfeit'>('refund');
   const [refundMethod, setRefundMethod] = useState('bkash');
-  const [deduction, setDeduction] = useState('0');
-  const [forfeitReason, setForfeitReason] = useState('');
-  const [refundNotes, setRefundNotes] = useState('');
+  const [deduction, setDeduction] = useState(String(minorToMajorInput(damageReport?.deductionAmount ?? 0)));
+  const [additionalCharge, setAdditionalCharge] = useState(String(minorToMajorInput(damageReport?.additionalCharge ?? 0)));
+  const [reason, setReason] = useState('');
 
-  const parsedDeduction = majorInputToMinor(deduction) ?? 0;
-  const refundAmount = Math.max(0, depositAmount - parsedDeduction);
+  useEffect(() => {
+    if (!isOpen) return;
+    setAction('refund');
+    setDeduction(String(minorToMajorInput(damageReport?.deductionAmount ?? 0)));
+    setAdditionalCharge(String(minorToMajorInput(damageReport?.additionalCharge ?? 0)));
+    setReason(damageReport ? 'Settlement based on the recorded return damage report' : 'Deposit returned after completed rental inspection');
+    idempotencyKey.current = crypto.randomUUID();
+  }, [damageReport, isOpen]);
 
-  // ── Collect deposit mutation ──
-  const collectMutation = useMutation({
-    mutationFn: () => bookingApi.collectDeposit(itemId),
-    onSuccess: () => {
-      toast.success('Deposit marked as collected');
-      queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      onOpenChange(false);
-      onSuccess?.();
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to collect deposit'),
-  });
-
-  // ── Refund deposit mutation ──
-  const refundMutation = useMutation({
-    mutationFn: () => bookingApi.refundDeposit(itemId, {
-      refundAmount,
-      refundMethod,
-      notes: refundNotes.trim() || undefined,
-    }),
-    onSuccess: () => {
-      toast.success(
-        refundAmount === depositAmount
-          ? 'Full deposit refunded'
-          : `Partial refund of ${formatMinorMoney(refundAmount)} processed`,
-      );
-      queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      onOpenChange(false);
-      onSuccess?.();
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to refund deposit'),
-  });
-
-  // ── Forfeit deposit mutation ──
-  const forfeitMutation = useMutation({
-    mutationFn: () => bookingApi.forfeitDeposit(itemId, {
-      reason: forfeitReason.trim(),
-    }),
-    onSuccess: () => {
-      toast.success('Deposit forfeited');
-      queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      onOpenChange(false);
-      onSuccess?.();
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to forfeit deposit'),
-  });
-
-  const isPending = collectMutation.isPending || refundMutation.isPending || forfeitMutation.isPending;
-
-  const handleSubmit = () => {
-    if (action === 'collect') collectMutation.mutate();
-    else if (action === 'refund') refundMutation.mutate();
-    else if (action === 'forfeit') {
-      if (!forfeitReason.trim()) {
-        toast.error('Forfeit reason is required');
-        return;
-      }
-      forfeitMutation.mutate();
-    }
-  };
-
-  // Determine available actions based on current deposit status
-  const canCollect = depositStatus === 'pending';
-  const canRefundOrForfeit = ['collected', 'held'].includes(depositStatus);
+  const deductionMinor = majorInputToMinor(deduction) ?? 0;
+  const additionalChargeMinor = majorInputToMinor(additionalCharge) ?? 0;
+  const refundAmount = Math.max(0, depositAmount - deductionMinor);
+  const canSettle = depositStatus === 'held' && bookingStatus === 'inspected';
   const isTerminal = ['refunded', 'partially_refunded', 'forfeited'].includes(depositStatus);
+  const evidenceRequired = action === 'forfeit' || deductionMinor > 0 || additionalChargeMinor > 0;
+
+  const mutation = useMutation({
+    mutationFn: () => bookingApi.settleDeposit(itemId, {
+      forfeit: action === 'forfeit',
+      refundAmount: action === 'forfeit' ? 0 : refundAmount,
+      deductionAmount: action === 'forfeit' ? 0 : deductionMinor,
+      additionalCharge: action === 'forfeit' ? 0 : additionalChargeMinor,
+      refundMethod: action === 'refund' && refundAmount > 0 ? refundMethod : undefined,
+      reason: reason.trim(),
+      damageReportId: damageReport?.id,
+    }, idempotencyKey.current),
+    onSuccess: () => {
+      toast.success(action === 'forfeit' ? 'Deposit forfeiture recorded' : 'Deposit settlement recorded');
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      onOpenChange(false);
+      onSuccess?.();
+    },
+    onError: (error: Error) => toast.error(error.message || 'Failed to settle deposit'),
+  });
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[450px]">
-        <DialogHeader>
-          <DialogTitle>Manage Deposit</DialogTitle>
-        </DialogHeader>
-        
-        {/* Deposit info */}
-        <div className="bg-muted p-4 rounded-md mb-2 flex justify-between items-center text-sm">
-          <div>
-            <span className="text-muted-foreground font-medium">Deposit Amount</span>
-            <div className="text-xs text-muted-foreground mt-0.5 capitalize">
-              Status: <span className="font-semibold">{depositStatus.replace('_', ' ')}</span>
-            </div>
+      <DialogContent className="sm:max-w-[470px]">
+        <DialogHeader><DialogTitle>Settle security deposit</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="flex items-center justify-between rounded-md bg-muted p-4 text-sm">
+            <div><p className="font-medium">Held for this item</p><p className="text-xs capitalize text-muted-foreground">Status: {depositStatus.replace('_', ' ')}</p></div>
+            <span className="text-lg font-bold">{formatMinorMoney(depositAmount)}</span>
           </div>
-          <span className="font-bold text-lg">{formatMinorMoney(depositAmount)}</span>
-        </div>
 
-        {isTerminal ? (
-          <div className="text-sm text-muted-foreground p-4 text-center">
-            This deposit has already been{' '}
-            <span className="font-semibold capitalize">{depositStatus.replace('_', ' ')}</span>.
-            No further actions are available.
-          </div>
-        ) : (
-          <div className="grid gap-4 py-2">
-            {/* Action selector */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="action" className="text-right text-sm">Action</Label>
-              <div className="col-span-3">
-                <Select
-                  value={action}
-                  onValueChange={(v) => setAction(v as 'collect' | 'refund' | 'forfeit')}
-                >
-                  <SelectTrigger id="action">
-                    <SelectValue placeholder="Select action" />
-                  </SelectTrigger>
+          {isTerminal ? (
+            <p className="rounded-md border p-4 text-sm text-muted-foreground">This item already has a final deposit settlement. A second refund, deduction, or forfeiture is blocked.</p>
+          ) : !canSettle ? (
+            <p className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              {depositStatus !== 'held'
+                ? 'Record the complete security-deposit amount through a verified booking payment first.'
+                : 'Complete the return and inspection workflow before making a final deposit decision.'}
+            </p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label>Decision</Label>
+                <Select value={action} onValueChange={(value) => setAction(value as 'refund' | 'forfeit')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {canCollect && (
-                      <SelectItem value="collect">
-                        <span className="flex items-center gap-2">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                          Mark as Collected
-                        </span>
-                      </SelectItem>
-                    )}
-                    {canRefundOrForfeit && (
-                      <>
-                        <SelectItem value="refund">
-                          <span className="flex items-center gap-2">
-                            <Undo2 className="h-3.5 w-3.5 text-blue-600" />
-                            Refund (Full/Partial)
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="forfeit">
-                          <span className="flex items-center gap-2">
-                            <Ban className="h-3.5 w-3.5 text-destructive" />
-                            Forfeit Entire Deposit
-                          </span>
-                        </SelectItem>
-                      </>
-                    )}
+                    <SelectItem value="refund"><span className="flex items-center gap-2"><Undo2 className="size-4 text-blue-600" />Refund with optional deduction</span></SelectItem>
+                    <SelectItem value="forfeit" disabled={!damageReport}><span className="flex items-center gap-2"><Ban className="size-4 text-destructive" />Forfeit full item deposit</span></SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            {/* Collect — simple confirmation */}
-            {action === 'collect' && (
-              <div className="text-sm bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 rounded-md">
-                This will mark the deposit of <strong>{formatMinorMoney(depositAmount)}</strong> as
-                collected. Use this when you have confirmed receipt of the deposit payment.
-              </div>
-            )}
-
-            {/* Refund — amount, method, notes */}
-            {action === 'refund' && (
-              <>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="deduction" className="text-right text-sm text-destructive font-medium">
-                    Deduction (৳)
-                  </Label>
-                  <Input
-                    id="deduction"
-                    type="number"
-                    placeholder="0"
-                    value={deduction}
-                    onChange={(e) => setDeduction(e.target.value)}
-                    className="col-span-3"
-                    min={0}
-                    max={depositAmount / 100}
-                    step="0.01"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="refundAmount" className="text-right text-sm text-green-600 font-medium">
-                    Refund (৳)
-                  </Label>
-                  <Input
-                    id="refundAmount"
-                    type="number"
-                    value={minorToMajorInput(refundAmount)}
-                    disabled
-                    className="col-span-3 font-semibold text-lg bg-green-50/50 dark:bg-green-950/20"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-4 items-center gap-4 mt-2">
-                  <Label htmlFor="method" className="text-right text-sm">
-                    Method
-                  </Label>
-                  <div className="col-span-3">
-                    <Select value={refundMethod} onValueChange={setRefundMethod}>
-                      <SelectTrigger id="method">
-                        <SelectValue placeholder="Refund via..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="bkash">Send via bKash</SelectItem>
-                        <SelectItem value="nagad">Send via Nagad</SelectItem>
-                        <SelectItem value="bank">Bank Transfer</SelectItem>
-                        <SelectItem value="cash">Hand Cash</SelectItem>
-                      </SelectContent>
-                    </Select>
+              {action === 'refund' ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1"><Label htmlFor="deposit-deduction">Deduction (৳)</Label><Input id="deposit-deduction" type="number" min={0} max={depositAmount / 100} step="0.01" value={deduction} disabled={!damageReport} onChange={(event) => setDeduction(event.target.value)} /></div>
+                    <div className="space-y-1"><Label htmlFor="additional-charge">Additional charge (৳)</Label><Input id="additional-charge" type="number" min={0} step="0.01" value={additionalCharge} disabled={!damageReport} onChange={(event) => setAdditionalCharge(event.target.value)} /></div>
                   </div>
+                  <div className="flex justify-between rounded-md border p-3 text-sm"><span>Customer refund</span><strong>{formatMinorMoney(refundAmount)}</strong></div>
+                  {refundAmount > 0 && <div className="space-y-1"><Label>Refund method</Label><Select value={refundMethod} onValueChange={setRefundMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bkash">bKash</SelectItem><SelectItem value="nagad">Nagad</SelectItem><SelectItem value="bank">Bank transfer</SelectItem><SelectItem value="cash">Cash</SelectItem></SelectContent></Select></div>}
                 </div>
-
-                <div className="grid grid-cols-4 items-start gap-4">
-                  <Label htmlFor="notes" className="text-right text-sm mt-2">
-                    Notes
-                  </Label>
-                  <Textarea
-                    id="notes"
-                    placeholder="Optional remarks..."
-                    value={refundNotes}
-                    onChange={(e) => setRefundNotes(e.target.value)}
-                    className="col-span-3 min-h-[60px]"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* Forfeit — reason required */}
-            {action === 'forfeit' && (
-              <>
-                <div className="text-sm border-l-4 border-destructive bg-destructive/10 p-4 text-destructive-foreground">
-                  You are about to <strong>forfeit the entire deposit of {formatMinorMoney(depositAmount)}</strong>.
-                  <br /><br />
-                  This is irreversible. Typically used for severe damage, loss, or breach of rental terms.
-                </div>
-                <div className="grid grid-cols-4 items-start gap-4">
-                  <Label htmlFor="forfeit-reason" className="text-right text-sm mt-2">
-                    Reason *
-                  </Label>
-                  <Textarea
-                    id="forfeit-reason"
-                    placeholder="e.g. Item destroyed beyond repair"
-                    value={forfeitReason}
-                    onChange={(e) => setForfeitReason(e.target.value)}
-                    className="col-span-3 min-h-[60px]"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        )}
-        
-        <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Cancel
-          </Button>
-          {!isTerminal && (
-            <Button
-              onClick={handleSubmit}
-              disabled={isPending || parsedDeduction > depositAmount || (action === 'forfeit' && !forfeitReason.trim())}
-              variant={action === 'forfeit' ? 'destructive' : 'default'}
-            >
-              {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {action === 'collect' && 'Confirm Collection'}
-              {action === 'refund' && `Process Refund ${formatMinorMoney(refundAmount)}`}
-              {action === 'forfeit' && 'Forfeit Deposit'}
-            </Button>
+              ) : (
+                <p className="rounded-md border-l-4 border-destructive bg-destructive/10 p-4 text-sm">The complete {formatMinorMoney(depositAmount)} will be recorded as forfeited. This final action cannot be repeated.</p>
+              )}
+              <div className="space-y-1"><Label htmlFor="settlement-reason">Authorized reason *</Label><Textarea id="settlement-reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} /></div>
+              {!damageReport && <p className="text-xs text-muted-foreground">Record linked return damage or loss evidence before deducting, forfeiting, or adding a charge. A full refund can proceed without damage evidence.</p>}
+            </>
           )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancel</Button>
+          {!isTerminal && canSettle && <Button variant={action === 'forfeit' ? 'destructive' : 'default'} disabled={mutation.isPending || !reason.trim() || deductionMinor > depositAmount || (evidenceRequired && !damageReport)} onClick={() => mutation.mutate()}>{mutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}{action === 'forfeit' ? 'Record forfeiture' : `Settle & refund ${formatMinorMoney(refundAmount)}`}</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>

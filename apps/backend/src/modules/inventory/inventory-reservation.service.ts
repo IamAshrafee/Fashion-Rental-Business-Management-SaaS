@@ -209,6 +209,25 @@ export class InventoryReservationService {
         }] : []),
       });
     }
+    const expiredBookingIds = [...new Set((await tx.inventoryReservation.findMany({
+      where: { id: { in: expired.map((item) => item.id) } },
+      select: { bookingId: true },
+    })).map((item) => item.bookingId))];
+    if (expiredBookingIds.length) {
+      await tx.booking.updateMany({
+        where: {
+          id: { in: expiredBookingIds },
+          status: 'pending',
+          inventoryReservations: { none: { status: { in: ['PENDING', 'CONFIRMED'] } } },
+        },
+        data: {
+          status: 'cancelled',
+          cancelledAt: now,
+          cancelledBy: 'system',
+          cancellationReason: 'Inventory hold expired before confirmation',
+        },
+      });
+    }
     return expired.length;
   }
 }

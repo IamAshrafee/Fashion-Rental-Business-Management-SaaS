@@ -74,10 +74,32 @@ export interface BookingItem {
   depositAmount: number;
   lateFee: number;
   itemTotal: number;
+  fulfillmentAdjustment: number;
+  requiresExactDamageIssue: boolean;
+  stockUnitIssues: Array<{
+    id: string;
+    issueType: string;
+    severity: string;
+    status: string;
+    responsibility: string;
+    description: string;
+    stockUnit: { id: string; assetCode: string };
+  }>;
 
   depositStatus: DepositStatus;
   
   damageReport?: DamageReport;
+  depositSettlement?: {
+    id: string;
+    refundAmount: number;
+    deductionAmount: number;
+    forfeitedAmount: number;
+    additionalCharge: number;
+    refundMethod: string | null;
+    reason: string;
+    actorUserId: string;
+    createdAt: string;
+  };
 }
 
 export interface Payment {

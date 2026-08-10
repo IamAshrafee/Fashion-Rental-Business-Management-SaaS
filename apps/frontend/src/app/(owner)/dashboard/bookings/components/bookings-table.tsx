@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { CalendarDays, Package, RotateCcw, Search } from 'lucide-react';
 import type { PaginationMeta } from '@closetrent/types';
-import type { BookingListItem, BookingListQuery } from '@/lib/api/bookings';
+import type { BookingListItem, BookingListQuery, BookingStats } from '@/lib/api/bookings';
+import { formatMinorMoney } from '@/lib/money';
 import type { BookingStatus } from '../types';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { cn } from '@/lib/utils';
@@ -33,38 +34,47 @@ export function BookingStatusBadge({ status }: { status: BookingStatus }) {
 
 const queues: Array<{ value: string; label: string }> = [
   { value: 'all', label: 'All' },
-  { value: 'REVIEW', label: 'Review' },
+  { value: 'REQUEST', label: 'Requests' },
   { value: 'ASSIGNMENT', label: 'Assign items' },
-  { value: 'HANDOFF', label: 'Prepare / handoff' },
-  { value: 'ACTIVE', label: 'Out with customer' },
-  { value: 'RETURN_INSPECTION', label: 'Return / inspect' },
-  { value: 'OVERDUE', label: 'Overdue' },
+  { value: 'PREPARATION', label: 'Preparation' },
+  { value: 'HANDOFF', label: 'Handoff' },
+  { value: 'ACTIVE', label: 'Active rentals' },
+  { value: 'RETURN_DUE', label: 'Return due' },
+  { value: 'RETURN_INTAKE', label: 'Return intake' },
+  { value: 'INSPECTION', label: 'Inspection' },
+  { value: 'EXCEPTION', label: 'Exceptions' },
   { value: 'CLOSED', label: 'Closed' },
 ];
 
 const nextAction: Record<BookingListItem['operations']['nextAction'], string> = {
   REVIEW: 'Review booking',
   ASSIGN_ITEMS: 'Assign physical items',
-  PREPARE_HANDOFF: 'Prepare handoff',
+  PREPARE: 'Prepare items',
+  HAND_OUT: 'Record handout',
+  START_RENTAL: 'Start rental',
   RECEIVE_RETURN: 'Receive return',
   INSPECT: 'Inspect returned items',
-  SETTLE: 'Settle and complete',
+  REVIEW_RETURN: 'Review return',
+  SETTLE_DEPOSIT: 'Settle deposit',
+  COLLECT_BALANCE: 'Collect balance',
+  RESOLVE_RETURN_WORK: 'Resolve return work',
+  COMPLETE: 'Complete booking',
   NONE: 'View booking',
 };
 
-const money = (amount: number) => new Intl.NumberFormat('en-BD', { style: 'currency', currency: 'BDT', maximumFractionDigits: 2 }).format(amount / 100);
 const shortDate = (value: string | null) => value ? new Intl.DateTimeFormat('en-BD', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) : '—';
 
 interface BookingsDataTableProps {
   data: BookingListItem[];
   meta: PaginationMeta;
   query: BookingListQuery;
+  queueCounts?: BookingStats['queueCounts'];
   isPending: boolean;
   onChange: (values: { [Key in keyof BookingListQuery]?: BookingListQuery[Key] | null }, resetPage?: boolean) => void;
   onClear: () => void;
 }
 
-export function BookingsDataTable({ data, meta, query, isPending, onChange, onClear }: BookingsDataTableProps) {
+export function BookingsDataTable({ data, meta, query, queueCounts, isPending, onChange, onClear }: BookingsDataTableProps) {
   const [search, setSearch] = useState(query.search ?? '');
   const debouncedSearch = useDebouncedValue(search, 350);
   useEffect(() => setSearch(query.search ?? ''), [query.search]);
@@ -84,10 +94,10 @@ export function BookingsDataTable({ data, meta, query, isPending, onChange, onCl
         {hasFilters ? <Button variant="ghost" onClick={onClear}><RotateCcw className="mr-2 size-4" />Clear filters</Button> : <span />}
       </div>
     </CardContent></Card>
-    <Tabs value={query.queue ?? 'all'} onValueChange={(value) => onChange({ queue: value === 'all' ? null : value as BookingListQuery['queue'] })}><div className="overflow-x-auto"><TabsList className="h-auto w-max justify-start">{queues.map((queue) => <TabsTrigger key={queue.value} value={queue.value}>{queue.label}{(query.queue ?? 'all') === queue.value ? <span className="ml-1 text-xs text-muted-foreground">{meta.total}</span> : null}</TabsTrigger>)}</TabsList></div></Tabs>
+    <Tabs value={query.queue ?? 'all'} onValueChange={(value) => onChange({ queue: value === 'all' ? null : value as BookingListQuery['queue'] })}><div className="overflow-x-auto"><TabsList className="h-auto w-max justify-start">{queues.map((queue) => <TabsTrigger key={queue.value} value={queue.value}>{queue.label}<span className="ml-1 text-xs text-muted-foreground">{queue.value === 'all' ? queueCounts?.ALL ?? meta.total : queueCounts?.[queue.value as keyof BookingStats['queueCounts']] ?? '—'}</span></TabsTrigger>)}</TabsList></div></Tabs>
     {!data.length ? <OwnerListEmpty title={hasFilters ? 'No bookings match this queue' : 'No bookings yet'} description={hasFilters ? 'Try a different operational queue, payment state, or rental window.' : 'Create the first manual booking or wait for a storefront request.'} icon={<Package />} action={hasFilters ? <Button variant="outline" onClick={onClear}>Clear filters</Button> : <Button asChild><Link href="/dashboard/bookings/new">Create booking</Link></Button>} /> : <Card className="overflow-hidden"><CardContent className="p-0">
-      <div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Booking / customer</TableHead><TableHead>Rental window</TableHead><TableHead>Status</TableHead><TableHead>Inventory fulfillment</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Next action</TableHead></TableRow></TableHeader><TableBody>{data.map((booking) => <TableRow key={booking.id} className={cn(booking.status === 'overdue' && 'bg-red-50/30')}><TableCell><Link href={`/dashboard/bookings/${booking.id}`} className="font-medium hover:underline">{booking.bookingNumber}</Link><p className="text-sm">{booking.customer.fullName}</p><p className="text-xs text-muted-foreground">{booking.customer.phone} · {booking.operations.totalQuantity} piece{booking.operations.totalQuantity === 1 ? '' : 's'}</p></TableCell><TableCell><p className="text-sm">{shortDate(booking.operations.rentalStartDate)}</p><p className="text-xs text-muted-foreground">to {shortDate(booking.operations.rentalEndDate)}</p></TableCell><TableCell><div className="space-y-1"><BookingStatusBadge status={booking.status as BookingStatus} /><p className="text-xs capitalize text-muted-foreground">{booking.paymentStatus.replace('_', ' ')}</p></div></TableCell><TableCell><div className="space-y-1 text-sm">{booking.operations.inventoryShortages ? <Badge variant="destructive">{booking.operations.inventoryShortages} shortage</Badge> : booking.operations.serializedRequired ? <><p>{booking.operations.serializedAssigned} / {booking.operations.serializedRequired} physical items assigned</p>{booking.operations.needsAssignment ? <Badge variant="secondary">Assignment needed</Badge> : <p className="text-xs text-muted-foreground">Inventory reserved</p>}</> : <p>Pooled stock reserved</p>}</div></TableCell><TableCell className="text-right font-medium">{money(booking.grandTotal)}</TableCell><TableCell className="text-right"><Button size="sm" variant={booking.operations.nextAction === 'NONE' ? 'outline' : 'default'} asChild><Link href={`/dashboard/bookings/${booking.id}`}>{nextAction[booking.operations.nextAction]}</Link></Button></TableCell></TableRow>)}</TableBody></Table></div>
-      <div className="grid gap-3 p-3 md:hidden">{data.map((booking) => <div key={booking.id} className="space-y-3 rounded-lg border p-4"><div className="flex items-start justify-between gap-3"><div><Link href={`/dashboard/bookings/${booking.id}`} className="font-medium">{booking.bookingNumber}</Link><p className="text-sm">{booking.customer.fullName}</p></div><BookingStatusBadge status={booking.status as BookingStatus} /></div><div className="flex items-center gap-2 text-sm text-muted-foreground"><CalendarDays className="size-4" />{shortDate(booking.operations.rentalStartDate)} – {shortDate(booking.operations.rentalEndDate)}</div><div className="flex items-center justify-between"><span className="font-medium">{money(booking.grandTotal)}</span>{booking.operations.needsAssignment ? <Badge variant="secondary">Assign items</Badge> : null}</div><Button className="w-full" variant="outline" asChild><Link href={`/dashboard/bookings/${booking.id}`}>{nextAction[booking.operations.nextAction]}</Link></Button></div>)}</div>
+      <div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Booking / customer</TableHead><TableHead>Rental window</TableHead><TableHead>Status / plan</TableHead><TableHead>Operational progress</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Next action</TableHead></TableRow></TableHeader><TableBody>{data.map((booking) => <TableRow key={booking.id} className={cn(booking.operations.blockers.length > 0 && 'bg-amber-50/20', booking.status === 'overdue' && 'bg-red-50/30')}><TableCell><Link href={`/dashboard/bookings/${booking.id}`} className="font-medium hover:underline">{booking.bookingNumber}</Link><p className="text-sm">{booking.customer.fullName}</p><p className="text-xs text-muted-foreground">{booking.customer.phone} · {booking.operations.totalQuantity} piece{booking.operations.totalQuantity === 1 ? '' : 's'}</p></TableCell><TableCell><p className="text-sm">{shortDate(booking.operations.rentalStartDate)}</p><p className="text-xs text-muted-foreground">to {shortDate(booking.operations.rentalEndDate)}</p><p className="mt-1 text-xs text-muted-foreground">{booking.operations.sourceLocation?.name ?? 'Location not set'}</p></TableCell><TableCell><div className="space-y-1"><BookingStatusBadge status={booking.status as BookingStatus} /><p className="text-xs capitalize text-muted-foreground">{booking.paymentStatus.replace('_', ' ')} · {booking.operations.handoverMethod?.replace('_', ' ').toLowerCase() ?? 'handover unset'}</p></div></TableCell><TableCell><div className="space-y-1 text-sm">{booking.operations.blockers.length ? <><Badge variant="destructive">{booking.operations.blockers.length} blocker{booking.operations.blockers.length === 1 ? '' : 's'}</Badge><p className="max-w-xs text-xs text-muted-foreground">{booking.operations.blockers[0]}</p></> : booking.operations.unresolvedReturnQuantity > 0 ? <p>{booking.operations.unresolvedReturnQuantity} pieces still out</p> : booking.operations.handedOutQuantity > 0 ? <p>{booking.operations.returnedQuantity}/{booking.operations.handedOutQuantity} returned</p> : <p>Inventory ready</p>}</div></TableCell><TableCell className="text-right font-medium">{formatMinorMoney(booking.grandTotal)}</TableCell><TableCell className="text-right"><Button size="sm" variant={booking.operations.nextAction === 'NONE' ? 'outline' : 'default'} asChild><Link href={`/dashboard/bookings/${booking.id}`}>{nextAction[booking.operations.nextAction]}</Link></Button></TableCell></TableRow>)}</TableBody></Table></div>
+      <div className="grid gap-3 p-3 md:hidden">{data.map((booking) => <div key={booking.id} className="space-y-3 rounded-lg border p-4"><div className="flex items-start justify-between gap-3"><div><Link href={`/dashboard/bookings/${booking.id}`} className="font-medium">{booking.bookingNumber}</Link><p className="text-sm">{booking.customer.fullName}</p></div><BookingStatusBadge status={booking.status as BookingStatus} /></div><div className="flex items-center gap-2 text-sm text-muted-foreground"><CalendarDays className="size-4" />{shortDate(booking.operations.rentalStartDate)} – {shortDate(booking.operations.rentalEndDate)}</div><p className="text-xs text-muted-foreground">{booking.operations.sourceLocation?.name ?? 'Location not set'} · {booking.operations.handoverMethod?.replace('_', ' ').toLowerCase() ?? 'handover unset'}</p>{booking.operations.blockers[0] && <p className="rounded bg-amber-50 p-2 text-xs text-amber-900">{booking.operations.blockers[0]}</p>}<div className="flex items-center justify-between"><span className="font-medium">{formatMinorMoney(booking.grandTotal)}</span>{booking.operations.blockers.length ? <Badge variant="destructive">{booking.operations.blockers.length} blockers</Badge> : null}</div><Button className="w-full" variant="outline" asChild><Link href={`/dashboard/bookings/${booking.id}`}>{nextAction[booking.operations.nextAction]}</Link></Button></div>)}</div>
       <OwnerListPagination page={meta.page} totalPages={meta.totalPages} total={meta.total} pageSize={meta.limit} isPending={isPending} onPageChange={(page) => onChange({ page }, false)} />
     </CardContent></Card>}
   </div>;

@@ -7,6 +7,7 @@ import { NotificationService } from '../notification/notification.service';
 import { SmsService } from '../notification/sms/sms.service';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
 import { MeteringService } from '../metering/metering.service';
+import { BookingService } from '../booking/booking.service';
 
 export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_SCHEDULER = 'scheduler';
@@ -50,6 +51,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     @Inject(forwardRef(() => FulfillmentService))
     private readonly fulfillmentService: FulfillmentService,
     private readonly meteringService: MeteringService,
+    private readonly bookingService: BookingService,
   ) {
     const connection = getRedisConnection(this.config);
 
@@ -294,10 +296,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         await this.sendReturnReminders();
         break;
 
-      case 'booking.autoExpirePending':
-        await this.autoExpirePendingBookings();
-        break;
-
       case 'tenant.checkSubscriptions':
         await this.checkSubscriptions();
         break;
@@ -380,6 +378,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
+      let tenantUpdated = 0;
       for (const booking of overdueBookings) {
         const latestEndDate = booking.items.reduce<Date | null>((max, item) => {
           return !max || item.endDate > max ? item.endDate : max;
@@ -389,23 +388,27 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           ? Math.ceil((now.getTime() - latestEndDate.getTime()) / (1000 * 60 * 60 * 24))
           : 1;
 
-        await this.prisma.booking.update({
-          where: { id: booking.id },
-          data: { status: 'overdue' },
-        });
+        try {
+          await this.bookingService.updateStatus(tenant.id, booking.id, 'overdue');
+        } catch (error) {
+          this.logger.warn(`Skipped overdue transition for ${booking.bookingNumber}: ${(error as Error).message}`);
+          continue;
+        }
+        const lateFees = await this.bookingService.calculateLateFees(tenant.id, booking.id);
 
         await this.notificationsQueue.add('notification.create', {
           tenantId: tenant.id,
           type: 'booking_overdue',
           title: `OVERDUE: ${booking.bookingNumber} not returned`,
           message: `${lateDays} day(s) late. Please follow up immediately.`,
-          data: { bookingId: booking.id, bookingNumber: booking.bookingNumber, lateDays },
+          data: { bookingId: booking.id, bookingNumber: booking.bookingNumber, lateDays, lateFeeAdded: lateFees.feeDelta },
         });
 
+        tenantUpdated += 1;
         this.logger.log(`Marked booking ${booking.bookingNumber} as overdue (${lateDays} days)`);
       }
 
-      totalUpdated += overdueBookings.length;
+      totalUpdated += tenantUpdated;
     }
 
     this.logger.log(`Overdue check complete: ${totalUpdated} booking(s) updated`);
@@ -513,38 +516,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-
-  /**
-   * Cancel pending bookings that are older than 48 hours.
-   * Runs every 30 minutes.
-   */
-  private async autoExpirePendingBookings(): Promise<void> {
-    const cutoff = new Date();
-    cutoff.setHours(cutoff.getHours() - 48);
-    const tenants = await this.getActiveTenants();
-    let totalExpired = 0;
-
-    for (const tenant of tenants) {
-      const expiredCount = await this.prisma.booking.updateMany({
-        where: {
-          tenantId: tenant.id,
-          status: 'pending',
-          createdAt: { lt: cutoff },
-          deletedAt: null,
-        },
-        data: {
-          status: 'cancelled',
-          cancellationReason: 'Auto-expired: pending for more than 48 hours',
-          cancelledBy: 'owner',
-        },
-      });
-      totalExpired += expiredCount.count;
-    }
-
-    if (totalExpired > 0) {
-      this.logger.log(`Auto-expired ${totalExpired} pending booking(s)`);
-    }
-  }
 
   /**
    * Check subscription expiry — notify tenants approaching expiry.

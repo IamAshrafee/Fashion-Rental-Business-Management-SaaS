@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   FulfillmentEventType,
+  FulfillmentPreparationStatus,
   FulfillmentRequirementStatus,
   InventoryTrackingMode,
   Prisma,
@@ -99,6 +100,12 @@ export class InventoryAssignmentService {
         }
         if (!['PENDING', 'CONFIRMED'].includes(reservation.status)) {
           throw new ConflictException('Inventory reservation is no longer active');
+        }
+        if (reservation.fulfillmentRequirement.preparationStatus === FulfillmentPreparationStatus.READY) {
+          throw new ConflictException({
+            code: 'PREPARATION_REOPEN_REQUIRED',
+            message: 'Prepared inventory is locked. Reopen preparation before changing physical assignments',
+          });
         }
         const eligibility = this.assignmentEligibility(
           reservation.fulfillmentRequirement.availabilityPolicySnapshot,
@@ -276,6 +283,12 @@ export class InventoryAssignmentService {
       if (!assignment) throw new NotFoundException('Active stock-unit assignment not found');
       if (assignment.reservation.fulfillmentRequirement.handedOutQuantity > 0) {
         throw new ConflictException('Handed-out units must be returned or marked lost instead of released');
+      }
+      if (assignment.reservation.fulfillmentRequirement.preparationStatus === FulfillmentPreparationStatus.READY) {
+        throw new ConflictException({
+          code: 'PREPARATION_REOPEN_REQUIRED',
+          message: 'Prepared inventory is locked. Reopen preparation before changing physical assignments',
+        });
       }
       const updated = await tx.stockUnitAssignment.update({
         where: { id: assignmentId },

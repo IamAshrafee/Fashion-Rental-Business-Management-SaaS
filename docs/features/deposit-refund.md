@@ -99,15 +99,16 @@ Forfeited (MTD): ৳5,000
 
 ---
 
-## Refund Process
+## Settlement Process
 
 ### Full Refund (No Issues)
 
 1. Product returned on time
 2. Owner inspects — no damage
-3. Owner clicks "Process Full Refund"
-4. Deposit status changes to "Refunded"
-5. Order moves to "Completed"
+3. Owner opens the inspected booking item's settlement action
+4. Owner records the refund method, reason, and final amounts
+5. One immutable settlement is created and the item becomes `refunded`
+6. The booking can complete only after all deposits and operational blockers are closed
 
 **Refund method**: Same as collection method, or manual (bKash transfer, cash return). Owner records refund details.
 
@@ -121,17 +122,17 @@ Forfeited (MTD): ৳5,000
    ────────────────
    Refund Amount:   ৳3,000
    ```
-3. Owner clicks "Process Partial Refund"
-4. Enters refund amount and reason
-5. Deposit status changes to "Partially Refunded"
+3. Owner records a damage report; serialized rentals link the exact physical-item issue
+4. Owner records refund, deduction, reason, and evidence in one settlement
+5. Deposit status changes to `partially_refunded`
 
 ### No Refund (Full Forfeiture)
 
 1. Product severely damaged or lost
 2. Deductions ≥ deposit amount
-3. Owner clicks "Forfeit Deposit"
-4. Enters reason
-5. Deposit status changes to "Forfeited"
+3. Owner records damage/loss evidence and opens settlement
+4. Owner records forfeiture, reason, evidence, and any additional customer charge
+5. Deposit status changes to `forfeited`
 6. If damage cost exceeds deposit → additional charges apply (see [damage-loss-handling.md](./damage-loss-handling.md))
 
 ---
@@ -151,7 +152,7 @@ Forfeited (MTD): ৳5,000
 
 ## Refund Record
 
-When a refund is processed:
+When a deposit is settled:
 
 | Field | Value |
 |---|---|
@@ -161,7 +162,9 @@ When a refund is processed:
 | Refund Method | bKash to 01712345678 |
 | Refund Date | April 20, 2026 |
 | Processed By | Owner name |
-| Notes | "2 days late, no damage" |
+| Evidence | Linked damage report and exact stock-unit issue when serialized |
+| Reason | "Damage deduction approved after inspection" |
+| Idempotency key | Stable owner command key preventing duplicate settlement |
 
 This record is attached to the order and visible in timeline.
 
@@ -188,9 +191,10 @@ This distinction is important for accurate financial reporting.
 2. Deposit is always shown separately from rental price
 3. Deposit is collected at checkout (in total payment)
 4. Deposit is trackable per order
-5. Refund is a manual owner action after inspection
-6. Owner can issue full refund, partial refund, or forfeit
+5. Settlement is a manual owner/manager action after inspection
+6. Refund, deduction, forfeiture, and additional charge are one atomic final decision
 7. Deductions (late fees, damage) are subtracted from deposit
 8. If deductions > deposit → customer owes the difference
 9. Deposit is a liability, not revenue, until forfeited
-10. Refund record includes method, amount, date, and notes
+10. Settlement is immutable and includes method, amounts, actor, reason, evidence snapshot, request hash, and date
+11. A settled item cannot accept later damage-report mutations or a second settlement

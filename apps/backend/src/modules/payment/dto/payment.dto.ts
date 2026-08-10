@@ -7,6 +7,9 @@ import {
   Min,
   Max,
   IsIn,
+  IsBoolean,
+  IsUUID,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -54,27 +57,37 @@ export class InitiatePaymentDto {
 // DEPOSIT MANAGEMENT
 // ============================================================================
 
-export class RefundDepositDto {
+export class SettleDepositDto {
+  @IsBoolean()
+  forfeit!: boolean;
+
   @IsInt()
   @Min(0)
   refundAmount!: number;
 
+  @IsInt()
+  @Min(0)
+  deductionAmount!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  additionalCharge?: number;
+
+  @ValidateIf((dto: SettleDepositDto) => !dto.forfeit && dto.refundAmount > 0)
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
-  refundMethod!: string;
+  refundMethod?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  notes?: string;
-}
-
-export class ForfeitDepositDto {
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
+  @MaxLength(1000)
   reason!: string;
+
+  @IsOptional()
+  @IsUUID()
+  damageReportId?: string;
 }
 
 // ============================================================================

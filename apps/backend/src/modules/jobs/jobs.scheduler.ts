@@ -62,16 +62,6 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
-    // Every 30 min: auto-cancel stale pending bookings
-    await schedulerQueue.add(
-      'booking.autoExpirePending',
-      {},
-      {
-        repeat: { pattern: '*/30 * * * *' }, // Every 30 minutes
-        jobId: 'cron:booking.autoExpirePending',
-      },
-    );
-
     // Daily midnight UTC: check subscription expiry
     await schedulerQueue.add(
       'tenant.checkSubscriptions',

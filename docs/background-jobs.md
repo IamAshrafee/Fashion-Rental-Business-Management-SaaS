@@ -39,7 +39,7 @@ export class JobsModule {}
 │  Queue: scheduler                            │
 │    ├── booking.checkOverdue                  │
 │    ├── booking.sendReturnReminders           │
-│    ├── booking.autoExpirePending             │
+│    ├── inventory.expirePendingHolds         │
 │    └── tenant.checkSubscriptions             │
 │                                              │
 │  Queue: cleanup                              │
@@ -57,7 +57,7 @@ export class JobsModule {}
 |---|---|---|---|
 | `booking.checkOverdue` | scheduler | Every hour | Find delivered bookings past return date → mark overdue |
 | `booking.sendReturnReminders` | scheduler | Every hour | Find tenants where local time = 9 AM, send SMS for returns due tomorrow |
-| `booking.autoExpirePending` | scheduler | Every 30 min | Cancel pending bookings older than 48h (configurable per tenant) |
+| `inventory.expirePendingHolds` | in-process scheduler | Every 10 min | Expire reservations using each hold's policy-derived `expires_at`; cancel an abandoned pending booking only after its final active hold expires |
 | `tenant.checkSubscriptions` | scheduler | Daily 00:00 UTC | Check subscription expiry → grace period → suspend |
 | `image.cleanOrphans` | cleanup | Daily 03:00 UTC | Find MinIO images not linked to any product > 24h old → delete |
 | `trash.autoDeleteExpired` | cleanup | Weekly Sunday 04:00 UTC | Permanently delete trash items older than 90 days (future) |

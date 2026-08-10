@@ -440,6 +440,8 @@ export class CreateDamageReportDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @ArrayMaxSize(4)
+  @MaxLength(2048, { each: true })
   photos?: string[];
 }
 
@@ -466,8 +468,8 @@ export class BookingQueryDto {
   status?: (typeof BOOKING_STATUSES)[number];
 
   @IsOptional()
-  @IsIn(['REVIEW', 'ASSIGNMENT', 'HANDOFF', 'ACTIVE', 'RETURN_INSPECTION', 'OVERDUE', 'CLOSED'])
-  queue?: 'REVIEW' | 'ASSIGNMENT' | 'HANDOFF' | 'ACTIVE' | 'RETURN_INSPECTION' | 'OVERDUE' | 'CLOSED';
+  @IsIn(['REQUEST', 'ASSIGNMENT', 'PREPARATION', 'HANDOFF', 'ACTIVE', 'RETURN_DUE', 'RETURN_INTAKE', 'INSPECTION', 'EXCEPTION', 'CLOSED'])
+  queue?: 'REQUEST' | 'ASSIGNMENT' | 'PREPARATION' | 'HANDOFF' | 'ACTIVE' | 'RETURN_DUE' | 'RETURN_INTAKE' | 'INSPECTION' | 'EXCEPTION' | 'CLOSED';
 
   @IsOptional()
   @IsString()

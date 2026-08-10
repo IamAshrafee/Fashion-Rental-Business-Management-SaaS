@@ -3,7 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { CustomerModule } from '../customer/customer.module';
 import { BookingService } from './booking.service';
-import { BookingSchedulerService } from './booking-scheduler.service';
+import { InventoryHoldSchedulerService } from './inventory-hold-scheduler.service';
 import {
   BookingGuestController,
   BookingOwnerController,
@@ -21,7 +21,7 @@ import { InventoryModule } from '../inventory/inventory.module';
  * Depends on:
  * - PrismaModule for database access
  * - CustomerModule for find-or-create customer by phone
- * - ScheduleModule for automated overdue detection (M6)
+ * - ScheduleModule for expiring abandoned inventory holds
  * - EventEmitterModule (global, imported in AppModule)
  */
 @Module({
@@ -33,7 +33,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     ScheduleModule.forRoot(),
   ],
   controllers: [BookingGuestController, BookingOwnerController],
-  providers: [BookingService, BookingSchedulerService],
+  providers: [BookingService, InventoryHoldSchedulerService],
   exports: [BookingService],
 })
 export class BookingModule {}

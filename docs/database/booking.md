@@ -41,7 +41,7 @@ The primary transaction entity. Created when a guest completes checkout.
 | `tracking_number` | VARCHAR(100) | Yes | `NULL` | Courier tracking ID |
 | `courier_provider` | VARCHAR(50) | Yes | `NULL` | Which courier used |
 | `cancellation_reason` | TEXT | Yes | `NULL` | If cancelled, why |
-| `cancelled_by` | ENUM | Yes | `NULL` | customer, owner |
+| `cancelled_by` | ENUM | Yes | `NULL` | customer, owner, or system (for policy-expired abandoned holds) |
 | `confirmed_at` | TIMESTAMP | Yes | `NULL` | When confirmed |
 | `shipped_at` | TIMESTAMP | Yes | `NULL` | When shipped |
 | `delivered_at` | TIMESTAMP | Yes | `NULL` | When delivered |
@@ -83,6 +83,7 @@ enum PaymentStatus {
 enum CancelledBy {
   customer
   owner
+  system
 }
 ```
 

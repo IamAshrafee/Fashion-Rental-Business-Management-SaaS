@@ -47,7 +47,7 @@ export type ShippingMode = 'free' | 'flat';
 export type PaymentMethod = 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type TransactionStatus = 'pending' | 'verified' | 'failed' | 'refunded';
-export type CancelledBy = 'customer' | 'owner';
+export type CancelledBy = 'customer' | 'owner' | 'system';
 export type DepositStatus =
   | 'pending'
   | 'collected'

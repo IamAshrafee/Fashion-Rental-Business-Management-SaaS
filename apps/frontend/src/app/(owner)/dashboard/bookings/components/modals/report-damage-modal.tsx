@@ -28,6 +28,15 @@ interface ReportDamageModalProps {
   productName: string;
   variantName: string;
   depositAmount: number;
+  requiresExactIssue: boolean;
+  stockUnitIssues: Array<{
+    id: string;
+    issueType: string;
+    severity: string;
+    status: string;
+    description: string;
+    stockUnit: { id: string; assetCode: string };
+  }>;
   onSuccess?: () => void;
 }
 
@@ -44,6 +53,8 @@ export function ReportDamageModal({
   bookingId, itemId,
   productName, variantName,
   depositAmount,
+  requiresExactIssue,
+  stockUnitIssues,
   onSuccess,
 }: ReportDamageModalProps) {
   const queryClient = useQueryClient();
@@ -55,6 +66,7 @@ export function ReportDamageModal({
   const [deduction, setDeduction] = useState('0');
   const [additionalCharge, setAdditionalCharge] = useState('0');
   const [photos, setPhotos] = useState<PhotoPreview[]>([]);
+  const [stockUnitIssueId, setStockUnitIssueId] = useState('');
 
   const parsedRepairCost = majorInputToMinor(repairCost) ?? 0;
   const parsedDeduction = majorInputToMinor(deduction) ?? 0;
@@ -117,6 +129,7 @@ export function ReportDamageModal({
 
       // Step 2: Submit damage report with photo URLs
       await bookingApi.reportDamage(bookingId, itemId, {
+        stockUnitIssueId: stockUnitIssueId || undefined,
         damageLevel: level,
         description: description.trim(),
         estimatedRepairCost: parsedRepairCost || undefined,
@@ -143,6 +156,7 @@ export function ReportDamageModal({
     setRepairCost('0');
     setDeduction('0');
     setAdditionalCharge('0');
+    setStockUnitIssueId('');
     // Revoke all preview URLs
     photos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
     setPhotos([]);
@@ -159,6 +173,29 @@ export function ReportDamageModal({
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
+          {requiresExactIssue && (
+            <div className="grid grid-cols-4 items-start gap-4">
+              <Label className="mt-2 text-right text-sm">Physical item issue *</Label>
+              <div className="col-span-3 space-y-2">
+                {stockUnitIssues.length > 0 ? (
+                  <Select value={stockUnitIssueId} onValueChange={setStockUnitIssueId}>
+                    <SelectTrigger><SelectValue placeholder="Select inspection or loss issue" /></SelectTrigger>
+                    <SelectContent>
+                      {stockUnitIssues.map((issue) => (
+                        <SelectItem key={issue.id} value={issue.id}>
+                          {issue.stockUnit.assetCode} · {issue.issueType.replaceAll('_', ' ').toLowerCase()} · {issue.severity.toLowerCase()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                    Complete the physical-item return inspection and record its damage or loss issue first.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="level" className="text-right text-sm">Level</Label>
@@ -346,7 +383,7 @@ export function ReportDamageModal({
           </Button>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !description.trim() || parsedDeduction > depositAmount}
+            disabled={mutation.isPending || !description.trim() || parsedDeduction > depositAmount || (requiresExactIssue && !stockUnitIssueId)}
           >
             {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Submit Damage Report

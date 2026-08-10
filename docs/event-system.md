@@ -61,9 +61,7 @@ eventEmitter.emit('booking.confirmed', { booking, tenant })
 
 | Event | Payload | Listeners |
 |---|---|---|
-| `deposit.collected` | bookingItem, tenant | Audit |
-| `deposit.refunded` | bookingItem, tenant, amount, method | SMS (customer), Audit |
-| `deposit.forfeited` | bookingItem, tenant, reason | Audit |
+| `deposit.settled` | bookingItem, settlement, tenant, actor | Notification, immutable settlement record, Audit |
 
 ### Tenant Events
 

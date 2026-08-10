@@ -209,7 +209,20 @@ export interface BookingListItem {
     serializedRequired: number;
     serializedAssigned: number;
     needsAssignment: boolean;
-    nextAction: 'REVIEW' | 'ASSIGN_ITEMS' | 'PREPARE_HANDOFF' | 'RECEIVE_RETURN' | 'INSPECT' | 'SETTLE' | 'NONE';
+    preparationReady: boolean;
+    handedOutQuantity: number;
+    returnedQuantity: number;
+    lostQuantity: number;
+    unresolvedReturnQuantity: number;
+    inspectionOutstanding: number;
+    unsettledDepositCount: number;
+    unresolvedIssueCount: number;
+    balanceDue: number;
+    sourceLocation: { id: string; code: string; name: string } | null;
+    handoverMethod: 'DELIVERY' | 'CUSTOMER_PICKUP' | null;
+    returnMethod: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN' | null;
+    blockers: string[];
+    nextAction: 'REVIEW' | 'ASSIGN_ITEMS' | 'PREPARE' | 'HAND_OUT' | 'START_RENTAL' | 'RECEIVE_RETURN' | 'INSPECT' | 'REVIEW_RETURN' | 'SETTLE_DEPOSIT' | 'COLLECT_BALANCE' | 'RESOLVE_RETURN_WORK' | 'COMPLETE' | 'NONE';
   };
 }
 
@@ -244,6 +257,7 @@ export interface BookingDetailItem {
   tryOnFee: number;
   tryOnCredited: boolean;
   itemTotal: number;
+  fulfillmentAdjustment: number;
   lateFee: number;
   lateDays: number;
   createdAt: string;
@@ -257,9 +271,23 @@ export interface BookingDetailItem {
     id: string;
     role: string;
     status: string;
+    trackingModeSnapshot: 'POOLED' | 'SERIALIZED';
     productNameSnapshot: string;
     sizeSnapshot: string | null;
     quantity: number;
+  }>;
+  stockUnitIssues: Array<{
+    id: string;
+    issueType: string;
+    severity: string;
+    status: string;
+    responsibility: string;
+    description: string;
+    estimatedCost: number | null;
+    customerCharge: number | null;
+    assignmentId: string | null;
+    inspectionId: string | null;
+    stockUnit: { id: string; assetCode: string };
   }>;
   damageReport: {
     id: string;
@@ -270,6 +298,17 @@ export interface BookingDetailItem {
     additionalCharge: number;
     photos: string[];
     reportedBy: string;
+    createdAt: string;
+  } | null;
+  depositSettlement: {
+    id: string;
+    refundAmount: number;
+    deductionAmount: number;
+    forfeitedAmount: number;
+    additionalCharge: number;
+    refundMethod: string | null;
+    reason: string;
+    actorUserId: string;
     createdAt: string;
   } | null;
 }
@@ -449,6 +488,7 @@ export interface BookingStats {
   todayReturns: number;
   todayDeliveries: number;
   totalActive: number;
+  queueCounts: Record<'ALL' | 'REQUEST' | 'ASSIGNMENT' | 'PREPARATION' | 'HANDOFF' | 'ACTIVE' | 'RETURN_DUE' | 'RETURN_INTAKE' | 'INSPECTION' | 'EXCEPTION' | 'CLOSED', number>;
   recentBookings: Array<{
     id: string;
     bookingNumber: string;
@@ -463,7 +503,7 @@ export interface BookingListQuery {
   page?: number;
   limit?: number;
   status?: string;
-  queue?: 'REVIEW' | 'ASSIGNMENT' | 'HANDOFF' | 'ACTIVE' | 'RETURN_INSPECTION' | 'OVERDUE' | 'CLOSED';
+  queue?: 'REQUEST' | 'ASSIGNMENT' | 'PREPARATION' | 'HANDOFF' | 'ACTIVE' | 'RETURN_DUE' | 'RETURN_INTAKE' | 'INSPECTION' | 'EXCEPTION' | 'CLOSED';
   search?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -621,6 +661,7 @@ export const bookingApi = {
    * POST /api/v1/owner/bookings/:id/items/:itemId/damage
    */
   reportDamage: async (id: string, itemId: string, payload: {
+    stockUnitIssueId?: string;
     damageLevel: string;
     description: string;
     estimatedRepairCost?: number;
@@ -677,34 +718,19 @@ export const bookingApi = {
 
   // ── Deposit Management ──────────────────────────────────────────────────
 
-  /**
-   * PATCH /api/v1/owner/booking-items/:itemId/deposit/collect
-   * Marks a booking item's deposit as collected.
-   */
-  collectDeposit: async (itemId: string): Promise<void> => {
-    await apiClient.patch(`/owner/booking-items/${itemId}/deposit/collect`);
-  },
-
-  /**
-   * PATCH /api/v1/owner/booking-items/:itemId/deposit/refund
-   * Processes a deposit refund (full or partial).
-   */
-  refundDeposit: async (itemId: string, payload: {
+  /** Atomically closes one item's held security deposit. */
+  settleDeposit: async (itemId: string, payload: {
+    forfeit: boolean;
     refundAmount: number;
-    refundMethod: string;
-    notes?: string;
-  }): Promise<void> => {
-    await apiClient.patch(`/owner/booking-items/${itemId}/deposit/refund`, payload);
-  },
-
-  /**
-   * PATCH /api/v1/owner/booking-items/:itemId/deposit/forfeit
-   * Forfeits a deposit entirely (damage or loss).
-   */
-  forfeitDeposit: async (itemId: string, payload: {
+    deductionAmount: number;
+    additionalCharge?: number;
+    refundMethod?: string;
     reason: string;
-  }): Promise<void> => {
-    await apiClient.patch(`/owner/booking-items/${itemId}/deposit/forfeit`, payload);
+    damageReportId?: string;
+  }, idempotencyKey: string): Promise<void> => {
+    await apiClient.patch(`/owner/booking-items/${itemId}/deposit/settle`, payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
   },
 
   /**

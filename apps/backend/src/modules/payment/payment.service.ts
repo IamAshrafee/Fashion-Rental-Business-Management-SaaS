@@ -13,13 +13,11 @@ import {
   PaymentMethod,
   PaymentStatus,
   TransactionStatus,
-  DepositStatus,
   Prisma,
 } from '@prisma/client';
 import {
   RecordPaymentDto,
-  RefundDepositDto,
-  ForfeitDepositDto,
+  SettleDepositDto,
 } from './dto/payment.dto';
 import { createHash } from 'crypto';
 
@@ -171,6 +169,13 @@ export class PaymentService {
           paymentStatus: paymentStatus as PaymentStatus,
         },
       });
+      await this.updateDepositProjection(
+        tx,
+        tenantId,
+        bookingId,
+        booking.totalDeposit,
+        (paid._sum.depositAmount ?? 0) + depositAmount,
+      );
 
       return { payment, bookingNumber: booking.bookingNumber, replayed: false };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
@@ -435,6 +440,7 @@ export class PaymentService {
             bookingNumber: true,
             grandTotal: true,
             totalPaid: true,
+            totalDeposit: true,
           },
         },
       },
@@ -525,7 +531,7 @@ export class PaymentService {
 
         const verified = await tx.payment.aggregate({
           where: { tenantId: booking.tenantId, bookingId: booking.id, status: 'verified' },
-          _sum: { amount: true },
+          _sum: { amount: true, depositAmount: true },
         });
         const newTotalPaid = verified._sum.amount ?? 0;
         const paymentStatus = this.calculatePaymentStatus(
@@ -540,6 +546,13 @@ export class PaymentService {
             paymentStatus: paymentStatus as PaymentStatus,
           },
         });
+        await this.updateDepositProjection(
+          tx,
+          booking.tenantId,
+          booking.id,
+          booking.totalDeposit,
+          verified._sum.depositAmount ?? 0,
+        );
         return true;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
       if (!processed) return;
@@ -606,126 +619,145 @@ export class PaymentService {
   // DEPOSIT MANAGEMENT
   // =========================================================================
 
-  /**
-   * Marks a booking item's deposit as collected.
-   * Used when owner confirms deposit has been received (COD on delivery, or digital verification).
-   */
-  async collectDeposit(tenantId: string, bookingItemId: string) {
-    const item = await this.findBookingItemOrFail(tenantId, bookingItemId);
-
-    if (item.depositAmount <= 0) {
-      throw new UnprocessableEntityException('This item has no deposit configured');
-    }
-
-    if (item.depositStatus !== 'pending') {
-      throw new UnprocessableEntityException(
-        `Deposit is already "${item.depositStatus}". Can only collect from "pending" status.`,
-      );
-    }
-
-    const updated = await this.prisma.bookingItem.update({
-      where: { id: bookingItemId },
-      data: { depositStatus: 'collected' as DepositStatus },
-    });
-
-    this.logger.log(`Deposit collected for booking item ${bookingItemId}`);
-    return updated;
-  }
-
-  /**
-   * Processes a deposit refund (full or partial).
-   * Records refund amount, method, and date on the booking item.
-   */
-  async refundDeposit(
+  async settleDeposit(
     tenantId: string,
     bookingItemId: string,
-    dto: RefundDepositDto,
+    dto: SettleDepositDto,
+    actorUserId: string,
+    rawIdempotencyKey?: string,
   ) {
-    const item = await this.findBookingItemOrFail(tenantId, bookingItemId);
+    const idempotencyKey = rawIdempotencyKey?.trim();
+    if (!idempotencyKey) throw new BadRequestException('Idempotency-Key is required for deposit settlement');
+    if (idempotencyKey.length > 200) throw new BadRequestException('Idempotency-Key cannot exceed 200 characters');
+    const requestHash = createHash('sha256').update(JSON.stringify({ bookingItemId, ...dto })).digest('hex');
 
-    // Deposit must be collected before it can be refunded
-    if (!['collected', 'held'].includes(item.depositStatus)) {
-      throw new UnprocessableEntityException(
-        `Deposit must be "collected" or "held" to process a refund. Current status: "${item.depositStatus}".`,
-      );
-    }
+    const result = await this.prisma.$transaction(async (tx) => {
+      const replay = await tx.depositSettlement.findFirst({ where: { tenantId, idempotencyKey } });
+      if (replay) {
+        if (replay.bookingItemId !== bookingItemId || replay.requestHash !== requestHash) {
+          throw new ConflictException({ code: 'DEPOSIT_IDEMPOTENCY_REUSED', message: 'This settlement key belongs to another request' });
+        }
+        return { settlement: replay, replayed: true };
+      }
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM booking_items
+        WHERE tenant_id = ${tenantId} AND id = ${bookingItemId}
+        FOR UPDATE
+      `);
+      const item = await tx.bookingItem.findFirst({
+        where: { id: bookingItemId, tenantId },
+        include: { booking: true, damageReport: true, depositSettlement: true },
+      });
+      if (!item) throw new NotFoundException('Booking item not found');
+      if (item.depositAmount <= 0) throw new UnprocessableEntityException('This item has no security deposit');
+      if (item.depositSettlement) {
+        throw new ConflictException({ code: 'DEPOSIT_ALREADY_SETTLED', message: 'This item deposit already has a final settlement' });
+      }
+      if (item.booking.status !== 'inspected') {
+        throw new ConflictException({
+          code: 'RETURN_INSPECTION_REQUIRED',
+          message: 'Complete the booking return and inspection workflow before settling its deposit',
+          bookingStatus: item.booking.status,
+        });
+      }
+      const paid = await tx.payment.aggregate({
+        where: { tenantId, bookingId: item.bookingId, status: 'verified' },
+        _sum: { depositAmount: true },
+      });
+      const settled = await tx.depositSettlement.aggregate({
+        where: { tenantId, bookingId: item.bookingId },
+        _sum: { refundAmount: true, deductionAmount: true, forfeitedAmount: true },
+      });
+      const received = paid._sum.depositAmount ?? 0;
+      const previousOutflow = (settled._sum.refundAmount ?? 0) + (settled._sum.deductionAmount ?? 0) + (settled._sum.forfeitedAmount ?? 0);
+      const heldBalance = received - previousOutflow;
+      if (item.depositStatus !== 'held' || received < item.booking.totalDeposit) {
+        throw new ConflictException({
+          code: 'DEPOSIT_NOT_FULLY_HELD',
+          message: 'Collect the complete booking security deposit through a verified payment before settlement',
+          receivedDeposit: received,
+          requiredDeposit: item.booking.totalDeposit,
+        });
+      }
+      const refundAmount = dto.forfeit ? 0 : dto.refundAmount;
+      const deductionAmount = dto.forfeit ? 0 : dto.deductionAmount;
+      const forfeitedAmount = dto.forfeit ? item.depositAmount : 0;
+      if (!dto.forfeit && refundAmount + deductionAmount !== item.depositAmount) {
+        throw new BadRequestException('Refund and deduction must account for the complete item deposit');
+      }
+      const depositOutflow = refundAmount + deductionAmount + forfeitedAmount;
+      if (depositOutflow > heldBalance) {
+        throw new ConflictException({
+          code: 'DEPOSIT_SETTLEMENT_EXCEEDS_HELD',
+          message: 'Settlement exceeds the currently held deposit balance',
+          heldBalance,
+        });
+      }
+      if (dto.damageReportId && item.damageReport?.id !== dto.damageReportId) {
+        throw new BadRequestException('Damage evidence does not belong to this booking item');
+      }
+      const additionalCharge = dto.additionalCharge ?? 0;
+      const requiresEvidence = dto.forfeit || deductionAmount > 0 || additionalCharge > 0;
+      if (requiresEvidence && (!dto.damageReportId || item.damageReport?.id !== dto.damageReportId)) {
+        throw new ConflictException({
+          code: 'SETTLEMENT_EVIDENCE_REQUIRED',
+          message: 'A linked return damage or loss report is required for deductions, forfeiture, or additional charges',
+        });
+      }
+      const settlement = await tx.depositSettlement.create({
+        data: {
+          tenantId,
+          bookingId: item.bookingId,
+          bookingItemId,
+          damageReportId: dto.damageReportId ?? null,
+          refundAmount,
+          deductionAmount,
+          forfeitedAmount,
+          additionalCharge,
+          refundMethod: refundAmount > 0 ? dto.refundMethod : null,
+          reason: dto.reason.trim(),
+          evidenceSnapshot: item.damageReport ? {
+            damageReportId: item.damageReport.id,
+            damageLevel: item.damageReport.damageLevel,
+            description: item.damageReport.description,
+            estimatedRepairCost: item.damageReport.estimatedRepairCost,
+            suggestedDeductionAmount: item.damageReport.deductionAmount,
+            suggestedAdditionalCharge: item.damageReport.additionalCharge,
+            photos: item.damageReport.photos,
+          } : Prisma.DbNull,
+          idempotencyKey,
+          requestHash,
+          actorUserId,
+        },
+      });
+      const depositStatus = dto.forfeit
+        ? 'forfeited'
+        : deductionAmount > 0 ? 'partially_refunded' : 'refunded';
+      await tx.bookingItem.update({
+        where: { id: bookingItemId },
+        data: {
+          depositStatus,
+          depositRefundAmount: refundAmount,
+          depositRefundMethod: refundAmount > 0 ? dto.refundMethod : null,
+          depositRefundDate: new Date(),
+        },
+      });
+      if (additionalCharge > 0) {
+        const nextGrandTotal = item.booking.grandTotal + additionalCharge;
+        await tx.booking.update({
+          where: { id: item.bookingId },
+          data: {
+            totalFees: { increment: additionalCharge },
+            grandTotal: nextGrandTotal,
+            paymentStatus: this.calculatePaymentStatus(item.booking.totalPaid, nextGrandTotal) as PaymentStatus,
+          },
+        });
+      }
+      return { settlement, replayed: false };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    if (dto.refundAmount > item.depositAmount) {
-      throw new BadRequestException(
-        `Refund amount (${dto.refundAmount}) cannot exceed deposit amount (${item.depositAmount})`,
-      );
-    }
-
-    // Determine new status
-    const newStatus: DepositStatus =
-      dto.refundAmount === item.depositAmount
-        ? 'refunded'
-        : dto.refundAmount === 0
-          ? 'forfeited'
-          : 'partially_refunded';
-
-    const updated = await this.prisma.bookingItem.update({
-      where: { id: bookingItemId },
-      data: {
-        depositStatus: newStatus,
-        depositRefundAmount: dto.refundAmount,
-        depositRefundMethod: dto.refundMethod,
-        depositRefundDate: new Date(),
-      },
-    });
-
-    this.eventEmitter.emit('deposit.refunded', {
-      tenantId,
-      bookingItemId,
-      bookingId: item.bookingId,
-      refundAmount: dto.refundAmount,
-      depositAmount: item.depositAmount,
-      refundMethod: dto.refundMethod,
-    });
-
-    this.logger.log(
-      `Deposit ${newStatus}: ${dto.refundAmount}/${item.depositAmount} for item ${bookingItemId}`,
-    );
-
-    return updated;
-  }
-
-  /**
-   * Forfeits a deposit entirely (e.g., severe damage or loss).
-   */
-  async forfeitDeposit(
-    tenantId: string,
-    bookingItemId: string,
-    dto: ForfeitDepositDto,
-  ) {
-    const item = await this.findBookingItemOrFail(tenantId, bookingItemId);
-
-    if (!['collected', 'held'].includes(item.depositStatus)) {
-      throw new UnprocessableEntityException(
-        `Deposit must be "collected" or "held" to forfeit. Current status: "${item.depositStatus}".`,
-      );
-    }
-
-    const updated = await this.prisma.bookingItem.update({
-      where: { id: bookingItemId },
-      data: {
-        depositStatus: 'forfeited' as DepositStatus,
-        depositRefundAmount: 0,
-        depositRefundDate: new Date(),
-      },
-    });
-
-    this.eventEmitter.emit('deposit.forfeited', {
-      tenantId,
-      bookingItemId,
-      bookingId: item.bookingId,
-      depositAmount: item.depositAmount,
-      reason: dto.reason,
-    });
-
-    this.logger.log(`Deposit forfeited for item ${bookingItemId}: ${dto.reason}`);
-
-    return updated;
+    if (!result.replayed) this.eventEmitter.emit('deposit.settled', result.settlement);
+    return result.settlement;
   }
 
   // =========================================================================
@@ -756,24 +788,26 @@ export class PaymentService {
     return 'paid';
   }
 
-  /**
-   * Finds a booking item or throws NotFoundException.
-   * Validates it belongs to the given tenant.
-   */
-  private async findBookingItemOrFail(tenantId: string, bookingItemId: string) {
-    const item = await this.prisma.bookingItem.findFirst({
-      where: { id: bookingItemId, tenantId },
-      select: {
-        id: true,
-        bookingId: true,
-        tenantId: true,
-        productName: true,
-        depositAmount: true,
-        depositStatus: true,
-        depositRefundAmount: true,
+  private async updateDepositProjection(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    bookingId: string,
+    totalDeposit: number,
+    verifiedDepositPaid: number,
+  ) {
+    if (totalDeposit <= 0) return;
+    const depositStatus = verifiedDepositPaid <= 0
+      ? 'pending'
+      : verifiedDepositPaid < totalDeposit ? 'collected' : 'held';
+    await tx.bookingItem.updateMany({
+      where: {
+        tenantId,
+        bookingId,
+        depositAmount: { gt: 0 },
+        depositStatus: { in: ['pending', 'collected', 'held'] },
       },
+      data: { depositStatus },
     });
-    if (!item) throw new NotFoundException('Booking item not found');
-    return item;
   }
+
 }

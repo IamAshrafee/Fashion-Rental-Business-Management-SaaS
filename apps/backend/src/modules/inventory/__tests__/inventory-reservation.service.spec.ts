@@ -9,9 +9,17 @@ describe('InventoryReservationService', () => {
   it('expires pending holds idempotently', async () => {
     const tx = {
       inventoryReservation: {
-        findMany: jest.fn().mockResolvedValue([{ id: 'reservation-1' }, { id: 'reservation-2' }]),
+        findMany: jest.fn()
+          .mockResolvedValueOnce([
+            { id: 'reservation-1', tenantId: 'tenant-1', fulfillmentRequirementId: 'requirement-1', fulfillmentRequirement: { status: 'RESERVED', quantity: 1 } },
+            { id: 'reservation-2', tenantId: 'tenant-1', fulfillmentRequirementId: 'requirement-2', fulfillmentRequirement: { status: 'RESERVED', quantity: 1 } },
+          ])
+          .mockResolvedValueOnce([{ bookingId: 'booking-1' }, { bookingId: 'booking-1' }]),
         updateMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
+      fulfillmentRequirement: { updateMany: jest.fn() },
+      fulfillmentRequirementEvent: { createMany: jest.fn() },
+      booking: { updateMany: jest.fn() },
     };
     const now = new Date('2026-08-03T10:00:00Z');
 
@@ -19,6 +27,10 @@ describe('InventoryReservationService', () => {
     expect(tx.inventoryReservation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: { in: ['reservation-1', 'reservation-2'] }, status: 'PENDING' },
       data: expect.objectContaining({ status: 'EXPIRED', releasedAt: now }),
+    }));
+    expect(tx.booking.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ['booking-1'] }, status: 'pending' }),
+      data: expect.objectContaining({ status: 'cancelled', cancelledBy: 'system' }),
     }));
 
     tx.inventoryReservation.findMany.mockResolvedValueOnce([]);

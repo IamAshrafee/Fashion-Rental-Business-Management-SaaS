@@ -45,16 +45,18 @@
 
 **Deposit lifecycle per booking item:**
 ```
-pending → collected → held → refunded/partially_refunded/forfeited
+pending → collected → held → refunded | partially_refunded | forfeited
 ```
 
-- `PATCH /api/v1/booking-items/:id/deposit/collect` — mark deposit collected
-- `PATCH /api/v1/booking-items/:id/deposit/refund` — process refund (amount, method)
-- `PATCH /api/v1/booking-items/:id/deposit/forfeit` — forfeit deposit (damage/loss)
+- Verified `Payment.depositAmount` allocations project `pending`, `collected`, and `held`; there is no manual collection-status command.
+- `PATCH /api/v1/owner/booking-items/:id/deposit/settle` — atomically record the one final refund/deduction/forfeit decision.
+- Settlement requires an inspected booking, a fully held deposit, an `Idempotency-Key`, and owner/manager authority.
+- Deductions, forfeiture, and additional charges require linked damage evidence. Serialized rentals require the damage report to reference an exact stock-unit issue.
+- The immutable `DepositSettlement` stores amounts, reason, refund method, evidence snapshot, request hash, actor, and timestamp.
 
 ### 3. Damage Report System
 
-- `POST /api/v1/booking-items/:id/damage` — create damage report
+- `POST /api/v1/owner/bookings/:bookingId/items/:itemId/damage` — create or update the pre-settlement report
 - Fields: damage_level (enum), description, photos[], estimated_repair_cost
 - Auto-calculate deduction from deposit
 - If damage cost > deposit: record additional_charge
@@ -77,7 +79,7 @@ All calculations use INTEGER math (ADR-04):
 |---|---|---|
 | 1 | Payment recording API | Record manual payments |
 | 2 | SSLCommerz integration | Init → IPN → verify |
-| 3 | Deposit lifecycle API | Collect, refund, forfeit |
+| 3 | Deposit settlement API | Idempotent final refund/deduction/forfeit with held-balance guards |
 | 4 | Damage report API | Create report with photos |
 | 5 | Financial calculation service | All math correct (integer) |
 | 6 | Payment history query | List payments per booking |

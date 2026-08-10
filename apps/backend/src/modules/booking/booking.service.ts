@@ -1078,6 +1078,14 @@ export class BookingService {
             paymentStatus: newPaymentStatus,
           },
         });
+        if (summary.totalDeposit > 0 && paymentDepositAmount > 0) {
+          await tx.bookingItem.updateMany({
+            where: { tenantId, bookingId: newBooking.id, depositAmount: { gt: 0 } },
+            data: {
+              depositStatus: paymentDepositAmount >= summary.totalDeposit ? 'held' : 'collected',
+            },
+          });
+        }
       }
 
       return tx.booking.findUnique({
@@ -1244,6 +1252,10 @@ export class BookingService {
 
     if (query.status) where.status = query.status;
     if (query.queue) {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
       const needsSerializedAssignment: Prisma.BookingWhereInput = {
         items: {
           some: {
@@ -1260,18 +1272,51 @@ export class BookingService {
           },
         },
       };
-      if (query.queue === 'REVIEW') where.status = 'pending';
+      const hasShortage: Prisma.BookingWhereInput = {
+        items: { some: { fulfillmentRequirements: { some: { status: 'PLANNED' } } } },
+      };
+      const notReady: Prisma.BookingWhereInput = { OR: [needsSerializedAssignment, hasShortage] };
+      const hasUnpreparedRequirement: Prisma.BookingWhereInput = {
+        items: {
+          some: {
+            fulfillmentRequirements: {
+              some: {
+                status: { notIn: ['CANCELLED', 'SUPERSEDED'] },
+                preparationStatus: { not: 'READY' },
+              },
+            },
+          },
+        },
+      };
+      if (query.queue === 'REQUEST') where.status = 'pending';
       if (query.queue === 'ASSIGNMENT') {
         where.status = 'confirmed';
-        combinedFilters.push(needsSerializedAssignment);
+        combinedFilters.push(notReady);
+      }
+      if (query.queue === 'PREPARATION') {
+        where.status = 'confirmed';
+        combinedFilters.push({ NOT: notReady }, hasUnpreparedRequirement);
       }
       if (query.queue === 'HANDOFF') {
         where.status = 'confirmed';
-        where.NOT = needsSerializedAssignment;
+        combinedFilters.push({ NOT: notReady }, { NOT: hasUnpreparedRequirement });
       }
       if (query.queue === 'ACTIVE') where.status = 'delivered';
-      if (query.queue === 'RETURN_INSPECTION') where.status = { in: ['returned', 'inspected'] };
-      if (query.queue === 'OVERDUE') where.status = 'overdue';
+      if (query.queue === 'RETURN_DUE') {
+        where.status = { in: ['delivered', 'overdue'] };
+        combinedFilters.push({ items: { some: { endDate: { lte: tomorrow } } } });
+      }
+      if (query.queue === 'RETURN_INTAKE') where.status = { in: ['delivered', 'overdue'] };
+      if (query.queue === 'INSPECTION') where.status = { in: ['returned', 'inspected'] };
+      if (query.queue === 'EXCEPTION') {
+        combinedFilters.push({
+          OR: [
+            { status: 'overdue' },
+            hasShortage,
+            { items: { some: { stockUnitIssues: { some: { status: { in: ['OPEN', 'IN_SERVICE'] } } } } } },
+          ],
+        });
+      }
       if (query.queue === 'CLOSED') where.status = { in: ['completed', 'cancelled'] };
     }
     if (query.paymentStatus) {
@@ -1330,6 +1375,7 @@ export class BookingService {
           customer: {
             select: { id: true, fullName: true, phone: true, email: true },
           },
+          sourceLocation: { select: { id: true, code: true, name: true } },
           items: {
             select: {
               id: true,
@@ -1342,16 +1388,29 @@ export class BookingService {
               itemTotal: true,
               featuredImageUrl: true,
               quantity: true,
+              depositAmount: true,
+              depositStatus: true,
+              depositSettlement: { select: { id: true } },
+              stockUnitInspections: {
+                where: { inspectionType: 'RETURN', status: 'COMPLETED' },
+                select: { id: true },
+              },
+              stockUnitIssues: {
+                where: { status: { in: ['OPEN', 'IN_SERVICE'] } },
+                select: { id: true },
+              },
               fulfillmentRequirements: {
                 where: { status: { notIn: ['CANCELLED', 'SUPERSEDED'] } },
                 select: {
                   status: true,
+                  sourceLocationId: true,
                   trackingModeSnapshot: true,
                   quantity: true,
                   assignedQuantity: true,
                   handedOutQuantity: true,
                   returnedQuantity: true,
                   lostQuantity: true,
+                  preparationStatus: true,
                 },
               },
             },
@@ -1369,6 +1428,16 @@ export class BookingService {
         const serializedRequired = serialized.reduce((sum, item) => sum + item.quantity, 0);
         const serializedAssigned = serialized.reduce((sum, item) => sum + item.assignedQuantity, 0);
         const inventoryShortages = requirements.filter((item) => item.status === 'PLANNED').length;
+        const handedOutQuantity = requirements.reduce((sum, item) => sum + item.handedOutQuantity, 0);
+        const returnedQuantity = requirements.reduce((sum, item) => sum + item.returnedQuantity, 0);
+        const lostQuantity = requirements.reduce((sum, item) => sum + item.lostQuantity, 0);
+        const unresolvedReturnQuantity = Math.max(0, handedOutQuantity - returnedQuantity - lostQuantity);
+        const completedReturnInspections = booking.items.reduce((sum, item) => sum + item.stockUnitInspections.length, 0);
+        const serializedReturned = serialized.reduce((sum, item) => sum + item.returnedQuantity, 0);
+        const inspectionOutstanding = Math.max(0, serializedReturned - completedReturnInspections);
+        const unresolvedIssueCount = booking.items.reduce((sum, item) => sum + item.stockUnitIssues.length, 0);
+        const unsettledDepositCount = booking.items.filter((item) => item.depositAmount > 0 && !item.depositSettlement).length;
+        const balanceDue = Math.max(0, booking.grandTotal - booking.totalPaid);
         const rentalStartDate = booking.items.reduce<Date | null>(
           (minimum, item) => !minimum || item.startDate < minimum ? item.startDate : minimum,
           null,
@@ -1378,17 +1447,37 @@ export class BookingService {
           null,
         );
         const needsAssignment = booking.status === 'confirmed' && serializedAssigned < serializedRequired;
+        const unpreparedRequirementCount = requirements.filter((item) => item.preparationStatus !== 'READY').length;
+        const preparationReady = inventoryShortages === 0
+          && serializedAssigned >= serializedRequired
+          && unpreparedRequirementCount === 0;
         const nextAction = booking.status === 'pending'
           ? 'REVIEW'
           : booking.status === 'confirmed'
-            ? needsAssignment ? 'ASSIGN_ITEMS' : 'PREPARE_HANDOFF'
+            ? needsAssignment || inventoryShortages > 0
+              ? 'ASSIGN_ITEMS'
+              : !preparationReady
+                ? 'PREPARE'
+                : handedOutQuantity < requirements.reduce((sum, item) => sum + item.quantity, 0)
+                  ? 'HAND_OUT'
+                  : 'START_RENTAL'
             : booking.status === 'delivered' || booking.status === 'overdue'
               ? 'RECEIVE_RETURN'
               : booking.status === 'returned'
-                ? 'INSPECT'
+                ? inspectionOutstanding > 0 ? 'INSPECT' : 'REVIEW_RETURN'
                 : booking.status === 'inspected'
-                  ? 'SETTLE'
+                  ? unsettledDepositCount > 0 ? 'SETTLE_DEPOSIT' : balanceDue > 0 ? 'COLLECT_BALANCE' : unresolvedIssueCount > 0 ? 'RESOLVE_RETURN_WORK' : 'COMPLETE'
                   : 'NONE';
+        const blockers = [
+          ...(inventoryShortages > 0 ? [`${inventoryShortages} inventory requirement${inventoryShortages === 1 ? '' : 's'} have no capacity`] : []),
+          ...(needsAssignment ? [`${serializedRequired - serializedAssigned} serialized assignment${serializedRequired - serializedAssigned === 1 ? '' : 's'} missing`] : []),
+          ...(unpreparedRequirementCount > 0 ? [`${unpreparedRequirementCount} requirement${unpreparedRequirementCount === 1 ? '' : 's'} not prepared`] : []),
+          ...(unresolvedReturnQuantity > 0 ? [`${unresolvedReturnQuantity} handed-out piece${unresolvedReturnQuantity === 1 ? '' : 's'} not returned or lost`] : []),
+          ...(inspectionOutstanding > 0 ? [`${inspectionOutstanding} returned physical item${inspectionOutstanding === 1 ? '' : 's'} awaiting inspection`] : []),
+          ...(unsettledDepositCount > 0 ? [`${unsettledDepositCount} deposit settlement${unsettledDepositCount === 1 ? '' : 's'} pending`] : []),
+          ...(balanceDue > 0 ? [`Booking balance due: ${balanceDue} minor BDT`] : []),
+          ...(unresolvedIssueCount > 0 ? [`${unresolvedIssueCount} return issue${unresolvedIssueCount === 1 ? '' : 's'} unresolved`] : []),
+        ];
         return {
           ...booking,
           operations: {
@@ -1400,6 +1489,19 @@ export class BookingService {
             serializedRequired,
             serializedAssigned,
             needsAssignment,
+            preparationReady,
+            handedOutQuantity,
+            returnedQuantity,
+            lostQuantity,
+            unresolvedReturnQuantity,
+            inspectionOutstanding,
+            unsettledDepositCount,
+            unresolvedIssueCount,
+            balanceDue,
+            sourceLocation: booking.sourceLocation,
+            handoverMethod: booking.handoverMethod,
+            returnMethod: booking.returnMethod,
+            blockers,
             nextAction,
           },
         };
@@ -1426,6 +1528,23 @@ export class BookingService {
         items: {
           include: {
             damageReport: true,
+            depositSettlement: true,
+            stockUnitIssues: {
+              select: {
+                id: true,
+                issueType: true,
+                severity: true,
+                status: true,
+                responsibility: true,
+                description: true,
+                estimatedCost: true,
+                customerCharge: true,
+                assignmentId: true,
+                inspectionId: true,
+                stockUnit: { select: { id: true, assetCode: true } },
+              },
+              orderBy: { createdAt: 'desc' },
+            },
             variantSize: { include: { sizeInstance: true } },
             fulfillmentRequirements: {
               include: {
@@ -1695,6 +1814,45 @@ export class BookingService {
       count: item._count.productId,
     }));
 
+    const [queueCountRow] = await this.prisma.$queryRaw<Array<Record<string, bigint>>>(Prisma.sql`
+      SELECT
+        COUNT(*) AS "ALL",
+        COUNT(*) FILTER (WHERE b.status = 'pending') AS "REQUEST",
+        COUNT(*) FILTER (WHERE b.status = 'confirmed' AND (
+          EXISTS (SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND fr.status = 'PLANNED')
+          OR EXISTS (SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND fr.tracking_mode_snapshot = 'SERIALIZED' AND fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
+        )) AS "ASSIGNMENT",
+        COUNT(*) FILTER (WHERE b.status = 'confirmed' AND NOT EXISTS (
+          SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND (
+            fr.status = 'PLANNED' OR (fr.tracking_mode_snapshot = 'SERIALIZED' AND fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
+          )
+        ) AND EXISTS (
+          SELECT 1 FROM fulfillment_requirements fr
+          WHERE fr.booking_id = b.id AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED') AND fr.preparation_status <> 'READY'
+        )) AS "PREPARATION",
+        COUNT(*) FILTER (WHERE b.status = 'confirmed' AND NOT EXISTS (
+          SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND (
+            fr.status = 'PLANNED' OR (fr.tracking_mode_snapshot = 'SERIALIZED' AND fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
+          )
+        ) AND NOT EXISTS (
+          SELECT 1 FROM fulfillment_requirements fr
+          WHERE fr.booking_id = b.id AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED') AND fr.preparation_status <> 'READY'
+        )) AS "HANDOFF",
+        COUNT(*) FILTER (WHERE b.status = 'delivered') AS "ACTIVE",
+        COUNT(*) FILTER (WHERE b.status IN ('delivered', 'overdue') AND COALESCE(b.rental_end_date, (SELECT MAX(bi.end_date) FROM booking_items bi WHERE bi.booking_id = b.id)) <= ${tomorrow}) AS "RETURN_DUE",
+        COUNT(*) FILTER (WHERE b.status IN ('delivered', 'overdue')) AS "RETURN_INTAKE",
+        COUNT(*) FILTER (WHERE b.status IN ('returned', 'inspected')) AS "INSPECTION",
+        COUNT(*) FILTER (WHERE b.status = 'overdue' OR EXISTS (SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND fr.status = 'PLANNED') OR EXISTS (
+          SELECT 1 FROM stock_unit_issues sui JOIN booking_items bi ON bi.id = sui.booking_item_id WHERE bi.booking_id = b.id AND sui.status IN ('OPEN', 'IN_SERVICE')
+        )) AS "EXCEPTION",
+        COUNT(*) FILTER (WHERE b.status IN ('completed', 'cancelled')) AS "CLOSED"
+      FROM bookings b
+      WHERE b.tenant_id = ${tenantId} AND b.deleted_at IS NULL
+    `);
+    const queueCounts = Object.fromEntries(
+      Object.entries(queueCountRow ?? {}).map(([queue, count]) => [queue, Number(count)]),
+    );
+
     return {
       pendingCount,
       overdueCount,
@@ -1703,6 +1861,7 @@ export class BookingService {
       todayReturns,
       todayDeliveries,
       totalActive,
+      queueCounts,
       recentBookings,
       revenueThisMonth: Math.max(0, (revenueAgg._sum.grandTotal || 0) - (revenueAgg._sum.totalDeposit || 0)),
       revenueChart,
@@ -1719,16 +1878,6 @@ export class BookingService {
     bookingId: string,
     newStatus: BookingStatus,
   ) {
-    const booking = await this.findBookingOrFail(tenantId, bookingId);
-
-    const allowed = VALID_TRANSITIONS[booking.status];
-    if (!allowed.includes(newStatus)) {
-      throw new UnprocessableEntityException(
-        `Cannot transition from "${booking.status}" to "${newStatus}". ` +
-          `Allowed: ${allowed.join(', ') || 'none'}`,
-      );
-    }
-
     const updateData: Prisma.BookingUpdateInput = { status: newStatus };
 
     // Set timestamp for each transition
@@ -1748,7 +1897,23 @@ export class BookingService {
         break;
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM bookings
+        WHERE tenant_id = ${tenantId} AND id = ${bookingId} AND deleted_at IS NULL
+        FOR UPDATE
+      `);
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, tenantId, deletedAt: null },
+      });
+      if (!booking) throw new NotFoundException('Booking not found');
+      const allowed = VALID_TRANSITIONS[booking.status];
+      if (!allowed.includes(newStatus)) {
+        throw new UnprocessableEntityException(
+          `Cannot transition from "${booking.status}" to "${newStatus}". ` +
+            `Allowed: ${allowed.join(', ') || 'none'}`,
+        );
+      }
       await this.fulfillment.assertAndTransitionBooking(
         tx,
         tenantId,
@@ -1761,11 +1926,13 @@ export class BookingService {
         bookingId,
         newStatus,
       );
-      return tx.booking.update({
+      const updated = await tx.booking.update({
         where: { id: bookingId, tenantId },
         data: updateData,
       });
-    });
+      return { updated, previousStatus: booking.status };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    const updated = result.updated;
 
     // Emit lifecycle event (ADR-05)
     this.eventEmitter.emit(`booking.${newStatus}`, {
@@ -1781,7 +1948,7 @@ export class BookingService {
     }
 
     this.logger.log(
-      `Booking ${updated.bookingNumber}: ${booking.status} → ${newStatus}`,
+      `Booking ${updated.bookingNumber}: ${result.previousStatus} → ${newStatus}`,
     );
 
     return updated;
@@ -1881,6 +2048,13 @@ export class BookingService {
     // Verify booking item belongs to this tenant/booking
     const item = await this.prisma.bookingItem.findFirst({
       where: { id: itemId, bookingId, tenantId },
+      include: {
+        depositSettlement: { select: { id: true } },
+        fulfillmentRequirements: {
+          where: { status: { notIn: ['CANCELLED', 'SUPERSEDED'] } },
+          select: { trackingModeSnapshot: true },
+        },
+      },
     });
     if (!item) throw new NotFoundException('Booking item not found');
 
@@ -1890,6 +2064,24 @@ export class BookingService {
       throw new UnprocessableEntityException(
         'Damage reports can only be created for returned or inspected bookings',
       );
+    }
+    if (item.depositSettlement) {
+      throw new ConflictException({
+        code: 'DEPOSIT_ALREADY_SETTLED',
+        message: 'Damage evidence cannot be changed after the final deposit settlement',
+      });
+    }
+    if (dto.deductionAmount > item.depositAmount) {
+      throw new BadRequestException('Suggested deposit deduction cannot exceed the item deposit');
+    }
+    const requiresExactIssue = item.fulfillmentRequirements.some(
+      (requirement) => requirement.trackingModeSnapshot === 'SERIALIZED',
+    );
+    if (requiresExactIssue && !dto.stockUnitIssueId) {
+      throw new ConflictException({
+        code: 'EXACT_ITEM_ISSUE_REQUIRED',
+        message: 'Select the inspected physical-item issue that supports this damage report',
+      });
     }
 
     if (dto.stockUnitIssueId) {
@@ -1947,18 +2139,27 @@ export class BookingService {
   // =========================================================================
 
   async calculateLateFees(tenantId: string, bookingId: string) {
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId },
-      include: {
-        items: {
-          include: {
-            product: {
-              include: {
-                pricingProfile: {
-                  include: {
-                    policyVersions: {
-                      where: { status: 'ACTIVE' },
-                      take: 1,
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM bookings
+        WHERE tenant_id = ${tenantId} AND id = ${bookingId} AND deleted_at IS NULL
+        FOR UPDATE
+      `);
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, tenantId, deletedAt: null },
+        include: {
+          items: {
+            include: {
+              product: {
+                include: {
+                  pricingProfile: {
+                    include: {
+                      policyVersions: {
+                        where: { status: 'ACTIVE' },
+                        take: 1,
+                      },
                     },
                   },
                 },
@@ -1966,47 +2167,57 @@ export class BookingService {
             },
           },
         },
-      },
-    });
-    if (!booking) throw new NotFoundException('Booking not found');
+      });
+      if (!booking) throw new NotFoundException('Booking not found');
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const updates: Promise<unknown>[] = [];
-
-    for (const item of booking.items) {
-      const expectedReturnDate = new Date(item.endDate);
-      if (today <= expectedReturnDate) continue; // Not late
-
-      const lateDays = Math.floor(
-        (today.getTime() - expectedReturnDate.getTime()) / (1000 * 60 * 60 * 24),
-      );
-
-      if (lateDays <= 0) continue;
-
-      let lateFee = 0;
-
-      const activeVersion = item.product?.pricingProfile?.policyVersions[0];
-      lateFee = this.pricingEngineService.computeLateFee(
-        this.parseLateFeePolicy(activeVersion?.lateFeePolicy),
-        item.baseRental,
-        lateDays,
-      );
-
-      updates.push(
-        this.prisma.bookingItem.update({
+      let lateItemsUpdated = 0;
+      let feeDelta = 0;
+      for (const item of booking.items) {
+        const expectedReturnDate = new Date(item.endDate);
+        const lateDays = today > expectedReturnDate
+          ? Math.floor((today.getTime() - expectedReturnDate.getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+        const activeVersion = item.product?.pricingProfile?.policyVersions[0];
+        const lateFee = this.pricingEngineService.computeLateFee(
+          this.parseLateFeePolicy(activeVersion?.lateFeePolicy),
+          item.baseRental,
+          lateDays,
+        );
+        if (lateDays === item.lateDays && lateFee === item.lateFee) continue;
+        const itemFeeDelta = lateFee - item.lateFee;
+        if (item.itemTotal + itemFeeDelta < 0) {
+          throw new ConflictException('Late-fee recalculation would make an item total negative');
+        }
+        await tx.bookingItem.update({
           where: { id: item.id },
-          data: { lateDays, lateFee },
-        }),
-      );
-    }
-
-    if (updates.length > 0) {
-      await Promise.all(updates);
-    }
-
-    return { bookingId, lateItemsUpdated: updates.length };
+          data: {
+            lateDays,
+            lateFee,
+            itemTotal: { increment: itemFeeDelta },
+          },
+        });
+        feeDelta += itemFeeDelta;
+        lateItemsUpdated += 1;
+      }
+      if (feeDelta !== 0) {
+        const nextGrandTotal = booking.grandTotal + feeDelta;
+        if (nextGrandTotal < 0 || booking.totalFees + feeDelta < 0) {
+          throw new ConflictException('Late-fee recalculation would make booking totals negative');
+        }
+        const paymentStatus = booking.totalPaid <= 0
+          ? 'unpaid'
+          : booking.totalPaid >= nextGrandTotal ? 'paid' : 'partial';
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            totalFees: { increment: feeDelta },
+            grandTotal: nextGrandTotal,
+            paymentStatus,
+          },
+        });
+      }
+      return { bookingId, lateItemsUpdated, feeDelta };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   // =========================================================================

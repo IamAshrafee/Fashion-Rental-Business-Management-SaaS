@@ -6,8 +6,7 @@ import type {
   BookingStatusEvent,
   BookingCancelledEvent,
   PaymentReceivedEvent,
-  DepositRefundedEvent,
-  DepositForfeitedEvent,
+  DepositSettledEvent,
 } from '@closetrent/types';
 
 /**
@@ -167,44 +166,29 @@ export class AuditLogListener {
     }
   }
 
-  @OnEvent('deposit.refunded')
-  async onDepositRefunded(event: DepositRefundedEvent) {
+  @OnEvent('deposit.settled')
+  async onDepositSettled(event: DepositSettledEvent) {
     try {
       await this.auditLogService.record({
         tenantId: event.tenantId,
-        userId: 'system',
-        action: 'deposit.refunded',
+        userId: event.actorUserId,
+        action: 'deposit.settled',
         entityType: 'booking_item',
         entityId: event.bookingItemId,
         newValues: {
           bookingId: event.bookingId,
           refundAmount: event.refundAmount,
-          depositAmount: event.depositAmount,
+          deductionAmount: event.deductionAmount,
+          forfeitedAmount: event.forfeitedAmount,
+          additionalCharge: event.additionalCharge,
           refundMethod: event.refundMethod,
-        },
-      });
-    } catch (err) {
-      this.logger.error(`Audit deposit.refunded failed: ${(err as Error).message}`);
-    }
-  }
-
-  @OnEvent('deposit.forfeited')
-  async onDepositForfeited(event: DepositForfeitedEvent) {
-    try {
-      await this.auditLogService.record({
-        tenantId: event.tenantId,
-        userId: 'system',
-        action: 'deposit.forfeited',
-        entityType: 'booking_item',
-        entityId: event.bookingItemId,
-        newValues: {
-          bookingId: event.bookingId,
-          depositAmount: event.depositAmount,
+          damageReportId: event.damageReportId,
+          settlementId: event.id,
           reason: event.reason,
         },
       });
     } catch (err) {
-      this.logger.error(`Audit deposit.forfeited failed: ${(err as Error).message}`);
+      this.logger.error(`Audit deposit.settled failed: ${(err as Error).message}`);
     }
   }
 

@@ -163,7 +163,7 @@ export class InventoryOperationsController {
   }
 
   @Post('issues/:issueId/resolve')
-  @Roles('owner', 'manager', 'staff')
+  @Roles('owner', 'manager')
   async resolveIssue(
     @CurrentTenant() tenant: TenantContext,
     @Param('issueId') issueId: string,

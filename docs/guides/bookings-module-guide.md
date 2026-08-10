@@ -294,9 +294,7 @@ bookingApi.complete(id)            // PATCH /owner/bookings/:id/complete
 bookingApi.addNote(id, note)       // POST /owner/bookings/:id/notes
 bookingApi.reportDamage(id, itemId, payload)  // POST .../damage
 bookingApi.recordPayment(id, payload)         // POST .../payments
-bookingApi.collectDeposit(itemId)             // PATCH .../deposit/collect
-bookingApi.refundDeposit(itemId, payload)     // PATCH .../deposit/refund
-bookingApi.forfeitDeposit(itemId, payload)    // PATCH .../deposit/forfeit
+bookingApi.settleDeposit(itemId, payload, key) // PATCH .../deposit/settle
 bookingApi.uploadDamagePhotos(itemId, files)  // POST /owner/upload/damage-photos
 bookingApi.calculateLateFees(id)              // POST .../late-fees
 ```
@@ -488,20 +486,27 @@ This creates a [Payment](file:///d:/Projects%20FINAL/Web%20Development/SaaS/Fash
 
 | Status | Meaning |
 |---|---|
-| `pending` | Deposit not yet collected |
-| `collected` | Deposit received from customer |
-| `held` | Holding during rental period |
-| `refunded` | Full deposit returned to customer |
-| `partially_refunded` | Partial refund (damage deduction) |
-| `forfeited` | Entire deposit kept (severe damage or loss) |
+| `pending` | No deposit allocation has been verified yet |
+| `collected` | A partial deposit allocation has been verified |
+| `held` | The full item deposit is verified and held as a liability |
+| `refunded` | The final settlement refunded the entire held deposit |
+| `partially_refunded` | The final settlement refunded part and deducted part |
+| `forfeited` | The final settlement retained the entire deposit |
 
-### Deposit API Operations
+### Deposit Settlement
 
 ```
-PATCH /owner/booking-items/:itemId/deposit/collect   → Mark as collected
-PATCH /owner/booking-items/:itemId/deposit/refund     → Process full/partial refund
-PATCH /owner/booking-items/:itemId/deposit/forfeit    → Forfeit entirely
+PATCH /owner/booking-items/:itemId/deposit/settle
+Idempotency-Key: <stable command key>
 ```
+
+This is the only deposit-closing command. It runs after booking inspection, locks the
+booking item, verifies that the full deposit is held, and creates one immutable
+`DepositSettlement`. Refund, deduction, forfeiture, and any additional customer
+charge are recorded atomically. A deduction, forfeiture, or additional charge must
+reference the booking item's damage report; serialized rentals must first link that
+report to an exact stock-unit issue. Replaying the same key and request is safe, while
+reusing the key with different values is rejected.
 
 ---
 

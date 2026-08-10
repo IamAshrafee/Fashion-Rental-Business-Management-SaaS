@@ -40,6 +40,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { fulfillmentApi, type FulfillmentRequirement } from '@/lib/api/fulfillment';
 import { productApi, type ProductListItem } from '@/lib/api/products';
+import { formatMinorMoney, majorInputToMinor } from '@/lib/money';
 
 function apiError(error: unknown, fallback: string) {
   return (
@@ -155,7 +156,7 @@ function AssignmentPanel({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={release.isPending || requirement.handedOutQuantity > 0}
+                  disabled={release.isPending || requirement.handedOutQuantity > 0 || requirement.preparationStatus === 'READY'}
                   onClick={() => release.mutate(assignment.id)}
                 >
                   <Undo2 className="mr-1 h-3.5 w-3.5" />
@@ -186,7 +187,7 @@ function AssignmentPanel({
           ))}
         </div>
       )}
-      {remaining > 0 && (
+      {remaining > 0 && requirement.preparationStatus !== 'READY' && (
         <div className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Eligible assets
@@ -375,6 +376,71 @@ function EventDialog({
   );
 }
 
+function PreparationDialog({
+  requirement,
+  targetStatus,
+  refresh,
+}: {
+  requirement: FulfillmentRequirement;
+  targetStatus: 'IN_PROGRESS' | 'READY';
+  refresh: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const prepare = useMutation({
+    mutationFn: () => fulfillmentApi.prepareRequirement(requirement.id, {
+      preparationStatus: targetStatus,
+      reason,
+      idempotencyKey: `${requirement.id}:preparation:${targetStatus}:${crypto.randomUUID()}`,
+    }),
+    onSuccess: async () => {
+      setOpen(false);
+      setReason('');
+      await refresh();
+      toast.success(targetStatus === 'READY' ? 'Item preparation completed' : 'Preparation started');
+    },
+    onError: (error) => toast.error(String(apiError(error, 'Could not update preparation'))),
+  });
+  const ready = targetStatus === 'READY';
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant={ready ? 'default' : 'outline'}>
+          <ClipboardCheck className="mr-1 h-3.5 w-3.5" />
+          {ready ? 'Mark ready' : requirement.preparationStatus === 'READY' ? 'Reopen preparation' : 'Start preparation'}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {ready ? 'Confirm preparation is complete' : requirement.preparationStatus === 'READY' ? 'Reopen item preparation' : 'Start item preparation'}
+          </DialogTitle>
+          <DialogDescription>
+            {ready
+              ? 'Confirm the complete requirement is checked, assembled, cleaned, and ready for handout.'
+              : 'Record that the team has started preparing this requirement.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 py-2">
+          <Label>Preparation note</Label>
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder={ready ? 'Checks completed, accessories included, packed by…' : 'Assigned to, preparation instructions…'}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button disabled={!reason.trim() || prepare.isPending} onClick={() => prepare.mutate()}>
+            {prepare.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {ready ? 'Confirm ready' : requirement.preparationStatus === 'READY' ? 'Reopen preparation' : 'Start preparation'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SubstituteDialog({
   requirement,
   products,
@@ -388,6 +454,10 @@ function SubstituteDialog({
   const [productId, setProductId] = useState(requirement.productId || '');
   const [variantSizeId, setVariantSizeId] = useState('');
   const [reason, setReason] = useState('');
+  const [priceImpact, setPriceImpact] = useState('0');
+  const [approvalEvidence, setApprovalEvidence] = useState('');
+  const [equivalentConfirmed, setEquivalentConfirmed] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const productQuery = useQuery({
     queryKey: ['fulfillment-substitute-product', productId],
     queryFn: () => productApi.getById(productId),
@@ -419,10 +489,19 @@ function SubstituteDialog({
         productId,
         variantSizeId,
         reason,
+        idempotencyKey,
+        compatibilityResult:
+          requirement.compositionRule?.substitutionPolicy === 'EQUIVALENT_ONLY'
+            ? { compatible: equivalentConfirmed }
+            : undefined,
         approvalStatus:
           requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL'
+          || requirement.compositionRule?.substitutionPolicy === 'STAFF_APPROVAL'
+          || requirement.compositionRule?.customerApprovalRequired
             ? 'APPROVED'
             : 'NOT_REQUIRED',
+        approvalEvidence: approvalEvidence.trim() || undefined,
+        priceImpact: majorInputToMinor(priceImpact) ?? 0,
       }),
     onSuccess: async () => {
       setOpen(false);
@@ -432,7 +511,13 @@ function SubstituteDialog({
     onError: (error) => toast.error(String(apiError(error, 'Could not substitute component'))),
   });
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) setIdempotencyKey(crypto.randomUUID());
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           <Search className="mr-1 h-3.5 w-3.5" />
@@ -492,10 +577,32 @@ function SubstituteDialog({
             <Label>Reason and compatibility decision</Label>
             <Textarea value={reason} onChange={(event) => setReason(event.target.value)} />
           </div>
-          {requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL' && (
-            <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-900">
-              Only continue after recording the customer&apos;s approval in this reason.
-            </p>
+          <div className="grid gap-2">
+            <Label>Rental price impact (৳)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={priceImpact}
+              onChange={(event) => setPriceImpact(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Use a negative amount for an approved reduction. Booking totals update atomically.</p>
+          </div>
+          {requirement.compositionRule?.substitutionPolicy === 'EQUIVALENT_ONLY' && (
+            <label className="flex items-start gap-2 rounded-md border p-3 text-xs">
+              <Checkbox checked={equivalentConfirmed} onCheckedChange={(checked) => setEquivalentConfirmed(checked === true)} />
+              <span>I checked the configured size, style, component, and condition compatibility rules.</span>
+            </label>
+          )}
+          {(requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL'
+            || requirement.compositionRule?.customerApprovalRequired) && (
+            <div className="grid gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-900">
+              <Label>Customer approval evidence</Label>
+              <Textarea
+                value={approvalEvidence}
+                onChange={(event) => setApprovalEvidence(event.target.value)}
+                placeholder="Approved by phone at 3:20 PM; WhatsApp message reference…"
+              />
+            </div>
           )}
         </div>
         <DialogFooter>
@@ -503,7 +610,15 @@ function SubstituteDialog({
             Cancel
           </Button>
           <Button
-            disabled={!productId || !variantSizeId || !reason.trim() || substitute.isPending}
+            disabled={
+              !productId
+              || !variantSizeId
+              || !reason.trim()
+              || (requirement.compositionRule?.substitutionPolicy === 'EQUIVALENT_ONLY' && !equivalentConfirmed)
+              || ((requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL'
+                || requirement.compositionRule?.customerApprovalRequired) && !approvalEvidence.trim())
+              || substitute.isPending
+            }
             onClick={() => substitute.mutate()}
           >
             {substitute.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Apply
@@ -517,11 +632,13 @@ function SubstituteDialog({
 
 function RequirementCard({
   bookingId,
+  bookingStatus,
   requirement,
   products,
   refresh,
 }: {
   bookingId: string;
+  bookingStatus: string;
   requirement: FulfillmentRequirement;
   products: ProductListItem[];
   refresh: () => Promise<void>;
@@ -529,6 +646,7 @@ function RequirementCard({
   const unresolved =
     requirement.handedOutQuantity - requirement.returnedQuantity - requirement.lostQuantity;
   const canSubstitute =
+    ['pending', 'confirmed'].includes(bookingStatus) &&
     requirement.handedOutQuantity === 0 &&
     !['RETURNED', 'LOST', 'CANCELLED', 'SUPERSEDED'].includes(requirement.status);
   return (
@@ -571,12 +689,35 @@ function RequirementCard({
           </div>
         </div>
         <AssignmentPanel bookingId={bookingId} requirement={requirement} refresh={refresh} />
+        <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
+          <div>
+            <p className="text-xs font-medium">Preparation: {humanize(requirement.preparationStatus)}</p>
+            {requirement.preparedAt && (
+              <p className="text-xs text-muted-foreground">
+                Ready since {new Date(requirement.preparedAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {bookingStatus === 'confirmed' && requirement.preparationStatus === 'NOT_STARTED' && requirement.handedOutQuantity === 0 && (
+              <PreparationDialog requirement={requirement} targetStatus="IN_PROGRESS" refresh={refresh} />
+            )}
+            {bookingStatus === 'confirmed' && requirement.preparationStatus === 'READY' && requirement.handedOutQuantity === 0 && (
+              <PreparationDialog requirement={requirement} targetStatus="IN_PROGRESS" refresh={refresh} />
+            )}
+            {bookingStatus === 'confirmed' && requirement.preparationStatus !== 'READY' && requirement.handedOutQuantity === 0 && (
+              <PreparationDialog requirement={requirement} targetStatus="READY" refresh={refresh} />
+            )}
+          </div>
+        </div>
         <div className="flex flex-wrap gap-2">
           {canSubstitute && (
             <SubstituteDialog requirement={requirement} products={products} refresh={refresh} />
           )}
-          <EventDialog requirement={requirement} eventType="HANDED_OUT" refresh={refresh} />
-          {unresolved > 0 && (
+          {bookingStatus === 'confirmed' && requirement.preparationStatus === 'READY' && (
+            <EventDialog requirement={requirement} eventType="HANDED_OUT" refresh={refresh} />
+          )}
+          {['delivered', 'overdue'].includes(bookingStatus) && unresolved > 0 && (
             <>
               <EventDialog requirement={requirement} eventType="RETURNED" refresh={refresh} />
               <EventDialog requirement={requirement} eventType="MARKED_LOST" refresh={refresh} />
@@ -595,8 +736,27 @@ function RequirementCard({
                     {humanize(event.eventType)} · {event.quantity}
                   </p>
                   <p className="text-muted-foreground">
-                    {event.reason} · {new Date(event.createdAt).toLocaleString()}
+                    {event.reason} · {event.actor?.fullName || 'System'} · {new Date(event.createdAt).toLocaleString()}
                   </p>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        {!!requirement.substitutions.length && (
+          <details>
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+              Substitution history ({requirement.substitutions.length})
+            </summary>
+            <div className="mt-2 space-y-2">
+              {requirement.substitutions.map((substitution) => (
+                <div key={substitution.id} className="border-l-2 pl-3 text-xs">
+                  <p className="font-medium">
+                    {humanize(substitution.approvalStatus)} · price impact {formatMinorMoney(substitution.priceImpact)}
+                  </p>
+                  <p className="text-muted-foreground">{substitution.reason}</p>
+                  {substitution.approvalEvidence && <p className="text-muted-foreground">Approval: {substitution.approvalEvidence}</p>}
+                  <p className="text-muted-foreground">{new Date(substitution.createdAt).toLocaleString()}</p>
                 </div>
               ))}
             </div>
@@ -607,7 +767,7 @@ function RequirementCard({
   );
 }
 
-export function InventoryAssignments({ bookingId }: { bookingId: string; items?: unknown[] }) {
+export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: string; bookingStatus: string }) {
   const queryClient = useQueryClient();
   const [extendOpen, setExtendOpen] = useState(false);
   const [endDate, setEndDate] = useState('');
@@ -615,6 +775,7 @@ export function InventoryAssignments({ bookingId }: { bookingId: string; items?:
   const query = useQuery({
     queryKey: ['booking-fulfillment', bookingId],
     queryFn: () => fulfillmentApi.listBookingRequirements(bookingId),
+    refetchInterval: 30_000,
   });
   const productsQuery = useQuery({
     queryKey: ['products-for-fulfillment'],
@@ -670,7 +831,7 @@ export function InventoryAssignments({ bookingId }: { bookingId: string; items?:
             Reserve, prepare, assign, hand out, return, and inspect every component independently.
           </p>
         </div>
-        <Dialog open={extendOpen} onOpenChange={setExtendOpen}>
+        {['pending', 'confirmed', 'delivered', 'overdue'].includes(bookingStatus) && <Dialog open={extendOpen} onOpenChange={setExtendOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
               <CalendarClock className="mr-2 h-4 w-4" />
@@ -715,7 +876,7 @@ export function InventoryAssignments({ bookingId }: { bookingId: string; items?:
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
       </div>
       {grouped.map(([bookingItemId, requirements], index) => (
         <div key={bookingItemId} className="space-y-3">
@@ -728,6 +889,7 @@ export function InventoryAssignments({ bookingId }: { bookingId: string; items?:
               <RequirementCard
                 key={requirement.id}
                 bookingId={bookingId}
+                bookingStatus={bookingStatus}
                 requirement={requirement}
                 products={productsQuery.data?.data || []}
                 refresh={refresh}

@@ -4,6 +4,8 @@ import {
   InventoryBlockType,
   InventoryServiceOrderType,
   InventoryTrackingMode,
+  FulfillmentEventType,
+  FulfillmentApprovalStatus,
   PrismaClient,
 } from '@prisma/client';
 import { AvailabilityPolicyService } from '../src/modules/inventory/availability-policy.service';
@@ -310,5 +312,175 @@ describe('inventory control PostgreSQL contracts', () => {
       rentalAmount: quote.totals.grandTotal - quote.totals.totalDeposit,
       depositAmount: quote.totals.totalDeposit,
     });
+
+    const bookingItem = await prisma.bookingItem.findFirstOrThrow({ where: { bookingId: created.bookingId } });
+    expect(bookingItem.depositStatus).toBe('held');
+    await expect(payments.settleDeposit(tenantId, bookingItem.id, {
+      forfeit: false,
+      refundAmount: bookingItem.depositAmount,
+      deductionAmount: 0,
+      refundMethod: 'bkash',
+      reason: 'Attempted before return',
+    }, ownerId, randomUUID())).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'RETURN_INSPECTION_REQUIRED' }),
+    });
+
+    await bookings.updateStatus(tenantId, created.bookingId, 'confirmed');
+    const originalRequirement = await prisma.fulfillmentRequirement.findFirstOrThrow({
+      where: { bookingId: created.bookingId },
+    });
+    const sizeSchema = await prisma.sizeSchema.findFirstOrThrow({ where: { tenantId } });
+    const substituteSize = await prisma.sizeInstance.create({
+      data: {
+        sizeSchemaId: sizeSchema.id,
+        normalizedKey: `SUB-${randomUUID().slice(0, 8)}`,
+        displayLabel: 'Alternative free size',
+      },
+    });
+    const substituteSku = await prisma.variantSize.create({
+      data: {
+        tenantId,
+        variantId,
+        sizeInstanceId: substituteSize.id,
+        trackingMode: InventoryTrackingMode.POOLED,
+      },
+    });
+    await prisma.inventoryPool.create({
+      data: { tenantId, variantSizeId: substituteSku.id, locationId, onHandQuantity: 5 },
+    });
+    const substitutionRequest = {
+      productId,
+      variantSizeId: substituteSku.id,
+      reason: 'Customer accepted the available alternative size',
+      idempotencyKey: randomUUID(),
+      approvalStatus: FulfillmentApprovalStatus.NOT_REQUIRED,
+      priceImpact: 1_000,
+    };
+    const requirement = await fulfillment.substitute(tenantId, originalRequirement.id, substitutionRequest, ownerId);
+    const substitutionReplay = await fulfillment.substitute(tenantId, originalRequirement.id, substitutionRequest, ownerId);
+    expect(substitutionReplay.id).toBe(requirement.id);
+    await expect(prisma.fulfillmentSubstitution.count({
+      where: { requirementId: requirement.id },
+    })).resolves.toBe(1);
+    await expect(prisma.bookingItem.findUniqueOrThrow({ where: { id: bookingItem.id } })).resolves.toMatchObject({
+      fulfillmentAdjustment: 1_000,
+      itemTotal: bookingItem.itemTotal + 1_000,
+    });
+    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+      subtotal: quote.totals.subtotal + 1_000,
+      grandTotal: quote.totals.grandTotal + 1_000,
+      paymentStatus: 'partial',
+    });
+
+    await fulfillment.prepareRequirement(tenantId, requirement.id, {
+      preparationStatus: 'IN_PROGRESS',
+      reason: 'Cleaning and packing started',
+      idempotencyKey: randomUUID(),
+    }, ownerId);
+    const readinessKey = randomUUID();
+    const ready = await fulfillment.prepareRequirement(tenantId, requirement.id, {
+      preparationStatus: 'READY',
+      reason: 'Quantity checked and package sealed',
+      idempotencyKey: readinessKey,
+    }, ownerId);
+    const readyReplay = await fulfillment.prepareRequirement(tenantId, requirement.id, {
+      preparationStatus: 'READY',
+      reason: 'Quantity checked and package sealed',
+      idempotencyKey: readinessKey,
+    }, ownerId);
+    expect(ready.preparationStatus).toBe('READY');
+    expect(readyReplay.id).toBe(ready.id);
+    const handoffQueue = await bookings.getBookingList(tenantId, { queue: 'HANDOFF', page: 1, limit: 20 });
+    expect(handoffQueue.data.map((booking) => booking.id)).toContain(created.bookingId);
+
+    const handoutKey = randomUUID();
+    const handoutRequest = {
+      eventType: FulfillmentEventType.HANDED_OUT,
+      quantity: 2,
+      reason: 'Delivered to customer',
+      idempotencyKey: handoutKey,
+    };
+    const handedOut = await fulfillment.recordEvent(tenantId, requirement.id, handoutRequest, ownerId);
+    const handedOutReplay = await fulfillment.recordEvent(tenantId, requirement.id, handoutRequest, ownerId);
+    expect(handedOutReplay.handedOutQuantity).toBe(handedOut.handedOutQuantity);
+    await expect(fulfillment.recordEvent(tenantId, requirement.id, {
+      ...handoutRequest,
+      reason: 'Changed handout claim',
+    }, ownerId)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FULFILLMENT_IDEMPOTENCY_REUSED' }),
+    });
+    await bookings.updateStatus(tenantId, created.bookingId, 'delivered');
+    await fulfillment.recordEvent(tenantId, requirement.id, {
+      eventType: FulfillmentEventType.RETURNED,
+      quantity: 2,
+      reason: 'All pooled pieces received',
+      idempotencyKey: randomUUID(),
+    }, ownerId);
+    await bookings.updateStatus(tenantId, created.bookingId, 'returned');
+    await bookings.updateStatus(tenantId, created.bookingId, 'inspected');
+    const damageReport = await bookings.reportDamage(tenantId, created.bookingId, bookingItem.id, {
+      damageLevel: 'minor' as const,
+      description: 'Minor stitching repair documented during pooled return review',
+      estimatedRepairCost: 7_000,
+      deductionAmount: 5_000,
+      additionalCharge: 2_000,
+      photos: [],
+    }, ownerId);
+
+    const settlementRequest = {
+      forfeit: false,
+      refundAmount: bookingItem.depositAmount - 5_000,
+      deductionAmount: 5_000,
+      additionalCharge: 2_000,
+      refundMethod: 'bkash',
+      reason: 'Approved stitching repair deduction',
+      damageReportId: damageReport.id,
+    };
+    const settlementKeys = [randomUUID(), randomUUID()];
+    const competingSettlements = await Promise.allSettled(settlementKeys.map((key) =>
+      payments.settleDeposit(tenantId, bookingItem.id, settlementRequest, ownerId, key),
+    ));
+    expect(competingSettlements.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const settlementWinner = competingSettlements.findIndex((result) => result.status === 'fulfilled');
+    const replayedSettlement = await payments.settleDeposit(
+      tenantId,
+      bookingItem.id,
+      settlementRequest,
+      ownerId,
+      settlementKeys[settlementWinner],
+    );
+    expect(replayedSettlement.id).toBe((competingSettlements[settlementWinner] as PromiseFulfilledResult<{ id: string }>).value.id);
+    await expect(prisma.depositSettlement.count({ where: { bookingItemId: bookingItem.id } })).resolves.toBe(1);
+    await expect(prisma.bookingItem.findUniqueOrThrow({ where: { id: bookingItem.id } })).resolves.toMatchObject({
+      depositStatus: 'partially_refunded',
+      depositRefundAmount: bookingItem.depositAmount - 5_000,
+    });
+    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+      grandTotal: quote.totals.grandTotal + 3_000,
+      paymentStatus: 'partial',
+    });
+    await payments.recordPayment(tenantId, created.bookingId, {
+      amount: 3_000,
+      depositAmount: 0,
+      method: 'cod',
+      notes: 'Approved post-return additional charge',
+    }, ownerId, randomUUID());
+    await bookings.updateStatus(tenantId, created.bookingId, 'completed');
+    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+      status: 'completed',
+      paymentStatus: 'paid',
+    });
+    await expect(prisma.inventoryReservation.findFirstOrThrow({
+      where: { bookingId: created.bookingId },
+    })).resolves.toMatchObject({ status: 'RELEASED' });
+    const operationalStats = await bookings.getBookingStats(tenantId);
+    expect(operationalStats.queueCounts).toMatchObject({
+      ALL: expect.any(Number),
+      REQUEST: expect.any(Number),
+      ASSIGNMENT: expect.any(Number),
+      RETURN_DUE: expect.any(Number),
+      EXCEPTION: expect.any(Number),
+    });
+    expect(operationalStats.queueCounts.ALL).toBeGreaterThanOrEqual(1);
   });
 });

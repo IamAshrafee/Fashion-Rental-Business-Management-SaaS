@@ -358,7 +358,7 @@ export const inventoryOperationsApi = {
   completeInspection: async (inspectionId: string, payload: CompleteInspectionInput): Promise<StockUnitInspection> =>
     unwrap(await apiClient.post<ApiResponse<StockUnitInspection>>(`/owner/inventory/inspections/${inspectionId}/complete`, payload)),
 
-  resolveIssue: async (issueId: string, payload: { resolutionNotes: string; waive?: boolean; idempotencyKey?: string }): Promise<StockUnitIssue> =>
+  resolveIssue: async (issueId: string, payload: { resolutionNotes: string; waive?: boolean; idempotencyKey: string }): Promise<StockUnitIssue> =>
     unwrap(await apiClient.post<ApiResponse<StockUnitIssue>>(`/owner/inventory/issues/${issueId}/resolve`, payload)),
 
   createServiceOrder: async (stockUnitId: string, payload: { serviceType: InventoryServiceOrderType; issueId?: string; sourceInspectionId?: string; isAvailabilityBlocking?: boolean; providerName?: string; serviceLocationId?: string; scheduledStartAt?: string; expectedCompletionAt?: string; cost?: number; notes?: string; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>

@@ -15,8 +15,7 @@ export type NotificationType =
   | 'booking_inspected'
   | 'payment_received'
   | 'return_reminder'
-  | 'deposit_refunded'
-  | 'deposit_forfeited'
+  | 'deposit_settled'
   | 'damage_reported'
   | 'subscription_expiring'
   | 'tenant_suspended';

@@ -65,7 +65,7 @@ Define all event types and payloads as TypeScript interfaces in `packages/types`
 **CRON job registry** (from `docs/background-jobs.md`):
 - `booking.checkOverdue` — hourly, find delivered bookings past return date
 - `booking.sendReturnReminders` — hourly, timezone-aware, SMS for returns due tomorrow
-- `booking.autoExpirePending` — every 30 min, cancel pending bookings > 48h old
+- `inventory.expirePendingHolds` — every 10 min, expire reservations at their policy-derived `expiresAt`; cancel the pending booking only when no active reservation remains
 - `tenant.checkSubscriptions` — daily, check subscription expiry
 - `image.cleanOrphans` — daily 3 AM UTC, delete unlinked images > 24h old
 - `trash.autoDeleteExpired` — weekly, permanent delete trash items > 90 days old

@@ -151,6 +151,11 @@ describe('BookingService', () => {
       id: 'booking-1',
       status: 'confirmed',
       createdAt: new Date('2026-08-03T10:00:00.000Z'),
+      grandTotal: 150000,
+      totalPaid: 0,
+      handoverMethod: 'CUSTOMER_PICKUP',
+      returnMethod: 'CUSTOMER_DROPOFF',
+      sourceLocation: { id: 'location-1', code: 'MAIN', name: 'Main showroom' },
       customer: { id: 'customer-1', fullName: 'Nadia Rahman', phone: '01700000000' },
       items: [
         {
@@ -158,6 +163,10 @@ describe('BookingService', () => {
           quantity: 2,
           startDate: new Date('2026-08-10T00:00:00.000Z'),
           endDate: new Date('2026-08-12T00:00:00.000Z'),
+          depositAmount: 50000,
+          depositSettlement: null,
+          stockUnitInspections: [],
+          stockUnitIssues: [],
           fulfillmentRequirements: [
             {
               status: 'PARTIALLY_ASSIGNED',
@@ -167,6 +176,7 @@ describe('BookingService', () => {
               handedOutQuantity: 0,
               returnedQuantity: 0,
               lostQuantity: 0,
+              preparationStatus: 'NOT_STARTED',
             },
           ],
         },
@@ -192,7 +202,7 @@ describe('BookingService', () => {
         where: expect.objectContaining({
           status: 'confirmed',
           AND: [
-            expect.objectContaining({ items: expect.any(Object) }),
+            expect.objectContaining({ OR: expect.any(Array) }),
             { items: { some: { endDate: { gte: new Date('2026-08-10') } } } },
           ],
         }),
@@ -225,5 +235,62 @@ describe('BookingService', () => {
       expect.objectContaining({ skip: 0, take: 250 }),
     );
     expect(result.meta).toMatchObject({ limit: 250, total: 0 });
+  });
+
+  it('posts late-fee changes to item and booking financial totals atomically', async () => {
+    const tx = {
+      $queryRaw: jest.fn(),
+      booking: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'booking-1',
+          grandTotal: 200000,
+          totalFees: 10000,
+          totalPaid: 200000,
+          items: [{
+            id: 'item-1',
+            endDate: new Date('2020-01-01T00:00:00.000Z'),
+            baseRental: 150000,
+            itemTotal: 200000,
+            lateDays: 0,
+            lateFee: 0,
+            product: { pricingProfile: { policyVersions: [{ lateFeePolicy: {
+              enabled: true,
+              graceHours: 0,
+              mode: 'FLAT',
+              amountMinor: 5000,
+            } }] } },
+          }],
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      bookingItem: { update: jest.fn().mockResolvedValue({}) },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const pricing = { computeLateFee: jest.fn().mockReturnValue(5000) };
+    const service = new BookingService(
+      prisma as never,
+      {} as never,
+      { emit: jest.fn() } as never,
+      pricing as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.calculateLateFees('tenant-1', 'booking-1');
+
+    expect(result).toMatchObject({ lateItemsUpdated: 1, feeDelta: 5000 });
+    expect(tx.bookingItem.update).toHaveBeenCalledWith({
+      where: { id: 'item-1' },
+      data: expect.objectContaining({ lateFee: 5000, itemTotal: { increment: 5000 } }),
+    });
+    expect(tx.booking.update).toHaveBeenCalledWith({
+      where: { id: 'booking-1' },
+      data: {
+        totalFees: { increment: 5000 },
+        grandTotal: 205000,
+        paymentStatus: 'partial',
+      },
+    });
   });
 });
