@@ -16,6 +16,7 @@ import {
   CancelInventoryServiceOrderDto,
   CompleteInventoryServiceOrderDto,
   CreateInventoryServiceOrderDto,
+  InventoryServiceQueueQueryDto,
   StartInventoryServiceOrderDto,
 } from './dto/inventory-operations.dto';
 import { StockUnitLifecycleService } from './stock-unit-lifecycle.service';
@@ -45,6 +46,92 @@ export class InventoryServiceOrderService {
     private readonly lifecycle: StockUnitLifecycleService,
     private readonly locations: InventoryLocationService,
   ) {}
+
+  async listQueue(tenantId: string, query: InventoryServiceQueueQueryDto) {
+    const now = new Date();
+    const dueThrough = query.dueBefore ? new Date(query.dueBefore) : null;
+    if (dueThrough) dueThrough.setUTCDate(dueThrough.getUTCDate() + 1);
+    const expectedCompletionAt = query.dueBefore
+      ? { lt: dueThrough! }
+      : query.overdue === 'true'
+        ? { lt: now }
+        : undefined;
+    const where: Prisma.InventoryServiceOrderWhereInput = {
+      tenantId,
+      ...(query.serviceType ? { serviceType: query.serviceType } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.locationId ? { serviceLocationId: query.locationId } : {}),
+      ...(query.stockUnitId ? { stockUnitId: query.stockUnitId } : {}),
+      ...(query.issueId ? { issueId: query.issueId } : {}),
+      ...(query.provider?.trim()
+        ? { providerName: { contains: query.provider.trim(), mode: 'insensitive' } }
+        : {}),
+      ...(expectedCompletionAt ? { expectedCompletionAt } : {}),
+      ...(query.overdue === 'true' && !query.status
+        ? { status: { in: OPEN_SERVICE_STATUSES } }
+        : {}),
+      ...(query.overdue === 'false'
+        ? { OR: [{ expectedCompletionAt: null }, { expectedCompletionAt: { gte: now } }] }
+        : {}),
+      stockUnit: {
+        deletedAt: null,
+        ...(query.variantSizeId ? { variantSizeId: query.variantSizeId } : {}),
+        ...(query.productId
+          ? { variantSize: { variant: { productId: query.productId } } }
+          : {}),
+      },
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.inventoryServiceOrder.findMany({
+        where,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: [
+          { expectedCompletionAt: { sort: 'asc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        include: {
+          ...this.orderInclude(),
+          stockUnit: {
+            include: {
+              location: { select: { id: true, code: true, name: true } },
+              variantSize: {
+                select: {
+                  id: true,
+                  sizeInstance: { select: { displayLabel: true } },
+                  variant: {
+                    select: {
+                      id: true,
+                      variantName: true,
+                      product: { select: { id: true, name: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.inventoryServiceOrder.count({ where }),
+    ]);
+    return {
+      data: data.map((order) => ({
+        ...order,
+        overdue: Boolean(
+          order.expectedCompletionAt
+          && order.expectedCompletionAt < now
+          && OPEN_SERVICE_STATUSES.includes(order.status),
+        ),
+      })),
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / query.limit)),
+      },
+    };
+  }
 
   async create(
     tenantId: string,

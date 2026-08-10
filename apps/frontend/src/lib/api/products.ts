@@ -564,14 +564,6 @@ export const productApi = {
     return data.data;
   },
 
-  createInventoryBlock: async (payload: { productId?: string; variantSizeId?: string; stockUnitId?: string; startDate: string; endDate: string; blockType: 'MANUAL' | 'MAINTENANCE'; reason?: string }): Promise<void> => {
-    await apiClient.post('/owner/inventory/blocks', payload);
-  },
-
-  deleteInventoryBlock: async (blockId: string): Promise<void> => {
-    await apiClient.delete(`/owner/inventory/blocks/${blockId}`);
-  },
-
   listInventoryMovements: async (variantSizeId: string): Promise<InventoryMovement[]> => {
     const { data } = await apiClient.get<ApiResponse<InventoryMovement[]>>(`/owner/variant-sizes/${variantSizeId}/inventory-movements`);
     return data.data;
@@ -605,6 +597,7 @@ export interface ProductInventorySize {
     location: { id: string; code: string; name: string; isDefault: boolean };
     onHandQuantity: number;
     reorderThreshold: number | null;
+    version: number;
     reservedQuantity: number;
   }>;
   unitCounts: Array<{
@@ -668,6 +661,8 @@ export interface InventoryCalendarEntry {
   blockedEndDate?: string;
   startDate?: string;
   endDate?: string;
+  reason?: string | null;
+  canDelete?: boolean;
 }
 
 export interface InventoryCalendar {

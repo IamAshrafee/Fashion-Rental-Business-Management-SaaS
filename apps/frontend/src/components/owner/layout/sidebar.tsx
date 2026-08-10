@@ -30,6 +30,9 @@ import {
   ClipboardList,
   MapPin,
   Wrench,
+  History,
+  ClipboardCheck,
+  CalendarOff,
 } from 'lucide-react';
 import type { NavItem } from '@/types';
 
@@ -45,8 +48,13 @@ const NAV_GROUPS: Array<{ label?: string; items: NavItem[] }> = [
       { title: 'Inventory overview', href: '/dashboard/inventory', icon: Archive },
       { title: 'Stock by SKU', href: '/dashboard/inventory/stock', icon: Boxes },
       { title: 'Physical items', href: '/dashboard/inventory/items', icon: ClipboardList },
+      { title: 'Availability', href: '/dashboard/inventory/availability', icon: CalendarOff },
+      { title: 'Inspections & issues', href: '/dashboard/inventory/inspections', icon: ClipboardCheck },
+      { title: 'Service work', href: '/dashboard/inventory/service', icon: Wrench },
+      { title: 'Stock counts', href: '/dashboard/inventory/counts', icon: ClipboardCheck },
+      { title: 'Movements', href: '/dashboard/inventory/movements', icon: History },
       { title: 'Transfers', href: '/dashboard/inventory/transfers', icon: ArrowLeftRight },
-      { title: 'Locations & policies', href: '/dashboard/inventory/locations', icon: MapPin },
+      { title: 'Locations', href: '/dashboard/inventory/locations', icon: MapPin },
     ],
   },
   {
@@ -58,7 +66,6 @@ const NAV_GROUPS: Array<{ label?: string; items: NavItem[] }> = [
     ],
   },
   { items: [{ title: 'Customers', href: '/dashboard/customers', icon: Users }] },
-  { items: [{ title: 'Operations', href: '/dashboard/operations', icon: Wrench }] },
   {
     label: 'Reports',
     items: [

@@ -1,11 +1,11 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -22,10 +22,10 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
   ConfigureVariantSizeInventoryDto,
-  CreateInventoryBlockDto,
   CreateStockUnitDto,
   InventoryCalendarQueryDto,
   PublicAvailabilityQueryDto,
+  RegisterStockUnitBatchDto,
   StockUnitLifecycleDto,
   UpdateStockUnitDto,
 } from './dto/inventory.dto';
@@ -129,6 +129,23 @@ export class InventoryOwnerController {
     return this.inventory.createStockUnit(tenant.id, variantSizeId, dto, request.user?.id);
   }
 
+  @Post('variant-sizes/:variantSizeId/stock-units/batch')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.CREATED)
+  async createStockUnitBatch(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('variantSizeId', ParseUUIDPipe) variantSizeId: string,
+    @Body() dto: RegisterStockUnitBatchDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.inventory.createStockUnitBatch(
+      tenant.id,
+      variantSizeId,
+      dto,
+      request.user?.id,
+    );
+  }
+
   @Patch('stock-units/:stockUnitId')
   @Roles('owner', 'manager')
   async updateStockUnit(
@@ -215,26 +232,6 @@ export class InventoryOwnerController {
     @Param('variantSizeId') variantSizeId: string,
   ) {
     return this.inventory.listMovements(tenant.id, variantSizeId);
-  }
-
-  @Post('inventory/blocks')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async createBlock(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: CreateInventoryBlockDto,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.inventory.createBlock(tenant.id, dto, request.user?.id);
-  }
-
-  @Delete('inventory/blocks/:blockId')
-  @Roles('owner', 'manager')
-  async deleteBlock(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('blockId') blockId: string,
-  ) {
-    return this.inventory.deleteBlock(tenant.id, blockId);
   }
 
 }

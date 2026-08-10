@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
@@ -21,17 +22,24 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
+  AdjustInventoryPoolDto,
+  AvailabilityPolicyVersionDto,
+  CountInventoryPoolDto,
   CreateInventoryLocationDto,
   InventoryItemsQueryDto,
+  InventoryMovementsQueryDto,
   InventorySkusQueryDto,
-  SetInventoryPoolQuantityDto,
+  ResolveAvailabilityPolicyQueryDto,
   UpdateInventoryLocationDto,
   UpsertAvailabilityPolicyDto,
 } from './dto/inventory-foundation.dto';
+import { CreateInventoryBlockDto, InventoryBlocksQueryDto } from './dto/inventory-block.dto';
 import { AvailabilityPolicyService } from './availability-policy.service';
 import { InventoryLocationService } from './inventory-location.service';
 import { InventoryPoolService } from './inventory-pool.service';
 import { InventoryDashboardService } from './inventory-dashboard.service';
+import { InventoryLedgerService } from './inventory-ledger.service';
+import { InventoryBlockService } from './inventory-block.service';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string };
@@ -45,6 +53,8 @@ export class InventoryFoundationController {
     private readonly pools: InventoryPoolService,
     private readonly policies: AvailabilityPolicyService,
     private readonly dashboard: InventoryDashboardService,
+    private readonly ledger: InventoryLedgerService,
+    private readonly blocks: InventoryBlockService,
   ) {}
 
   @Get('overview')
@@ -71,10 +81,22 @@ export class InventoryFoundationController {
     return this.dashboard.listSkus(tenant.id, query);
   }
 
-  @Get('operations')
+  @Get('movements')
   @Roles('owner', 'manager', 'staff')
-  operations(@CurrentTenant() tenant: TenantContext) {
-    return this.dashboard.operations(tenant.id);
+  listMovements(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: InventoryMovementsQueryDto,
+  ) {
+    return this.ledger.listMovements(tenant.id, query);
+  }
+
+  @Get('counts')
+  @Roles('owner', 'manager', 'staff')
+  listCounts(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: InventoryMovementsQueryDto,
+  ) {
+    return this.ledger.listCounts(tenant.id, query);
   }
 
   @Get('locations')
@@ -125,21 +147,41 @@ export class InventoryFoundationController {
     return this.pools.listForSku(tenant.id, variantSizeId);
   }
 
-  @Put('variant-sizes/:variantSizeId/pools')
+  @Post('variant-sizes/:variantSizeId/pools/adjust')
   @Roles('owner', 'manager')
-  setPoolQuantity(
+  adjustPool(
     @CurrentTenant() tenant: TenantContext,
-    @Param('variantSizeId') variantSizeId: string,
-    @Body() dto: SetInventoryPoolQuantityDto,
+    @Param('variantSizeId', ParseUUIDPipe) variantSizeId: string,
+    @Body() dto: AdjustInventoryPoolDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.pools.setQuantity(tenant.id, variantSizeId, dto, request.user.id);
+    return this.pools.adjust(tenant.id, variantSizeId, dto, request.user.id);
+  }
+
+  @Post('variant-sizes/:variantSizeId/pools/count')
+  @Roles('owner', 'manager')
+  countPool(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('variantSizeId', ParseUUIDPipe) variantSizeId: string,
+    @Body() dto: CountInventoryPoolDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.pools.count(tenant.id, variantSizeId, dto, request.user.id);
   }
 
   @Get('availability-policies')
   @Roles('owner', 'manager', 'staff')
   listPolicies(@CurrentTenant() tenant: TenantContext) {
     return this.policies.list(tenant.id);
+  }
+
+  @Get('availability-policies/resolved')
+  @Roles('owner', 'manager', 'staff')
+  resolvePolicy(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: ResolveAvailabilityPolicyQueryDto,
+  ) {
+    return this.policies.resolveForOwner(tenant.id, query);
   }
 
   @Put('availability-policies')
@@ -157,7 +199,46 @@ export class InventoryFoundationController {
   deactivatePolicy(
     @CurrentTenant() tenant: TenantContext,
     @Param('policyId') policyId: string,
+    @Query() query: AvailabilityPolicyVersionDto,
   ) {
-    return this.policies.deactivate(tenant.id, policyId);
+    return this.policies.deactivate(tenant.id, policyId, query.expectedVersion);
+  }
+
+  @Get('blocks')
+  @Roles('owner', 'manager', 'staff')
+  listBlocks(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: InventoryBlocksQueryDto,
+  ) {
+    return this.blocks.list(tenant.id, query);
+  }
+
+  @Post('blocks/preview')
+  @Roles('owner', 'manager')
+  previewBlock(
+    @CurrentTenant() tenant: TenantContext,
+    @Body() dto: CreateInventoryBlockDto,
+  ) {
+    return this.blocks.preview(tenant.id, dto);
+  }
+
+  @Post('blocks')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.CREATED)
+  createBlock(
+    @CurrentTenant() tenant: TenantContext,
+    @Body() dto: CreateInventoryBlockDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.blocks.create(tenant.id, dto, request.user.id);
+  }
+
+  @Delete('blocks/:blockId')
+  @Roles('owner', 'manager')
+  removeBlock(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('blockId', ParseUUIDPipe) blockId: string,
+  ) {
+    return this.blocks.remove(tenant.id, blockId);
   }
 }

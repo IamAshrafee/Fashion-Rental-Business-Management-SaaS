@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   AvailabilityPolicy,
   AvailabilityPolicyScope,
@@ -7,7 +12,10 @@ import {
   StockUnitOperationalState,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UpsertAvailabilityPolicyDto } from './dto/inventory-foundation.dto';
+import {
+  ResolveAvailabilityPolicyQueryDto,
+  UpsertAvailabilityPolicyDto,
+} from './dto/inventory-foundation.dto';
 
 const SYSTEM_DEFAULTS = {
   preparationBufferMinutes: 0,
@@ -75,38 +83,96 @@ export class AvailabilityPolicyService {
 
   async upsert(tenantId: string, dto: UpsertAvailabilityPolicyDto) {
     const scopeKey = this.scopeKey(dto);
-    return this.prisma.$transaction(async (tx) => {
-      await this.validateScopeTargets(tx, tenantId, dto);
-      const data = this.policyData(dto);
-      return tx.availabilityPolicy.upsert({
-        where: { tenantId_scopeKey: { tenantId, scopeKey } },
-        create: {
-          tenantId,
-          scope: dto.scope,
-          scopeKey,
-          locationId: dto.locationId ?? null,
-          productId: dto.productId ?? null,
-          variantSizeId: dto.variantSizeId ?? null,
-          ...data,
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+        await this.validateScopeTargets(tx, tenantId, dto);
+        const existing = await tx.availabilityPolicy.findUnique({
+          where: { tenantId_scopeKey: { tenantId, scopeKey } },
+        });
+        const data = this.policyData(dto);
+        if (!existing) {
+          if (dto.expectedVersion !== 0) this.stale(dto.expectedVersion, null);
+          return tx.availabilityPolicy.create({
+            data: {
+              tenantId,
+              scope: dto.scope,
+              scopeKey,
+              locationId: dto.locationId ?? null,
+              productId: dto.productId ?? null,
+              variantSizeId: dto.variantSizeId ?? null,
+              ...data,
+            },
+          });
+        }
+        if (existing.version !== dto.expectedVersion) {
+          this.stale(dto.expectedVersion, existing.version);
+        }
+        const updated = await tx.availabilityPolicy.updateMany({
+          where: { id: existing.id, tenantId, version: dto.expectedVersion },
+          data: { ...data, isActive: true, version: { increment: 1 } },
+        });
+        if (updated.count !== 1) this.stale(dto.expectedVersion, null);
+        return tx.availabilityPolicy.findUniqueOrThrow({ where: { id: existing.id } });
         },
-        update: {
-          ...data,
-          isActive: true,
-          version: { increment: 1 },
-        },
-      });
-    });
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        ['P2002', 'P2034'].includes(error.code)
+      ) {
+        this.stale(dto.expectedVersion, null);
+      }
+      throw error;
+    }
   }
 
-  async deactivate(tenantId: string, policyId: string) {
+  async deactivate(tenantId: string, policyId: string, expectedVersion: number) {
     const policy = await this.prisma.availabilityPolicy.findFirst({
       where: { id: policyId, tenantId },
     });
     if (!policy) throw new NotFoundException('Availability policy not found');
-    return this.prisma.availabilityPolicy.update({
-      where: { id: policyId },
+    if (policy.version !== expectedVersion) this.stale(expectedVersion, policy.version);
+    const result = await this.prisma.availabilityPolicy.updateMany({
+      where: { id: policyId, tenantId, version: expectedVersion },
       data: { isActive: false, version: { increment: 1 } },
     });
+    if (result.count !== 1) this.stale(expectedVersion, null);
+    return this.prisma.availabilityPolicy.findUniqueOrThrow({ where: { id: policyId } });
+  }
+
+  async resolveForOwner(tenantId: string, query: ResolveAvailabilityPolicyQueryDto) {
+    const [sku, location] = await Promise.all([
+      this.prisma.variantSize.findFirst({
+        where: {
+          id: query.variantSizeId,
+          tenantId,
+          variant: { productId: query.productId, product: { deletedAt: null } },
+        },
+        select: {
+          id: true,
+          sizeInstance: { select: { displayLabel: true } },
+          variant: { select: { variantName: true, product: { select: { id: true, name: true } } } },
+        },
+      }),
+      this.prisma.inventoryLocation.findFirst({
+        where: { id: query.locationId, tenantId },
+        select: { id: true, code: true, name: true, isActive: true },
+      }),
+    ]);
+    if (!sku) throw new NotFoundException('Variant-size inventory was not found for this product');
+    if (!location) throw new NotFoundException('Inventory location not found');
+    return {
+      target: { product: sku.variant.product, sku, location },
+      effective: await this.resolve(
+        this.prisma,
+        tenantId,
+        query.productId,
+        query.variantSizeId,
+        query.locationId,
+      ),
+    };
   }
 
   async resolve(
@@ -223,7 +289,22 @@ export class AvailabilityPolicyService {
       requireSingleLocationForBundle: dto.requireSingleLocationForBundle ?? null,
       allowCrossLocationTransfers: dto.allowCrossLocationTransfers ?? null,
       transferLeadTimeMinutes: dto.transferLeadTimeMinutes ?? null,
+      eligibleConditionGrades: dto.eligibleConditionGrades
+        ? (dto.eligibleConditionGrades as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+      eligibleOperationalStates: dto.eligibleOperationalStates
+        ? (dto.eligibleOperationalStates as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
     };
+  }
+
+  private stale(expectedVersion: number, currentVersion: number | null): never {
+    throw new ConflictException({
+      code: 'STALE_AVAILABILITY_POLICY',
+      message: 'Availability policy changed since it was loaded. Refresh and try again.',
+      expectedVersion,
+      currentVersion,
+    });
   }
 
   private applyPolicy(target: EffectiveAvailabilityPolicy, policy: AvailabilityPolicy) {

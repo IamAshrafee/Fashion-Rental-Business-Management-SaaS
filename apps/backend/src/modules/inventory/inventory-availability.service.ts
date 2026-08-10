@@ -19,6 +19,7 @@ export interface InventoryAvailabilityInput {
   quantity?: number;
   enforcePublished?: boolean;
   allowPreferredOutsideStorefrontMode?: boolean;
+  requireStorefrontVisibility?: boolean;
   excludeReservationId?: string;
 }
 
@@ -505,7 +506,7 @@ export class InventoryAvailabilityService {
           tenantId: input.tenantId,
           variantSizeId: sku.id,
           locationId: location.id,
-          storefrontVisible: true,
+          ...(input.requireStorefrontVisibility === false ? {} : { storefrontVisible: true }),
           disposition: 'ACTIVE',
           operationalState: { in: policy.eligibleOperationalStates },
           condition: { in: policy.eligibleConditionGrades },

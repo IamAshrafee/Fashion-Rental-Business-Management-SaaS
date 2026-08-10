@@ -12,6 +12,33 @@ import { StockUnitInspectionService } from '../stock-unit-inspection.service';
 describe('StockUnitInspectionService', () => {
   const lifecycle = { transitionInTransaction: jest.fn() };
 
+  it('applies global issue-queue scope and inclusive date filters', async () => {
+    const prisma = {
+      stockUnitIssue: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const service = new StockUnitInspectionService(prisma as never, lifecycle as never);
+
+    await service.listAttention('tenant-1', {
+      kind: 'ISSUE', page: 1, limit: 25,
+      issueStatus: 'OPEN', severity: 'SEVERE', responsibility: 'CUSTOMER',
+      productId: 'product-1', locationId: 'location-1',
+      dateFrom: '2026-08-01', dateTo: '2026-08-10',
+    } as never);
+
+    expect(prisma.stockUnitIssue.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1', status: 'OPEN', severity: 'SEVERE', responsibility: 'CUSTOMER',
+          createdAt: { gte: new Date('2026-08-01'), lt: new Date('2026-08-11') },
+          stockUnit: expect.objectContaining({ locationId: 'location-1' }),
+        }),
+      }),
+    );
+  });
+
   it('requires an exact assignment for return inspections', async () => {
     const tx = {
       stockUnit: {

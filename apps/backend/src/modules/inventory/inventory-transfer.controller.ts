@@ -96,6 +96,17 @@ export class InventoryTransferController {
     return this.transfers.receive(tenant.id, transferId, dto, request.user.id);
   }
 
+  @Post(':transferId/reconcile')
+  @Roles('owner', 'manager')
+  reconcile(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('transferId') transferId: string,
+    @Body() dto: InventoryTransferActionDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.transfers.reconcile(tenant.id, transferId, dto, request.user.id);
+  }
+
   @Post(':transferId/cancel')
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.OK)

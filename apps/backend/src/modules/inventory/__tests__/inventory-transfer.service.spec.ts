@@ -167,4 +167,55 @@ describe('InventoryTransferService', () => {
       data: expect.objectContaining({ status: InventoryTransferStatus.RECEIVED }),
     });
   });
+
+  it('closes a fully accounted damaged or lost receipt through an explicit reconciliation', async () => {
+    const transfer = {
+      id: 'transfer-1',
+      tenantId: 'tenant-1',
+      status: InventoryTransferStatus.RECONCILIATION_REQUIRED,
+      lines: [{
+        dispatchedQuantity: 3,
+        receivedQuantity: 2,
+        damagedQuantity: 1,
+        lostQuantity: 0,
+        units: [],
+      }],
+    };
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: transfer.id }]),
+      inventoryTransferEvent: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+      },
+      inventoryTransfer: {
+        findFirst: jest.fn().mockResolvedValue(transfer),
+        update: jest.fn().mockResolvedValue({}),
+        findFirstOrThrow: jest.fn().mockResolvedValue({
+          ...transfer,
+          status: InventoryTransferStatus.RECONCILED,
+        }),
+      },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const service = new InventoryTransferService(prisma as never, locations as never, lifecycle as never);
+
+    await service.reconcile('tenant-1', transfer.id, {
+      reason: 'Damage report accepted and repair issue assigned',
+      idempotencyKey: 'reconcile-1',
+    }, 'user-1');
+
+    expect(tx.inventoryTransfer.update).toHaveBeenCalledWith({
+      where: { id: transfer.id },
+      data: expect.objectContaining({
+        status: InventoryTransferStatus.RECONCILED,
+        reconciliationReason: 'Damage report accepted and repair issue assigned',
+      }),
+    });
+    expect(tx.inventoryTransferEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        fromStatus: InventoryTransferStatus.RECONCILIATION_REQUIRED,
+        toStatus: InventoryTransferStatus.RECONCILED,
+      }),
+    });
+  });
 });

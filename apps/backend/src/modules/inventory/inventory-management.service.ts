@@ -12,12 +12,13 @@ import {
   StockUnitDisposition,
   StockUnitOperationalState,
 } from '@prisma/client';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ConfigureVariantSizeInventoryDto,
-  CreateInventoryBlockDto,
   CreateStockUnitDto,
   InventoryCalendarQueryDto,
+  RegisterStockUnitBatchDto,
   UpdateStockUnitDto,
 } from './dto/inventory.dto';
 import { StockUnitLifecycleService } from './stock-unit-lifecycle.service';
@@ -146,6 +147,7 @@ export class InventoryManagementService {
                   location: pool.location,
                   onHandQuantity: pool.onHandQuantity,
                   reorderThreshold: pool.reorderThreshold,
+                  version: pool.version,
                   reservedQuantity:
                     reservationByLocation.find(
                       (entry) => entry.sourceLocationId === pool.locationId,
@@ -301,12 +303,18 @@ export class InventoryManagementService {
           'canStoreInventory',
         );
 
+        const componentDefinitions = await tx.skuSetComponentDefinition.findMany({
+          where: { tenantId, variantSizeId, isActive: true },
+          select: { id: true, requiredQuantity: true },
+          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+        });
+
         const unit = await tx.stockUnit.create({
           data: {
             tenantId,
             variantSizeId,
             locationId: dto.locationId,
-            assetCode: dto.assetCode.trim(),
+            assetCode: this.normalizeAssetCode(dto.assetCode),
             barcode: dto.barcode?.trim() || null,
             condition: dto.condition ?? StockConditionGrade.GOOD,
             purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
@@ -316,6 +324,15 @@ export class InventoryManagementService {
             publicConditionNote: dto.publicConditionNote?.trim() || null,
             rentalPriceAdjustment: dto.rentalPriceAdjustment ?? 0,
             estimatedCurrentValue: dto.estimatedCurrentValue ?? null,
+            componentStates: {
+              create: componentDefinitions.map((definition) => ({
+                tenantId,
+                setComponentDefinitionId: definition.id,
+                presence: 'PRESENT',
+                presentQuantity: definition.requiredQuantity,
+                condition: dto.condition ?? StockConditionGrade.GOOD,
+              })),
+            },
           },
         });
 
@@ -333,6 +350,162 @@ export class InventoryManagementService {
         });
         return unit;
       });
+    } catch (error) {
+      this.rethrowUniqueConflict(error);
+    }
+  }
+
+  async createStockUnitBatch(
+    tenantId: string,
+    variantSizeId: string,
+    dto: RegisterStockUnitBatchDto,
+    actorUserId?: string,
+  ) {
+    const normalizedRows = dto.rows.map((row) => ({
+      assetCode: this.normalizeAssetCode(row.assetCode),
+      barcode: row.barcode?.trim() || null,
+    }));
+    const requestHash = createHash('sha256').update(JSON.stringify({
+      variantSizeId,
+      locationId: dto.locationId,
+      rows: normalizedRows,
+      condition: dto.condition ?? StockConditionGrade.GOOD,
+      purchaseDate: dto.purchaseDate ?? null,
+      purchasePrice: dto.purchasePrice ?? null,
+      notes: dto.notes?.trim() || null,
+      componentStates: (dto.componentStates ?? []).map((component) => ({
+        ...component,
+        notes: component.notes?.trim() || null,
+      })),
+    })).digest('hex');
+
+    const previous = await this.prisma.stockUnit.findMany({
+      where: { tenantId, registrationKey: dto.idempotencyKey },
+      orderBy: { registrationRow: 'asc' },
+      include: { location: true, componentStates: true },
+    });
+    if (previous.length > 0) {
+      if (
+        previous.length !== normalizedRows.length
+        || previous.some((unit) => unit.registrationHash !== requestHash)
+      ) {
+        throw new ConflictException({
+          code: 'REGISTRATION_KEY_REUSED',
+          message: 'This registration key was already used for different item data.',
+        });
+      }
+      return { replayed: true, units: previous };
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const sku = await this.getVariantSize(tx, tenantId, variantSizeId);
+        if (sku.trackingMode !== InventoryTrackingMode.SERIALIZED) {
+          throw new ConflictException('Physical units can only be added to serialized inventory');
+        }
+        await this.locations.getActiveOrThrow(tx, tenantId, dto.locationId, 'canStoreInventory');
+
+        const rowErrors: Array<{ row: number; field: string; code: string; message: string }> = [];
+        const assetCodes = normalizedRows.map((row) => row.assetCode);
+        const barcodes = normalizedRows.flatMap((row) => row.barcode ? [row.barcode] : []);
+        this.collectDuplicateErrors(assetCodes, 'assetCode', rowErrors);
+        this.collectDuplicateErrors(
+          normalizedRows.map((row) => row.barcode),
+          'barcode',
+          rowErrors,
+        );
+
+        const conflicts = await tx.stockUnit.findMany({
+          where: {
+            tenantId,
+            OR: [
+              { assetCode: { in: assetCodes } },
+              ...(barcodes.length ? [{ barcode: { in: barcodes } }] : []),
+            ],
+          },
+          select: { assetCode: true, barcode: true },
+        });
+        for (const [row, identity] of normalizedRows.entries()) {
+          if (conflicts.some((unit) => unit.assetCode === identity.assetCode)) {
+            rowErrors.push({ row, field: 'assetCode', code: 'ASSET_CODE_EXISTS', message: 'Asset code already exists.' });
+          }
+          if (identity.barcode && conflicts.some((unit) => unit.barcode === identity.barcode)) {
+            rowErrors.push({ row, field: 'barcode', code: 'BARCODE_EXISTS', message: 'Barcode already exists.' });
+          }
+        }
+
+        const definitions = await tx.skuSetComponentDefinition.findMany({
+          where: { tenantId, variantSizeId, isActive: true },
+          select: { id: true, requiredQuantity: true },
+          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+        });
+        const providedComponents = new Map(
+          (dto.componentStates ?? []).map((component) => [component.definitionId, component]),
+        );
+        if (providedComponents.size !== (dto.componentStates?.length ?? 0)) {
+          rowErrors.push({ row: -1, field: 'componentStates', code: 'DUPLICATE_COMPONENT', message: 'Each component can be initialized only once.' });
+        }
+        for (const component of dto.componentStates ?? []) {
+          if (!definitions.some((definition) => definition.id === component.definitionId)) {
+            rowErrors.push({ row: -1, field: 'componentStates', code: 'INVALID_COMPONENT', message: 'A component does not belong to this SKU.' });
+          }
+        }
+        if (rowErrors.length) {
+          throw new ConflictException({
+            code: 'BATCH_REGISTRATION_VALIDATION_FAILED',
+            message: 'No items were registered. Correct the indicated rows and retry.',
+            errors: rowErrors,
+          });
+        }
+
+        const units = [];
+        for (const [rowIndex, identity] of normalizedRows.entries()) {
+          const unit = await tx.stockUnit.create({
+            data: {
+              tenantId,
+              variantSizeId,
+              locationId: dto.locationId,
+              assetCode: identity.assetCode,
+              barcode: identity.barcode,
+              condition: dto.condition ?? StockConditionGrade.GOOD,
+              purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
+              purchasePrice: dto.purchasePrice ?? null,
+              notes: dto.notes?.trim() || null,
+              registrationKey: dto.idempotencyKey,
+              registrationHash: requestHash,
+              registrationRow: rowIndex,
+              componentStates: {
+                create: definitions.map((definition) => {
+                  const configured = providedComponents.get(definition.id);
+                  return {
+                    tenantId,
+                    setComponentDefinitionId: definition.id,
+                    presence: configured?.presence ?? 'PRESENT',
+                    presentQuantity: configured?.presentQuantity ?? definition.requiredQuantity,
+                    condition: configured?.condition ?? dto.condition ?? StockConditionGrade.GOOD,
+                    notes: configured?.notes?.trim() || null,
+                  };
+                }),
+              },
+            },
+            include: { location: true, componentStates: true },
+          });
+          await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              variantSizeId,
+              stockUnitId: unit.id,
+              destinationLocationId: dto.locationId,
+              movementType: InventoryMovementType.UNIT_REGISTERED,
+              afterState: this.json(unit),
+              reason: `Physical item registered in batch ${dto.idempotencyKey}`,
+              actorUserId: actorUserId ?? null,
+            },
+          });
+          units.push(unit);
+        }
+        return { replayed: false, units };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       this.rethrowUniqueConflict(error);
     }
@@ -449,47 +622,6 @@ export class InventoryManagementService {
     });
   }
 
-  async createBlock(
-    tenantId: string,
-    dto: CreateInventoryBlockDto,
-    actorUserId?: string,
-  ) {
-    const scopeIds = [dto.productId, dto.variantId, dto.variantSizeId, dto.stockUnitId].filter(Boolean);
-    if (scopeIds.length !== 1) {
-      throw new BadRequestException('Exactly one inventory block scope is required');
-    }
-
-    const startDate = new Date(dto.startDate);
-    const endDate = new Date(dto.endDate);
-    if (startDate > endDate) throw new BadRequestException('Start date must be on or before end date');
-    if (dto.blockType === 'MAINTENANCE' && !dto.stockUnitId) {
-      throw new BadRequestException('Maintenance blocks must target a physical stock unit');
-    }
-
-    await this.verifyBlockScope(tenantId, dto);
-    return this.prisma.inventoryBlock.create({
-      data: {
-        tenantId,
-        productId: dto.productId ?? null,
-        variantId: dto.variantId ?? null,
-        variantSizeId: dto.variantSizeId ?? null,
-        stockUnitId: dto.stockUnitId ?? null,
-        startDate,
-        endDate,
-        blockType: dto.blockType,
-        reason: dto.reason?.trim() || null,
-        createdByUserId: actorUserId ?? null,
-      },
-    });
-  }
-
-  async deleteBlock(tenantId: string, blockId: string) {
-    const block = await this.prisma.inventoryBlock.findFirst({ where: { id: blockId, tenantId } });
-    if (!block) throw new NotFoundException('Inventory block not found');
-    await this.prisma.inventoryBlock.delete({ where: { id: blockId } });
-    return { message: 'Inventory block removed' };
-  }
-
   async getCalendar(tenantId: string, productId: string, query: InventoryCalendarQueryDto) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId, deletedAt: null },
@@ -547,11 +679,29 @@ export class InventoryManagementService {
           startDate: true,
           endDate: true,
           blockType: true,
+          quantity: true,
+          reason: true,
+          serviceOrder: { select: { id: true } },
+          inspection: { select: { id: true } },
+          transferLine: { select: { id: true } },
         },
       }),
     ]);
 
-    return { productId, from: query.from, to: query.to, reservations, blocks };
+    return {
+      productId,
+      from: query.from,
+      to: query.to,
+      reservations,
+      blocks: blocks.map((block) => ({
+        ...block,
+        canDelete:
+          ['MANUAL', 'LOCATION_BLACKOUT', 'SKU_BLACKOUT'].includes(block.blockType) &&
+          !block.serviceOrder &&
+          !block.inspection &&
+          !block.transferLine,
+      })),
+    };
   }
 
   async listMovements(tenantId: string, variantSizeId: string) {
@@ -621,25 +771,37 @@ export class InventoryManagementService {
     return unit;
   }
 
-  private async verifyBlockScope(tenantId: string, dto: CreateInventoryBlockDto): Promise<void> {
-    let exists = false;
-    if (dto.productId) {
-      exists = Boolean(await this.prisma.product.findFirst({ where: { id: dto.productId, tenantId, deletedAt: null }, select: { id: true } }));
-    } else if (dto.variantId) {
-      exists = Boolean(await this.prisma.productVariant.findFirst({ where: { id: dto.variantId, tenantId }, select: { id: true } }));
-    } else if (dto.variantSizeId) {
-      exists = Boolean(await this.prisma.variantSize.findFirst({ where: { id: dto.variantSizeId, tenantId }, select: { id: true } }));
-    } else if (dto.stockUnitId) {
-      exists = Boolean(await this.prisma.stockUnit.findFirst({ where: { id: dto.stockUnitId, tenantId, deletedAt: null }, select: { id: true } }));
-    }
-    if (!exists) throw new NotFoundException('Inventory block target not found');
-  }
-
   private rethrowUniqueConflict(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new ConflictException('Asset code or barcode already exists in this store');
     }
     throw error;
+  }
+
+  private normalizeAssetCode(value: string): string {
+    return value.trim().toUpperCase();
+  }
+
+  private collectDuplicateErrors(
+    values: Array<string | null>,
+    field: string,
+    errors: Array<{ row: number; field: string; code: string; message: string }>,
+  ) {
+    const firstRow = new Map<string, number>();
+    values.forEach((value, row) => {
+      if (!value) return;
+      const previousRow = firstRow.get(value);
+      if (previousRow === undefined) {
+        firstRow.set(value, row);
+        return;
+      }
+      errors.push({
+        row,
+        field,
+        code: `DUPLICATE_${field.toUpperCase()}`,
+        message: `Duplicates row ${previousRow + 1}.`,
+      });
+    });
   }
 
   private startOfToday(): Date {

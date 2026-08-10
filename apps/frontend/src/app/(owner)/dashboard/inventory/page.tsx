@@ -38,11 +38,12 @@ export default function InventoryOverviewPage() {
       </div>
     );
   }
-  if (!query.data) {
+  if (query.isError || !query.data) {
     return (
       <Card>
         <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Inventory overview could not be loaded.
+          <p>Inventory overview could not be loaded.</p>
+          <Button className="mt-3" variant="outline" size="sm" onClick={() => query.refetch()}>Retry</Button>
         </CardContent>
       </Card>
     );
@@ -55,7 +56,8 @@ export default function InventoryOverviewPage() {
   const activeTransfers =
     (data.transfers.READY ?? 0) +
     (data.transfers.DISPATCHED ?? 0) +
-    (data.transfers.PARTIALLY_RECEIVED ?? 0);
+    (data.transfers.PARTIALLY_RECEIVED ?? 0) +
+    (data.transfers.RECONCILIATION_REQUIRED ?? 0);
 
   return (
     <div className="space-y-6 pb-10">
@@ -192,7 +194,7 @@ export default function InventoryOverviewPage() {
               ))
             )}
             <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/inventory/locations">Manage locations and policies</Link>
+              <Link href="/dashboard/inventory/locations">Manage locations</Link>
             </Button>
           </CardContent>
         </Card>
@@ -207,16 +209,18 @@ export default function InventoryOverviewPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {[
-              ['Return / periodic inspections', data.workQueues.draftInspections, PackageCheck],
-              ['Cleaning and service work', data.workQueues.openServiceOrders, Wrench],
-              ['Open condition issues', data.workQueues.openIssues, AlertTriangle],
-              ['Overdue fulfillment items', data.workQueues.overdueRequirements, AlertTriangle],
-            ].map(([label, count, Icon]) => {
+              ['Return / periodic inspections', data.workQueues.draftInspections, PackageCheck, '/dashboard/inventory/inspections?kind=INSPECTION&status=DRAFT'],
+              ['Cleaning and service work', data.workQueues.openServiceOrders, Wrench, '/dashboard/inventory/service'],
+              ['Open condition issues', data.workQueues.openIssues, AlertTriangle, '/dashboard/inventory/inspections?kind=ISSUE&status=OPEN'],
+              ['Overdue fulfillment items', data.workQueues.overdueRequirements, AlertTriangle, '/dashboard/bookings?queue=OVERDUE'],
+              ['Overdue inventory transfers', data.workQueues.overdueTransfers, ArrowLeftRight, '/dashboard/inventory/transfers?attention=overdue'],
+            ].map(([label, count, Icon, href]) => {
               const QueueIcon = Icon as typeof Wrench;
               return (
-                <div
+                <Link
                   key={String(label)}
-                  className="flex items-center justify-between rounded-md border p-3 text-sm"
+                  href={String(href)}
+                  className="flex items-center justify-between rounded-md border p-3 text-sm transition-colors hover:bg-muted/40"
                 >
                   <span className="flex items-center gap-2">
                     <QueueIcon className="h-4 w-4 text-muted-foreground" />
@@ -225,11 +229,11 @@ export default function InventoryOverviewPage() {
                   <Badge variant={Number(count) ? 'destructive' : 'secondary'}>
                     {Number(count)}
                   </Badge>
-                </div>
+                </Link>
               );
             })}
             <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/operations">Open operations workspace</Link>
+              <Link href="/dashboard/inventory/inspections">Open inventory attention</Link>
             </Button>
           </CardContent>
         </Card>

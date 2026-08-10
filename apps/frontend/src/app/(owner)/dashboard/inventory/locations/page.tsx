@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, MapPin, Plus, ShieldCheck } from 'lucide-react';
+import { Loader2, MapPin, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   inventoryApi,
@@ -32,7 +32,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const LOCATION_TYPES: InventoryLocationType[] = [
   'WAREHOUSE',
@@ -330,191 +329,6 @@ function LocationCard({ location }: { location: InventoryLocation }) {
   );
 }
 
-function AvailabilityPolicyPanel({ locations }: { locations: InventoryLocation[] }) {
-  const queryClient = useQueryClient();
-  const policies = useQuery({
-    queryKey: ['inventory-policies'],
-    queryFn: inventoryApi.listPolicies,
-  });
-  const tenantPolicy = policies.data?.find(
-    (policy) => policy.scope === 'TENANT' && policy.isActive,
-  );
-  const [target, setTarget] = useState('TENANT');
-  const [preparationDays, setPreparationDays] = useState(0);
-  const [returnDays, setReturnDays] = useState(0);
-  const [noticeHours, setNoticeHours] = useState(0);
-  const [maximumAdvanceDays, setMaximumAdvanceDays] = useState(365);
-  const [pendingHoldMinutes, setPendingHoldMinutes] = useState(30);
-  const [singleLocation, setSingleLocation] = useState(true);
-  const [crossLocation, setCrossLocation] = useState(false);
-  useEffect(() => {
-    if (!tenantPolicy) return;
-    setPreparationDays(Math.ceil((tenantPolicy.preparationBufferMinutes ?? 0) / 1440));
-    setReturnDays(
-      Math.ceil(
-        ((tenantPolicy.returnBufferMinutes ?? 0) +
-          (tenantPolicy.inspectionBufferMinutes ?? 0) +
-          (tenantPolicy.cleaningBufferMinutes ?? 0)) /
-          1440,
-      ),
-    );
-    setNoticeHours(Math.ceil((tenantPolicy.minimumNoticeMinutes ?? 0) / 60));
-    setMaximumAdvanceDays(tenantPolicy.maximumAdvanceDays ?? 365);
-    setPendingHoldMinutes(tenantPolicy.pendingHoldMinutes ?? 30);
-    setSingleLocation(tenantPolicy.requireSingleLocationForBundle ?? true);
-    setCrossLocation(tenantPolicy.allowCrossLocationTransfers ?? false);
-  }, [tenantPolicy]);
-  const save = useMutation({
-    mutationFn: () =>
-      inventoryApi.upsertPolicy({
-        scope: target === 'TENANT' ? 'TENANT' : 'LOCATION',
-        ...(target !== 'TENANT' ? { locationId: target } : {}),
-        preparationBufferMinutes: preparationDays * 1440,
-        returnBufferMinutes: returnDays * 1440,
-        minimumNoticeMinutes: noticeHours * 60,
-        maximumAdvanceDays,
-        pendingHoldMinutes,
-        requireSingleLocationForBundle: singleLocation,
-        allowCrossLocationTransfers: crossLocation,
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['inventory-policies'] });
-      toast.success('Availability policy saved');
-    },
-    onError: (error) => toast.error(apiMessage(error, 'Could not save availability policy')),
-  });
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldCheck className="h-4 w-4" />
-            Availability policy
-          </CardTitle>
-          <CardDescription>
-            Tenant defaults apply everywhere; a location policy overrides only the fields saved for
-            that location.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-2">
-            <Label>Policy scope</Label>
-            <Select value={target} onValueChange={setTarget}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TENANT">Business default</SelectItem>
-                {locations
-                  .filter((location) => location.isActive)
-                  .map((location) => (
-                    <SelectItem key={location.id} value={location.id}>
-                      {location.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="grid gap-2">
-              <Label>Preparation days</Label>
-              <Input
-                type="number"
-                min={0}
-                value={preparationDays}
-                onChange={(event) =>
-                  setPreparationDays(Math.max(0, Number(event.target.value) || 0))
-                }
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Return-care days</Label>
-              <Input
-                type="number"
-                min={0}
-                value={returnDays}
-                onChange={(event) => setReturnDays(Math.max(0, Number(event.target.value) || 0))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Minimum notice hours</Label>
-              <Input
-                type="number"
-                min={0}
-                value={noticeHours}
-                onChange={(event) => setNoticeHours(Math.max(0, Number(event.target.value) || 0))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Maximum advance days</Label>
-              <Input
-                type="number"
-                min={1}
-                value={maximumAdvanceDays}
-                onChange={(event) =>
-                  setMaximumAdvanceDays(Math.max(1, Number(event.target.value) || 1))
-                }
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Pending hold minutes</Label>
-              <Input
-                type="number"
-                min={1}
-                value={pendingHoldMinutes}
-                onChange={(event) =>
-                  setPendingHoldMinutes(Math.max(1, Number(event.target.value) || 1))
-                }
-              />
-            </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Capability
-              label="Require one location for a bundle"
-              checked={singleLocation}
-              onChange={setSingleLocation}
-            />
-            <Capability
-              label="Allow cross-location fulfillment planning"
-              checked={crossLocation}
-              onChange={setCrossLocation}
-            />
-          </div>
-          <Button disabled={save.isPending} onClick={() => save.mutate()}>
-            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save policy
-          </Button>
-        </CardContent>
-      </Card>
-      {!!policies.data?.length && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Configured policy layers</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {policies.data.map((policy) => (
-              <div
-                key={policy.id}
-                className="flex items-center justify-between rounded-md border p-3 text-sm"
-              >
-                <div>
-                  <p className="font-medium">{humanize(policy.scope)} policy</p>
-                  <p className="text-xs text-muted-foreground">
-                    {policy.location?.name || policy.product?.name || 'Business default'} · version{' '}
-                    {policy.version}
-                  </p>
-                </div>
-                <Badge variant={policy.isActive ? 'secondary' : 'outline'}>
-                  {policy.isActive ? 'Active' : 'Inactive'}
-                </Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
 export default function InventoryLocationsPage() {
   const locations = useQuery({
     queryKey: ['inventory-locations', 'all'],
@@ -524,36 +338,25 @@ export default function InventoryLocationsPage() {
     <div className="space-y-6 pb-10">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Locations and availability</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Inventory locations</h1>
           <p className="text-sm text-muted-foreground">
-            Define where inventory lives and the operational time that bookings must block.
+            Define where inventory lives and which operational capabilities each site provides.
           </p>
         </div>
         <AddLocationDialog />
       </div>
-      <Tabs defaultValue="locations">
-        <TabsList>
-          <TabsTrigger value="locations">Locations</TabsTrigger>
-          <TabsTrigger value="policies">Availability policies</TabsTrigger>
-        </TabsList>
-        <TabsContent value="locations" className="mt-4">
-          {locations.isLoading ? (
-            <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading locations…
-            </div>
-          ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {locations.data?.map((location) => (
-                <LocationCard key={location.id} location={location} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-        <TabsContent value="policies" className="mt-4">
-          <AvailabilityPolicyPanel locations={locations.data || []} />
-        </TabsContent>
-      </Tabs>
+      {locations.isLoading ? (
+        <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading locations…
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {locations.data?.map((location) => (
+            <LocationCard key={location.id} location={location} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

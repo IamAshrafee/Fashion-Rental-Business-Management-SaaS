@@ -25,11 +25,16 @@ export function useInventoryItemsQuery() {
     disposition: allowed<NonNullable<InventoryItemsQuery['disposition']>>(params.get('disposition'), DISPOSITIONS),
     operationalState: allowed<NonNullable<InventoryItemsQuery['operationalState']>>(params.get('state'), STATES),
     condition: allowed<NonNullable<InventoryItemsQuery['condition']>>(params.get('condition'), CONDITIONS),
+    productId: params.get('product') || undefined,
+    variantSizeId: params.get('sku') || undefined,
+    attention: allowed<NonNullable<InventoryItemsQuery['attention']>>(params.get('attention'), new Set(['OPEN_ISSUE', 'OPEN_SERVICE', 'INCOMPLETE_SET'])),
+    availableFrom: params.get('from') || undefined,
+    availableTo: params.get('to') || undefined,
   }), [params]);
 
   const update = useCallback((values: QueryUpdate, resetPage = true) => {
     const next = new URLSearchParams(params.toString());
-    const mapped: Record<string, string | number | null | undefined> = { page: values.page, q: values.search, location: values.locationId, disposition: values.disposition, state: values.operationalState, condition: values.condition };
+    const mapped: Record<string, string | number | null | undefined> = { page: values.page, q: values.search, location: values.locationId, disposition: values.disposition, state: values.operationalState, condition: values.condition, product: values.productId, sku: values.variantSizeId, attention: values.attention, from: values.availableFrom, to: values.availableTo };
     if (resetPage && values.page === undefined) mapped.page = null;
     for (const [key, value] of Object.entries(mapped)) {
       if (value === undefined) continue;

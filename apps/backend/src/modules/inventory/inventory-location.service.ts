@@ -191,7 +191,7 @@ export class InventoryLocationService {
       tx.inventoryTransfer.count({
         where: {
           tenantId,
-          status: { in: ['DRAFT', 'READY', 'DISPATCHED', 'PARTIALLY_RECEIVED'] },
+          status: { in: ['DRAFT', 'READY', 'DISPATCHED', 'PARTIALLY_RECEIVED', 'RECONCILIATION_REQUIRED'] },
           OR: [{ originLocationId: locationId }, { destinationLocationId: locationId }],
         },
       }),

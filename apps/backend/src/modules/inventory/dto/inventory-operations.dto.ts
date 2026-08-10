@@ -6,11 +6,13 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -18,15 +20,106 @@ import {
   InspectionCheckResult,
   InventoryMediaPurpose,
   InventoryServiceOrderType,
+  InventoryServiceOrderStatus,
   StockConditionGrade,
   StockUnitComponentPresence,
   StockUnitDisposition,
   StockUnitInspectionDecision,
   StockUnitInspectionType,
+  StockUnitInspectionStatus,
+  StockUnitIssueStatus,
   StockUnitIssueResponsibility,
   StockUnitIssueSeverity,
   StockUnitOperationalState,
 } from '@prisma/client';
+
+export class InventoryAttentionQueryDto {
+  @IsOptional() @IsIn(['INSPECTION', 'ISSUE'])
+  kind: 'INSPECTION' | 'ISSUE' = 'INSPECTION';
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  page = 1;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100)
+  limit = 25;
+
+  @IsOptional() @IsEnum(StockUnitInspectionType)
+  inspectionType?: StockUnitInspectionType;
+
+  @IsOptional() @IsEnum(StockUnitInspectionStatus)
+  inspectionStatus?: StockUnitInspectionStatus;
+
+  @IsOptional() @IsEnum(StockUnitInspectionDecision)
+  decision?: StockUnitInspectionDecision;
+
+  @IsOptional() @IsEnum(StockUnitIssueStatus)
+  issueStatus?: StockUnitIssueStatus;
+
+  @IsOptional() @IsEnum(StockUnitIssueSeverity)
+  severity?: StockUnitIssueSeverity;
+
+  @IsOptional() @IsEnum(StockUnitIssueResponsibility)
+  responsibility?: StockUnitIssueResponsibility;
+
+  @IsOptional() @IsUUID()
+  locationId?: string;
+
+  @IsOptional() @IsUUID()
+  productId?: string;
+
+  @IsOptional() @IsUUID()
+  variantSizeId?: string;
+
+  @IsOptional() @IsUUID()
+  stockUnitId?: string;
+
+  @IsOptional() @IsUUID()
+  bookingId?: string;
+
+  @IsOptional() @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional() @IsDateString()
+  dateTo?: string;
+}
+
+export class InventoryServiceQueueQueryDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  page = 1;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100)
+  limit = 25;
+
+  @IsOptional() @IsEnum(InventoryServiceOrderType)
+  serviceType?: InventoryServiceOrderType;
+
+  @IsOptional() @IsEnum(InventoryServiceOrderStatus)
+  status?: InventoryServiceOrderStatus;
+
+  @IsOptional() @IsUUID()
+  locationId?: string;
+
+  @IsOptional() @IsUUID()
+  productId?: string;
+
+  @IsOptional() @IsUUID()
+  variantSizeId?: string;
+
+  @IsOptional() @IsUUID()
+  stockUnitId?: string;
+
+  @IsOptional() @IsUUID()
+  issueId?: string;
+
+  @IsOptional() @IsString() @MaxLength(200)
+  provider?: string;
+
+  @IsOptional() @IsDateString()
+  dueBefore?: string;
+
+  @IsOptional() @IsString() @MaxLength(5)
+  overdue?: 'true' | 'false';
+}
 
 export class InventoryMediaInputDto {
   @IsString()

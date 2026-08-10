@@ -20,6 +20,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   CompleteStockUnitInspectionDto,
   CreateStockUnitInspectionDto,
+  InventoryAttentionQueryDto,
   InspectionIssueInputDto,
   ResolveStockUnitIssueDto,
   ReplaceStockUnitReferenceMediaDto,
@@ -53,6 +54,83 @@ export class StockUnitInspectionService {
     private readonly prisma: PrismaService,
     private readonly lifecycle: StockUnitLifecycleService,
   ) {}
+
+  async listAttention(tenantId: string, query: InventoryAttentionQueryDto) {
+    if (query.dateFrom && query.dateTo && new Date(query.dateFrom) > new Date(query.dateTo)) {
+      throw new BadRequestException('dateFrom must be on or before dateTo');
+    }
+    const through = query.dateTo ? new Date(query.dateTo) : null;
+    if (through) through.setUTCDate(through.getUTCDate() + 1);
+    const createdAt = query.dateFrom || query.dateTo ? {
+      ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+      ...(through ? { lt: through } : {}),
+    } : undefined;
+    const stockUnit = {
+      ...(query.locationId ? { locationId: query.locationId } : {}),
+      ...(query.variantSizeId ? { variantSizeId: query.variantSizeId } : {}),
+      ...(query.productId ? { variantSize: { variant: { productId: query.productId } } } : {}),
+      deletedAt: null,
+    };
+
+    if (query.kind === 'ISSUE') {
+      const where: Prisma.StockUnitIssueWhereInput = {
+        tenantId,
+        ...(query.issueStatus ? { status: query.issueStatus } : {}),
+        ...(query.severity ? { severity: query.severity } : {}),
+        ...(query.responsibility ? { responsibility: query.responsibility } : {}),
+        ...(query.stockUnitId ? { stockUnitId: query.stockUnitId } : {}),
+        ...(query.bookingId ? { bookingItem: { bookingId: query.bookingId } } : {}),
+        ...(createdAt ? { createdAt } : {}),
+        stockUnit,
+      };
+      const [data, total] = await Promise.all([
+        this.prisma.stockUnitIssue.findMany({
+          where,
+          skip: (query.page - 1) * query.limit,
+          take: query.limit,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          include: {
+            stockUnit: { include: this.queueUnitInclude() },
+            inspection: { select: { id: true, inspectionType: true, status: true } },
+            bookingItem: { select: { booking: { select: { id: true, bookingNumber: true } } } },
+            serviceOrders: { select: { id: true, serviceType: true, status: true } },
+            reportedBy: { select: { id: true, fullName: true } },
+            resolvedBy: { select: { id: true, fullName: true } },
+          },
+        }),
+        this.prisma.stockUnitIssue.count({ where }),
+      ]);
+      return this.paginated(data, total, query.page, query.limit);
+    }
+
+    const where: Prisma.StockUnitInspectionWhereInput = {
+      tenantId,
+      ...(query.inspectionType ? { inspectionType: query.inspectionType } : {}),
+      ...(query.inspectionStatus ? { status: query.inspectionStatus } : {}),
+      ...(query.decision ? { decision: query.decision } : {}),
+      ...(query.stockUnitId ? { stockUnitId: query.stockUnitId } : {}),
+      ...(query.bookingId ? { bookingItem: { bookingId: query.bookingId } } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      stockUnit,
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.stockUnitInspection.findMany({
+        where,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: {
+          stockUnit: { include: this.queueUnitInclude() },
+          bookingItem: { select: { booking: { select: { id: true, bookingNumber: true } } } },
+          serviceOrder: { select: { id: true, serviceType: true, status: true } },
+          inspectedBy: { select: { id: true, fullName: true } },
+          _count: { select: { checks: true, issues: true, mediaAttachments: true } },
+        },
+      }),
+      this.prisma.stockUnitInspection.count({ where }),
+    ]);
+    return this.paginated(data, total, query.page, query.limit);
+  }
 
   async create(
     tenantId: string,
@@ -787,6 +865,32 @@ export class StockUnitInspectionService {
       REPAIR: InventoryServiceOrderType.REPAIR,
     };
     return types[decision] ?? null;
+  }
+
+  private queueUnitInclude() {
+    return {
+      location: { select: { id: true, code: true, name: true } },
+      variantSize: {
+        select: {
+          id: true,
+          sizeInstance: { select: { displayLabel: true } },
+          variant: {
+            select: {
+              id: true,
+              variantName: true,
+              product: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
+    } satisfies Prisma.StockUnitInclude;
+  }
+
+  private paginated<T>(data: T[], total: number, page: number, limit: number) {
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
   }
 
   private inspectionInclude() {

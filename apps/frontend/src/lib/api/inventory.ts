@@ -79,6 +79,7 @@ export interface InventoryOverview {
     openServiceOrders: number;
     openIssues: number;
     overdueRequirements: number;
+    overdueTransfers: number;
   };
   lowStock: Array<{
     id: string;
@@ -129,6 +130,9 @@ export interface InventoryItem {
   };
   _count: { inspections: number; issues: number; serviceOrders: number };
   rentalMetrics: { completedRentals: number; totalRentalDays: number };
+  componentComplete: boolean;
+  lastRental: { blockedEndDate: string; reservation: { booking: { id: string; bookingNumber: string } } } | null;
+  nextRental: { blockedStartDate: string; blockedEndDate: string; reservation: { booking: { id: string; bookingNumber: string } } } | null;
 }
 
 export interface InventoryItemsQuery {
@@ -139,6 +143,11 @@ export interface InventoryItemsQuery {
   disposition?: StockUnitDisposition;
   operationalState?: StockUnitOperationalState;
   condition?: StockConditionGrade;
+  productId?: string;
+  variantSizeId?: string;
+  attention?: 'OPEN_ISSUE' | 'OPEN_SERVICE' | 'INCOMPLETE_SET';
+  availableFrom?: string;
+  availableTo?: string;
 }
 
 export type InventoryStockState =
@@ -162,6 +171,8 @@ export interface InventorySku {
   availableUnitCount: number;
   onHandQuantity: number;
   reservedQuantity: number;
+  nextReservedStart: string | null;
+  peakReservedQuantity: number;
   availableQuantity: number;
   inventoryState: InventoryStockState;
 }
@@ -187,6 +198,23 @@ export interface CreateInventoryItemInput {
   notes?: string;
 }
 
+export interface BatchInventoryItemInput {
+  locationId: string;
+  rows: Array<{ assetCode: string; barcode?: string }>;
+  condition?: StockConditionGrade;
+  purchaseDate?: string;
+  purchasePrice?: number;
+  notes?: string;
+  componentStates?: Array<{
+    definitionId: string;
+    presence?: 'PRESENT' | 'MISSING' | 'DAMAGED' | 'NOT_APPLICABLE';
+    presentQuantity?: number;
+    condition?: StockConditionGrade;
+    notes?: string;
+  }>;
+  idempotencyKey: string;
+}
+
 export type AvailabilityPolicyScope = 'TENANT' | 'LOCATION' | 'PRODUCT' | 'SKU';
 export interface AvailabilityPolicy {
   id: string;
@@ -210,8 +238,110 @@ export interface AvailabilityPolicy {
   requireSingleLocationForBundle: boolean | null;
   allowCrossLocationTransfers: boolean | null;
   transferLeadTimeMinutes: number | null;
+  eligibleConditionGrades: StockConditionGrade[] | null;
+  eligibleOperationalStates: StockUnitOperationalState[] | null;
   location?: { id: string; code: string; name: string } | null;
   product?: { id: string; name: string } | null;
+  variantSize?: {
+    id: string;
+    sizeInstance: { displayLabel: string };
+    variant: { variantName: string | null; product: { name: string } };
+  } | null;
+}
+
+export interface AvailabilityPolicyInput {
+  scope: AvailabilityPolicyScope;
+  expectedVersion: number;
+  locationId?: string;
+  productId?: string;
+  variantSizeId?: string;
+  preparationBufferMinutes?: number;
+  deliveryBufferMinutes?: number;
+  returnBufferMinutes?: number;
+  inspectionBufferMinutes?: number;
+  cleaningBufferMinutes?: number;
+  minimumNoticeMinutes?: number;
+  maximumAdvanceDays?: number;
+  pendingHoldMinutes?: number;
+  allowShortage?: boolean;
+  shortageLimit?: number;
+  requireSingleLocationForBundle?: boolean;
+  allowCrossLocationTransfers?: boolean;
+  transferLeadTimeMinutes?: number;
+  eligibleConditionGrades?: StockConditionGrade[];
+  eligibleOperationalStates?: StockUnitOperationalState[];
+}
+
+export interface EffectiveAvailabilityPolicy {
+  preparationBufferMinutes: number;
+  deliveryBufferMinutes: number;
+  returnBufferMinutes: number;
+  inspectionBufferMinutes: number;
+  cleaningBufferMinutes: number;
+  minimumNoticeMinutes: number;
+  maximumAdvanceDays: number;
+  pendingHoldMinutes: number;
+  allowShortage: boolean;
+  shortageLimit: number;
+  requireSingleLocationForBundle: boolean;
+  allowCrossLocationTransfers: boolean;
+  transferLeadTimeMinutes: number;
+  eligibleConditionGrades: StockConditionGrade[];
+  eligibleOperationalStates: StockUnitOperationalState[];
+  sources: Array<{ id: string; scope: AvailabilityPolicyScope; version: number }>;
+}
+
+export type InventoryBlockType = 'MANUAL' | 'LOCATION_BLACKOUT' | 'SKU_BLACKOUT';
+export interface InventoryBlockInput {
+  productId?: string;
+  variantId?: string;
+  variantSizeId?: string;
+  stockUnitId?: string;
+  locationId?: string;
+  inventoryPoolId?: string;
+  quantity?: number;
+  startDate: string;
+  endDate: string;
+  blockType: InventoryBlockType;
+  reason: string;
+}
+
+export interface InventoryBlock {
+  id: string;
+  blockType: string;
+  quantity: number | null;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+  canDelete: boolean;
+  owner: 'MANUAL' | 'SERVICE_ORDER' | 'INSPECTION' | 'TRANSFER';
+  product: { id: string; name: string } | null;
+  variant: { id: string; variantName: string | null; product: { id: string; name: string } } | null;
+  variantSize: { id: string; sizeInstance: { displayLabel: string }; variant: { variantName: string | null; product: { id: string; name: string } } } | null;
+  stockUnit: { id: string; assetCode: string; location: { id: string; code: string; name: string }; variantSize: { sizeInstance: { displayLabel: string }; variant: { variantName: string | null; product: { id: string; name: string } } } } | null;
+  location: { id: string; code: string; name: string } | null;
+  inventoryPool: { id: string; onHandQuantity: number; location: { id: string; code: string; name: string }; variantSize: { id: string; sizeInstance: { displayLabel: string }; variant: { variantName: string | null; product: { id: string; name: string } } } } | null;
+  createdByUser: { id: string; fullName: string } | null;
+  transferLine: { id: string; transfer: { id: string; transferNumber: string } } | null;
+}
+
+export interface InventoryBlockPreview {
+  target: Record<string, unknown>;
+  dateRange: { start: string; end: string };
+  quantity: number | null;
+  affectedReservations: number;
+  affectedQuantity: number;
+  affectedBookings: Array<{ id: string; bookingNumber: string; status: string }>;
+  warning: string | null;
+}
+
+export interface InventoryPool {
+  id: string;
+  variantSizeId: string;
+  locationId: string;
+  onHandQuantity: number;
+  version: number;
+  location: InventoryLocation;
 }
 
 export type InventoryTransferStatus =
@@ -221,7 +351,8 @@ export type InventoryTransferStatus =
   | 'PARTIALLY_RECEIVED'
   | 'RECEIVED'
   | 'CANCELLED'
-  | 'RECONCILIATION_REQUIRED';
+  | 'RECONCILIATION_REQUIRED'
+  | 'RECONCILED';
 export type InventoryTransferUnitOutcome = 'PENDING' | 'RECEIVED' | 'DAMAGED' | 'LOST';
 
 export interface InventoryTransfer {
@@ -231,6 +362,8 @@ export interface InventoryTransfer {
   notes: string | null;
   expectedDispatchAt: string | null;
   expectedArrivalAt: string | null;
+  reconciledAt: string | null;
+  reconciliationReason: string | null;
   createdAt: string;
   originLocation: { id: string; code: string; name: string };
   destinationLocation: { id: string; code: string; name: string };
@@ -264,29 +397,68 @@ export interface InventoryTransfer {
   }>;
 }
 
-export interface InventoryOperationsQueue {
-  inspections: Array<{
+export type PoolAdjustmentType = 'RECEIVE' | 'ADD' | 'SUBTRACT' | 'WRITE_OFF';
+
+export interface InventoryPoolMutationResult {
+  pool: {
     id: string;
-    inspectionType: string;
-    createdAt: string;
-    stockUnit: InventoryItem;
-  }>;
-  serviceOrders: Array<{
+    onHandQuantity: number;
+    reorderThreshold: number | null;
+    version: number;
+  };
+  movement?: InventoryMovementRecord;
+  count?: InventoryMovementRecord;
+}
+
+export interface InventoryMovementRecord {
+  id: string;
+  movementType: string;
+  quantityDelta: number | null;
+  beforeState: Record<string, unknown> | null;
+  afterState: Record<string, unknown> | null;
+  reason: string;
+  createdAt: string;
+  variantSize: {
     id: string;
-    serviceType: string;
-    status: string;
-    expectedCompletionAt: string | null;
-    stockUnit: { id: string; assetCode: string; variantSize: { variant: { product: { id: string; name: string } } } };
-    serviceLocation: { id: string; code: string; name: string };
-  }>;
-  issues: Array<{
+    sizeInstance: { displayLabel: string };
+    variant: {
+      id: string;
+      variantName: string | null;
+      product: { id: string; name: string };
+    };
+  } | null;
+  stockUnit: { id: string; assetCode: string } | null;
+  inventoryPool: {
     id: string;
-    issueType: string;
-    severity: string;
-    status: string;
-    description: string;
-    stockUnit: { id: string; assetCode: string; variantSize: { variant: { product: { id: string; name: string } } } };
-  }>;
+    onHandQuantity: number;
+    version: number;
+    location: { id: string; code: string; name: string };
+  } | null;
+  originLocation: { id: string; code: string; name: string } | null;
+  destinationLocation: { id: string; code: string; name: string } | null;
+  actor: { id: string; fullName: string } | null;
+  transfer: { id: string; transferNumber: string } | null;
+  reservation: {
+    id: string;
+    booking: { id: string; bookingNumber: string };
+  } | null;
+}
+
+export interface InventoryMovementQuery {
+  page?: number;
+  limit?: number;
+  movementType?: string;
+  productId?: string;
+  variantSizeId?: string;
+  stockUnitId?: string;
+  inventoryPoolId?: string;
+  locationId?: string;
+  actorUserId?: string;
+  bookingId?: string;
+  transferId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  search?: string;
 }
 
 export const inventoryApi = {
@@ -306,8 +478,14 @@ export const inventoryApi = {
   createItem: async (variantSizeId: string, payload: CreateInventoryItemInput): Promise<{ id: string; assetCode: string }> =>
     unwrap(await apiClient.post<ApiResponse<{ id: string; assetCode: string }>>(`/owner/variant-sizes/${variantSizeId}/stock-units`, payload)),
 
-  operations: async (): Promise<InventoryOperationsQueue> =>
-    unwrap(await apiClient.get<ApiResponse<InventoryOperationsQueue>>('/owner/inventory/operations')),
+  registerItemBatch: async (
+    variantSizeId: string,
+    payload: BatchInventoryItemInput,
+  ): Promise<{ replayed: boolean; units: Array<{ id: string; assetCode: string }> }> =>
+    unwrap(await apiClient.post<ApiResponse<{ replayed: boolean; units: Array<{ id: string; assetCode: string }> }>>(
+      `/owner/variant-sizes/${variantSizeId}/stock-units/batch`,
+      payload,
+    )),
 
   listLocations: async (includeInactive = false): Promise<InventoryLocation[]> =>
     unwrap(await apiClient.get<ApiResponse<InventoryLocation[]>>('/owner/inventory/locations', { params: { includeInactive } })),
@@ -324,14 +502,82 @@ export const inventoryApi = {
   listPolicies: async (): Promise<AvailabilityPolicy[]> =>
     unwrap(await apiClient.get<ApiResponse<AvailabilityPolicy[]>>('/owner/inventory/availability-policies')),
 
-  upsertPolicy: async (payload: Record<string, unknown>): Promise<AvailabilityPolicy> =>
+  upsertPolicy: async (payload: AvailabilityPolicyInput): Promise<AvailabilityPolicy> =>
     unwrap(await apiClient.put<ApiResponse<AvailabilityPolicy>>('/owner/inventory/availability-policies', payload)),
 
-  deactivatePolicy: async (policyId: string): Promise<AvailabilityPolicy> =>
-    unwrap(await apiClient.delete<ApiResponse<AvailabilityPolicy>>(`/owner/inventory/availability-policies/${policyId}`)),
+  deactivatePolicy: async (policyId: string, expectedVersion: number): Promise<AvailabilityPolicy> =>
+    unwrap(await apiClient.delete<ApiResponse<AvailabilityPolicy>>(`/owner/inventory/availability-policies/${policyId}`, { params: { expectedVersion } })),
 
-  setPoolQuantity: async (variantSizeId: string, payload: { locationId: string; onHandQuantity: number; reorderThreshold?: number; reason: string }) =>
-    unwrap(await apiClient.put<ApiResponse<unknown>>(`/owner/inventory/variant-sizes/${variantSizeId}/pools`, payload)),
+  resolvePolicy: async (params: { productId: string; variantSizeId: string; locationId: string }): Promise<{ target: Record<string, unknown>; effective: EffectiveAvailabilityPolicy }> =>
+    unwrap(await apiClient.get<ApiResponse<{ target: Record<string, unknown>; effective: EffectiveAvailabilityPolicy }>>('/owner/inventory/availability-policies/resolved', { params })),
+
+  listPools: async (variantSizeId: string): Promise<InventoryPool[]> =>
+    unwrap(await apiClient.get<ApiResponse<InventoryPool[]>>(`/owner/inventory/variant-sizes/${variantSizeId}/pools`)),
+
+  listBlocks: async (params?: { page?: number; limit?: number; blockType?: string; productId?: string; variantSizeId?: string; stockUnitId?: string; locationId?: string; inventoryPoolId?: string; from?: string; to?: string; activeOnly?: boolean }): Promise<PaginatedResponse<InventoryBlock>> => {
+    const { data } = await apiClient.get<PaginatedResponse<InventoryBlock>>('/owner/inventory/blocks', { params });
+    return data;
+  },
+
+  previewBlock: async (payload: InventoryBlockInput): Promise<InventoryBlockPreview> =>
+    unwrap(await apiClient.post<ApiResponse<InventoryBlockPreview>>('/owner/inventory/blocks/preview', payload)),
+
+  createBlock: async (payload: InventoryBlockInput): Promise<{ block: InventoryBlock; preview: InventoryBlockPreview }> =>
+    unwrap(await apiClient.post<ApiResponse<{ block: InventoryBlock; preview: InventoryBlockPreview }>>('/owner/inventory/blocks', payload)),
+
+  deleteBlock: async (blockId: string): Promise<void> => {
+    await apiClient.delete(`/owner/inventory/blocks/${blockId}`);
+  },
+
+  adjustPool: async (
+    variantSizeId: string,
+    payload: {
+      locationId: string;
+      adjustmentType: PoolAdjustmentType;
+      quantity: number;
+      expectedVersion: number;
+      reorderThreshold?: number;
+      reason: string;
+    },
+  ): Promise<InventoryPoolMutationResult> =>
+    unwrap(await apiClient.post<ApiResponse<InventoryPoolMutationResult>>(
+      `/owner/inventory/variant-sizes/${variantSizeId}/pools/adjust`,
+      payload,
+    )),
+
+  countPool: async (
+    variantSizeId: string,
+    payload: {
+      locationId: string;
+      observedQuantity: number;
+      expectedVersion: number;
+      reason: string;
+    },
+  ): Promise<InventoryPoolMutationResult> =>
+    unwrap(await apiClient.post<ApiResponse<InventoryPoolMutationResult>>(
+      `/owner/inventory/variant-sizes/${variantSizeId}/pools/count`,
+      payload,
+    )),
+
+  listMovements: async (
+    params?: InventoryMovementQuery,
+  ): Promise<PaginatedResponse<InventoryMovementRecord>> => {
+    const { data } = await apiClient.get<PaginatedResponse<InventoryMovementRecord>>(
+      '/owner/inventory/movements',
+      { params },
+    );
+    return data;
+  },
+
+  listCounts: async (
+    params?: InventoryMovementQuery,
+  ): Promise<PaginatedResponse<InventoryMovementRecord>> => {
+    const { data } = await apiClient.get<PaginatedResponse<InventoryMovementRecord>>(
+      '/owner/inventory/counts',
+      { params },
+    );
+    return data;
+  },
 
   listTransfers: async (status?: InventoryTransferStatus): Promise<InventoryTransfer[]> =>
     unwrap(await apiClient.get<ApiResponse<InventoryTransfer[]>>('/owner/inventory/transfers', { params: { status } })),
@@ -342,7 +588,7 @@ export const inventoryApi = {
   createTransfer: async (payload: Record<string, unknown>): Promise<InventoryTransfer> =>
     unwrap(await apiClient.post<ApiResponse<InventoryTransfer>>('/owner/inventory/transfers', payload)),
 
-  transferAction: async (transferId: string, action: 'ready' | 'dispatch' | 'cancel', reason: string): Promise<InventoryTransfer> =>
+  transferAction: async (transferId: string, action: 'ready' | 'dispatch' | 'cancel' | 'reconcile', reason: string): Promise<InventoryTransfer> =>
     unwrap(await apiClient.post<ApiResponse<InventoryTransfer>>(`/owner/inventory/transfers/${transferId}/${action}`, { reason, idempotencyKey: crypto.randomUUID() })),
 
   receiveTransfer: async (transferId: string, payload: Record<string, unknown>): Promise<InventoryTransfer> =>

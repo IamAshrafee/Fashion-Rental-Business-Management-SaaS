@@ -20,6 +20,8 @@ import { AvailabilityPolicyService } from './availability-policy.service';
 import { InventoryTransferController } from './inventory-transfer.controller';
 import { InventoryTransferService } from './inventory-transfer.service';
 import { InventoryDashboardService } from './inventory-dashboard.service';
+import { InventoryLedgerService } from './inventory-ledger.service';
+import { InventoryBlockService } from './inventory-block.service';
 
 @Module({
   imports: [PrismaModule],
@@ -48,6 +50,8 @@ import { InventoryDashboardService } from './inventory-dashboard.service';
     AvailabilityPolicyService,
     InventoryTransferService,
     InventoryDashboardService,
+    InventoryLedgerService,
+    InventoryBlockService,
   ],
   exports: [
     InventoryAvailabilityService,

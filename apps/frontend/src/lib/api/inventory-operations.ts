@@ -1,4 +1,4 @@
-import type { ApiResponse } from '@closetrent/types';
+import type { ApiResponse, PaginatedResponse } from '@closetrent/types';
 import apiClient from '../api-client';
 
 export type StockConditionGrade = 'NEW' | 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'DAMAGED';
@@ -21,7 +21,7 @@ export type StockUnitIssueSeverity = 'INFO' | 'MINOR' | 'MODERATE' | 'SEVERE' | 
 export type StockUnitIssueStatus = 'OPEN' | 'IN_SERVICE' | 'RESOLVED' | 'WAIVED';
 export type StockUnitIssueResponsibility = 'CUSTOMER' | 'BUSINESS' | 'NORMAL_WEAR' | 'THIRD_PARTY' | 'UNKNOWN';
 export type InventoryServiceOrderType = 'PREPARATION' | 'CLEANING' | 'WASHING' | 'REPAIR' | 'ALTERATION' | 'MAINTENANCE';
-export type InventoryServiceOrderStatus = 'REQUESTED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type InventoryServiceOrderStatus = 'REQUESTED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
 export type StockUnitComponentPresence = 'PRESENT' | 'MISSING' | 'DAMAGED' | 'NOT_APPLICABLE';
 export type InventoryMediaPurpose = 'UNIT_REFERENCE' | 'PRE_RENTAL' | 'POST_RETURN' | 'DAMAGE' | 'SERVICE' | 'CHECKLIST' | 'OTHER';
 
@@ -148,6 +148,82 @@ export interface StockUnitLifecycleEvent {
   actor: PersonSummary | null;
 }
 
+export interface InventoryQueueUnit {
+  id: string;
+  assetCode: string;
+  condition: StockConditionGrade;
+  disposition: StockUnitDisposition;
+  operationalState: StockUnitOperationalState;
+  location: { id: string; code: string; name: string };
+  variantSize: {
+    id: string;
+    sizeInstance: { displayLabel: string };
+    variant: {
+      id: string;
+      variantName: string | null;
+      product: { id: string; name: string };
+    };
+  };
+}
+
+export interface InspectionQueueRecord {
+  id: string;
+  inspectionType: StockUnitInspectionType;
+  status: StockUnitInspectionStatus;
+  decision: StockUnitInspectionDecision | null;
+  createdAt: string;
+  completedAt: string | null;
+  stockUnit: InventoryQueueUnit;
+  inspectedBy: PersonSummary;
+  bookingItem: { booking: { id: string; bookingNumber: string } } | null;
+  _count: { checks: number; issues: number; mediaAttachments: number };
+}
+
+export interface IssueQueueRecord extends StockUnitIssue {
+  stockUnit: InventoryQueueUnit;
+  inspection: { id: string; inspectionType: StockUnitInspectionType; status: StockUnitInspectionStatus } | null;
+  bookingItem: { booking: { id: string; bookingNumber: string } } | null;
+}
+
+export interface ServiceQueueRecord extends InventoryServiceOrder {
+  stockUnit: InventoryQueueUnit;
+  overdue: boolean;
+}
+
+export interface InventoryAttentionQuery {
+  kind: 'INSPECTION' | 'ISSUE';
+  page?: number;
+  limit?: number;
+  inspectionType?: StockUnitInspectionType;
+  inspectionStatus?: StockUnitInspectionStatus;
+  decision?: StockUnitInspectionDecision;
+  issueStatus?: StockUnitIssueStatus;
+  severity?: StockUnitIssueSeverity;
+  responsibility?: StockUnitIssueResponsibility;
+  locationId?: string;
+  productId?: string;
+  variantSizeId?: string;
+  stockUnitId?: string;
+  bookingId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface InventoryServiceQueueQuery {
+  page?: number;
+  limit?: number;
+  serviceType?: InventoryServiceOrderType;
+  status?: InventoryServiceOrderStatus;
+  locationId?: string;
+  productId?: string;
+  variantSizeId?: string;
+  stockUnitId?: string;
+  issueId?: string;
+  provider?: string;
+  dueBefore?: string;
+  overdue?: 'true' | 'false';
+}
+
 export interface StockUnitOperations {
   stockUnit: {
     id: string;
@@ -247,6 +323,26 @@ export interface CompleteInspectionInput {
 const unwrap = <T>(response: { data: ApiResponse<T> }) => response.data.data;
 
 export const inventoryOperationsApi = {
+  listAttention: async (
+    params: InventoryAttentionQuery,
+  ): Promise<PaginatedResponse<InspectionQueueRecord | IssueQueueRecord>> => {
+    const { data } = await apiClient.get<PaginatedResponse<InspectionQueueRecord | IssueQueueRecord>>(
+      '/owner/inventory/inspections',
+      { params },
+    );
+    return data;
+  },
+
+  listServiceQueue: async (
+    params?: InventoryServiceQueueQuery,
+  ): Promise<PaginatedResponse<ServiceQueueRecord>> => {
+    const { data } = await apiClient.get<PaginatedResponse<ServiceQueueRecord>>(
+      '/owner/inventory/service-orders',
+      { params },
+    );
+    return data;
+  },
+
   getUnit: async (stockUnitId: string): Promise<StockUnitOperations> =>
     unwrap(await apiClient.get<ApiResponse<StockUnitOperations>>(`/owner/inventory/stock-units/${stockUnitId}/operations`)),
 
@@ -279,6 +375,9 @@ export const inventoryOperationsApi = {
 
   createSetComponent: async (variantSizeId: string, payload: { name: string; requiredQuantity: number; inspectionGuidance?: string; absenceBlocksRental: boolean; displayOrder?: number }): Promise<SetComponentDefinition> =>
     unwrap(await apiClient.post<ApiResponse<SetComponentDefinition>>(`/owner/inventory/variant-sizes/${variantSizeId}/set-components`, payload)),
+
+  listSetComponents: async (variantSizeId: string): Promise<SetComponentDefinition[]> =>
+    unwrap(await apiClient.get<ApiResponse<SetComponentDefinition[]>>(`/owner/inventory/variant-sizes/${variantSizeId}/set-components`)),
 
   deactivateSetComponent: async (definitionId: string): Promise<void> => {
     await apiClient.delete(`/owner/inventory/set-components/${definitionId}`);

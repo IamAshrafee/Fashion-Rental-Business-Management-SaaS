@@ -568,6 +568,59 @@ export class InventoryTransferService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
+  async reconcile(
+    tenantId: string,
+    transferId: string,
+    dto: InventoryTransferActionDto,
+    actorUserId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const idempotent = await this.findIdempotentEvent(
+        tx,
+        tenantId,
+        transferId,
+        dto.idempotencyKey,
+        [InventoryTransferStatus.RECONCILED],
+      );
+      if (idempotent) return this.getInTransaction(tx, tenantId, transferId);
+      const transfer = await this.lockTransfer(tx, tenantId, transferId);
+      if (transfer.status !== InventoryTransferStatus.RECONCILIATION_REQUIRED) {
+        throw new ConflictException('Only a fully received transfer with exceptions can be reconciled');
+      }
+      const fullyAccounted = transfer.lines.every(
+        (line) =>
+          line.receivedQuantity + line.damagedQuantity + line.lostQuantity ===
+          line.dispatchedQuantity,
+      );
+      const hasException = transfer.lines.some(
+        (line) => line.damagedQuantity > 0 || line.lostQuantity > 0,
+      );
+      if (!fullyAccounted || !hasException) {
+        throw new ConflictException('Transfer quantities are not ready for reconciliation');
+      }
+      await tx.inventoryTransfer.update({
+        where: { id: transferId },
+        data: {
+          status: InventoryTransferStatus.RECONCILED,
+          reconciliationReason: dto.reason.trim(),
+          reconciledAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      await this.recordEvent(
+        tx,
+        tenantId,
+        transferId,
+        transfer.status,
+        InventoryTransferStatus.RECONCILED,
+        dto.reason,
+        actorUserId,
+        dto.idempotencyKey,
+      );
+      return this.getInTransaction(tx, tenantId, transferId);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
   private async reserveSerializedLine(
     tx: Prisma.TransactionClient,
     tenantId: string,

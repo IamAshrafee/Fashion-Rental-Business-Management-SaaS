@@ -168,6 +168,7 @@ enum InventoryTransferStatus {
   RECEIVED
   CANCELLED
   RECONCILIATION_REQUIRED
+  RECONCILED
 }
 
 enum InventoryTransferLineKind {
@@ -1695,6 +1696,7 @@ model InventoryTransfer {
   notes                 String?
   cancellationReason    String?                 @map("cancellation_reason")
   reconciliationReason  String?                 @map("reconciliation_reason")
+  reconciledAt          DateTime?               @map("reconciled_at")
   expectedDispatchAt    DateTime?               @map("expected_dispatch_at")
   expectedArrivalAt     DateTime?               @map("expected_arrival_at")
   readyAt               DateTime?               @map("ready_at")
@@ -1825,6 +1827,9 @@ model StockUnit {
   purchaseDate          DateTime?                 @map("purchase_date") @db.Date
   purchasePrice         Int?                      @map("purchase_price")
   notes                 String?
+  registrationKey       String?                   @map("registration_key")
+  registrationHash      String?                   @map("registration_hash")
+  registrationRow       Int?                      @map("registration_row")
   retiredAt             DateTime?                 @map("retired_at")
   deletedAt             DateTime?                 @map("deleted_at")
   createdAt             DateTime                  @default(now()) @map("created_at")
@@ -1847,9 +1852,11 @@ model StockUnit {
 
   @@unique([tenantId, assetCode])
   @@unique([tenantId, barcode])
+  @@unique([tenantId, registrationKey, registrationRow])
   @@index([variantSizeId])
   @@index([tenantId, locationId, variantSizeId])
   @@index([tenantId, variantSizeId, disposition, operationalState])
+  @@index([tenantId, registrationKey])
   @@map("stock_units")
 }
 

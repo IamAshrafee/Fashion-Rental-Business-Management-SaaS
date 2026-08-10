@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -44,6 +45,10 @@ const apiMessage = (error: unknown, fallback: string) => {
     ?.response?.data?.message;
   return typeof value === 'string' ? value : value?.message || fallback;
 };
+const isOverdue = (transfer: InventoryTransfer) =>
+  !!transfer.expectedArrivalAt &&
+  new Date(transfer.expectedArrivalAt).getTime() < Date.now() &&
+  ['READY', 'DISPATCHED', 'PARTIALLY_RECEIVED'].includes(transfer.status);
 
 function CreateTransferDialog() {
   const queryClient = useQueryClient();
@@ -55,6 +60,8 @@ function CreateTransferDialog() {
   const [quantity, setQuantity] = useState(1);
   const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
+  const [expectedDispatchAt, setExpectedDispatchAt] = useState('');
+  const [expectedArrivalAt, setExpectedArrivalAt] = useState('');
   const locations = useQuery({
     queryKey: ['inventory-locations'],
     queryFn: () => inventoryApi.listLocations(),
@@ -99,6 +106,8 @@ function CreateTransferDialog() {
         originLocationId: origin,
         destinationLocationId: destination,
         notes: notes || undefined,
+        expectedDispatchAt: expectedDispatchAt ? new Date(expectedDispatchAt).toISOString() : undefined,
+        expectedArrivalAt: expectedArrivalAt ? new Date(expectedArrivalAt).toISOString() : undefined,
         idempotencyKey: crypto.randomUUID(),
         lines: [
           {
@@ -118,6 +127,8 @@ function CreateTransferDialog() {
       setSkuId('');
       setSelectedUnits([]);
       setNotes('');
+      setExpectedDispatchAt('');
+      setExpectedArrivalAt('');
       await queryClient.invalidateQueries({ queryKey: ['inventory-transfers'] });
       toast.success('Transfer draft created');
     },
@@ -128,6 +139,7 @@ function CreateTransferDialog() {
     destination &&
     origin !== destination &&
     skuId &&
+    (!expectedDispatchAt || !expectedArrivalAt || expectedArrivalAt >= expectedDispatchAt) &&
     (selectedSku?.trackingMode === 'POOLED' ? quantity > 0 : selectedUnits.length > 0);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -229,6 +241,10 @@ function CreateTransferDialog() {
             </Select>
           </div>
         </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-2"><Label>Expected dispatch</Label><Input type="datetime-local" value={expectedDispatchAt} onChange={(event) => setExpectedDispatchAt(event.target.value)} /></div>
+          <div className="grid gap-2"><Label>Expected arrival</Label><Input type="datetime-local" min={expectedDispatchAt} value={expectedArrivalAt} onChange={(event) => setExpectedArrivalAt(event.target.value)} /></div>
+        </div>
         {selectedSku?.trackingMode === 'POOLED' && (
           <div className="grid gap-2">
             <Label>Quantity</Label>
@@ -303,7 +319,7 @@ function ReasonAction({
   destructive = false,
 }: {
   transfer: InventoryTransfer;
-  action: 'ready' | 'dispatch' | 'cancel';
+  action: 'ready' | 'dispatch' | 'cancel' | 'reconcile';
   label: string;
   refresh: () => Promise<void>;
   destructive?: boolean;
@@ -548,13 +564,14 @@ function TransferCard({
             variant={
               transfer.status === 'RECONCILIATION_REQUIRED'
                 ? 'destructive'
-                : transfer.status === 'RECEIVED'
+                : ['RECEIVED', 'RECONCILED'].includes(transfer.status)
                   ? 'secondary'
                   : 'outline'
             }
           >
             {humanize(transfer.status)}
           </Badge>
+          {isOverdue(transfer) && <Badge variant="destructive">Overdue</Badge>}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -618,6 +635,14 @@ function TransferCard({
           {['DISPATCHED', 'PARTIALLY_RECEIVED'].includes(transfer.status) && (
             <ReceiveDialog transfer={transfer} refresh={refresh} />
           )}
+          {transfer.status === 'RECONCILIATION_REQUIRED' && (
+            <ReasonAction
+              transfer={transfer}
+              action="reconcile"
+              label="Close reconciliation"
+              refresh={refresh}
+            />
+          )}
         </div>
         {!!transfer.events.length && (
           <details>
@@ -644,6 +669,8 @@ function TransferCard({
 
 export default function InventoryTransfersPage() {
   const queryClient = useQueryClient();
+  const params = useSearchParams();
+  const attention = params.get('attention');
   const transfers = useQuery({
     queryKey: ['inventory-transfers'],
     queryFn: () => inventoryApi.listTransfers(),
@@ -654,6 +681,9 @@ export default function InventoryTransfersPage() {
       queryClient.invalidateQueries({ queryKey: ['inventory-overview'] }),
     ]);
   };
+  const visibleTransfers = attention === 'overdue'
+    ? (transfers.data || []).filter(isOverdue)
+    : transfers.data || [];
   return (
     <div className="space-y-6 pb-10">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -673,15 +703,15 @@ export default function InventoryTransfersPage() {
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading transfers…
         </div>
-      ) : !transfers.data?.length ? (
+      ) : !visibleTransfers.length ? (
         <Card>
           <CardContent className="p-10 text-center text-sm text-muted-foreground">
-            No inventory transfers yet.
+            {attention === 'overdue' ? 'No overdue inventory transfers.' : 'No inventory transfers yet.'}
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          {transfers.data.map((transfer) => (
+          {visibleTransfers.map((transfer) => (
             <TransferCard key={transfer.id} transfer={transfer} refresh={refresh} />
           ))}
         </div>

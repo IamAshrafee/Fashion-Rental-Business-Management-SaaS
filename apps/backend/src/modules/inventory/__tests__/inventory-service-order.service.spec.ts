@@ -6,6 +6,31 @@ import {
 import { InventoryServiceOrderService } from '../inventory-service-order.service';
 
 describe('InventoryServiceOrderService', () => {
+  it('filters the global service queue by provider, product, location, and overdue state', async () => {
+    const prisma = {
+      inventoryServiceOrder: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const service = new InventoryServiceOrderService(prisma as never, {} as never, {} as never);
+
+    await service.listQueue('tenant-1', {
+      page: 1, limit: 25, serviceType: 'REPAIR', overdue: 'true', provider: 'Tailor',
+      productId: 'product-1', locationId: 'location-1',
+    } as never);
+
+    expect(prisma.inventoryServiceOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1', serviceType: 'REPAIR', serviceLocationId: 'location-1',
+          providerName: { contains: 'Tailor', mode: 'insensitive' },
+          status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] },
+          stockUnit: expect.objectContaining({ deletedAt: null }),
+        }),
+      }),
+    );
+  });
   it('requires a completion inspection after repair work', async () => {
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: 'service-1' }]),

@@ -13,6 +13,7 @@ import {
   Loader2,
   PackagePlus,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -123,7 +124,7 @@ function AvailabilityCalendar({ productId }: { productId: string }) {
 
   const createBlock = useMutation({
     mutationFn: () =>
-      productApi.createInventoryBlock({
+      inventoryApi.createBlock({
         productId,
         startDate,
         endDate,
@@ -139,7 +140,7 @@ function AvailabilityCalendar({ productId }: { productId: string }) {
     onError: (error: unknown) => toast.error(apiErrorMessage(error, 'Could not create block')),
   });
   const deleteBlock = useMutation({
-    mutationFn: productApi.deleteInventoryBlock,
+    mutationFn: inventoryApi.deleteBlock,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['inventory-calendar', productId] });
       toast.success('Block removed');
@@ -209,7 +210,7 @@ function AvailabilityCalendar({ productId }: { productId: string }) {
                   Cancel
                 </Button>
                 <Button
-                  disabled={!startDate || !endDate || createBlock.isPending}
+                  disabled={!startDate || !endDate || !reason.trim() || createBlock.isPending}
                   onClick={() => createBlock.mutate()}
                 >
                   Create block
@@ -257,15 +258,19 @@ function AvailabilityCalendar({ productId }: { productId: string }) {
                     {block.startDate?.slice(0, 10)} → {block.endDate?.slice(0, 10)}
                   </p>
                 </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Remove block"
-                  disabled={deleteBlock.isPending}
-                  onClick={() => deleteBlock.mutate(block.id)}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                {block.canDelete ? (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Remove block"
+                    disabled={deleteBlock.isPending}
+                    onClick={() => deleteBlock.mutate(block.id)}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                ) : (
+                  <Badge variant="outline">Managed by workflow</Badge>
+                )}
               </div>
             ))}
           </div>
@@ -450,59 +455,140 @@ function PoolLocationRow({
 }) {
   const queryClient = useQueryClient();
   const existing = sku.pools.find((pool) => pool.location.id === locationId);
-  const [quantity, setQuantity] = useState(existing?.onHandQuantity ?? 0);
+  const [open, setOpen] = useState(false);
+  const [operation, setOperation] = useState<'adjust' | 'count'>('adjust');
+  const [adjustmentType, setAdjustmentType] = useState<'RECEIVE' | 'ADD' | 'SUBTRACT' | 'WRITE_OFF'>('RECEIVE');
+  const [quantity, setQuantity] = useState(1);
+  const [observedQuantity, setObservedQuantity] = useState(existing?.onHandQuantity ?? 0);
   const [threshold, setThreshold] = useState(existing?.reorderThreshold ?? 0);
+  const [reason, setReason] = useState('');
+  const currentQuantity = existing?.onHandQuantity ?? 0;
+  const expectedVersion = existing?.version ?? 0;
+  const direction = adjustmentType === 'RECEIVE' || adjustmentType === 'ADD' ? 1 : -1;
+  const resultingQuantity = operation === 'count'
+    ? observedQuantity
+    : currentQuantity + direction * quantity;
+
   const update = useMutation({
-    mutationFn: () =>
-      inventoryApi.setPoolQuantity(sku.variantSizeId, {
-        locationId,
-        onHandQuantity: quantity,
-        reorderThreshold: threshold,
-        reason: `Stock count updated for ${locationName}`,
-      }),
+    mutationFn: () => operation === 'count'
+      ? inventoryApi.countPool(sku.variantSizeId, {
+          locationId,
+          observedQuantity,
+          expectedVersion,
+          reason,
+        })
+      : inventoryApi.adjustPool(sku.variantSizeId, {
+          locationId,
+          adjustmentType,
+          quantity,
+          expectedVersion,
+          reorderThreshold: threshold,
+          reason,
+        }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['product-inventory', productId] });
-      toast.success(`${locationName} stock updated`);
+      setOpen(false);
+      setReason('');
+      toast.success(operation === 'count' ? 'Stock count reconciled' : 'Stock movement recorded');
     },
-    onError: (error) => toast.error(apiErrorMessage(error, 'Could not update pooled stock')),
+    onError: async (error) => {
+      await queryClient.invalidateQueries({ queryKey: ['product-inventory', productId] });
+      toast.error(apiErrorMessage(error, 'Could not update pooled stock'));
+    },
   });
   return (
-    <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-[1fr_130px_130px_auto] sm:items-end">
-      <div>
+    <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
         <p className="font-medium">{locationName}</p>
         <p className="text-xs text-muted-foreground">
-          {existing?.reservedQuantity ?? 0} reserved today
+          Version {expectedVersion} · {existing?.reservedQuantity ?? 0} reserved today
         </p>
       </div>
-      <div className="grid gap-1">
-        <Label>On hand</Label>
-        <Input
-          type="number"
-          min={0}
-          value={quantity}
-          onChange={(event) => setQuantity(Math.max(0, Number(event.target.value) || 0))}
-        />
+      <div className="grid grid-cols-3 gap-4 text-center text-sm">
+        <div><p className="font-semibold tabular-nums">{currentQuantity}</p><p className="text-xs text-muted-foreground">On hand</p></div>
+        <div><p className="font-semibold tabular-nums">{existing?.reservedQuantity ?? 0}</p><p className="text-xs text-muted-foreground">Reserved</p></div>
+        <div><p className="font-semibold tabular-nums">{existing?.reorderThreshold ?? '—'}</p><p className="text-xs text-muted-foreground">Alert at</p></div>
       </div>
-      <div className="grid gap-1">
-        <Label>Low-stock alert</Label>
-        <Input
-          type="number"
-          min={0}
-          value={threshold}
-          onChange={(event) => setThreshold(Math.max(0, Number(event.target.value) || 0))}
-        />
-      </div>
-      <Button
-        size="sm"
-        disabled={
-          update.isPending ||
-          (quantity === (existing?.onHandQuantity ?? 0) &&
-            threshold === (existing?.reorderThreshold ?? 0))
+      <Dialog open={open} onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) {
+          setObservedQuantity(currentQuantity);
+          setThreshold(existing?.reorderThreshold ?? 0);
+          setReason('');
         }
-        onClick={() => update.mutate()}
-      >
-        {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save
-      </Button>
+      }}>
+        <DialogTrigger asChild><Button size="sm" variant="outline">Stock action</Button></DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{locationName} pooled stock</DialogTitle>
+            <DialogDescription>
+              Record a movement for known stock changes, or reconcile a physical count. Direct quantity editing is intentionally unavailable.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid gap-2">
+              <Label>Operation</Label>
+              <Select value={operation} onValueChange={(value) => setOperation(value as 'adjust' | 'count')}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="adjust">Receive / adjust stock</SelectItem>
+                  <SelectItem value="count">Physical stock count</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {operation === 'adjust' ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label>Movement</Label>
+                  <Select value={adjustmentType} onValueChange={(value) => setAdjustmentType(value as typeof adjustmentType)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="RECEIVE">Receive purchased stock</SelectItem>
+                      <SelectItem value="ADD">Add / found stock</SelectItem>
+                      <SelectItem value="SUBTRACT">Remove stock</SelectItem>
+                      <SelectItem value="WRITE_OFF">Damage write-off</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor={`adjust-quantity-${locationId}`}>Quantity</Label>
+                  <Input id={`adjust-quantity-${locationId}`} type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))} />
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor={`threshold-${locationId}`}>Low-stock alert</Label>
+                  <Input id={`threshold-${locationId}`} type="number" min={0} value={threshold} onChange={(event) => setThreshold(Math.max(0, Number(event.target.value) || 0))} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <Label htmlFor={`observed-${locationId}`}>Observed physical quantity</Label>
+                <Input id={`observed-${locationId}`} type="number" min={0} value={observedQuantity} onChange={(event) => setObservedQuantity(Math.max(0, Number(event.target.value) || 0))} />
+              </div>
+            )}
+            <div className="rounded-md bg-muted/40 p-3 text-sm">
+              <p className="font-medium">Effect preview</p>
+              <p className="mt-1 text-muted-foreground">{currentQuantity} on hand → <span className={resultingQuantity < 0 ? 'font-semibold text-destructive' : 'font-semibold text-foreground'}>{resultingQuantity}</span></p>
+              {operation === 'count' ? <p className="text-xs text-muted-foreground">Variance: {observedQuantity - currentQuantity >= 0 ? '+' : ''}{observedQuantity - currentQuantity}</p> : null}
+            </div>
+            {resultingQuantity < (existing?.reservedQuantity ?? 0) ? (
+              <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                <AlertTriangle className="h-4 w-4 shrink-0" />The result is below today&apos;s reserved quantity and will be rejected.
+              </div>
+            ) : null}
+            <div className="grid gap-2">
+              <Label htmlFor={`stock-reason-${locationId}`}>Reason</Label>
+              <Input id={`stock-reason-${locationId}`} value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="Purchase delivery, damaged pieces, quarterly count…" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button disabled={update.isPending || !reason.trim() || resultingQuantity < 0} onClick={() => update.mutate()}>
+              {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {operation === 'count' ? 'Reconcile count' : 'Record movement'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

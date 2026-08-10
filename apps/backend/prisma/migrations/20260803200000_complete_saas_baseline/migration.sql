@@ -59,7 +59,7 @@ CREATE TYPE "InventoryLocationType" AS ENUM ('WAREHOUSE', 'SHOWROOM', 'PICKUP_PO
 CREATE TYPE "AvailabilityPolicyScope" AS ENUM ('TENANT', 'LOCATION', 'PRODUCT', 'SKU');
 
 -- CreateEnum
-CREATE TYPE "InventoryTransferStatus" AS ENUM ('DRAFT', 'READY', 'DISPATCHED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED', 'RECONCILIATION_REQUIRED');
+CREATE TYPE "InventoryTransferStatus" AS ENUM ('DRAFT', 'READY', 'DISPATCHED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED', 'RECONCILIATION_REQUIRED', 'RECONCILED');
 
 -- CreateEnum
 CREATE TYPE "InventoryTransferLineKind" AS ENUM ('POOLED', 'SERIALIZED');
@@ -1009,6 +1009,7 @@ CREATE TABLE "inventory_transfers" (
     "notes" TEXT,
     "cancellation_reason" TEXT,
     "reconciliation_reason" TEXT,
+    "reconciled_at" TIMESTAMP(3),
     "expected_dispatch_at" TIMESTAMP(3),
     "expected_arrival_at" TIMESTAMP(3),
     "ready_at" TIMESTAMP(3),
@@ -1097,6 +1098,9 @@ CREATE TABLE "stock_units" (
     "purchase_date" DATE,
     "purchase_price" INTEGER,
     "notes" TEXT,
+    "registration_key" TEXT,
+    "registration_hash" TEXT,
+    "registration_row" INTEGER,
     "retired_at" TIMESTAMP(3),
     "deleted_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2090,6 +2094,12 @@ CREATE UNIQUE INDEX "stock_units_tenant_id_asset_code_key" ON "stock_units"("ten
 
 -- CreateIndex
 CREATE UNIQUE INDEX "stock_units_tenant_id_barcode_key" ON "stock_units"("tenant_id", "barcode");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "stock_units_tenant_id_registration_key_registration_row_key" ON "stock_units"("tenant_id", "registration_key", "registration_row");
+
+-- CreateIndex
+CREATE INDEX "stock_units_tenant_id_registration_key_idx" ON "stock_units"("tenant_id", "registration_key");
 
 -- CreateIndex
 CREATE INDEX "product_composition_rules_tenant_id_parent_product_id_is_ac_idx" ON "product_composition_rules"("tenant_id", "parent_product_id", "is_active", "display_order");

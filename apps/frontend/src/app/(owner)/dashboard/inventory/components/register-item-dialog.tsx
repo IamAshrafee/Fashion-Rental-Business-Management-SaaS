@@ -2,9 +2,10 @@
 
 import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, PackagePlus } from 'lucide-react';
+import { ClipboardList, Loader2, PackagePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { inventoryApi, type InventorySku } from '@/lib/api/inventory';
+import { inventoryOperationsApi } from '@/lib/api/inventory-operations';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,9 +21,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-const errorMessage = (error: unknown) =>
-  (error as { response?: { data?: { message?: string } } })?.response?.data?.message
-  ?? 'The physical item could not be registered.';
+interface RowError {
+  row: number;
+  field: string;
+  code: string;
+  message: string;
+}
+
+function registrationError(error: unknown): { message: string; errors: RowError[] } {
+  const data = (error as { response?: { data?: { message?: string; errors?: RowError[] } } })?.response?.data;
+  return {
+    message: data?.message ?? 'The physical items could not be registered.',
+    errors: Array.isArray(data?.errors) ? data.errors : [],
+  };
+}
 
 function skuLabel(sku: InventorySku) {
   return `${sku.productName} · ${sku.variantName || 'Default'} · ${sku.sizeLabel}`;
@@ -41,10 +53,15 @@ export function RegisterItemDialog({
   const [skuSearch, setSkuSearch] = useState('');
   const [locationId, setLocationId] = useState('');
   const [assetCode, setAssetCode] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [assetPrefix, setAssetPrefix] = useState('');
+  const [startingSequence, setStartingSequence] = useState(1);
   const [barcode, setBarcode] = useState('');
   const [condition, setCondition] = useState('GOOD');
   const [purchaseDate, setPurchaseDate] = useState('');
   const [purchasePrice, setPurchasePrice] = useState('');
+  const [idempotencyKey, setIdempotencyKey] = useState('');
+  const [rowErrors, setRowErrors] = useState<RowError[]>([]);
   const debouncedSkuSearch = useDebouncedValue(skuSearch, 300);
 
   const skus = useQuery({
@@ -61,16 +78,26 @@ export function RegisterItemDialog({
     queryFn: () => inventoryApi.listLocations(),
     enabled: open,
   });
+  const components = useQuery({
+    queryKey: ['set-component-definitions', skuId],
+    queryFn: () => inventoryOperationsApi.listSetComponents(skuId),
+    enabled: open && Boolean(skuId),
+  });
+  const generatedRows = quantity === 1
+    ? [{ assetCode: assetCode.trim(), ...(barcode.trim() ? { barcode: barcode.trim() } : {}) }]
+    : Array.from({ length: quantity }, (_, index) => ({
+        assetCode: `${assetPrefix.trim().replace(/-+$/, '')}-${String(startingSequence + index).padStart(3, '0')}`,
+      }));
   const mutation = useMutation({
-    mutationFn: () => inventoryApi.createItem(skuId, {
+    mutationFn: () => inventoryApi.registerItemBatch(skuId, {
       locationId,
-      assetCode: assetCode.trim(),
-      barcode: barcode.trim() || undefined,
+      rows: generatedRows,
       condition: condition as 'NEW' | 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'DAMAGED',
       purchaseDate: purchaseDate || undefined,
       purchasePrice: purchasePrice ? Math.round(Number(purchasePrice) * 100) : undefined,
+      idempotencyKey,
     }),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['inventory-items'] }),
         queryClient.invalidateQueries({ queryKey: ['inventory-skus'] }),
@@ -78,24 +105,37 @@ export function RegisterItemDialog({
       ]);
       setOpen(false);
       setAssetCode('');
+      setAssetPrefix('');
+      setQuantity(1);
       setBarcode('');
-      toast.success('Physical item registered');
+      setRowErrors([]);
+      toast.success(result.replayed ? 'Registration retry confirmed' : `${result.units.length} physical item${result.units.length === 1 ? '' : 's'} registered`);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => {
+      const failure = registrationError(error);
+      setRowErrors(failure.errors);
+      toast.error(failure.message);
+    },
   });
   const usableLocations = locations.data?.filter((location) => location.isActive && location.canStoreInventory) ?? [];
   const selectedSku = presetSku ?? skus.data?.data.find((sku) => sku.id === skuId);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        setIdempotencyKey(crypto.randomUUID());
+        setRowErrors([]);
+      }
+    }}>
       <DialogTrigger asChild>
         {trigger ?? <Button><PackagePlus className="mr-2 size-4" />Register item</Button>}
       </DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Register a physical item</DialogTitle>
+          <DialogTitle>Register physical items</DialogTitle>
           <DialogDescription>
-            Create the permanent identity for one serialized rental piece. Money is entered in taka.
+            Create one or an atomic batch of permanent serialized identities. Money is entered in taka.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2 sm:grid-cols-2">
@@ -116,13 +156,23 @@ export function RegisterItemDialog({
             )}
           </div>
           <div className="grid gap-2">
+            <Label htmlFor="register-quantity">Number of pieces</Label>
+            <Input id="register-quantity" type="number" min={1} max={100} value={quantity} onChange={(event) => setQuantity(Math.min(100, Math.max(1, Number(event.target.value) || 1)))} />
+          </div>
+          {quantity === 1 ? <div className="grid gap-2">
             <Label htmlFor="register-asset-code">Asset code</Label>
             <Input id="register-asset-code" value={assetCode} onChange={(event) => setAssetCode(event.target.value)} placeholder="DRS-RED-M-001" />
-          </div>
-          <div className="grid gap-2">
+          </div> : <div className="grid gap-2 sm:col-span-2">
+            <Label htmlFor="register-asset-prefix">Asset-code prefix</Label>
+            <div className="grid grid-cols-[1fr_8rem] gap-2">
+              <Input id="register-asset-prefix" value={assetPrefix} onChange={(event) => setAssetPrefix(event.target.value)} placeholder="DRS-RED-M" />
+              <Input aria-label="Starting sequence" type="number" min={0} value={startingSequence} onChange={(event) => setStartingSequence(Math.max(0, Number(event.target.value) || 0))} />
+            </div>
+          </div>}
+          {quantity === 1 ? <div className="grid gap-2">
             <Label htmlFor="register-barcode">Barcode (optional)</Label>
             <Input id="register-barcode" value={barcode} onChange={(event) => setBarcode(event.target.value)} />
-          </div>
+          </div> : null}
           <div className="grid gap-2">
             <Label>Location</Label>
             <Select value={locationId} onValueChange={setLocationId}>
@@ -145,12 +195,18 @@ export function RegisterItemDialog({
             <Label htmlFor="register-purchase-price">Purchase cost (৳)</Label>
             <Input id="register-purchase-price" inputMode="decimal" value={purchasePrice} onChange={(event) => setPurchasePrice(event.target.value)} placeholder="0.00" />
           </div>
+          <div className="space-y-2 rounded-md border bg-muted/20 p-3 sm:col-span-2">
+            <p className="flex items-center gap-2 text-sm font-medium"><ClipboardList className="h-4 w-4" />Identity preview</p>
+            {!generatedRows[0]?.assetCode ? <p className="text-xs text-muted-foreground">Enter an asset code or batch prefix.</p> : <div className="flex flex-wrap gap-2">{generatedRows.slice(0, 8).map((row, index) => <span key={`${row.assetCode}-${index}`} className="rounded bg-background px-2 py-1 font-mono text-xs">{row.assetCode}</span>)}{generatedRows.length > 8 ? <span className="px-2 py-1 text-xs text-muted-foreground">+{generatedRows.length - 8} more</span> : null}</div>}
+            {components.data?.length ? <p className="text-xs text-muted-foreground">Each piece will initialize {components.data.length} required set component{components.data.length === 1 ? '' : 's'} as present.</p> : null}
+          </div>
         </div>
+        {rowErrors.length ? <div className="max-h-32 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs"><p className="font-medium text-destructive">Nothing was created. Correct these rows:</p><ul className="mt-1 list-disc space-y-1 pl-4">{rowErrors.map((error, index) => <li key={`${error.row}-${error.field}-${index}`}>{error.row >= 0 ? `Row ${error.row + 1}, ` : ''}{error.field}: {error.message}</li>)}</ul></div> : null}
         {!usableLocations.length && !locations.isLoading ? <p className="text-sm text-destructive">Create an active storage location before registering items.</p> : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!selectedSku || !locationId || !assetCode.trim() || mutation.isPending || !usableLocations.length} onClick={() => mutation.mutate()}>
-            {mutation.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Register item
+          <Button disabled={!selectedSku || !locationId || !generatedRows.every((row) => row.assetCode.trim()) || mutation.isPending || !usableLocations.length || !idempotencyKey} onClick={() => mutation.mutate()}>
+            {mutation.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Register {quantity} item{quantity === 1 ? '' : 's'}
           </Button>
         </DialogFooter>
       </DialogContent>

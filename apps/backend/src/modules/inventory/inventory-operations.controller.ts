@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -26,6 +27,8 @@ import {
   CreateInventoryServiceOrderDto,
   CreateSkuSetComponentDto,
   CreateStockUnitInspectionDto,
+  InventoryAttentionQueryDto,
+  InventoryServiceQueueQueryDto,
   ResolveStockUnitIssueDto,
   ReplaceStockUnitReferenceMediaDto,
   StartInventoryServiceOrderDto,
@@ -50,6 +53,24 @@ export class InventoryOperationsController {
     private readonly serviceOrders: InventoryServiceOrderService,
     private readonly sets: StockUnitSetService,
   ) {}
+
+  @Get('inspections')
+  @Roles('owner', 'manager', 'staff')
+  listInspectionAttention(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: InventoryAttentionQueryDto,
+  ) {
+    return this.inspections.listAttention(tenant.id, query);
+  }
+
+  @Get('service-orders')
+  @Roles('owner', 'manager', 'staff')
+  listServiceQueue(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: InventoryServiceQueueQueryDto,
+  ) {
+    return this.serviceOrders.listQueue(tenant.id, query);
+  }
 
   @Get('stock-units/:stockUnitId/operations')
   @Roles('owner', 'manager', 'staff')

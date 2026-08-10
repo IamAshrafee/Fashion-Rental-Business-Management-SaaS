@@ -1,6 +1,10 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
+  IsDateString,
   IsEmail,
   IsEnum,
   IsIn,
@@ -18,6 +22,7 @@ import {
   AvailabilityPolicyScope,
   InventoryTrackingMode,
   InventoryLocationType,
+  InventoryMovementType,
   StockConditionGrade,
   StockUnitDisposition,
   StockUnitOperationalState,
@@ -92,6 +97,26 @@ export class InventoryItemsQueryDto {
   @IsOptional()
   @IsEnum(StockConditionGrade)
   condition?: StockConditionGrade;
+
+  @IsOptional()
+  @IsUUID()
+  productId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  variantSizeId?: string;
+
+  @IsOptional()
+  @IsIn(['OPEN_ISSUE', 'OPEN_SERVICE', 'INCOMPLETE_SET'])
+  attention?: 'OPEN_ISSUE' | 'OPEN_SERVICE' | 'INCOMPLETE_SET';
+
+  @IsOptional()
+  @IsDateString()
+  availableFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  availableTo?: string;
 
   @IsOptional()
   @IsString()
@@ -290,15 +315,23 @@ export class UpdateInventoryLocationDto {
   isActive?: boolean;
 }
 
-export class SetInventoryPoolQuantityDto {
+export class AdjustInventoryPoolDto {
   @IsUUID()
   locationId!: string;
+
+  @IsIn(['RECEIVE', 'ADD', 'SUBTRACT', 'WRITE_OFF'])
+  adjustmentType!: 'RECEIVE' | 'ADD' | 'SUBTRACT' | 'WRITE_OFF';
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1_000_000)
+  quantity!: number;
 
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(1_000_000)
-  onHandQuantity!: number;
+  expectedVersion!: number;
 
   @IsOptional()
   @Type(() => Number)
@@ -311,6 +344,71 @@ export class SetInventoryPoolQuantityDto {
   @IsNotEmpty()
   @MaxLength(500)
   reason!: string;
+}
+
+export class CountInventoryPoolDto {
+  @IsUUID()
+  locationId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  observedQuantity!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  expectedVersion!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class InventoryMovementsQueryDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  page = 1;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100)
+  limit = 25;
+
+  @IsOptional() @IsEnum(InventoryMovementType)
+  movementType?: InventoryMovementType;
+
+  @IsOptional() @IsUUID()
+  productId?: string;
+
+  @IsOptional() @IsUUID()
+  variantSizeId?: string;
+
+  @IsOptional() @IsUUID()
+  stockUnitId?: string;
+
+  @IsOptional() @IsUUID()
+  inventoryPoolId?: string;
+
+  @IsOptional() @IsUUID()
+  locationId?: string;
+
+  @IsOptional() @IsUUID()
+  actorUserId?: string;
+
+  @IsOptional() @IsUUID()
+  bookingId?: string;
+
+  @IsOptional() @IsUUID()
+  transferId?: string;
+
+  @IsOptional() @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional() @IsDateString()
+  dateTo?: string;
+
+  @IsOptional() @IsString() @MaxLength(100)
+  search?: string;
 }
 
 export class UpsertAvailabilityPolicyDto {
@@ -328,6 +426,11 @@ export class UpsertAvailabilityPolicyDto {
   @IsOptional()
   @IsUUID()
   variantSizeId?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  expectedVersion!: number;
 
   @IsOptional()
   @Type(() => Number)
@@ -410,4 +513,36 @@ export class UpsertAvailabilityPolicyDto {
   @Min(0)
   @Max(43_200)
   transferLeadTimeMinutes?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsEnum(StockConditionGrade, { each: true })
+  eligibleConditionGrades?: StockConditionGrade[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsEnum(StockUnitOperationalState, { each: true })
+  eligibleOperationalStates?: StockUnitOperationalState[];
+}
+
+export class AvailabilityPolicyVersionDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+}
+
+export class ResolveAvailabilityPolicyQueryDto {
+  @IsUUID()
+  productId!: string;
+
+  @IsUUID()
+  variantSizeId!: string;
+
+  @IsUUID()
+  locationId!: string;
 }

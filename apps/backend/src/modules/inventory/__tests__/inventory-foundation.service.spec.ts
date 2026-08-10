@@ -110,6 +110,22 @@ describe('Inventory foundation services', () => {
     ]);
   });
 
+  it('rejects a stale availability-policy write instead of overwriting newer settings', async () => {
+    const tx = {
+      availabilityPolicy: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'policy-1', version: 3 }),
+      },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
+    const service = new AvailabilityPolicyService(prisma as never);
+
+    await expect(service.upsert('tenant-1', {
+      scope: AvailabilityPolicyScope.TENANT,
+      expectedVersion: 2,
+      pendingHoldMinutes: 45,
+    })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'STALE_AVAILABILITY_POLICY' }) });
+  });
+
   it('records an auditable movement when pooled on-hand quantity changes', async () => {
     const tx = {
       variantSize: {
@@ -119,23 +135,34 @@ describe('Inventory foundation services', () => {
         }),
       },
       inventoryPool: {
-        findUnique: jest.fn().mockResolvedValue(null),
-        upsert: jest.fn().mockResolvedValue({
+        upsert: jest.fn().mockResolvedValue({}),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'pool-1',
+          variantSizeId: 'sku-1',
+          locationId: 'location-1',
+          onHandQuantity: 0,
+          version: 0,
+        }),
+        update: jest.fn().mockResolvedValue({
           id: 'pool-1',
           variantSizeId: 'sku-1',
           locationId: 'location-1',
           onHandQuantity: 5,
+          version: 1,
         }),
       },
-      inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+      inventoryMovement: { create: jest.fn().mockResolvedValue({ id: 'movement-1' }) },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'pool-1' }]),
     };
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
     const locations = { getActiveOrThrow: jest.fn().mockResolvedValue({ id: 'location-1' }) };
     const service = new InventoryPoolService(prisma as never, locations as never);
 
-    await service.setQuantity('tenant-1', 'sku-1', {
+    await service.adjust('tenant-1', 'sku-1', {
       locationId: 'location-1',
-      onHandQuantity: 5,
+      adjustmentType: 'RECEIVE',
+      quantity: 5,
+      expectedVersion: 0,
       reason: 'Opening stock count',
     }, 'user-1');
 
