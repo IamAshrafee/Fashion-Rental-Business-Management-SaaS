@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-10
 
-**Status:** Approved design; awaiting written-spec review
+**Status:** Approved for implementation
 
 **Scope:** Bring the complete owner-side product and rental domain to operational closure: catalog, inventory, physical items, bundles, bookings, fulfillment, return, inspection, and service. Unrelated owner-dashboard modules are outside this delivery unless a scoped workflow depends on them.
 
