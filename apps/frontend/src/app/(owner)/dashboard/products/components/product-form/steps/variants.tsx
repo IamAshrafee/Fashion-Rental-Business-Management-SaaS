@@ -30,7 +30,13 @@ import { ImageUploader } from '@/components/shared/image-uploader';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 
-export function VariantsMediaStep() {
+export function VariantsMediaStep({
+  showConfiguration = true,
+  showMedia = true,
+}: {
+  showConfiguration?: boolean;
+  showMedia?: boolean;
+} = {}) {
   const { control, watch, setValue } = useFormContext<ProductFormValues>();
   const { data: colors, isLoading: isLoadingColors } = useColors();
   const COLORS = colors || [];
@@ -69,9 +75,13 @@ export function VariantsMediaStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">Variants & Media</h2>
+        <h2 className="text-xl font-semibold">
+          {showConfiguration ? 'Variants and rentable SKUs' : 'Variant media'}
+        </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Add color variants and upload images for each. Every variant needs at least one image.
+          {showConfiguration
+            ? 'Define every color and size combination, then choose pooled or individual-piece tracking.'
+            : 'Upload customer-facing images for every saved variant.'}
         </p>
       </div>
 
@@ -89,7 +99,7 @@ export function VariantsMediaStep() {
 
           return (
             <Card key={field.id} className="relative border-primary/20">
-              {index > 0 && (
+              {showConfiguration && index > 0 && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -111,7 +121,7 @@ export function VariantsMediaStep() {
               </CardHeader>
               <CardContent className="space-y-5">
                 {/* Color fields */}
-                <div className="grid gap-4 sm:grid-cols-2">
+                {showConfiguration && <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     control={control}
                     name={`variants.${index}.name`}
@@ -240,7 +250,7 @@ export function VariantsMediaStep() {
                           )}
                           {selectedSizeIds.length > 0 && (
                             <p className="mt-2 text-xs text-muted-foreground">
-                              Add opening stock by location from the product inventory workspace after saving.
+                              Opening stock is recorded in the Inventory step after pricing.
                             </p>
                           )}
                           <FormMessage />
@@ -311,10 +321,10 @@ export function VariantsMediaStep() {
                       </FormItem>
                     )}
                   />
-                </div>
+                </div>}
 
                 {/* ── Images Section (inline, collapsible) ────────── */}
-                <div className="border rounded-lg">
+                {showMedia && <div className="border rounded-lg">
                   <button
                     type="button"
                     onClick={() => toggleImages(index)}
@@ -358,25 +368,25 @@ export function VariantsMediaStep() {
                       />
                     </div>
                   )}
-                </div>
+                </div>}
               </CardContent>
             </Card>
           );
         })}
 
-        <Button
+        {showConfiguration && <Button
           type="button"
           variant="outline"
           className="w-full border-dashed min-h-[48px]"
           onClick={() => {
             const newIndex = fields.length;
-            append({ name: '', mainColorId: '', sizeInstanceIds: [], inventoryBySizeId: {}, identicalColorIds: [], images: [] });
+            append({ clientKey: Math.random().toString(36).slice(2), name: '', mainColorId: '', sizeInstanceIds: [], inventoryBySizeId: {}, skuIdBySizeInstanceId: {}, identicalColorIds: [], images: [] });
             setExpandedImages(prev => ({ ...prev, [newIndex]: true }));
           }}
         >
           <Plus className="mr-2 h-4 w-4" />
           Add Another Variant
-        </Button>
+        </Button>}
       </div>
     </div>
   );

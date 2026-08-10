@@ -10,13 +10,11 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Headers,
 } from '@nestjs/common';
 import { ProductService } from './product.service';
 import { VariantService } from './variant.service';
 import { SearchService } from './search.service';
 import {
-  CreateProductDto,
   UpdateProductDto,
   UpdateProductStatusDto,
   ProductQueryDto,
@@ -177,17 +175,6 @@ export class ProductOwnerController {
     @Query() query: OwnerProductQueryDto,
   ) {
     return this.productService.listOwner(tenant.id, { ...query, status: 'trash' });
-  }
-
-  @Post()
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async createProduct(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: CreateProductDto,
-    @Headers('idempotency-key') idempotencyKey?: string,
-  ) {
-    return this.productService.create(tenant.id, dto, idempotencyKey);
   }
 
   @Get(':id')

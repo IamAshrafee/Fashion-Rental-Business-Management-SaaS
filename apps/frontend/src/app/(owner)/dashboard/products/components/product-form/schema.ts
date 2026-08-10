@@ -24,11 +24,13 @@ export const productFormSchema = z.object({
     .array(
       z.object({
         id: z.string().optional(), // Used for edit, or temp ID for DnD
+        clientKey: z.string().min(1).default(() => Math.random().toString(36).slice(2)),
         name: z.string().optional(),
         sizeInstanceIds: z.array(z.string()).min(1, 'At least one rentable size is required').default([]),
         inventoryBySizeId: z.record(z.object({
           trackingMode: z.enum(['POOLED', 'SERIALIZED']).default('POOLED'),
         })).default({}),
+        skuIdBySizeInstanceId: z.record(z.string()).default({}),
         mainColorId: z.string().min(1, 'Main color is required'),
         identicalColorIds: z.array(z.string()).default([]),
         images: z
@@ -90,6 +92,24 @@ export const productFormSchema = z.object({
       })
     )
     .optional(),
+
+  // Step 5: auditable opening inventory receipt/registration
+  openingInventorySkipped: z.boolean().default(false),
+  openingInventoryLines: z.array(z.object({
+    variantSizeId: z.string().min(1),
+    label: z.string(),
+    trackingMode: z.enum(['POOLED', 'SERIALIZED']),
+    locationId: z.string().min(1, 'Choose an inventory location'),
+    pooledQuantity: z.number().int().nonnegative().optional(),
+    units: z.array(z.object({
+      assetCode: z.string().min(1, 'Asset code is required'),
+      barcode: z.string().optional(),
+      condition: z.enum(['NEW', 'EXCELLENT', 'GOOD', 'FAIR', 'POOR', 'DAMAGED']).default('GOOD'),
+      purchaseDate: z.string().optional(),
+      purchasePrice: z.number().int().nonnegative().optional(),
+      notes: z.string().optional(),
+    })).default([]),
+  })).default([]),
 }).superRefine((data, ctx) => {
   // Pricing validation: rate plan type is required
   if (!data.ratePlanType) {
@@ -170,6 +190,32 @@ export const productFormSchema = z.object({
   if (data.lateFeeEnabled) {
     if (!data.lateFeeAmountMinor || data.lateFeeAmountMinor <= 0) pricingIssue('Late fee per day must be greater than zero', ['lateFeeAmountMinor']);
     if (data.lateFeeGraceHours === undefined) pricingIssue('Enter the late-fee grace period', ['lateFeeGraceHours']);
+  }
+
+  if (!data.openingInventorySkipped) {
+    if (data.openingInventoryLines.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Add opening inventory or choose to add stock later',
+        path: ['openingInventoryLines'],
+      });
+    }
+    data.openingInventoryLines.forEach((line, index) => {
+      if (line.trackingMode === 'POOLED' && (!line.pooledQuantity || line.pooledQuantity < 1)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Enter a positive opening quantity',
+          path: ['openingInventoryLines', index, 'pooledQuantity'],
+        });
+      }
+      if (line.trackingMode === 'SERIALIZED' && line.units.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Register at least one physical item',
+          path: ['openingInventoryLines', index, 'units'],
+        });
+      }
+    });
   }
 });
 

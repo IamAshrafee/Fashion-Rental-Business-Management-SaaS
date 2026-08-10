@@ -11,6 +11,9 @@ CREATE TYPE "TenantRole" AS ENUM ('owner', 'manager', 'staff');
 CREATE TYPE "ProductStatus" AS ENUM ('draft', 'published', 'archived');
 
 -- CreateEnum
+CREATE TYPE "ProductOnboardingSection" AS ENUM ('BASICS', 'SKUS', 'CONTENT', 'PRICING', 'OPENING_INVENTORY', 'REVIEW');
+
+-- CreateEnum
 CREATE TYPE "SizeSchemaStatus" AS ENUM ('draft', 'active', 'deprecated');
 
 -- CreateEnum
@@ -451,10 +454,44 @@ CREATE TABLE "products" (
 );
 
 -- CreateTable
+CREATE TABLE "product_onboardings" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "product_id" TEXT NOT NULL,
+    "current_section" "ProductOnboardingSection" NOT NULL DEFAULT 'BASICS',
+    "completed_sections" "ProductOnboardingSection"[] NOT NULL DEFAULT ARRAY[]::"ProductOnboardingSection"[],
+    "revision" INTEGER NOT NULL DEFAULT 0,
+    "created_by_user_id" TEXT NOT NULL,
+    "updated_by_user_id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "product_onboardings_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "product_onboarding_commands" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "onboarding_id" TEXT NOT NULL,
+    "section" "ProductOnboardingSection" NOT NULL,
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "revision_before" INTEGER NOT NULL,
+    "revision_after" INTEGER NOT NULL,
+    "result" JSONB NOT NULL,
+    "actor_user_id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "product_onboarding_commands_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "product_variants" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
     "product_id" TEXT NOT NULL,
+    "onboarding_key" TEXT,
     "variant_name" TEXT,
     "main_color_id" TEXT NOT NULL,
     "sequence" INTEGER NOT NULL DEFAULT 0,
@@ -1916,10 +1953,34 @@ CREATE UNIQUE INDEX "products_tenant_id_slug_key" ON "products"("tenant_id", "sl
 CREATE UNIQUE INDEX "products_tenant_id_creation_key_key" ON "products"("tenant_id", "creation_key");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "product_onboardings_product_id_key" ON "product_onboardings"("product_id");
+
+-- CreateIndex
+CREATE INDEX "product_onboardings_tenant_id_updated_at_idx" ON "product_onboardings"("tenant_id", "updated_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "product_onboardings_created_by_user_id_idx" ON "product_onboardings"("created_by_user_id");
+
+-- CreateIndex
+CREATE INDEX "product_onboardings_updated_by_user_id_idx" ON "product_onboardings"("updated_by_user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "product_onboarding_commands_tenant_id_idempotency_key_key" ON "product_onboarding_commands"("tenant_id", "idempotency_key");
+
+-- CreateIndex
+CREATE INDEX "product_onboarding_commands_onboarding_id_created_at_idx" ON "product_onboarding_commands"("onboarding_id", "created_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "product_onboarding_commands_actor_user_id_idx" ON "product_onboarding_commands"("actor_user_id");
+
+-- CreateIndex
 CREATE INDEX "product_variants_product_id_idx" ON "product_variants"("product_id");
 
 -- CreateIndex
 CREATE INDEX "product_variants_tenant_id_idx" ON "product_variants"("tenant_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "product_variants_product_id_onboarding_key_key" ON "product_variants"("product_id", "onboarding_key");
 
 -- CreateIndex
 CREATE INDEX "variant_sizes_variant_id_idx" ON "variant_sizes"("variant_id");
@@ -2708,6 +2769,27 @@ ALTER TABLE "products" ADD CONSTRAINT "products_product_type_id_fkey" FOREIGN KE
 ALTER TABLE "products" ADD CONSTRAINT "products_size_schema_override_id_fkey" FOREIGN KEY ("size_schema_override_id") REFERENCES "size_schemas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "product_onboardings" ADD CONSTRAINT "product_onboardings_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_onboardings" ADD CONSTRAINT "product_onboardings_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_onboardings" ADD CONSTRAINT "product_onboardings_created_by_user_id_fkey" FOREIGN KEY ("created_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_onboardings" ADD CONSTRAINT "product_onboardings_updated_by_user_id_fkey" FOREIGN KEY ("updated_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_onboarding_commands" ADD CONSTRAINT "product_onboarding_commands_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_onboarding_commands" ADD CONSTRAINT "product_onboarding_commands_onboarding_id_fkey" FOREIGN KEY ("onboarding_id") REFERENCES "product_onboardings"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product_onboarding_commands" ADD CONSTRAINT "product_onboarding_commands_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "product_variants" ADD CONSTRAINT "product_variants_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3365,6 +3447,14 @@ ALTER TABLE "inventory_pools"
     "on_hand_quantity" >= 0
     AND "version" >= 0
     AND ("reorder_threshold" IS NULL OR "reorder_threshold" >= 0)
+  );
+
+ALTER TABLE "product_onboardings"
+  ADD CONSTRAINT "product_onboardings_revision_check" CHECK ("revision" >= 0);
+
+ALTER TABLE "product_onboarding_commands"
+  ADD CONSTRAINT "product_onboarding_commands_revisions_check" CHECK (
+    "revision_before" >= 0 AND "revision_after" = "revision_before" + 1
   );
 
 ALTER TABLE "availability_policies"

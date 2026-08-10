@@ -5,7 +5,7 @@ import { productApi, type ProductDetail } from '@/lib/api/products';
 import { productFormSchema, type ProductFormValues } from '../components/product-form/schema';
 import { useEffect } from 'react';
 
-function mapProductToFormValues(product: ProductDetail): ProductFormValues {
+export function mapProductToFormValues(product: ProductDetail): ProductFormValues {
   const pricing = product.pricing;
   const pricingComponents = pricing?.components
     .filter((component) => component.config.purpose !== 'DELIVERY')
@@ -38,6 +38,7 @@ function mapProductToFormValues(product: ProductDetail): ProductFormValues {
     sizeSchemaOverrideId: product.sizeSchemaOverrideId ?? '',
     variants: product.variants.map((variant) => ({
       id: variant.id,
+      clientKey: variant.onboardingKey ?? variant.id,
       name: variant.variantName ?? '',
       mainColorId: variant.mainColorId,
       sizeInstanceIds: variant.sizes.map((size) => size.sizeInstanceId),
@@ -46,6 +47,9 @@ function mapProductToFormValues(product: ProductDetail): ProductFormValues {
           size.sizeInstanceId,
           { trackingMode: size.trackingMode },
         ]),
+      ),
+      skuIdBySizeInstanceId: Object.fromEntries(
+        variant.sizes.map((size) => [size.sizeInstanceId, size.id]),
       ),
       identicalColorIds: variant.identicalColors.map((association) => association.color.id),
       images: variant.images.map((image) => ({
@@ -75,6 +79,8 @@ function mapProductToFormValues(product: ProductDetail): ProductFormValues {
       items: header.entries.map((entry) => ({ key: entry.key, value: entry.value })),
     })),
     faqs: product.faqs.map((faq) => ({ question: faq.question, answer: faq.answer })),
+    openingInventorySkipped: true,
+    openingInventoryLines: [],
   };
 }
 
@@ -94,10 +100,12 @@ const emptyValues: ProductFormValues = {
   productTypeId: '',
   sizeSchemaOverrideId: '',
   variants: [{
+    clientKey: Math.random().toString(36).slice(2),
     name: '',
     mainColorId: '',
     sizeInstanceIds: [],
     inventoryBySizeId: {},
+    skuIdBySizeInstanceId: {},
     identicalColorIds: [],
     images: [],
   }],
@@ -112,6 +120,8 @@ const emptyValues: ProductFormValues = {
   flatShippingFee: undefined,
   details: [],
   faqs: [],
+  openingInventorySkipped: true,
+  openingInventoryLines: [],
 };
 
 export function useEditProduct(productId: string) {

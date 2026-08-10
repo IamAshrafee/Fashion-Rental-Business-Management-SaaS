@@ -16,10 +16,12 @@ const defaultValues: Partial<ProductFormValues> = {
   showCountry: false,
   variants: [
     {
+      clientKey: Math.random().toString(36).slice(2),
       name: '',
       mainColorId: '',
       sizeInstanceIds: [],
       inventoryBySizeId: {},
+      skuIdBySizeInstanceId: {},
       identicalColorIds: [],
       images: [],
     },
@@ -33,6 +35,8 @@ const defaultValues: Partial<ProductFormValues> = {
   sizeSchemaOverrideId: '',
   details: [],
   faqs: [],
+  openingInventorySkipped: false,
+  openingInventoryLines: [],
 };
 
 interface DraftPayload {

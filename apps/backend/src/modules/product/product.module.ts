@@ -1,5 +1,6 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { PricingEngineModule } from '../pricing-engine/pricing-engine.module';
 
 // Services
 import { CategoryService } from './category.service';
@@ -7,6 +8,7 @@ import { ColorService } from './color.service';
 import { ProductService } from './product.service';
 import { VariantService } from './variant.service';
 import { SearchService } from './search.service';
+import { ProductOnboardingService } from './product-onboarding.service';
 
 // Controllers — Category
 import {
@@ -25,6 +27,7 @@ import {
   ProductGuestController,
   ProductOwnerController,
 } from './product.controller';
+import { ProductOnboardingController } from './product-onboarding.controller';
 
 /**
  * Product Module — P04 Product Management.
@@ -33,7 +36,7 @@ import {
  * Sizes, FAQs, Details, and Search.
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, PricingEngineModule],
   controllers: [
     // Guest (public)
     CategoryGuestController,
@@ -45,6 +48,7 @@ import {
     SubcategoryOwnerController,
     EventOwnerController,
     ProductOwnerController,
+    ProductOnboardingController,
   ],
   providers: [
     CategoryService,
@@ -52,6 +56,7 @@ import {
     ProductService,
     VariantService,
     SearchService,
+    ProductOnboardingService,
   ],
   exports: [
     ProductService,

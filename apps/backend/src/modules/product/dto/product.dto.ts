@@ -169,43 +169,6 @@ export class OwnerProductQueryDto extends ProductQueryDto {
   order?: 'asc' | 'desc';
 }
 
-// --- Create Product DTO (full nested) ---
-export class CreateProductDto {
-  @IsString() @MinLength(2) @MaxLength(300) name!: string;
-  @IsOptional() @IsString() description?: string;
-  @IsString() categoryId!: string;
-  @IsOptional() @IsString() subcategoryId?: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  eventIds?: string[];
-
-  @IsOptional() @IsEnum(['draft', 'published']) status?: string;
-  @IsOptional() @IsDateString() purchaseDate?: string;
-  @IsOptional() @IsInt() purchasePrice?: number;
-  @IsOptional() @IsBoolean() purchasePricePublic?: boolean;
-  @IsOptional() @IsString() itemCountry?: string;
-  @IsOptional() @IsBoolean() itemCountryPublic?: boolean;
-  @IsOptional() @IsInt() targetRentals?: number;
-  @IsOptional() @IsEnum(StorefrontItemVisibilityMode) storefrontItemMode?: StorefrontItemVisibilityMode;
-
-  @IsOptional() @IsString() productTypeId?: string;
-  @IsOptional() @IsString() sizeSchemaOverrideId?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateFaqDto)
-  faqs?: CreateFaqDto[];
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateDetailHeaderDto)
-  details?: CreateDetailHeaderDto[];
-}
-
 export class UpdateProductDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(300) name?: string;
   @IsOptional() @IsString() description?: string;

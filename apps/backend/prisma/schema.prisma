@@ -49,6 +49,15 @@ enum ProductStatus {
   archived
 }
 
+enum ProductOnboardingSection {
+  BASICS
+  SKUS
+  CONTENT
+  PRICING
+  OPENING_INVENTORY
+  REVIEW
+}
+
 enum SizeSchemaStatus {
   draft
   active
@@ -522,6 +531,9 @@ model User {
   loginHistory                 LoginHistory[]
   damageReports                DamageReport[]
   deletedProducts              Product[]                       @relation("ProductDeletedBy")
+  createdProductOnboardings    ProductOnboarding[]             @relation("ProductOnboardingCreator")
+  updatedProductOnboardings    ProductOnboarding[]             @relation("ProductOnboardingUpdater")
+  productOnboardingCommands    ProductOnboardingCommand[]
   recordedPayments             SubscriptionPayment[]           @relation("PaymentsRecordedBy")
   createdPromoCodes            PromoCode[]                     @relation("PromoCodesCreatedBy")
   subscriptionActions          SubscriptionHistory[]           @relation("HistoryPerformedBy")
@@ -685,6 +697,8 @@ model Tenant {
   inventoryLocations             InventoryLocation[]
   inventoryPools                 InventoryPool[]
   availabilityPolicies           AvailabilityPolicy[]
+  productOnboardings             ProductOnboarding[]
+  productOnboardingCommands      ProductOnboardingCommand[]
   inventoryTransfers             InventoryTransfer[]
   inventoryTransferLines         InventoryTransferLine[]
   inventoryTransferUnits         InventoryTransferUnit[]
@@ -937,6 +951,7 @@ model Product {
   fulfillmentRequirements       FulfillmentRequirement[]
   fulfillmentSelectionSnapshots FulfillmentSelectionSnapshot[]
   availabilityPolicies          AvailabilityPolicy[]
+  onboarding                    ProductOnboarding?
 
   @@unique([tenantId, slug])
   @@unique([tenantId, creationKey])
@@ -948,15 +963,63 @@ model Product {
   @@map("products")
 }
 
+model ProductOnboarding {
+  id                String                     @id @default(uuid())
+  tenantId          String                     @map("tenant_id")
+  productId         String                     @unique @map("product_id")
+  currentSection    ProductOnboardingSection   @default(BASICS) @map("current_section")
+  completedSections ProductOnboardingSection[] @default([]) @map("completed_sections")
+  revision          Int                        @default(0)
+  createdByUserId   String                     @map("created_by_user_id")
+  updatedByUserId   String                     @map("updated_by_user_id")
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+
+  tenant    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product   Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy User                       @relation("ProductOnboardingCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedBy User                       @relation("ProductOnboardingUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+  commands  ProductOnboardingCommand[]
+
+  @@index([tenantId, updatedAt(sort: Desc)])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+  @@map("product_onboardings")
+}
+
+model ProductOnboardingCommand {
+  id             String                   @id @default(uuid())
+  tenantId       String                   @map("tenant_id")
+  onboardingId   String                   @map("onboarding_id")
+  section        ProductOnboardingSection
+  idempotencyKey String                   @map("idempotency_key")
+  requestHash    String                   @map("request_hash")
+  revisionBefore Int                      @map("revision_before")
+  revisionAfter  Int                      @map("revision_after")
+  result         Json                     @db.JsonB
+  actorUserId    String                   @map("actor_user_id")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  onboarding ProductOnboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  actor      User              @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([onboardingId, createdAt(sort: Desc)])
+  @@index([actorUserId])
+  @@map("product_onboarding_commands")
+}
+
 model ProductVariant {
-  id          String   @id @default(uuid())
-  tenantId    String   @map("tenant_id")
-  productId   String   @map("product_id")
-  variantName String?  @map("variant_name")
-  mainColorId String   @map("main_color_id")
-  sequence    Int      @default(0)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  productId     String   @map("product_id")
+  onboardingKey String?  @map("onboarding_key")
+  variantName   String?  @map("variant_name")
+  mainColorId   String   @map("main_color_id")
+  sequence      Int      @default(0)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   mainColor       Color            @relation("MainColor", fields: [mainColorId], references: [id])
@@ -965,6 +1028,7 @@ model ProductVariant {
   sizes           VariantSize[]
   inventoryBlocks InventoryBlock[]
 
+  @@unique([productId, onboardingKey])
   @@index([productId])
   @@index([tenantId])
   @@map("product_variants")

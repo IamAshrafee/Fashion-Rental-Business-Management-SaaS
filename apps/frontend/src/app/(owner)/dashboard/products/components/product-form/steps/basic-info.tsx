@@ -25,7 +25,7 @@ import { Loader2 } from 'lucide-react';
 import { useCategories, useEvents } from '../../../hooks/use-product-apis';
 import { FieldTip } from '@/components/shared/field-tip';
 
-export function BasicInfoStep() {
+export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = {}) {
   const { control, watch } = useFormContext<ProductFormValues>();
   const categoryId = watch('categoryId');
   
@@ -171,7 +171,7 @@ export function BasicInfoStep() {
           )}
         />
 
-        <FormField
+        {showStatus && <FormField
           control={control}
           name="status"
           render={({ field }) => (
@@ -194,7 +194,7 @@ export function BasicInfoStep() {
               <FormMessage />
             </FormItem>
           )}
-        />
+        />}
         
         <FormField
           control={control}

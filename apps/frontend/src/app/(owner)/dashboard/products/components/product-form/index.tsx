@@ -1,321 +1,466 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FormProvider, type FieldPath } from 'react-hook-form';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Loader2, LogOut, RotateCcw } from 'lucide-react';
 import { useProductForm } from '../../hooks/use-product-form';
-import { useSubmitProduct } from '../../hooks/use-submit-product';
+import { mapProductToFormValues } from '../../hooks/use-edit-product';
+import { buildPricingPayload } from './pricing-payload';
 import type { ProductFormValues } from './schema';
 import { WizardLayout, WIZARD_STEPS } from './wizard-layout';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-
-// Step imports
 import { BasicInfoStep } from './steps/basic-info';
+import { SizeStep } from './steps/size';
 import { VariantsMediaStep } from './steps/variants';
+import { ContentMediaStep } from './steps/content-media';
 import { PricingServicesStep } from './steps/pricing-services';
-import { SizeDetailsStep } from './steps/size-details';
+import { OpeningInventoryStep } from './steps/opening-inventory';
 import { ReviewStep } from './steps/review';
-import { Loader2, RotateCcw, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
+import { getApiErrorMessage } from '@/lib/api-error';
+import {
+  productApi,
+  productOnboardingApi,
+  type ProductOnboarding,
+} from '@/lib/api/products';
 
-/* ─── Validation field groups for each step ────────────────────────────── */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const STEP_FIELDS: Record<number, FieldPath<ProductFormValues>[]> = {
-  0: ['name', 'categoryId', 'status'],
-  1: ['productTypeId', 'sizeSchemaOverrideId', 'details', 'faqs'],
-  2: ['variants'],
-  3: [
-    'ratePlanType', 'ratePlanConfig', 'pricingComponents',
-    'shippingMode', 'flatShippingFee',
-  ],
-  4: [], // Review — full validation on submit
+  0: ['name', 'categoryId', 'productTypeId', 'sizeSchemaOverrideId'],
+  1: ['variants'],
+  2: ['variants', 'details', 'faqs'],
+  3: ['ratePlanType', 'ratePlanConfig', 'pricingComponents', 'shippingMode', 'flatShippingFee'],
+  4: ['openingInventorySkipped', 'openingInventoryLines'],
+  5: [],
 };
 
-/* ─── Main Component ───────────────────────────────────────────────────── */
+function commandKey() {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `product-command-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function ProductFormWizard() {
   const {
     form,
     isLoaded,
     clearDraft,
     hasDraft,
-    lastSavedAt,
+    lastSavedAt: localSavedAt,
     forceSaveDraft,
     restoredStep,
     productId,
     creationKey,
     checkpointProduct,
-    checkpointVariant,
     checkpointImage,
   } = useProductForm();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const requestedProductId = searchParams.get('productId');
+  const activeProductId = requestedProductId ?? productId;
+  const [onboarding, setOnboarding] = useState<ProductOnboarding | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [stepErrors, setStepErrors] = useState<Record<number, number>>({});
-  const { mutate: submitProduct, isPending: isSubmitting } = useSubmitProduct({
-    clearDraft,
-    productId,
-    creationKey,
-    checkpointProduct,
-    checkpointVariant,
-    checkpointImage,
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const commandKeys = useRef<Record<number, string>>({});
+  const hydratedProductId = useRef<string | null>(null);
+  const hasRestoredLocalStep = useRef(false);
+
+  const onboardingQuery = useQuery({
+    queryKey: ['product-onboarding', activeProductId],
+    queryFn: () => productOnboardingApi.get(activeProductId!),
+    enabled: isLoaded && Boolean(activeProductId),
+    retry: false,
   });
-  const router = useRouter();
-  const { toast } = useToast();
-  const hasRestoredRef = useRef(false);
 
-  // Restore step from draft on initial load
-  useEffect(() => {
-    if (isLoaded && !hasRestoredRef.current && restoredStep > 0 && restoredStep < WIZARD_STEPS.length) {
-      setCurrentStep(restoredStep);
-      hasRestoredRef.current = true;
+  const synchronizeServerIdentity = useCallback((workflow: ProductOnboarding) => {
+    const values = form.getValues('variants');
+    for (const [index, localVariant] of values.entries()) {
+      const serverVariant = workflow.product.variants.find((variant) =>
+        variant.onboardingKey === localVariant.clientKey || variant.id === localVariant.id,
+      );
+      if (!serverVariant) continue;
+      form.setValue(`variants.${index}.id`, serverVariant.id, { shouldDirty: false });
+      form.setValue(
+        `variants.${index}.skuIdBySizeInstanceId`,
+        Object.fromEntries(serverVariant.sizes.map((size) => [size.sizeInstanceId, size.id])),
+        { shouldDirty: false },
+      );
     }
-  }, [isLoaded, restoredStep]);
+  }, [form]);
 
-  /* ── Compute errors per step ──────────────────────────────────────── */
+  useEffect(() => {
+    const workflow = onboardingQuery.data;
+    if (!workflow) return;
+    setOnboarding(workflow);
+    if (hydratedProductId.current !== workflow.productId) {
+      if (requestedProductId || !hasDraft) {
+        form.reset(mapProductToFormValues(workflow.product));
+      }
+      checkpointProduct(workflow.productId);
+      hydratedProductId.current = workflow.productId;
+      const sectionIndex = WIZARD_STEPS.findIndex((step) => step.section === workflow.currentSection);
+      setCurrentStep(Math.max(0, sectionIndex));
+    }
+    synchronizeServerIdentity(workflow);
+  }, [checkpointProduct, form, hasDraft, onboardingQuery.data, requestedProductId, synchronizeServerIdentity]);
+
+  useEffect(() => {
+    if (
+      isLoaded &&
+      !activeProductId &&
+      !hasRestoredLocalStep.current &&
+      restoredStep > 0 &&
+      restoredStep < WIZARD_STEPS.length
+    ) {
+      setCurrentStep(restoredStep);
+      hasRestoredLocalStep.current = true;
+    }
+  }, [activeProductId, isLoaded, restoredStep]);
+
   const computeStepErrors = useCallback(() => {
     const errors = form.formState.errors;
-    const errorMap: Record<number, number> = {};
-    
-    const countFieldErrors = (fields: FieldPath<ProductFormValues>[]): number => {
-      let count = 0;
-      for (const field of fields) {
-        const err = errors[field as keyof typeof errors];
-        if (err) {
-          if (Array.isArray(err)) {
-            // Array fields like variants, measurements
-            count += err.filter(Boolean).length || 1;
-          } else {
-            count += 1;
-          }
-        }
-      }
-      return count;
-    };
-
-    for (const [stepStr, fields] of Object.entries(STEP_FIELDS)) {
-      const step = Number(stepStr);
-      const count = countFieldErrors(fields);
-      if (count > 0) errorMap[step] = count;
+    const next: Record<number, number> = {};
+    for (const [stepValue, fields] of Object.entries(STEP_FIELDS)) {
+      const count = fields.reduce((total, field) => {
+        const error = errors[field as keyof typeof errors];
+        if (!error) return total;
+        return total + (Array.isArray(error) ? error.filter(Boolean).length || 1 : 1);
+      }, 0);
+      if (count) next[Number(stepValue)] = count;
     }
-
-    setStepErrors(errorMap);
-    return errorMap;
+    setStepErrors(next);
+    return next;
   }, [form.formState.errors]);
 
-  // Re-compute errors when form errors change
   useEffect(() => {
     computeStepErrors();
-  }, [form.formState.errors, computeStepErrors]);
+  }, [computeStepErrors, form.formState.errors]);
 
-  /* ── Step validation + navigation ─────────────────────────────────── */
-  const validateCurrentStep = useCallback(async (): Promise<boolean> => {
-    // Step 2 (Variants & Media) — also check images manually
+  const validateCurrentStep = useCallback(async () => {
     if (currentStep === 2) {
-      const variants = form.getValues('variants');
-      let hasImageError = false;
-      variants.forEach((v, i) => {
-        if (!v.images || v.images.length === 0) {
-          form.setError(`variants.${i}.images` as FieldPath<ProductFormValues>, {
+      let missingImages = false;
+      form.getValues('variants').forEach((variant, index) => {
+        if (!variant.images.length) {
+          form.setError(`variants.${index}.images` as FieldPath<ProductFormValues>, {
             type: 'manual',
-            message: 'At least one image is required per variant',
+            message: 'Add at least one storefront image.',
           });
-          hasImageError = true;
+          missingImages = true;
         }
       });
-      if (hasImageError) {
+      if (missingImages) {
         toast({
-          title: 'Missing images',
-          description: 'Each variant needs at least 1 image. Expand the images section to upload.',
+          title: 'Storefront images required',
+          description: 'Every variant needs at least one image before content can be completed.',
           variant: 'destructive',
         });
         return false;
       }
     }
-
-    const fields = STEP_FIELDS[currentStep] || [];
-    if (fields.length === 0) return true;
-    
-    const isValid = await form.trigger(fields);
-    if (!isValid) {
-      const errMap = computeStepErrors();
-      const errCount = errMap[currentStep] || 0;
+    const fields = STEP_FIELDS[currentStep];
+    const valid = fields.length === 0 ? true : await form.trigger(fields);
+    if (!valid) {
+      const count = computeStepErrors()[currentStep] ?? 1;
       toast({
-        title: `${errCount} field${errCount > 1 ? 's' : ''} need${errCount === 1 ? 's' : ''} attention`,
-        description: 'Fix the highlighted errors to continue.',
+        title: `${count} field${count === 1 ? '' : 's'} need attention`,
+        description: 'Correct the highlighted information before continuing.',
         variant: 'destructive',
       });
-      // Scroll to first error
       setTimeout(() => {
-        const firstErrorEl = document.querySelector('[data-invalid="true"], [aria-invalid="true"]');
-        firstErrorEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.querySelector('[data-invalid="true"], [aria-invalid="true"]')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
     }
-    return isValid;
-  }, [currentStep, form, toast, computeStepErrors]);
+    return valid;
+  }, [computeStepErrors, currentStep, form, toast]);
+
+  const uploadPendingImages = useCallback(async () => {
+    const variants = form.getValues('variants');
+    for (const [variantIndex, variant] of variants.entries()) {
+      if (!variant.id || !UUID_PATTERN.test(variant.id)) {
+        throw new Error('Save the SKU section before uploading variant images.');
+      }
+      for (const [imageIndex, image] of variant.images.entries()) {
+        if (!image.file) continue;
+        const uploaded = await productApi.uploadImage(variant.id, image.file, Boolean(image.isFeatured));
+        checkpointImage(variantIndex, imageIndex, uploaded);
+      }
+    }
+  }, [checkpointImage, form]);
+
+  const saveCurrentSection = useCallback(async (): Promise<ProductOnboarding> => {
+    const values = form.getValues();
+    const key = commandKeys.current[currentStep] ?? commandKey();
+    commandKeys.current[currentStep] = key;
+    let saved: ProductOnboarding;
+
+    if (currentStep === 0) {
+      const basics = {
+        name: values.name,
+        categoryId: values.categoryId,
+        subcategoryId: values.subcategoryId || undefined,
+        productTypeId: values.productTypeId,
+        sizeSchemaOverrideId: values.sizeSchemaOverrideId || undefined,
+        eventIds: values.events,
+        purchaseDate: values.purchaseDate || undefined,
+        purchasePrice: values.purchasePrice,
+        purchasePricePublic: values.showPurchasePrice,
+        itemCountry: values.itemCountry || undefined,
+        itemCountryPublic: values.showCountry,
+        targetRentals: values.targetRentals,
+      };
+      saved = onboarding
+        ? await productOnboardingApi.saveBasics(
+            onboarding.productId,
+            { ...basics, expectedRevision: onboarding.revision },
+            key,
+          )
+        : await productOnboardingApi.start(basics, creationKey);
+      if (!onboarding) checkpointProduct(saved.productId);
+    } else {
+      if (!onboarding) throw new Error('Save product basics before continuing.');
+      if (currentStep === 1) {
+        saved = await productOnboardingApi.saveSkus(
+          onboarding.productId,
+          {
+            expectedRevision: onboarding.revision,
+            variants: values.variants.map((variant) => ({
+              ...(variant.id && UUID_PATTERN.test(variant.id) ? { id: variant.id } : {}),
+              clientKey: variant.clientKey,
+              variantName: variant.name || undefined,
+              mainColorId: variant.mainColorId,
+              identicalColorIds: variant.identicalColorIds,
+              sizes: variant.sizeInstanceIds.map((sizeInstanceId) => ({
+                sizeInstanceId,
+                trackingMode: variant.inventoryBySizeId[sizeInstanceId]?.trackingMode ?? 'POOLED',
+              })),
+            })),
+          },
+          key,
+        );
+        form.setValue('openingInventoryLines', [], { shouldDirty: false });
+      } else if (currentStep === 2) {
+        await uploadPendingImages();
+        saved = await productOnboardingApi.saveContent(
+          onboarding.productId,
+          {
+            expectedRevision: onboarding.revision,
+            description: values.description,
+            faqs: values.faqs,
+            details: values.details?.map((detail, sequence) => ({
+              headerName: detail.header,
+              sequence,
+              entries: detail.items,
+            })),
+          },
+          key,
+        );
+      } else if (currentStep === 3) {
+        saved = await productOnboardingApi.savePricing(
+          onboarding.productId,
+          { expectedRevision: onboarding.revision, pricing: buildPricingPayload(values) },
+          key,
+        );
+      } else if (currentStep === 4) {
+        saved = await productOnboardingApi.saveOpeningInventory(
+          onboarding.productId,
+          {
+            expectedRevision: onboarding.revision,
+            skipInventory: values.openingInventorySkipped,
+            ...(!values.openingInventorySkipped ? {
+              lines: values.openingInventoryLines.map((line) => ({
+                variantSizeId: line.variantSizeId,
+                locationId: line.locationId,
+                ...(line.trackingMode === 'POOLED'
+                  ? { pooledQuantity: line.pooledQuantity }
+                  : { units: line.units.map(({ assetCode, barcode, condition, purchaseDate, purchasePrice, notes }) => ({
+                      assetCode,
+                      barcode: barcode || undefined,
+                      condition,
+                      purchaseDate: purchaseDate || undefined,
+                      purchasePrice,
+                      notes: notes || undefined,
+                    })) }),
+              })),
+            } : {}),
+          },
+          key,
+        );
+      } else {
+        saved = await productOnboardingApi.publish(onboarding.productId, onboarding.revision, key);
+      }
+    }
+
+    delete commandKeys.current[currentStep];
+    setOnboarding(saved);
+    synchronizeServerIdentity(saved);
+    queryClient.setQueryData(['product-onboarding', saved.productId], saved);
+    return saved;
+  }, [checkpointProduct, creationKey, currentStep, form, onboarding, queryClient, synchronizeServerIdentity, uploadPendingImages]);
 
   const handleNext = useCallback(async () => {
-    if (currentStep === WIZARD_STEPS.length - 1) {
-      // Final submit
-      const allValid = await form.trigger();
-      if (!allValid) {
-        computeStepErrors();
-        toast({
-          title: 'Form has errors',
-          description: 'Please fix all errors before publishing.',
-          variant: 'destructive',
-        });
+    if (!(await validateCurrentStep())) return;
+    setIsSubmitting(true);
+    try {
+      const saved = await saveCurrentSection();
+      if (currentStep === WIZARD_STEPS.length - 1) {
+        clearDraft();
+        await queryClient.invalidateQueries({ queryKey: ['products'] });
+        toast({ title: 'Product published', description: 'The rental listing is live and ready for date-based bookings.' });
+        router.push(`/dashboard/products/${saved.productId}`);
         return;
       }
-      form.handleSubmit((data: ProductFormValues) => submitProduct(data))();
-      return;
-    }
-
-    const valid = await validateCurrentStep();
-    if (valid) {
       const nextStep = currentStep + 1;
       setCurrentStep(nextStep);
-      // Save current step position for draft resume
       forceSaveDraft(nextStep);
-      // Scroll to top of content area
+      toast({ title: 'Section saved', description: 'Your server draft is up to date.' });
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+      toast({
+        title: 'Could not save this section',
+        description: getApiErrorMessage(error, 'Your input is still here. Correct the issue and retry.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [currentStep, form, validateCurrentStep, forceSaveDraft, computeStepErrors, toast, submitProduct]);
+  }, [clearDraft, currentStep, forceSaveDraft, queryClient, router, saveCurrentSection, toast, validateCurrentStep]);
 
   const handlePrev = useCallback(() => {
-    if (currentStep > 0) {
-      const prevStep = currentStep - 1;
-      setCurrentStep(prevStep);
-      forceSaveDraft(prevStep);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    if (currentStep === 0) return;
+    const previous = currentStep - 1;
+    setCurrentStep(previous);
+    forceSaveDraft(previous);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [currentStep, forceSaveDraft]);
 
   const handleStepClick = useCallback((index: number) => {
-    // Allow free navigation in any direction
-    if (index !== currentStep) {
-      setCurrentStep(index);
-      forceSaveDraft(index);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (index > currentStep) {
+      toast({ title: 'Save this section first', description: 'Forward sections unlock after the current section is saved.' });
+      return;
     }
-  }, [currentStep, forceSaveDraft]);
+    setCurrentStep(index);
+    forceSaveDraft(index);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentStep, forceSaveDraft, toast]);
 
-  const handleForceSave = useCallback(() => {
-    forceSaveDraft(currentStep);
-    toast({
-      title: 'Draft saved',
-      description: 'Your progress has been saved.',
-    });
-  }, [forceSaveDraft, currentStep, toast]);
+  const handleForceSave = useCallback(async () => {
+    if (currentStep === WIZARD_STEPS.length - 1) {
+      forceSaveDraft(currentStep);
+      toast({ title: 'Everything is saved', description: 'Publish when you are ready to make the product visible.' });
+      return;
+    }
+    if (!(await validateCurrentStep())) return;
+    setIsSubmitting(true);
+    try {
+      await saveCurrentSection();
+      forceSaveDraft(currentStep);
+      toast({ title: 'Server draft saved', description: 'This section can be resumed from another device.' });
+    } catch (error) {
+      toast({ title: 'Could not save draft', description: getApiErrorMessage(error), variant: 'destructive' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [currentStep, forceSaveDraft, saveCurrentSection, toast, validateCurrentStep]);
 
-  const handleSaveAndExit = useCallback(() => {
-    forceSaveDraft(currentStep);
-    toast({
-      title: 'Draft saved',
-      description: 'You can resume editing anytime.',
-    });
-    router.push(productId ? `/dashboard/products/${productId}/edit` : '/dashboard/products');
-  }, [forceSaveDraft, currentStep, toast, router, productId]);
+  const handleSaveAndExit = useCallback(async () => {
+    if (currentStep === WIZARD_STEPS.length - 1) {
+      forceSaveDraft(currentStep);
+      router.push('/dashboard/products');
+      return;
+    }
+    if (!(await validateCurrentStep())) return;
+    setIsSubmitting(true);
+    try {
+      const saved = await saveCurrentSection();
+      forceSaveDraft(currentStep);
+      toast({ title: 'Server draft saved', description: 'Continue setup from the product catalogue whenever you are ready.' });
+      router.push('/dashboard/products');
+      queryClient.setQueryData(['product-onboarding', saved.productId], saved);
+    } catch (error) {
+      toast({ title: 'Could not save draft', description: getApiErrorMessage(error), variant: 'destructive' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [currentStep, forceSaveDraft, queryClient, router, saveCurrentSection, toast, validateCurrentStep]);
 
-  /* ── Keyboard shortcuts ───────────────────────────────────────────── */
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input/textarea
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          handleNext();
-        } else if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          handlePrev();
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          if (currentStep === WIZARD_STEPS.length - 1) {
-            handleNext(); // triggers submit
-          }
-        } else if (e.key === 's' || e.key === 'S') {
-          e.preventDefault();
-          handleForceSave();
-        }
+    const listener = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void handleForceSave();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNext, handlePrev, handleForceSave, currentStep]);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, [handleForceSave]);
 
-  /* ── Loading state ────────────────────────────────────────────────── */
-  if (!isLoaded) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
-      </div>
-    );
+  if (!isLoaded || onboardingQuery.isLoading) {
+    return <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary/50" /></div>;
   }
 
-  /* ── Step renderer ────────────────────────────────────────────────── */
   const renderStep = () => {
     switch (currentStep) {
-      case 0: return <BasicInfoStep />;
-      case 1: return <SizeDetailsStep />;
-      case 2: return <VariantsMediaStep />;
-      case 3: return <PricingServicesStep />;
-      case 4: return <ReviewStep onGoToStep={(step) => { setCurrentStep(step); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />;
-      default: return null;
+      case 0:
+        return <div className="space-y-8"><BasicInfoStep showStatus={false} /><Separator /><SizeStep /></div>;
+      case 1:
+        return <VariantsMediaStep showConfiguration showMedia={false} />;
+      case 2:
+        return <ContentMediaStep />;
+      case 3:
+        return <PricingServicesStep />;
+      case 4:
+        return <OpeningInventoryStep />;
+      case 5:
+        return <ReviewStep onGoToStep={(step) => setCurrentStep(step)} />;
+      default:
+        return null;
     }
   };
 
+  const lastSavedAt = onboarding ? new Date(onboarding.lastSavedAt) : localSavedAt;
+
   return (
     <FormProvider {...form}>
-      <form onSubmit={(e) => e.preventDefault()} className="relative">
-        {/* Submitting overlay */}
+      <form onSubmit={(event) => event.preventDefault()} className="relative">
         {isSubmitting && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg">
-            <div className="flex flex-col items-center gap-4 p-8 bg-white dark:bg-card rounded-xl shadow-xl border">
-              <Loader2 className="h-10 w-10 animate-spin text-primary" />
-              <div className="text-center">
-                <p className="font-semibold text-lg">Processing Product</p>
-                <p className="text-sm text-muted-foreground">Uploading images & saving data...</p>
-              </div>
+          <div className="absolute inset-0 z-50 flex items-center justify-center rounded-lg bg-background/70 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3 rounded-xl border bg-card p-8 shadow-xl">
+              <Loader2 className="h-9 w-9 animate-spin text-primary" />
+              <p className="font-semibold">Saving authoritative product data…</p>
             </div>
           </div>
         )}
 
-        {/* Draft restoration banner */}
-        {hasDraft && currentStep === 0 && (
-          <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800/50 px-4 py-3">
+        {(hasDraft || onboarding) && currentStep === 0 && (
+          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">You have a saved draft</p>
-              {lastSavedAt && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-                  Last saved: {lastSavedAt.toLocaleString()}
-                </p>
-              )}
+              <p className="text-sm font-medium text-amber-900">Resumable product setup</p>
+              <p className="text-xs text-amber-700">
+                {onboarding ? `Server revision ${onboarding.revision}` : 'Unsaved browser recovery draft'}
+              </p>
             </div>
             <div className="flex items-center gap-2">
-              {productId ? (
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link href={`/dashboard/products/${productId}/edit`}>Open server draft</Link>
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    clearDraft();
-                    setCurrentStep(0);
-                  }}
-                >
-                  <RotateCcw data-icon="inline-start" />
-                  Start fresh
+              {!onboarding && (
+                <Button type="button" variant="outline" size="sm" onClick={() => { clearDraft(); setCurrentStep(0); }}>
+                  <RotateCcw className="h-4 w-4" /> Start fresh
                 </Button>
               )}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="min-h-[36px]"
-                onClick={handleSaveAndExit}
-              >
-                <LogOut className="mr-1.5 h-3.5 w-3.5" />
-                Save & Exit
+              {onboarding && (
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <Link href={`/dashboard/products/${onboarding.productId}`}>View product</Link>
+                </Button>
+              )}
+              <Button type="button" variant="outline" size="sm" onClick={() => void handleSaveAndExit()}>
+                <LogOut className="h-4 w-4" /> Save & exit
               </Button>
             </div>
           </div>
@@ -324,13 +469,13 @@ export function ProductFormWizard() {
         <WizardLayout
           currentStep={currentStep}
           totalSteps={WIZARD_STEPS.length}
-          onNext={handleNext}
+          onNext={() => void handleNext()}
           onPrev={handlePrev}
           onStepClick={handleStepClick}
           isSubmitting={isSubmitting}
           stepErrors={stepErrors}
           lastSavedAt={lastSavedAt}
-          onForceSave={handleForceSave}
+          onForceSave={() => void handleForceSave()}
         >
           {renderStep()}
         </WizardLayout>

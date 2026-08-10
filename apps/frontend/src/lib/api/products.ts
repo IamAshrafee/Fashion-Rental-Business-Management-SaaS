@@ -78,6 +78,12 @@ export interface ProductListItem {
     ready: boolean;
     blockers: ProductReadinessBlocker[];
   };
+  onboarding: {
+    currentSection: ProductOnboardingSection;
+    completedSections: ProductOnboardingSection[];
+    revision: number;
+    updatedAt: string;
+  } | null;
   deletedBy: { id: string; fullName: string } | null;
   _count: { bookingItems: number };
   deletedAt?: string | null;
@@ -202,6 +208,7 @@ export interface SizingPayload {
 
 export interface ProductVariantData {
   id: string;
+  onboardingKey: string | null;
   variantName: string | null;
   mainColorId: string;
   sequence: number;
@@ -223,6 +230,28 @@ export interface ProductVariantData {
     sequence: number;
     originalName: string | null;
   }>;
+}
+
+export type ProductOnboardingSection =
+  | 'BASICS'
+  | 'SKUS'
+  | 'CONTENT'
+  | 'PRICING'
+  | 'OPENING_INVENTORY'
+  | 'REVIEW';
+
+export interface ProductOnboarding {
+  id: string;
+  productId: string;
+  currentSection: ProductOnboardingSection;
+  completedSections: ProductOnboardingSection[];
+  nextSection: ProductOnboardingSection;
+  revision: number;
+  lastSavedAt: string;
+  lastSavedBy: { id: string; fullName: string };
+  commandCount: number;
+  product: ProductDetail;
+  readiness: ProductReadiness;
 }
 
 export interface ProductFaqData {
@@ -268,6 +297,12 @@ export interface ProductDetail {
   updatedAt: string;
   deletedAt: string | null;
   deletedByUserId: string | null;
+  onboarding: {
+    currentSection: ProductOnboardingSection;
+    completedSections: ProductOnboardingSection[];
+    revision: number;
+    updatedAt: string;
+  } | null;
   // Relations
   category: { id: string; name: string; slug: string };
   subcategory: { id: string; name: string; slug: string } | null;
@@ -298,7 +333,137 @@ export interface ProductListQuery {
   order?: 'asc' | 'desc';
 }
 
+export interface ProductOnboardingVariantInput {
+  id?: string;
+  clientKey: string;
+  variantName?: string;
+  mainColorId: string;
+  identicalColorIds?: string[];
+  sizes: VariantSizeInventoryInput[];
+}
+
+export interface OpeningInventoryInput {
+  expectedRevision: number;
+  skipInventory: boolean;
+  lines?: Array<{
+    variantSizeId: string;
+    locationId: string;
+    pooledQuantity?: number;
+    units?: Array<{
+      assetCode: string;
+      barcode?: string;
+      condition?: StockUnit['condition'];
+      purchaseDate?: string;
+      purchasePrice?: number;
+      notes?: string;
+    }>;
+  }>;
+}
+
 // ─── API Functions ────────────────────────────────────────────────────────────
+
+const onboardingHeaders = (idempotencyKey: string) => ({
+  headers: { 'Idempotency-Key': idempotencyKey },
+});
+
+export const productOnboardingApi = {
+  start: async (
+    payload: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.post<ApiResponse<ProductOnboarding>>(
+      '/owner/product-onboardings',
+      payload,
+      onboardingHeaders(idempotencyKey),
+    );
+    return data.data;
+  },
+
+  get: async (productId: string): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.get<ApiResponse<ProductOnboarding>>(
+      `/owner/product-onboardings/${productId}`,
+    );
+    return data.data;
+  },
+
+  saveBasics: async (
+    productId: string,
+    payload: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.put<ApiResponse<ProductOnboarding>>(
+      `/owner/product-onboardings/${productId}/basics`,
+      payload,
+      onboardingHeaders(idempotencyKey),
+    );
+    return data.data;
+  },
+
+  saveSkus: async (
+    productId: string,
+    payload: { expectedRevision: number; variants: ProductOnboardingVariantInput[] },
+    idempotencyKey: string,
+  ): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.put<ApiResponse<ProductOnboarding>>(
+      `/owner/product-onboardings/${productId}/skus`,
+      payload,
+      onboardingHeaders(idempotencyKey),
+    );
+    return data.data;
+  },
+
+  saveContent: async (
+    productId: string,
+    payload: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.put<ApiResponse<ProductOnboarding>>(
+      `/owner/product-onboardings/${productId}/content`,
+      payload,
+      onboardingHeaders(idempotencyKey),
+    );
+    return data.data;
+  },
+
+  savePricing: async (
+    productId: string,
+    payload: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.put<ApiResponse<ProductOnboarding>>(
+      `/owner/product-onboardings/${productId}/pricing`,
+      payload,
+      onboardingHeaders(idempotencyKey),
+    );
+    return data.data;
+  },
+
+  saveOpeningInventory: async (
+    productId: string,
+    payload: OpeningInventoryInput,
+    idempotencyKey: string,
+  ): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.put<ApiResponse<ProductOnboarding>>(
+      `/owner/product-onboardings/${productId}/opening-inventory`,
+      payload,
+      onboardingHeaders(idempotencyKey),
+    );
+    return data.data;
+  },
+
+  publish: async (
+    productId: string,
+    expectedRevision: number,
+    idempotencyKey: string,
+  ): Promise<ProductOnboarding> => {
+    const { data } = await apiClient.post<ApiResponse<ProductOnboarding>>(
+      `/owner/product-onboardings/${productId}/publish`,
+      { expectedRevision },
+      onboardingHeaders(idempotencyKey),
+    );
+    return data.data;
+  },
+};
 
 export const productApi = {
   /**
@@ -379,18 +544,6 @@ export const productApi = {
 
   getColors: async (): Promise<Color[]> => {
     const { data } = await apiClient.get<ApiResponse<Color[]>>('/colors');
-    return data.data;
-  },
-
-  createProduct: async (
-    payload: Record<string, unknown>,
-    idempotencyKey: string,
-  ): Promise<{ id: string }> => {
-    const { data } = await apiClient.post<ApiResponse<{ id: string }>>(
-      '/owner/products',
-      payload,
-      { headers: { 'Idempotency-Key': idempotencyKey } },
-    );
     return data.data;
   },
 

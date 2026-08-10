@@ -9,6 +9,6 @@ import { PrismaModule } from '../../prisma/prisma.module';
   imports: [PrismaModule],
   controllers: [PricingEngineController, PricingAdminController],
   providers: [PricingEngineService, PricingAdminService],
-  exports: [PricingEngineService],
+  exports: [PricingEngineService, PricingAdminService],
 })
 export class PricingEngineModule {}

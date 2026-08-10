@@ -582,7 +582,11 @@ export default function ProductDetailPage() {
   }
 
   const statusConfig = getStatusConfig(product.status);
-  const canPublish = product.status === 'published' || product.readiness.ready;
+  const editHref = product.onboarding && product.status === 'draft'
+    ? `/dashboard/products/new?productId=${id}`
+    : `/dashboard/products/${id}/edit`;
+  const canPublish = product.status === 'published'
+    || (product.readiness.ready && (!product.onboarding || product.onboarding.completedSections.includes('REVIEW')));
   const effectivePrice = getEffectivePrice(product.pricing);
   const targetProgress = product.targetRentals
     ? Math.min(Math.round((product.totalBookings / product.targetRentals) * 100), 100)
@@ -653,8 +657,8 @@ export default function ProductDetailPage() {
             {product.status === 'published' ? 'Unpublish' : 'Publish'}
           </Button>
           <Button variant="outline" size="sm" className="hidden h-7 px-2.5 text-xs md:inline-flex" asChild>
-            <Link href={`/dashboard/products/${id}/edit`}>
-              <Edit className="h-3 w-3 mr-1" /> Edit
+            <Link href={editHref}>
+              <Edit className="h-3 w-3 mr-1" /> {product.onboarding && product.status === 'draft' ? 'Continue setup' : 'Edit'}
             </Link>
           </Button>
           <Button variant="outline" size="sm" className="hidden h-7 px-2.5 text-xs md:inline-flex" asChild>
@@ -675,7 +679,7 @@ export default function ProductDetailPage() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[140px]">
               <DropdownMenuItem asChild className="text-xs md:hidden">
-                <Link href={`/dashboard/products/${id}/edit`}><Edit className="h-3 w-3 mr-2" /> Edit</Link>
+                <Link href={editHref}><Edit className="h-3 w-3 mr-2" /> {product.onboarding && product.status === 'draft' ? 'Continue setup' : 'Edit'}</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild className="text-xs md:hidden">
                 <Link href={`/dashboard/products/${id}/inventory`}><Package className="h-3 w-3 mr-2" /> Inventory</Link>

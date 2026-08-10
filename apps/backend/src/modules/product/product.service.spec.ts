@@ -15,6 +15,7 @@ describe('ProductService owner catalog list', () => {
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
     updatedAt: new Date('2026-08-02T00:00:00.000Z'),
     deletedAt: null,
+    onboarding: null,
     category: { id: 'category-1', name: 'Dresses', slug: 'dresses', isActive: true },
     productType: {
       id: 'type-1',
@@ -183,52 +184,6 @@ describe('ProductService owner catalog list', () => {
       pooledOnHand: 0,
       serializedUnits: 0,
       hasStock: false,
-    });
-  });
-
-  it('returns the same draft for a matching product creation key', async () => {
-    productDelegate.findFirst.mockResolvedValue({
-      id: 'saved-draft-1',
-      name: 'Red Designer Dress',
-      categoryId: 'category-1',
-      productTypeId: 'type-1',
-      creationKey: 'create-request-1',
-    });
-
-    const result = await service.create(
-      'tenant-1',
-      {
-        name: 'Red Designer Dress',
-        categoryId: 'category-1',
-        productTypeId: 'type-1',
-      },
-      'create-request-1',
-    );
-
-    expect(result).toMatchObject({ id: 'saved-draft-1' });
-    expect(productDelegate.findFirst).toHaveBeenCalledWith({
-      where: { tenantId: 'tenant-1', creationKey: 'create-request-1' },
-    });
-  });
-
-  it('rejects reuse of a product creation key for different basics', async () => {
-    productDelegate.findFirst.mockResolvedValue({
-      id: 'saved-draft-1',
-      name: 'Red Designer Dress',
-      categoryId: 'category-1',
-      productTypeId: 'type-1',
-    });
-
-    await expect(service.create(
-      'tenant-1',
-      {
-        name: 'Blue Designer Dress',
-        categoryId: 'category-1',
-        productTypeId: 'type-1',
-      },
-      'create-request-1',
-    )).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'IDEMPOTENCY_KEY_REUSED' }),
     });
   });
 

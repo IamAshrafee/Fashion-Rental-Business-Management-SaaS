@@ -111,7 +111,12 @@ function ProductActions({ product }: { product: ProductListItem }) {
               <Link href={`/dashboard/products/${product.id}`}><Eye data-icon="inline-start" />View product</Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link href={`/dashboard/products/${product.id}/edit`}><Pencil data-icon="inline-start" />Edit catalog</Link>
+              <Link href={product.onboarding && product.status === 'draft'
+                ? `/dashboard/products/new?productId=${product.id}`
+                : `/dashboard/products/${product.id}/edit`}>
+                <Pencil data-icon="inline-start" />
+                {product.onboarding && product.status === 'draft' ? 'Continue setup' : 'Edit catalog'}
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href={`/dashboard/products/${product.id}/inventory`}><Boxes data-icon="inline-start" />Manage inventory</Link>
@@ -120,14 +125,23 @@ function ProductActions({ product }: { product: ProductListItem }) {
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem
-              disabled={statusMutationPending || (!isPublished && !product.readiness.ready)}
+              disabled={statusMutationPending || (!isPublished && (
+                !product.readiness.ready
+                || Boolean(product.onboarding && !product.onboarding.completedSections.includes('REVIEW'))
+              ))}
               onClick={() => updateStatus.mutate({
                 id: product.id,
                 status: isPublished ? 'draft' : 'published',
               })}
             >
               {statusMutationPending ? <Loader2 className="animate-spin" /> : isPublished ? <Undo2 /> : <Send />}
-              {isPublished ? 'Unpublish to draft' : product.readiness.ready ? 'Publish product' : 'Complete setup to publish'}
+              {isPublished
+                ? 'Unpublish to draft'
+                : product.onboarding && !product.onboarding.completedSections.includes('REVIEW')
+                  ? 'Continue setup to publish'
+                  : product.readiness.ready
+                    ? 'Publish product'
+                    : 'Complete setup to publish'}
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />

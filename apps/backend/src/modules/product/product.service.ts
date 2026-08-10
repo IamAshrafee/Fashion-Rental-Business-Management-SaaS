@@ -10,7 +10,6 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  CreateProductDto,
   UpdateProductDto,
   ProductQueryDto,
   OwnerProductQueryDto,
@@ -61,6 +60,9 @@ const ownerProductListSelect = () => ({
   slug: true,
   status: true,
   storefrontItemMode: true,
+  onboarding: {
+    select: { currentSection: true, completedSections: true, revision: true, updatedAt: true },
+  },
   targetRentals: true,
   totalBookings: true,
   createdAt: true,
@@ -150,128 +152,6 @@ export class ProductService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
-
-  // =========================================================================
-  // CREATE
-  // =========================================================================
-
-  async create(tenantId: string, dto: CreateProductDto, idempotencyKey?: string) {
-    const creationKey = idempotencyKey?.trim() || null;
-    if (creationKey && creationKey.length > 128) {
-      throw new BadRequestException('Idempotency-Key must be 128 characters or fewer');
-    }
-
-    if (creationKey) {
-      const existing = await this.prisma.product.findFirst({
-        where: { tenantId, creationKey },
-      });
-      if (existing) {
-        this.assertMatchingCreationRequest(existing, dto);
-        return existing;
-      }
-    }
-
-    const slug = await this.generateUniqueSlug(tenantId, dto.name);
-
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-      await this.validateCatalogReferences(tx, tenantId, {
-        categoryId: dto.categoryId,
-        subcategoryId: dto.subcategoryId || null,
-        productTypeId: dto.productTypeId || null,
-        sizeSchemaOverrideId: dto.sizeSchemaOverrideId || null,
-        eventIds: dto.eventIds ?? [],
-        storefrontItemMode: dto.storefrontItemMode ?? 'INTERNAL_ONLY',
-      });
-      // 1. Create product
-      const product = await tx.product.create({
-        data: {
-          tenantId,
-          creationKey,
-          name: dto.name,
-          slug,
-          description: dto.description,
-          categoryId: dto.categoryId,
-          subcategoryId: dto.subcategoryId || null,
-          productTypeId: dto.productTypeId || null,
-          sizeSchemaOverrideId: dto.sizeSchemaOverrideId || null,
-          // Variants, images, pricing v2, and inventory are saved by subsequent
-          // owner requests. A base product therefore always starts as a draft.
-          status: 'draft',
-          purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
-          purchasePrice: dto.purchasePrice ?? null,
-          purchasePricePublic: dto.purchasePricePublic ?? false,
-          itemCountry: dto.itemCountry ?? null,
-          itemCountryPublic: dto.itemCountryPublic ?? false,
-          targetRentals: dto.targetRentals ?? null,
-          storefrontItemMode: dto.storefrontItemMode,
-        },
-      });
-
-      // 2. Create event associations
-      if (dto.eventIds?.length) {
-        await tx.productEvent.createMany({
-          data: dto.eventIds.map((eventId) => ({
-            productId: product.id,
-            eventId,
-          })),
-        });
-      }
-
-      // 3. Create FAQs
-      if (dto.faqs?.length) {
-        await tx.productFaq.createMany({
-          data: dto.faqs.map((faq, i) => ({
-            tenantId,
-            productId: product.id,
-            question: faq.question,
-            answer: faq.answer,
-            sequence: i,
-          })),
-        });
-      }
-
-      // 7. Create detail headers + entries
-      if (dto.details?.length) {
-        for (let i = 0; i < dto.details.length; i++) {
-          const detail = dto.details[i];
-          const header = await tx.productDetailHeader.create({
-            data: {
-              tenantId,
-              productId: product.id,
-              headerName: detail.headerName,
-              sequence: detail.sequence ?? i,
-            },
-          });
-
-          if (detail.entries?.length) {
-            await tx.productDetailEntry.createMany({
-              data: detail.entries.map((entry, j) => ({
-                headerId: header.id,
-                key: entry.key,
-                value: entry.value,
-                sequence: j,
-              })),
-            });
-          }
-        }
-      }
-
-        return product;
-      });
-    } catch (error) {
-      if (creationKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const existing = await this.prisma.product.findFirst({
-          where: { tenantId, creationKey },
-        });
-        if (existing) {
-          this.assertMatchingCreationRequest(existing, dto);
-          return existing;
-        }
-      }
-      throw error;
-    }
-  }
 
   // =========================================================================
   // UPDATE
@@ -547,6 +427,17 @@ export class ProductService {
 
     if (status === 'published') {
       await this.assertPublishReady(tenantId, productId);
+      const onboarding = await this.prisma.productOnboarding.findFirst({
+        where: { tenantId, productId },
+        select: { completedSections: true },
+      });
+      if (onboarding && !onboarding.completedSections.includes('REVIEW')) {
+        throw new ConflictException({
+          code: 'PRODUCT_ONBOARDING_INCOMPLETE',
+          section: 'REVIEW',
+          message: 'Complete and publish this product through its onboarding workflow.',
+        });
+      }
     }
 
     const updated = await this.prisma.product.update({
@@ -1096,7 +987,15 @@ export class ProductService {
   }
 
   async getReadiness(tenantId: string, productId: string): Promise<ProductReadiness> {
-    const product = await this.prisma.product.findFirst({
+    return this.getReadinessWithClient(this.prisma, tenantId, productId);
+  }
+
+  async getReadinessWithClient(
+    db: PrismaService | Prisma.TransactionClient,
+    tenantId: string,
+    productId: string,
+  ): Promise<ProductReadiness> {
+    const product = await db.product.findFirst({
       where: { id: productId, tenantId, deletedAt: null },
       select: {
         category: { select: { isActive: true } },
@@ -1161,22 +1060,6 @@ export class ProductService {
   // =========================================================================
   // PRIVATE HELPERS
   // =========================================================================
-
-  private assertMatchingCreationRequest(
-    product: { name: string; categoryId: string; productTypeId: string | null },
-    dto: CreateProductDto,
-  ): void {
-    const matches =
-      product.name === dto.name &&
-      product.categoryId === dto.categoryId &&
-      product.productTypeId === (dto.productTypeId || null);
-    if (!matches) {
-      throw new ConflictException({
-        code: 'IDEMPOTENCY_KEY_REUSED',
-        message: 'This product creation key is already associated with another draft.',
-      });
-    }
-  }
 
   private async findProductOrFail(tenantId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
@@ -1501,6 +1384,7 @@ export class ProductService {
         hasStock: onHand > 0,
       },
       readiness,
+      onboarding: product.onboarding,
       _count: product._count,
     };
   }
@@ -1712,6 +1596,9 @@ export class ProductService {
 
   private fullProductIncludes() {
     return {
+      onboarding: {
+        select: { currentSection: true, completedSections: true, revision: true, updatedAt: true },
+      },
       category: { select: { id: true, name: true, slug: true } },
       subcategory: { select: { id: true, name: true, slug: true } },
       events: {

@@ -135,7 +135,30 @@ export class PricingAdminService {
     },
     actorUserId?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) =>
+      this.savePricingInTransaction(tx, tenantId, productId, input, actorUserId),
+    );
+  }
+
+  async savePricingInTransaction(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    productId: string,
+    input: {
+      ratePlan: { type: string; priority?: number; config: Record<string, unknown> };
+      components?: Array<{
+        type: string;
+        priority?: number;
+        visibility?: string;
+        chargeTiming?: string;
+        refundable?: boolean;
+        config: Record<string, unknown>;
+      }>;
+      lateFeePolicy?: LateFeePolicyInput;
+      presentationConfig?: Record<string, unknown>;
+    },
+    actorUserId?: string,
+  ) {
       const product = await tx.product.findFirst({
         where: { id: productId, tenantId, deletedAt: null },
         select: { id: true, purchasePrice: true },
@@ -233,7 +256,6 @@ export class PricingAdminService {
         policyVersionId: policyVersion.id,
         version: nextVersion,
       };
-    });
   }
 
   // =========================================================================

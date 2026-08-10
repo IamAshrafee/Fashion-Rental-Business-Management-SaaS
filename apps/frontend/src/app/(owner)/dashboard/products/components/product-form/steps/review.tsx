@@ -238,7 +238,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
         </ReviewCard>
 
         {/* ── Variants & Media ─────────────────────────────── */}
-        <ReviewCard title="Variants & Media" icon={ImageIcon} step={2} onGoToStep={onGoToStep} warnings={variantWarnings}>
+        <ReviewCard title="SKUs & Media" icon={ImageIcon} step={1} onGoToStep={onGoToStep} warnings={variantWarnings}>
           <Row label="Variants" value={String(data.variants?.length || 0)} />
           <Row label="Total Images" value={String(totalImages)} />
           {data.variants?.map((v, idx) => {
@@ -303,7 +303,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
         </ReviewCard>
 
         {/* ── Size & Details ───────────────────────────────── */}
-        <ReviewCard title="Size & Details" icon={Ruler} step={1} onGoToStep={onGoToStep} warnings={sizeWarnings}>
+        <ReviewCard title="Sizing & Details" icon={Ruler} step={0} onGoToStep={onGoToStep} warnings={sizeWarnings}>
           <Row
             label="Product Type"
             value={

@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   Package,
-  Palette,
   DollarSign,
   Ruler,
   CheckCircle2,
@@ -14,15 +13,18 @@ import {
   ChevronRight,
   Save,
   Clock,
+  FileText,
+  Boxes,
 } from 'lucide-react';
 
 /* ─── Step Definitions ─────────────────────────────────────────────────── */
 export const WIZARD_STEPS = [
-  { label: 'Product Info', icon: Package, shortLabel: 'Info' },
-  { label: 'Size & Details', icon: Ruler, shortLabel: 'Size' },
-  { label: 'Variants & Media', icon: Palette, shortLabel: 'Media' },
-  { label: 'Pricing & Fees', icon: DollarSign, shortLabel: 'Pricing' },
-  { label: 'Review', icon: CheckCircle2, shortLabel: 'Review' },
+  { label: 'Basics', icon: Package, shortLabel: 'Basics', section: 'BASICS' },
+  { label: 'SKUs', icon: Ruler, shortLabel: 'SKUs', section: 'SKUS' },
+  { label: 'Content', icon: FileText, shortLabel: 'Content', section: 'CONTENT' },
+  { label: 'Pricing', icon: DollarSign, shortLabel: 'Pricing', section: 'PRICING' },
+  { label: 'Inventory', icon: Boxes, shortLabel: 'Stock', section: 'OPENING_INVENTORY' },
+  { label: 'Review', icon: CheckCircle2, shortLabel: 'Review', section: 'REVIEW' },
 ] as const;
 
 export type WizardStep = (typeof WIZARD_STEPS)[number];
