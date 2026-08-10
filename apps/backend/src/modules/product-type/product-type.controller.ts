@@ -7,42 +7,55 @@ import {
   Body,
   Param,
   UseGuards,
-  Req,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ProductTypeService } from './product-type.service';
 import { CreateProductTypeDto, UpdateProductTypeDto } from '../size-schema/dto/size-schema.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantGuard } from '../../common/guards/tenant.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import type { TenantContext } from '@closetrent/types';
 
 @Controller('owner/product-types')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @Roles('owner', 'manager')
 export class ProductTypeController {
   constructor(private readonly service: ProductTypeService) {}
 
   @Get()
-  list(@Req() req: any) {
-    return this.service.list(req.user.tenantId);
+  list(@CurrentTenant() tenant: TenantContext) {
+    return this.service.list(tenant.id);
   }
 
   @Get(':id')
-  getById(@Req() req: any, @Param('id') id: string) {
-    return this.service.getById(req.user.tenantId, id);
+  getById(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.getById(tenant.id, id);
   }
 
   @Post()
-  create(@Req() req: any, @Body() dto: CreateProductTypeDto) {
-    return this.service.create(req.user.tenantId, dto);
+  create(@CurrentTenant() tenant: TenantContext, @Body() dto: CreateProductTypeDto) {
+    return this.service.create(tenant.id, dto);
   }
 
   @Patch(':id')
-  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProductTypeDto) {
-    return this.service.update(req.user.tenantId, id, dto);
+  update(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProductTypeDto,
+  ) {
+    return this.service.update(tenant.id, id, dto);
   }
 
   @Delete(':id')
-  delete(@Req() req: any, @Param('id') id: string) {
-    return this.service.delete(req.user.tenantId, id);
+  delete(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.delete(tenant.id, id);
   }
 }

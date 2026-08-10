@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createHash } from 'crypto';
 import type {
@@ -18,7 +18,7 @@ import type {
 // Internal types for the engine
 // ============================================================================
 
-interface QuoteInput {
+export interface QuoteInput {
   tenantId: string;
   productId: string;
   variantId?: string;
@@ -33,7 +33,7 @@ interface QuoteInput {
   retailPriceMinor?: number; // from product.purchasePrice
 }
 
-interface ComputedLineItem {
+export interface ComputedLineItem {
   type: string;
   label: string;
   amountMinor: number;
@@ -43,7 +43,7 @@ interface ComputedLineItem {
   metadata?: Record<string, unknown>;
 }
 
-interface QuoteResult {
+export interface QuoteResult {
   policyVersionId: string;
   currency: string;
   billableDays: number;
@@ -77,10 +77,22 @@ export class PricingEngineService {
    * and computes a deterministic, itemized quote.
    */
   async computeQuote(input: QuoteInput): Promise<QuoteResult> {
+    if (!Number.isFinite(input.startAt.getTime()) || !Number.isFinite(input.endAt.getTime())) {
+      throw new BadRequestException('Rental dates must be valid ISO date-time values');
+    }
+    if (input.endAt < input.startAt) {
+      throw new BadRequestException('Rental end date must be on or after the start date');
+    }
+
     // 1. Load pricing profile + active policy version
-    const profile = await this.prisma.pricingProfile.findUnique({
-      where: { productId: input.productId },
+    const profile = await this.prisma.pricingProfile.findFirst({
+      where: {
+        productId: input.productId,
+        tenantId: input.tenantId,
+        product: { deletedAt: null },
+      },
       include: {
+        product: { select: { purchasePrice: true } },
         policyVersions: {
           where: { status: 'ACTIVE' },
           orderBy: { version: 'desc' },
@@ -140,7 +152,7 @@ export class PricingEngineService {
       applicableRatePlan.type as any,
       applicableRatePlan.config as any,
       billableDays,
-      input.retailPriceMinor,
+      input.retailPriceMinor ?? profile.product.purchasePrice ?? undefined,
     );
 
     const lineItems: ComputedLineItem[] = [baseLineItem];
@@ -165,7 +177,7 @@ export class PricingEngineService {
       const lineItem = this.computeComponentLineItem(
         component,
         baseAmount,
-        input.retailPriceMinor,
+        input.retailPriceMinor ?? profile.product.purchasePrice ?? undefined,
         billableDays,
       );
 
@@ -204,6 +216,72 @@ export class PricingEngineService {
       depositMinor,
       totalDueNowMinor,
       totalDueLaterMinor,
+    };
+  }
+
+  /** Computes and persists a short-lived customer quote for audit and checkout reuse. */
+  async createQuote(input: QuoteInput) {
+    const result = await this.computeQuote(input);
+    const inputsHash = this.computeInputsHash(input);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    const quote = await this.prisma.quote.create({
+      data: {
+        tenantId: input.tenantId,
+        productId: input.productId,
+        variantId: input.variantId,
+        policyVersionId: result.policyVersionId,
+        startAt: input.startAt,
+        endAt: input.endAt,
+        customerContext: input.context as any,
+        selectedAddons: input.selectedAddons as any,
+        inputsHash,
+        currency: result.currency,
+        billableDays: result.billableDays,
+        subtotalMinor: result.subtotalMinor,
+        depositMinor: result.depositMinor,
+        totalDueNowMinor: result.totalDueNowMinor,
+        totalDueLaterMinor: result.totalDueLaterMinor,
+        expiresAt,
+        lineItems: {
+          create: result.lineItems
+            .filter((lineItem) => lineItem.visibility === 'CUSTOMER')
+            .map((lineItem) => ({
+              type: lineItem.type,
+              label: lineItem.label,
+              amountMinor: lineItem.amountMinor,
+              refundable: lineItem.refundable,
+              visibility: lineItem.visibility as any,
+              metadata: lineItem.metadata as any,
+            })),
+        },
+      },
+      include: { lineItems: true },
+    });
+
+    return {
+      quoteId: quote.id,
+      policyVersionId: result.policyVersionId,
+      currency: result.currency,
+      duration: {
+        billableDays: result.billableDays,
+        startAt: input.startAt.toISOString(),
+        endAt: input.endAt.toISOString(),
+      },
+      lineItems: quote.lineItems.map((lineItem) => ({
+        type: lineItem.type,
+        label: lineItem.label,
+        amountMinor: lineItem.amountMinor,
+        refundable: lineItem.refundable,
+        visibility: lineItem.visibility,
+      })),
+      totals: {
+        subtotalMinor: result.subtotalMinor,
+        depositMinor: result.depositMinor,
+        totalDueNowMinor: result.totalDueNowMinor,
+        totalDueLaterMinor: result.totalDueLaterMinor,
+      },
+      expiresAt: expiresAt.toISOString(),
     };
   }
 

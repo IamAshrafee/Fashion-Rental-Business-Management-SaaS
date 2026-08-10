@@ -9,6 +9,8 @@ import {
   ValidateNested,
   IsObject,
   Min,
+  Max,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -43,7 +45,7 @@ export class RatePlanInputDto {
   @IsEnum(['PER_DAY', 'FLAT_PERIOD', 'TIERED_DAILY', 'WEEKLY_MONTHLY', 'PERCENT_RETAIL'])
   type!: string;
 
-  @IsOptional() @IsInt() @Min(1) priority?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(10_000) priority?: number;
 
   @IsObject()
   config!: Record<string, unknown>;
@@ -53,7 +55,7 @@ export class ComponentInputDto {
   @IsEnum(['FEE', 'DEPOSIT', 'DISCOUNT', 'ADDON', 'SURCHARGE'])
   type!: string;
 
-  @IsOptional() @IsInt() @Min(1) priority?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(10_000) priority?: number;
 
   @IsOptional()
   @IsEnum(['CUSTOMER', 'STAFF_ONLY'])
@@ -73,9 +75,9 @@ export class LateFeeInputDto {
   @IsBoolean() enabled!: boolean;
   @IsOptional() @IsInt() @Min(0) graceHours?: number;
   @IsOptional() @IsEnum(['PER_DAY', 'FLAT', 'PERCENT_BASE']) mode?: string;
-  @IsOptional() @IsInt() amountMinor?: number;
-  @IsOptional() @IsInt() percent?: number;
-  @IsOptional() @IsInt() totalCapMinor?: number;
+  @IsOptional() @IsInt() @Min(0) amountMinor?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(100) percent?: number;
+  @IsOptional() @IsInt() @Min(1) totalCapMinor?: number;
 }
 
 export class SavePricingDto {
@@ -85,6 +87,7 @@ export class SavePricingDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => ComponentInputDto)
   components?: ComponentInputDto[];
@@ -98,7 +101,6 @@ export class SavePricingDto {
 // --- Admin: Simulate ---
 
 export class SimulatePricingDto {
-  @IsString() productId!: string;
   @IsDateString() startAt!: string;
   @IsDateString() endAt!: string;
 

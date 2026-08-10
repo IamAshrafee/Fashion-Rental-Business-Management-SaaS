@@ -9,6 +9,7 @@ import {
   FormDescription,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { majorInputToMinor, minorToMajorInput } from '@/lib/money';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -250,9 +251,12 @@ export function BasicInfoStep() {
                     <FormControl>
                       <Input 
                         type="number" 
+                        min="0"
+                        step="0.01"
                         placeholder="e.g. 15000" 
                         {...field}
-                        onChange={(e) => field.onChange(e.target.valueAsNumber || undefined)}
+                        value={minorToMajorInput(field.value)}
+                        onChange={(e) => field.onChange(majorInputToMinor(e.target.value))}
                       />
                     </FormControl>
                     <FormMessage />

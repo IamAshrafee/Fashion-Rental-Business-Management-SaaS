@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { productApi, type ProductDetail } from '@/lib/api/products';
 import { productFormSchema, type ProductFormValues } from '../components/product-form/schema';
+import { useEffect } from 'react';
 
 function mapProductToFormValues(product: ProductDetail): ProductFormValues {
   const pricing = product.pricing;
@@ -125,6 +126,12 @@ export function useEditProduct(productId: string) {
     defaultValues: initialValues,
     mode: 'onChange',
   });
+
+  useEffect(() => {
+    if (query.data) {
+      form.reset(mapProductToFormValues(query.data));
+    }
+  }, [form, query.data]);
 
   return {
     form,

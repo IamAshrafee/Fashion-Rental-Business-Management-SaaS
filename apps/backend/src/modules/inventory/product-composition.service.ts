@@ -9,10 +9,41 @@ const MAX_COMPOSITION_DEPTH = 5;
 export class ProductCompositionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(tenantId: string, parentProductId: string, activeOnly = true) {
+  list(tenantId: string, parentProductId: string, activeOnly = false) {
     return this.prisma.productCompositionRule.findMany({
       where: { tenantId, parentProductId, ...(activeOnly ? { isActive: true } : {}) },
       include: this.ruleInclude(),
+      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  async listPublic(tenantId: string, parentProductId: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: parentProductId, tenantId, status: 'published', deletedAt: null },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+    return this.prisma.productCompositionRule.findMany({
+      where: {
+        tenantId,
+        parentProductId,
+        isActive: true,
+        componentProduct: { status: 'published', deletedAt: null },
+      },
+      include: {
+        ...this.ruleInclude(),
+        alternatives: {
+          where: {
+            isActive: true,
+            product: { status: 'published', deletedAt: null },
+          },
+          include: {
+            product: { select: { id: true, name: true, slug: true } },
+            variantSize: { include: { sizeInstance: true, variant: { include: { mainColor: true } } } },
+          },
+          orderBy: [{ priority: 'asc' as const }, { createdAt: 'asc' as const }],
+        },
+      },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
     });
   }
@@ -123,8 +154,16 @@ export class ProductCompositionService {
   async deactivate(tenantId: string, ruleId: string) {
     const rule = await this.prisma.productCompositionRule.findFirst({
       where: { id: ruleId, tenantId, isActive: true },
+      select: { id: true, parentProduct: { select: { status: true } } },
     });
     if (!rule) throw new NotFoundException('Active composition rule not found');
+    if (rule.parentProduct.status === 'published') {
+      throw new ConflictException({
+        code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED',
+        section: 'composition',
+        message: 'Unpublish this product before changing its bundle composition.',
+      });
+    }
     return this.prisma.productCompositionRule.update({
       where: { id: ruleId },
       data: { isActive: false, configurationVersion: { increment: 1 } },
@@ -137,6 +176,7 @@ export class ProductCompositionService {
     parentProductId: string,
     dto: CreateCompositionRuleDto,
   ) {
+    if (!dto.name.trim()) throw new BadRequestException('Composition rule name is required');
     if (dto.role === ProductCompositionRole.MAIN) {
       throw new BadRequestException('The main product requirement is created automatically');
     }
@@ -148,16 +188,52 @@ export class ProductCompositionService {
     }
     const products = await tx.product.findMany({
       where: { tenantId, id: { in: [parentProductId, dto.componentProductId] }, deletedAt: null },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (products.length !== 2) throw new NotFoundException('Parent or component product not found');
+    if (products.find((product) => product.id === parentProductId)?.status === 'published') {
+      throw new ConflictException({
+        code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED',
+        section: 'composition',
+        message: 'Unpublish this product before changing its bundle composition.',
+      });
+    }
     if (dto.skuResolution === CompositionSkuResolution.FIXED && !dto.fixedVariantSizeId) {
       throw new BadRequestException('Fixed composition rules require a variant-size SKU');
     }
+    if (dto.skuResolution !== CompositionSkuResolution.FIXED && dto.fixedVariantSizeId) {
+      throw new BadRequestException('A fixed SKU can only be used with fixed SKU resolution');
+    }
+    if (
+      dto.pricingBehavior === 'OPTIONAL_PRICE' &&
+      dto.role !== ProductCompositionRole.OPTIONAL_ADDON
+    ) {
+      throw new BadRequestException('Optional pricing can only be used for optional add-ons');
+    }
+    if (dto.pricingBehavior === 'INCLUDED' && dto.priceAdjustment !== 0) {
+      throw new BadRequestException('Included components cannot have a price adjustment');
+    }
+    if (dto.pricingBehavior !== 'INCLUDED' && dto.priceAdjustment <= 0) {
+      throw new BadRequestException('Priced components require a positive price adjustment');
+    }
+    if (
+      dto.skuResolution === CompositionSkuResolution.CUSTOMER_SELECTED &&
+      dto.isDefaultSelected &&
+      !(dto.alternatives ?? []).some((alternative) => alternative.variantSizeId)
+    ) {
+      throw new BadRequestException(
+        'A customer-selected default requires an alternative with a default SKU',
+      );
+    }
+    this.validateCompatibilityNotes(dto.compatibilityRules, 'compatibilityRules');
     if (dto.fixedVariantSizeId) {
       await this.assertSkuBelongsToProduct(tx, tenantId, dto.fixedVariantSizeId, dto.componentProductId);
     }
     for (const alternative of dto.alternatives ?? []) {
+      if (alternative.productId === dto.componentProductId && !alternative.variantSizeId) {
+        throw new BadRequestException('An alternative must differ from the primary component');
+      }
+      this.validateCompatibilityNotes(alternative.compatibilityRule, 'alternative.compatibilityRule');
       const alternativeProduct = await tx.product.findFirst({
         where: { id: alternative.productId, tenantId, deletedAt: null },
         select: { id: true },
@@ -166,6 +242,29 @@ export class ProductCompositionService {
       if (alternative.variantSizeId) {
         await this.assertSkuBelongsToProduct(tx, tenantId, alternative.variantSizeId, alternative.productId);
       }
+    }
+    const identities = (dto.alternatives ?? []).map(
+      (alternative) => `${alternative.productId}:${alternative.variantSizeId ?? '*'}`,
+    );
+    if (new Set(identities).size !== identities.length) {
+      throw new BadRequestException('Duplicate composition alternatives are not allowed');
+    }
+  }
+
+  private validateCompatibilityNotes(
+    value: Record<string, unknown> | undefined,
+    field: string,
+  ): void {
+    if (!value) return;
+    const keys = Object.keys(value);
+    if (keys.some((key) => key !== 'notes')) {
+      throw new BadRequestException(`${field} contains unsupported compatibility fields`);
+    }
+    if (
+      value.notes !== undefined &&
+      (typeof value.notes !== 'string' || value.notes.trim().length > 1_000)
+    ) {
+      throw new BadRequestException(`${field}.notes must be text of 1,000 characters or fewer`);
     }
   }
 

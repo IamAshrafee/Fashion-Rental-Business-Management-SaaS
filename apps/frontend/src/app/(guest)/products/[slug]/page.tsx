@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useCart } from '@/hooks/use-cart';
@@ -32,6 +32,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
+import type { Variants } from 'framer-motion';
 import { CustomDateRangePicker } from './custom-date-picker';
 import { CuratedPairingsSection } from './curated-pairings-section';
 import { format } from 'date-fns';
@@ -42,15 +43,23 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-const fadeInUp = {
+const fadeInUp: Variants = {
   hidden: { opacity: 0, y: 30 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] as any } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } },
 };
 
-const staggerChildren = {
+const staggerChildren: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
 };
+
+function selectorType(definition: unknown): string {
+  if (!definition || typeof definition !== 'object' || Array.isArray(definition)) return 'grid';
+  const ui = (definition as Record<string, unknown>).ui;
+  if (!ui || typeof ui !== 'object' || Array.isArray(ui)) return 'grid';
+  const value = (ui as Record<string, unknown>).selectorType;
+  return typeof value === 'string' ? value : 'grid';
+}
 
 export default function GuestProductDetailPage() {
   const { slug } = useParams();
@@ -66,7 +75,7 @@ export default function GuestProductDetailPage() {
     enabled: !!slug,
   });
 
-  const product = (rawProduct && typeof rawProduct === 'object' && 'data' in rawProduct ? (rawProduct as any).data : rawProduct) as GuestProductDetail | undefined;
+  const product = rawProduct as GuestProductDetail | undefined;
   const compositionQuery = useQuery({
     queryKey: ['guest-product-composition', product?.id],
     queryFn: () => fulfillmentApi.listGuestComposition(product!.id),
@@ -82,7 +91,7 @@ export default function GuestProductDetailPage() {
   
   const [addTryOn, setAddTryOn] = useState(false);
   const [addBackup, setAddBackup] = useState(false);
-  const [selectedBackupSize, setSelectedBackupSize] = useState('M');
+  const [selectedBackupSizeId, setSelectedBackupSizeId] = useState<string | undefined>();
   const [openAccordion, setOpenAccordion] = useState<string | null>('description');
   const [availabilityResult, setAvailabilityResult] = useState<DateRangeCheck | null>(null);
   const [compositionSelections, setCompositionSelections] = useState<BundleSelection[]>([]);
@@ -92,7 +101,7 @@ export default function GuestProductDetailPage() {
   const toggleAccordion = (id: string) => setOpenAccordion((prev) => (prev === id ? null : id));
 
   const availabilityMutation = useMutation({
-    mutationFn: async (params: { productId: string; variantId: string; variantSizeId: string; startDate: string; endDate: string; preferredStockUnitId?: string }) => {
+    mutationFn: async (params: { productId: string; variantId: string; variantSizeId: string; startDate: string; endDate: string; preferredStockUnitId?: string; backupSize?: string; tryOn?: boolean }) => {
       const result = await validateCart({ items: [{
         ...params,
         quantity: 1,
@@ -122,10 +131,7 @@ export default function GuestProductDetailPage() {
         },
       } satisfies DateRangeCheck;
     },
-    onSuccess: (data: any) => {
-      const unwrapped = data && typeof data === 'object' && 'data' in data && 'success' in data ? data.data : data;
-      setAvailabilityResult(unwrapped);
-    },
+    onSuccess: (data) => setAvailabilityResult(data),
     onError: () => setAvailabilityResult(null),
   });
 
@@ -151,7 +157,7 @@ export default function GuestProductDetailPage() {
         format(date.from!, 'yyyy-MM-dd'),
         format(date.to!, 'yyyy-MM-dd'),
       ),
-    enabled: Boolean(product?.id && selectedVariantSizeId && date.from && date.to && date.to > date.from),
+    enabled: Boolean(product?.id && selectedVariantSizeId && date.from && date.to && date.to >= date.from),
   });
 
   // Analytics: Track product view once per page load
@@ -173,7 +179,7 @@ export default function GuestProductDetailPage() {
   useEffect(() => {
     setAvailabilityResult(null);
     if (date.from && date.to && product?.id && selectedVariantSizeId && !compositionQuery.isLoading) {
-      if (date.to > date.from) {
+      if (date.to >= date.from) {
         availabilityMutation.mutate({
           productId: product.id,
           variantId: selectedVariantId || '',
@@ -181,11 +187,13 @@ export default function GuestProductDetailPage() {
           startDate: format(date.from, 'yyyy-MM-dd'),
           endDate: format(date.to, 'yyyy-MM-dd'),
           preferredStockUnitId: selectedStockUnitId,
+          backupSize: addBackup ? selectedBackupSizeId : undefined,
+          tryOn: addTryOn,
         });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date.from, date.to, product?.id, selectedVariantId, selectedVariantSizeId, selectedStockUnitId, compositionSelections, compositionQuery.isLoading, compositionQuery.dataUpdatedAt]);
+  }, [date.from, date.to, product?.id, selectedVariantId, selectedVariantSizeId, selectedStockUnitId, compositionSelections, compositionQuery.isLoading, compositionQuery.dataUpdatedAt, addBackup, selectedBackupSizeId, addTryOn]);
 
   // 1. Group by unique colors to display the colour swatches
   const uniqueColors = useMemo(() => {
@@ -228,6 +236,15 @@ export default function GuestProductDetailPage() {
       setSelectedVariantSizeId(firstSizeId);
     }
   }, [selectedVariant, selectedVariantSizeId]);
+  const backupSizeOptions = useMemo(
+    () => selectedVariant?.sizes.filter((size) => size.sizeInstance.id !== selectedVariantSize?.sizeInstance.id) ?? [],
+    [selectedVariant, selectedVariantSize?.sizeInstance.id],
+  );
+  useEffect(() => {
+    if (!backupSizeOptions.some((size) => size.sizeInstance.id === selectedBackupSizeId)) {
+      setSelectedBackupSizeId(backupSizeOptions[0]?.sizeInstance.id);
+    }
+  }, [backupSizeOptions, selectedBackupSizeId]);
   const pricing = product?.pricing;
   const pricingComponent = (purpose: string) =>
     pricing?.components.find(
@@ -277,38 +294,21 @@ export default function GuestProductDetailPage() {
 
   const days = useMemo(() => {
     if (!date.from || !date.to) return 0;
-    return date.to > date.from ? Math.ceil((date.to.getTime() - date.from.getTime()) / (1000 * 3600 * 24)) : 0;
+    if (date.to < date.from) return 0;
+    return Math.floor((date.to.getTime() - date.from.getTime()) / (1000 * 3600 * 24)) + 1;
   }, [date.from, date.to]);
 
-  const rentalPrice = useMemo(() => {
-    // If backend provided an exact authoritative quote, use its computed itemTotal/Base
+  const displayedRentalPrice = useMemo(() => {
     if (availabilityResult?.available && availabilityResult.pricing) {
-      // The old expected variable "rentalPrice" translates to the pure rental cost
       return availabilityResult.pricing.baseRental + (availabilityResult.pricing.extendedCost || 0) + (availabilityResult.pricing.cleaningFee || 0);
     }
-    
-    // Fallback: when dates aren't selected yet, show the "Starting at" Base Price
-    if (!pricing) return product?.headlinePricing?.price || 0;
-    
-    // Check headline pricing first
-    if (product?.headlinePricing?.price) {
-      return product.headlinePricing.price;
-    }
-    
     return product?.headlinePricing?.price || 0;
-  }, [pricing, availabilityResult, product?.headlinePricing]);
+  }, [availabilityResult, product?.headlinePricing]);
 
-  const depositAmount = (availabilityResult?.pricing?.deposit) ?? (services?.depositAmount || 0);
-  const tryOnFee = addTryOn && services?.tryOnEnabled ? (services.tryOnFee || 0) : 0;
-  const backupFee = addBackup && services?.backupSizeEnabled ? (services.backupSizeFee || 0) : 0;
-  
-  const totalPrice = useMemo(() => {
-    if (availabilityResult?.available && availabilityResult.pricing) {
-       // Backend `pricing.total` already includes Subtotal (Base + Extended + Cleaning) + Shipping
-       return availabilityResult.pricing.total + depositAmount + tryOnFee + backupFee;
-    }
-    return rentalPrice + depositAmount + tryOnFee + backupFee;
-  }, [availabilityResult, rentalPrice, depositAmount, tryOnFee, backupFee]);
+  const displayedDeposit = availabilityResult?.pricing?.deposit ?? services.depositAmount;
+  const totalPrice = availabilityResult?.available && availabilityResult.pricing
+    ? availabilityResult.pricing.total + availabilityResult.pricing.deposit
+    : displayedRentalPrice + displayedDeposit;
 
   const hasSizes = (selectedVariant?.sizes.length ?? 0) > 0;
   const isSizeValid = hasSizes && selectedVariantSizeId !== null;
@@ -320,10 +320,12 @@ export default function GuestProductDetailPage() {
     rule.skuResolution !== 'CUSTOMER_SELECTED' ||
     compositionSelections.some((selection) => selection.compositionRuleId === rule.id && selection.variantSizeId),
   );
-  const isAvailable = availabilityResult?.available !== false;
+  const hasAuthoritativeQuote = availabilityResult?.available === true && Boolean(availabilityResult.pricing);
+  const isAvailable = availabilityResult?.available === true;
   const itemSelectionValid =
-    itemOptions.data?.mode !== 'SPECIFIC_ITEM_SELECTION' || Boolean(selectedStockUnitId);
-  const canAddToCart = isFormValid && compositionValid && itemSelectionValid && isAvailable && !compositionQuery.isLoading && !availabilityMutation.isPending;
+    Boolean(itemOptions.data) &&
+    (itemOptions.data?.mode !== 'SPECIFIC_ITEM_SELECTION' || Boolean(selectedStockUnitId));
+  const canAddToCart = isFormValid && compositionValid && itemSelectionValid && hasAuthoritativeQuote && !compositionQuery.isLoading && !availabilityMutation.isPending;
 
   const handleAddToCart = () => {
     if (!canAddToCart || !product || !date.from || !date.to) return;
@@ -350,8 +352,8 @@ export default function GuestProductDetailPage() {
       productName: product.name,
       categoryName: product.category?.name,
       featuredImage: allImages[activeImage]?.url || allImages[0]?.url,
-      basePrice: availabilityResult?.pricing ? (availabilityResult.pricing.baseRental + availabilityResult.pricing.extendedCost) : rentalPrice,
-      deposit: depositAmount,
+      basePrice: availabilityResult!.pricing!.baseRental + availabilityResult!.pricing!.extendedCost,
+      deposit: availabilityResult!.pricing!.deposit,
       startDate: format(date.from, 'yyyy-MM-dd'),
       endDate: format(date.to, 'yyyy-MM-dd'),
       durationDays: days,
@@ -360,7 +362,7 @@ export default function GuestProductDetailPage() {
       bundleSummary: validatedBundleSummary,
       serviceMap: {
         tryOn: addTryOn,
-        backupSize: addBackup ? selectedBackupSize : null,
+        backupSize: addBackup ? selectedBackupSizeId ?? null : null,
       },
       totalPrice,
     });
@@ -521,11 +523,11 @@ export default function GuestProductDetailPage() {
               
               <div className="rounded-2xl bg-neutral-50/70 px-5 py-4 border border-black/5 flex flex-col gap-1">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                  {isFormValid ? 'Total Rental Price' : 'Rental Price'}
+                  {hasAuthoritativeQuote ? 'Quoted Total' : isFormValid ? 'Checking Exact Price' : 'Starting Rental Price'}
                 </span>
                 <div className="flex items-end gap-2 tracking-tight">
                   <span className="text-3xl font-display font-medium leading-none text-black">
-                    {formatPrice(isFormValid ? totalPrice : rentalPrice)}
+                    {formatPrice(hasAuthoritativeQuote ? totalPrice : displayedRentalPrice)}
                   </span>
                   {!isFormValid && (
                     <span className="mb-1.5 text-sm font-medium text-muted-foreground">
@@ -571,7 +573,13 @@ export default function GuestProductDetailPage() {
                   {availabilityResult && !isAvailable && (
                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 flex items-center gap-3 rounded-xl bg-red-50 px-5 py-4 text-sm font-medium text-red-900 border border-red-100">
                       <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
-                      Item unavailable for these dates.
+                      {availabilityResult.reason || 'Item unavailable for these dates.'}
+                    </motion.div>
+                  )}
+                  {availabilityMutation.isError && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-medium text-red-900">
+                      <span className="flex items-center gap-2"><AlertCircle className="h-5 w-5 shrink-0 text-red-600" />Could not verify availability or pricing.</span>
+                      <button type="button" className="font-bold underline" onClick={() => availabilityMutation.reset()}>Change details and retry</button>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -615,7 +623,7 @@ export default function GuestProductDetailPage() {
                     )}
                   </div>
                   
-                  {sizing.schema.definition && (sizing.schema.definition as any).ui?.selectorType === 'dropdown' && (selectedVariant?.sizes.length ?? 0) > 12 ? (
+                  {selectorType(sizing.schema.definition) === 'dropdown' && (selectedVariant?.sizes.length ?? 0) > 12 ? (
                     <select 
                       value={selectedVariantSizeId || ''}
                       onChange={(e) => {
@@ -660,6 +668,18 @@ export default function GuestProductDetailPage() {
 
               {/* Extra Services */}
               <BundleConfigurator rules={compositionRules} selections={compositionSelections} onChange={setCompositionSelections} />
+
+              {isFormValid && itemOptions.isLoading && (
+                <div className="flex items-center gap-2 rounded-xl bg-neutral-50 p-4 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />Loading available item choices…
+                </div>
+              )}
+              {isFormValid && itemOptions.isError && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-900">
+                  <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4" />Could not load available item choices.</span>
+                  <button type="button" className="font-bold underline" onClick={() => itemOptions.refetch()}>Retry</button>
+                </div>
+              )}
 
               {itemOptions.data?.mode === 'CONDITION_SUMMARY' && itemOptions.data.summary.length > 0 && (
                 <div className="space-y-2 rounded-xl bg-neutral-50 p-4">
@@ -735,7 +755,7 @@ export default function GuestProductDetailPage() {
                     </button>
                   )}
 
-                  {services?.backupSizeEnabled && (
+                  {services?.backupSizeEnabled && backupSizeOptions.length > 0 && (
                     <div className={cn(
                       'overflow-hidden rounded-xl border transition-all duration-300',
                       addBackup ? 'border-black bg-neutral-50/50 shadow-md' : 'border-transparent bg-neutral-50 hover:bg-neutral-100 hover:border-black/5'
@@ -751,7 +771,7 @@ export default function GuestProductDetailPage() {
                           </span>
                           <span className="font-bold">+{formatPrice(services.backupSizeFee || 0)}</span>
                         </div>
-                        <p className="text-sm text-muted-foreground pl-6">We'll ship a secondary size for perfect fitting.</p>
+                        <p className="text-sm text-muted-foreground pl-6">We&apos;ll ship a secondary size for perfect fitting.</p>
                       </button>
                       <AnimatePresence>
                         {addBackup && (
@@ -759,13 +779,13 @@ export default function GuestProductDetailPage() {
                             <div className="pt-4 pl-6">
                               <label className="text-xs uppercase font-bold tracking-widest text-muted-foreground mb-3 block">Backup Size Requirement</label>
                               <div className="flex flex-wrap gap-2">
-                                {['XS', 'S', 'M', 'L', 'XL'].map((s) => (
+                                {backupSizeOptions.map((size) => (
                                   <button
-                                    key={s}
-                                    onClick={() => setSelectedBackupSize(s)}
-                                    className={cn("px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-all", selectedBackupSize === s ? "border-black bg-white shadow-sm" : "border-transparent bg-black/5 hover:bg-black/10 text-muted-foreground")}
+                                    key={size.sizeInstance.id}
+                                    onClick={() => setSelectedBackupSizeId(size.sizeInstance.id)}
+                                    className={cn("px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-all", selectedBackupSizeId === size.sizeInstance.id ? "border-black bg-white shadow-sm" : "border-transparent bg-black/5 hover:bg-black/10 text-muted-foreground")}
                                   >
-                                    {s}
+                                    {size.sizeInstance.displayLabel}
                                   </button>
                                 ))}
                               </div>
@@ -889,7 +909,7 @@ export default function GuestProductDetailPage() {
               </DialogTitle>
             </DialogHeader>
             <div className="mt-4 space-y-8 max-h-[70vh] overflow-y-auto">
-              {product.sizing.sizeCharts.map((chart: any) => (
+              {product.sizing.sizeCharts.map((chart) => (
                 <div key={chart.id} className="overflow-x-auto rounded-xl border border-black/5 bg-neutral-50/50">
                   <div className="bg-muted px-4 py-3 border-b border-border">
                     <h4 className="text-xs font-bold uppercase tracking-widest text-black flex items-center gap-2">
@@ -909,10 +929,10 @@ export default function GuestProductDetailPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {chart.rows?.map((row: any) => (
+                        {chart.rows?.map((row) => (
                           <tr key={row.id} className="border-b border-black/5 last:border-0 hover:bg-black/5 transition-colors">
                             <td className="px-4 py-4 font-bold text-black border-r border-black/5 bg-black/5">{row.sizeLabel}</td>
-                            {Object.values(row.measurements || {}).map((val: any, i) => (
+                            {Object.values(row.measurements || {}).map((val, i) => (
                               <td key={i} className="px-4 py-4 font-medium text-black/70">{String(val) || '-'}</td>
                             ))}
                           </tr>

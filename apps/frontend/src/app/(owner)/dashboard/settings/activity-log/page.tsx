@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { auditLogApi, type AuditLogEntry, type AuditLogQuery } from '@/lib/api/audit-logs';
 import { Separator } from '@/components/ui/separator';
@@ -28,7 +29,7 @@ import {
   FileText,
   Filter,
   Loader2,
-  Search,
+  AlertCircle,
   X,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -70,11 +71,17 @@ const ACTION_LABELS: Record<string, { label: string; variant: 'default' | 'secon
 // ─── Page Component ─────────────────────────────────────────────────────────
 
 export default function AuditLogSettingsPage() {
+  const searchParams = useSearchParams();
   const [filters, setFilters] = useState<AuditLogQuery>({
     page: 1,
     limit: 20,
   });
-  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('');
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>(
+    searchParams.get('entityType') ?? '',
+  );
+  const [entityIdFilter, setEntityIdFilter] = useState<string>(
+    searchParams.get('entityId') ?? '',
+  );
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -82,11 +89,12 @@ export default function AuditLogSettingsPage() {
   const queryParams: AuditLogQuery = {
     ...filters,
     ...(entityTypeFilter ? { entityType: entityTypeFilter } : {}),
+    ...(entityIdFilter ? { entityId: entityIdFilter } : {}),
     ...(dateFrom ? { dateFrom } : {}),
     ...(dateTo ? { dateTo } : {}),
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['audit-logs', queryParams],
     queryFn: () => auditLogApi.getAuditLogs(queryParams),
     staleTime: 30_000,
@@ -97,13 +105,14 @@ export default function AuditLogSettingsPage() {
 
   const clearFilters = () => {
     setEntityTypeFilter('');
+    setEntityIdFilter('');
     setDateFrom('');
     setDateTo('');
     setFilters({ page: 1, limit: 20 });
     setShowFilters(false);
   };
 
-  const hasActiveFilters = entityTypeFilter || dateFrom || dateTo;
+  const hasActiveFilters = entityTypeFilter || entityIdFilter || dateFrom || dateTo;
 
   return (
     <div className="space-y-6">
@@ -136,6 +145,11 @@ export default function AuditLogSettingsPage() {
               <X className="h-4 w-4 mr-1" />
               Clear
             </Button>
+          )}
+          {entityIdFilter && (
+            <Badge variant="outline" className="font-mono text-[10px]">
+              Record {entityIdFilter.slice(0, 12)}…
+            </Badge>
           )}
         </div>
         <p className="text-xs text-muted-foreground">
@@ -185,6 +199,18 @@ export default function AuditLogSettingsPage() {
       {isLoading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+          <AlertCircle className="h-8 w-8 text-destructive/70" />
+          <div>
+            <p className="text-sm font-medium">Could not load activity history</p>
+            <p className="mt-1 text-xs text-muted-foreground">Your filters are preserved. Retry the request.</p>
+          </div>
+          <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
+            {isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Retry
+          </Button>
         </div>
       ) : logs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-lg bg-muted/20">

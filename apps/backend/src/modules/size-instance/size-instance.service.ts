@@ -8,6 +8,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateSizeInstanceDto } from '../size-schema/dto/size-schema.dto';
 
+const SIZE_INSTANCE_LIMIT = 500;
+
 @Injectable()
 export class SizeInstanceService {
   private readonly logger = new Logger(SizeInstanceService.name);
@@ -25,19 +27,17 @@ export class SizeInstanceService {
       .replace(/^_+|_+$/g, '');
   }
 
-  async listBySchema(schemaId: string) {
+  async listBySchema(tenantId: string, schemaId: string) {
+    await this.findSchemaOrFail(tenantId, schemaId);
     return this.prisma.sizeInstance.findMany({
       where: { sizeSchemaId: schemaId },
-      orderBy: { sortOrder: 'asc' },
+      take: SIZE_INSTANCE_LIMIT,
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     });
   }
 
-  async create(dto: CreateSizeInstanceDto) {
-    // Verify schema exists
-    const schema = await this.prisma.sizeSchema.findUnique({
-      where: { id: dto.sizeSchemaId },
-    });
-    if (!schema) throw new NotFoundException('Size schema not found');
+  async create(tenantId: string, dto: CreateSizeInstanceDto) {
+    await this.findSchemaOrFail(tenantId, dto.sizeSchemaId, true);
 
     const normalizedKey = this.normalizeKey(dto.displayLabel);
 
@@ -73,53 +73,54 @@ export class SizeInstanceService {
     });
   }
 
-  async createBulk(schemaId: string, labels: string[]) {
-    const schema = await this.prisma.sizeSchema.findUnique({
-      where: { id: schemaId },
-    });
-    if (!schema) throw new NotFoundException('Size schema not found');
-
-    const maxSort = await this.prisma.sizeInstance.aggregate({
-      where: { sizeSchemaId: schemaId },
-      _max: { sortOrder: true },
-    });
-    let nextSort = (maxSort._max.sortOrder ?? -1) + 1;
-
-    const results = [];
-    for (const label of labels) {
-      const normalizedKey = this.normalizeKey(label);
-      const existing = await this.prisma.sizeInstance.findUnique({
-        where: {
-          sizeSchemaId_normalizedKey: {
-            sizeSchemaId: schemaId,
-            normalizedKey,
-          },
-        },
-      });
-
-      if (existing) {
-        results.push(existing); // Skip, return existing
-        continue;
-      }
-
-      const instance = await this.prisma.sizeInstance.create({
-        data: {
-          sizeSchemaId: schemaId,
-          normalizedKey,
-          displayLabel: label,
-          payload: {},
-          sortOrder: nextSort++,
-        },
-      });
-      results.push(instance);
+  async createBulk(tenantId: string, schemaId: string, labels: string[]) {
+    await this.findSchemaOrFail(tenantId, schemaId, true);
+    const normalized = labels.map((label) => ({
+      label: label.trim(),
+      key: this.normalizeKey(label),
+    }));
+    if (normalized.some(({ key }) => !key)) {
+      throw new BadRequestException('Every size label must contain letters or numbers');
+    }
+    if (new Set(normalized.map(({ key }) => key)).size !== normalized.length) {
+      throw new BadRequestException('Bulk size labels must be unique after normalization');
     }
 
-    return results;
+    return this.prisma.$transaction(async (tx) => {
+      const maxSort = await tx.sizeInstance.aggregate({
+        where: { sizeSchemaId: schemaId },
+        _max: { sortOrder: true },
+      });
+      let nextSort = (maxSort._max.sortOrder ?? -1) + 1;
+      const results = [];
+
+      for (const { label, key } of normalized) {
+        const existing = await tx.sizeInstance.findUnique({
+          where: {
+            sizeSchemaId_normalizedKey: { sizeSchemaId: schemaId, normalizedKey: key },
+          },
+        });
+        if (existing) {
+          results.push(existing);
+          continue;
+        }
+        results.push(await tx.sizeInstance.create({
+          data: {
+            sizeSchemaId: schemaId,
+            normalizedKey: key,
+            displayLabel: label,
+            payload: {},
+            sortOrder: nextSort++,
+          },
+        }));
+      }
+      return results;
+    });
   }
 
-  async delete(id: string) {
-    const instance = await this.prisma.sizeInstance.findUnique({
-      where: { id },
+  async delete(tenantId: string, id: string) {
+    const instance = await this.prisma.sizeInstance.findFirst({
+      where: { id, sizeSchema: { tenantId } },
       include: { _count: { select: { variantSizes: true } } },
     });
     if (!instance) throw new NotFoundException('Size instance not found');
@@ -131,5 +132,21 @@ export class SizeInstanceService {
 
     await this.prisma.sizeInstance.delete({ where: { id } });
     return { message: 'Size instance deleted' };
+  }
+
+  private async findSchemaOrFail(
+    tenantId: string,
+    schemaId: string,
+    requireEditable = false,
+  ) {
+    const schema = await this.prisma.sizeSchema.findFirst({
+      where: { id: schemaId, tenantId },
+      select: { id: true, status: true },
+    });
+    if (!schema) throw new NotFoundException('Size schema not found');
+    if (requireEditable && schema.status === 'deprecated') {
+      throw new BadRequestException('Cannot add sizes to a deprecated schema');
+    }
+    return schema;
   }
 }

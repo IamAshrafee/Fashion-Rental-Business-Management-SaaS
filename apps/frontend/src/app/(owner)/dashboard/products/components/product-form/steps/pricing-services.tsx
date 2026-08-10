@@ -20,7 +20,8 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState, useEffect } from 'react';
+import { majorInputToMinor, minorToMajorInput } from '@/lib/money';
+import { useState, useEffect, useMemo } from 'react';
 import type { ProductFormValues } from '../schema';
 
 /* ─── Rate Plan Templates ──────────────────────────────────────────────── */
@@ -73,20 +74,48 @@ const RATE_PLAN_TEMPLATES = [
 ] as const;
 
 type RatePlanType = typeof RATE_PLAN_TEMPLATES[number]['type'];
+type PricingComponent = ProductFormValues['pricingComponents'][number];
+
+interface PricingTier {
+  fromDay: number;
+  toDay: number | null;
+  pricePerDayMinor: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readTiers(config: Record<string, unknown> | undefined): PricingTier[] {
+  if (!Array.isArray(config?.tiers)) return [];
+  return config.tiers.filter(isRecord).map((tier) => ({
+    fromDay: Number(tier.fromDay ?? 0),
+    toDay: tier.toDay === null || tier.toDay === undefined ? null : Number(tier.toDay),
+    pricePerDayMinor: Number(tier.pricePerDayMinor ?? 0),
+  }));
+}
+
+const bdtFormatter = new Intl.NumberFormat('en-BD', {
+  style: 'currency',
+  currency: 'BDT',
+  maximumFractionDigits: 2,
+});
 
 /* ─── Helper: format number to price ───────────────────────────────────── */
 function fmtPrice(minor: number): string {
-  return `৳${minor.toLocaleString()}`;
+  return bdtFormatter.format(minor / 100);
 }
 
 /* ─── Component ────────────────────────────────────────────────────────── */
 export function PricingServicesStep() {
-  const { setValue, watch, register, formState: { errors } } = useFormContext<ProductFormValues>();
+  const { setValue, watch, formState: { errors } } = useFormContext<ProductFormValues>();
   
   // Watch pricing fields
   const ratePlanType = watch('ratePlanType') as RatePlanType | undefined;
   const ratePlanConfig = watch('ratePlanConfig') as Record<string, unknown> | undefined;
-  const components = (watch('pricingComponents') || []) as Array<{ type: string; config: Record<string, unknown> }>;
+  const watchedComponents = watch('pricingComponents');
+  const components = useMemo(() => watchedComponents ?? [], [watchedComponents]);
+  const pricingTiers = readTiers(ratePlanConfig);
   const lateFeeEnabled = watch('lateFeeEnabled') as boolean | undefined;
 
   // ── Simulator state
@@ -132,30 +161,33 @@ export function PricingServicesStep() {
   };
 
   const toggleComponent = (type: string, enabled: boolean) => {
-    const current = components || [];
+    const current = components;
     if (enabled) {
       setValue('pricingComponents', [
         ...current,
         { type, config: { label: getDefaultLabel(type), pricing: { mode: 'FLAT', amountMinor: 0 } } },
       ], { shouldDirty: true });
     } else {
-      setValue('pricingComponents', current.filter((c: any) => c.type !== type), { shouldDirty: true });
+      setValue('pricingComponents', current.filter((component) => component.type !== type), { shouldDirty: true });
     }
   };
 
   const updateComponentAmount = (type: string, amount: number) => {
-    const current = (components || []).map((c: any) =>
-      c.type === type
-        ? { ...c, config: { ...c.config, pricing: { mode: 'FLAT', amountMinor: amount } } }
-        : c
+    const current = components.map((component) =>
+      component.type === type
+        ? { ...component, config: { ...component.config, pricing: { mode: 'FLAT', amountMinor: amount } } }
+        : component
     );
     setValue('pricingComponents', current, { shouldDirty: true });
   };
 
-  const hasComponent = (type: string) => (components || []).some((c: any) => c.type === type);
+  const hasComponent = (type: string) => components.some((component) => component.type === type);
   const getComponentAmount = (type: string) => {
-    const comp = (components || []).find((c: any) => c.type === type) as any;
-    return comp?.config?.pricing?.amountMinor ?? 0;
+    const component = components.find((candidate) => candidate.type === type);
+    const pricing = component?.config.pricing;
+    return isRecord(pricing) && typeof pricing.amountMinor === 'number'
+      ? pricing.amountMinor
+      : 0;
   };
 
   return (
@@ -205,8 +237,8 @@ export function PricingServicesStep() {
             );
           })}
         </div>
-        {(errors as any).ratePlanType && (
-          <p className="text-sm text-destructive mt-2">{(errors as any).ratePlanType?.message || 'Please select a pricing model'}</p>
+        {errors.ratePlanType && (
+          <p className="text-sm text-destructive mt-2">{errors.ratePlanType.message || 'Please select a pricing model'}</p>
         )}
       </div>
 
@@ -233,8 +265,10 @@ export function PricingServicesStep() {
                       type="number"
                       className="pl-7"
                       placeholder="e.g. 500"
-                      value={(ratePlanConfig as any)?.unitPriceMinor || ''}
-                      onChange={(e) => updateConfig('unitPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.unitPriceMinor)}
+                      onChange={(e) => updateConfig('unitPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                 </div>
@@ -244,7 +278,7 @@ export function PricingServicesStep() {
                     type="number"
                     min={1}
                     placeholder="1"
-                    value={(ratePlanConfig as any)?.minDays || ''}
+                    value={Number(ratePlanConfig?.minDays ?? 0) || ''}
                     onChange={(e) => updateConfig('minDays', Number(e.target.value))}
                   />
                 </div>
@@ -261,8 +295,10 @@ export function PricingServicesStep() {
                       type="number"
                       className="pl-7"
                       placeholder="e.g. 2500"
-                      value={(ratePlanConfig as any)?.flatPriceMinor || ''}
-                      onChange={(e) => updateConfig('flatPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.flatPriceMinor)}
+                      onChange={(e) => updateConfig('flatPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                 </div>
@@ -272,7 +308,7 @@ export function PricingServicesStep() {
                     type="number"
                     min={1}
                     placeholder="3"
-                    value={(ratePlanConfig as any)?.includedDays || ''}
+                    value={Number(ratePlanConfig?.includedDays ?? 0) || ''}
                     onChange={(e) => updateConfig('includedDays', Number(e.target.value))}
                   />
                 </div>
@@ -284,8 +320,10 @@ export function PricingServicesStep() {
                       type="number"
                       className="pl-7"
                       placeholder="e.g. 300"
-                      value={(ratePlanConfig as any)?.extraDayPriceMinor || ''}
-                      onChange={(e) => updateConfig('extraDayPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.extraDayPriceMinor)}
+                      onChange={(e) => updateConfig('extraDayPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">Per day beyond included days</p>
@@ -299,7 +337,7 @@ export function PricingServicesStep() {
                   <Info className="h-4 w-4 text-blue-500" />
                   <p className="text-xs text-muted-foreground">Add pricing tiers — longer rentals get lower daily rates</p>
                 </div>
-                {((ratePlanConfig as any)?.tiers || []).map((tier: any, i: number) => (
+                {pricingTiers.map((tier, i) => (
                   <div key={i} className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-muted/30 border">
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">From Day</Label>
@@ -308,7 +346,7 @@ export function PricingServicesStep() {
                         min={1}
                         value={tier.fromDay || ''}
                         onChange={(e) => {
-                          const tiers = [...((ratePlanConfig as any)?.tiers || [])];
+                          const tiers = [...pricingTiers];
                           tiers[i] = { ...tiers[i], fromDay: Number(e.target.value) };
                           updateConfig('tiers', tiers);
                         }}
@@ -321,7 +359,7 @@ export function PricingServicesStep() {
                         placeholder="∞"
                         value={tier.toDay ?? ''}
                         onChange={(e) => {
-                          const tiers = [...((ratePlanConfig as any)?.tiers || [])];
+                          const tiers = [...pricingTiers];
                           tiers[i] = { ...tiers[i], toDay: e.target.value ? Number(e.target.value) : null };
                           updateConfig('tiers', tiers);
                         }}
@@ -331,10 +369,12 @@ export function PricingServicesStep() {
                       <Label className="text-xs text-muted-foreground">৳/Day</Label>
                       <Input
                         type="number"
-                        value={tier.pricePerDayMinor || ''}
+                        min="0"
+                        step="0.01"
+                        value={minorToMajorInput(tier.pricePerDayMinor)}
                         onChange={(e) => {
-                          const tiers = [...((ratePlanConfig as any)?.tiers || [])];
-                          tiers[i] = { ...tiers[i], pricePerDayMinor: Number(e.target.value) };
+                          const tiers = [...pricingTiers];
+                          tiers[i] = { ...tiers[i], pricePerDayMinor: majorInputToMinor(e.target.value) ?? 0 };
                           updateConfig('tiers', tiers);
                         }}
                       />
@@ -344,9 +384,15 @@ export function PricingServicesStep() {
                 <button
                   type="button"
                   onClick={() => {
-                    const tiers = [...((ratePlanConfig as any)?.tiers || [])];
-                    const lastEnd = tiers.length ? (tiers[tiers.length - 1].toDay ?? 99) + 1 : 1;
-                    tiers.push({ fromDay: lastEnd, toDay: null, pricePerDayMinor: 0 });
+                    const tiers = [...pricingTiers];
+                    const previous = tiers[tiers.length - 1];
+                    const nextFromDay = previous
+                      ? previous.toDay === null
+                        ? previous.fromDay + 1
+                        : previous.toDay + 1
+                      : 1;
+                    if (previous) tiers[tiers.length - 1] = { ...previous, toDay: nextFromDay - 1 };
+                    tiers.push({ fromDay: nextFromDay, toDay: null, pricePerDayMinor: 0 });
                     updateConfig('tiers', tiers);
                   }}
                   className="text-xs text-primary font-medium hover:underline"
@@ -365,8 +411,10 @@ export function PricingServicesStep() {
                     <Input
                       type="number"
                       className="pl-7"
-                      value={(ratePlanConfig as any)?.dailyPriceMinor || ''}
-                      onChange={(e) => updateConfig('dailyPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.dailyPriceMinor)}
+                      onChange={(e) => updateConfig('dailyPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                 </div>
@@ -377,8 +425,10 @@ export function PricingServicesStep() {
                     <Input
                       type="number"
                       className="pl-7"
-                      value={(ratePlanConfig as any)?.weeklyPriceMinor || ''}
-                      onChange={(e) => updateConfig('weeklyPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.weeklyPriceMinor)}
+                      onChange={(e) => updateConfig('weeklyPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">7-day bundle price</p>
@@ -390,8 +440,10 @@ export function PricingServicesStep() {
                     <Input
                       type="number"
                       className="pl-7"
-                      value={(ratePlanConfig as any)?.monthlyPriceMinor || ''}
-                      onChange={(e) => updateConfig('monthlyPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.monthlyPriceMinor)}
+                      onChange={(e) => updateConfig('monthlyPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">30-day bundle price</p>
@@ -408,12 +460,12 @@ export function PricingServicesStep() {
                       type="number"
                       min={1}
                       max={100}
-                      value={(ratePlanConfig as any)?.percent || ''}
+                      value={Number(ratePlanConfig?.percent ?? 0) || ''}
                       onChange={(e) => updateConfig('percent', Number(e.target.value))}
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">% of product's purchase/retail price</p>
+                  <p className="text-xs text-muted-foreground">% of product&apos;s purchase/retail price</p>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Min Price</Label>
@@ -423,8 +475,10 @@ export function PricingServicesStep() {
                       type="number"
                       className="pl-7"
                       placeholder="Optional"
-                      value={(ratePlanConfig as any)?.minPriceMinor || ''}
-                      onChange={(e) => updateConfig('minPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.minPriceMinor)}
+                      onChange={(e) => updateConfig('minPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                 </div>
@@ -436,8 +490,10 @@ export function PricingServicesStep() {
                       type="number"
                       className="pl-7"
                       placeholder="Optional"
-                      value={(ratePlanConfig as any)?.maxPriceMinor || ''}
-                      onChange={(e) => updateConfig('maxPriceMinor', Number(e.target.value))}
+                      min="0"
+                      step="0.01"
+                      value={minorToMajorInput(ratePlanConfig?.maxPriceMinor)}
+                      onChange={(e) => updateConfig('maxPriceMinor', majorInputToMinor(e.target.value))}
                     />
                   </div>
                 </div>
@@ -478,8 +534,10 @@ export function PricingServicesStep() {
                   <Input
                     type="number"
                     className="pl-6 h-9 text-sm"
-                    value={getComponentAmount('DEPOSIT') || ''}
-                    onChange={(e) => updateComponentAmount('DEPOSIT', Number(e.target.value))}
+                    min="0"
+                    step="0.01"
+                    value={minorToMajorInput(getComponentAmount('DEPOSIT'))}
+                    onChange={(e) => updateComponentAmount('DEPOSIT', majorInputToMinor(e.target.value) ?? 0)}
                   />
                 </div>
               )}
@@ -508,8 +566,10 @@ export function PricingServicesStep() {
                   <Input
                     type="number"
                     className="pl-6 h-9 text-sm"
-                    value={getComponentAmount('FEE') || ''}
-                    onChange={(e) => updateComponentAmount('FEE', Number(e.target.value))}
+                    min="0"
+                    step="0.01"
+                    value={minorToMajorInput(getComponentAmount('FEE'))}
+                    onChange={(e) => updateComponentAmount('FEE', majorInputToMinor(e.target.value) ?? 0)}
                   />
                 </div>
               )}
@@ -538,8 +598,10 @@ export function PricingServicesStep() {
                   <Input
                     type="number"
                     className="pl-6 h-9 text-sm"
-                    value={getComponentAmount('ADDON_BACKUP') || ''}
-                    onChange={(e) => updateComponentAmount('ADDON_BACKUP', Number(e.target.value))}
+                    min="0"
+                    step="0.01"
+                    value={minorToMajorInput(getComponentAmount('ADDON_BACKUP'))}
+                    onChange={(e) => updateComponentAmount('ADDON_BACKUP', majorInputToMinor(e.target.value) ?? 0)}
                   />
                 </div>
               )}
@@ -568,8 +630,10 @@ export function PricingServicesStep() {
                   <Input
                     type="number"
                     className="pl-6 h-9 text-sm"
-                    value={getComponentAmount('ADDON_TRYON') || ''}
-                    onChange={(e) => updateComponentAmount('ADDON_TRYON', Number(e.target.value))}
+                    min="0"
+                    step="0.01"
+                    value={minorToMajorInput(getComponentAmount('ADDON_TRYON'))}
+                    onChange={(e) => updateComponentAmount('ADDON_TRYON', majorInputToMinor(e.target.value) ?? 0)}
                   />
                 </div>
               )}
@@ -604,7 +668,7 @@ export function PricingServicesStep() {
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => setValue('shippingMode', opt.value as any, { shouldDirty: true })}
+                onClick={() => setValue('shippingMode', opt.value, { shouldDirty: true })}
                 className={cn(
                   'flex flex-col items-start gap-1 rounded-xl border-2 p-3.5 text-left transition-all',
                   isActive
@@ -630,8 +694,9 @@ export function PricingServicesStep() {
                   className="pl-7"
                   min={0}
                   placeholder="e.g. 150"
-                  value={watch('flatShippingFee') || ''}
-                  onChange={(e) => setValue('flatShippingFee', Number(e.target.value), { shouldDirty: true })}
+                  step="0.01"
+                  value={minorToMajorInput(watch('flatShippingFee'))}
+                  onChange={(e) => setValue('flatShippingFee', majorInputToMinor(e.target.value), { shouldDirty: true })}
                 />
               </div>
             </div>
@@ -685,8 +750,10 @@ export function PricingServicesStep() {
                   type="number"
                   className="pl-7"
                   placeholder="100"
-                  value={watch('lateFeeAmountMinor') || ''}
-                  onChange={(e) => setValue('lateFeeAmountMinor', Number(e.target.value), { shouldDirty: true })}
+                  min="0"
+                  step="0.01"
+                  value={minorToMajorInput(watch('lateFeeAmountMinor'))}
+                  onChange={(e) => setValue('lateFeeAmountMinor', majorInputToMinor(e.target.value), { shouldDirty: true })}
                 />
               </div>
             </div>
@@ -698,8 +765,10 @@ export function PricingServicesStep() {
                   type="number"
                   className="pl-7"
                   placeholder="Optional"
-                  value={watch('lateFeeCapMinor') || ''}
-                  onChange={(e) => setValue('lateFeeCapMinor', Number(e.target.value), { shouldDirty: true })}
+                  min="0"
+                  step="0.01"
+                  value={minorToMajorInput(watch('lateFeeCapMinor'))}
+                  onChange={(e) => setValue('lateFeeCapMinor', majorInputToMinor(e.target.value), { shouldDirty: true })}
                 />
               </div>
             </div>
@@ -714,10 +783,10 @@ export function PricingServicesStep() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-primary" />
-            Price Preview
+            Configuration Estimate
           </CardTitle>
           <CardDescription className="text-xs">
-            See what the customer would pay for a test rental
+            Planning aid only. Checkout and booking totals always come from the backend quote engine.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -790,7 +859,7 @@ function simulateLocally(
   planType: RatePlanType,
   config: Record<string, unknown>,
   days: number,
-  components?: Array<Record<string, unknown>>,
+  components?: PricingComponent[],
 ): { base: number; total: number; lines: string[] } | null {
   let base = 0;
   const lines: string[] = [];
@@ -801,7 +870,7 @@ function simulateLocally(
       const minDays = Number(config.minDays || 1);
       const effectiveDays = Math.max(days, minDays);
       base = rate * effectiveDays;
-      lines.push(`Base Rental (${effectiveDays}d × ৳${rate}): ${fmtPrice(base)}`);
+      lines.push(`Base Rental (${effectiveDays}d × ${fmtPrice(rate)}): ${fmtPrice(base)}`);
       break;
     }
     case 'FLAT_PERIOD': {
@@ -816,12 +885,12 @@ function simulateLocally(
         const extraCost = extraDays * extra;
         base = flat + extraCost;
         lines.push(`Package (${included}d): ${fmtPrice(flat)}`);
-        lines.push(`Extra Days (${extraDays}d × ৳${extra}): ${fmtPrice(extraCost)}`);
+        lines.push(`Extra Days (${extraDays}d × ${fmtPrice(extra)}): ${fmtPrice(extraCost)}`);
       }
       break;
     }
     case 'TIERED_DAILY': {
-      const tiers = (config.tiers as any[]) || [];
+      const tiers = readTiers(config);
       let remaining = days;
       for (const tier of tiers) {
         if (remaining <= 0) break;
@@ -829,7 +898,7 @@ function simulateLocally(
         const tierDays = Math.min(remaining, tierEnd - tier.fromDay + 1);
         const cost = tierDays * Number(tier.pricePerDayMinor || 0);
         base += cost;
-        lines.push(`Days ${tier.fromDay}-${tier.toDay || '∞'} (${tierDays}d × ৳${tier.pricePerDayMinor}): ${fmtPrice(cost)}`);
+        lines.push(`Days ${tier.fromDay}-${tier.toDay || '∞'} (${tierDays}d × ${fmtPrice(tier.pricePerDayMinor)}): ${fmtPrice(cost)}`);
         remaining -= tierDays;
       }
       break;
@@ -837,7 +906,7 @@ function simulateLocally(
     case 'WEEKLY_MONTHLY': {
       const daily = Number(config.dailyPriceMinor || 0);
       base = daily * days;
-      lines.push(`${days}d × ৳${daily}/day: ${fmtPrice(base)}`);
+      lines.push(`${days}d × ${fmtPrice(daily)}/day: ${fmtPrice(base)}`);
       break;
     }
     case 'PERCENT_RETAIL': {
@@ -855,9 +924,10 @@ function simulateLocally(
   // Add components
   if (components?.length) {
     for (const comp of components) {
-      const amount = Number((comp.config as any)?.pricing?.amountMinor || 0);
+      const pricing = comp.config.pricing;
+      const amount = isRecord(pricing) ? Number(pricing.amountMinor ?? 0) : 0;
       if (amount > 0) {
-        const label = (comp.config as any)?.label || comp.type;
+        const label = typeof comp.config.label === 'string' ? comp.config.label : comp.type;
         lines.push(`${label}: ${fmtPrice(amount)}`);
         if (comp.type !== 'DEPOSIT') {
           total += amount;

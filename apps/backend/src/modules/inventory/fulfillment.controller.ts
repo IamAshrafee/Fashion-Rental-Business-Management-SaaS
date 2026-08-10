@@ -45,7 +45,7 @@ export class FulfillmentGuestController {
     @CurrentTenant() tenant: TenantContext,
     @Param('productId') productId: string,
   ) {
-    return this.composition.list(tenant.id, productId, true);
+    return this.composition.listPublic(tenant.id, productId);
   }
 }
 

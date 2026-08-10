@@ -14,21 +14,68 @@ import {
   UpdateProductDto,
   ProductQueryDto,
   OwnerProductQueryDto,
+  CreateFaqDto,
+  UpdateFaqDto,
+  CreateDetailHeaderDto,
+  UpdateDetailHeaderDto,
+  DetailEntryDto,
 } from './dto/product.dto';
-import { InventoryTrackingMode, Prisma } from '@prisma/client';
+import { InventoryTrackingMode, Prisma, ProductStatus } from '@prisma/client';
+
+export const PRODUCT_READINESS_CODES = [
+  'CATEGORY',
+  'PRODUCT_TYPE',
+  'SIZE_SCHEMA',
+  'VARIANT',
+  'RENTABLE_SKU',
+  'VARIANT_MEDIA',
+  'ACTIVE_PRICING',
+  'STOREFRONT_ITEM_MODE',
+  'COMPOSITION',
+] as const;
+
+export type ProductReadinessCode = (typeof PRODUCT_READINESS_CODES)[number];
+export type ProductReadinessSection =
+  | 'basic'
+  | 'sizing'
+  | 'variants'
+  | 'pricing'
+  | 'composition';
+
+export interface ProductReadinessBlocker {
+  code: ProductReadinessCode;
+  section: ProductReadinessSection;
+  message: string;
+  field?: string;
+  entityId?: string;
+}
+
+export interface ProductReadiness {
+  ready: boolean;
+  blockers: ProductReadinessBlocker[];
+}
 
 const ownerProductListSelect = () => ({
   id: true,
   name: true,
   slug: true,
   status: true,
+  storefrontItemMode: true,
   targetRentals: true,
   totalBookings: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,
-  category: { select: { id: true, name: true, slug: true } },
-  productType: { select: { id: true, name: true, slug: true } },
+  category: { select: { id: true, name: true, slug: true, isActive: true } },
+  productType: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      defaultSizeSchema: { select: { id: true, status: true } },
+    },
+  },
+  sizeSchemaOverride: { select: { id: true, status: true } },
   pricingProfile: {
     select: {
       headlinePriceMinor: true,
@@ -50,6 +97,7 @@ const ownerProductListSelect = () => ({
     orderBy: { sequence: 'asc' as const },
     select: {
       id: true,
+      variantName: true,
       mainColor: { select: { name: true, hexCode: true } },
       images: {
         where: { isFeatured: true },
@@ -59,7 +107,9 @@ const ownerProductListSelect = () => ({
       },
       sizes: {
         select: {
+          id: true,
           trackingMode: true,
+          sizeInstance: { select: { sizeSchemaId: true } },
           inventoryPools: { select: { onHandQuantity: true } },
           _count: {
             select: {
@@ -69,6 +119,18 @@ const ownerProductListSelect = () => ({
             },
           },
         },
+      },
+    },
+  },
+  compositionRules: {
+    where: { isActive: true },
+    select: {
+      id: true,
+      name: true,
+      componentProduct: { select: { id: true, status: true, deletedAt: true } },
+      alternatives: {
+        where: { isActive: true },
+        select: { id: true, product: { select: { id: true, status: true, deletedAt: true } } },
       },
     },
   },
@@ -113,6 +175,14 @@ export class ProductService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+      await this.validateCatalogReferences(tx, tenantId, {
+        categoryId: dto.categoryId,
+        subcategoryId: dto.subcategoryId || null,
+        productTypeId: dto.productTypeId || null,
+        sizeSchemaOverrideId: dto.sizeSchemaOverrideId || null,
+        eventIds: dto.eventIds ?? [],
+        storefrontItemMode: dto.storefrontItemMode ?? 'INTERNAL_ONLY',
+      });
       // 1. Create product
       const product = await tx.product.create({
         data: {
@@ -217,7 +287,7 @@ export class ProductService {
     }
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.categoryId !== undefined) data.categoryId = dto.categoryId;
-    if (dto.subcategoryId !== undefined) data.subcategoryId = dto.subcategoryId;
+    if (dto.subcategoryId !== undefined) data.subcategoryId = dto.subcategoryId || null;
     if (dto.purchaseDate !== undefined) data.purchaseDate = dto.purchaseDate ? new Date(dto.purchaseDate) : null;
     if (dto.purchasePrice !== undefined) data.purchasePrice = dto.purchasePrice;
     if (dto.purchasePricePublic !== undefined) data.purchasePricePublic = dto.purchasePricePublic;
@@ -229,6 +299,24 @@ export class ProductService {
     if (dto.sizeSchemaOverrideId !== undefined) data.sizeSchemaOverrideId = dto.sizeSchemaOverrideId || null;
 
     return this.prisma.$transaction(async (tx) => {
+      await this.validateCatalogReferences(
+        tx,
+        tenantId,
+        {
+          categoryId: dto.categoryId ?? product.categoryId,
+          subcategoryId:
+            dto.subcategoryId !== undefined ? dto.subcategoryId || null : product.subcategoryId,
+          productTypeId:
+            dto.productTypeId !== undefined ? dto.productTypeId || null : product.productTypeId,
+          sizeSchemaOverrideId:
+            dto.sizeSchemaOverrideId !== undefined
+              ? dto.sizeSchemaOverrideId || null
+              : product.sizeSchemaOverrideId,
+          eventIds: dto.eventIds,
+          storefrontItemMode: dto.storefrontItemMode ?? product.storefrontItemMode,
+        },
+        productId,
+      );
       // Update product
       const updated = await tx.product.update({
         where: { id: productId },
@@ -304,10 +392,157 @@ export class ProductService {
   }
 
   // =========================================================================
+  // PRODUCT CONTENT
+  // =========================================================================
+
+  async addFaq(tenantId: string, productId: string, dto: CreateFaqDto) {
+    await this.findProductOrFail(tenantId, productId);
+    const maxSequence = await this.prisma.productFaq.aggregate({
+      where: { productId, tenantId },
+      _max: { sequence: true },
+    });
+    return this.prisma.productFaq.create({
+      data: {
+        tenantId,
+        productId,
+        question: dto.question,
+        answer: dto.answer,
+        sequence: (maxSequence._max.sequence ?? -1) + 1,
+      },
+    });
+  }
+
+  async updateFaq(
+    tenantId: string,
+    productId: string,
+    faqId: string,
+    dto: UpdateFaqDto,
+  ) {
+    const faq = await this.prisma.productFaq.findFirst({
+      where: {
+        id: faqId,
+        productId,
+        tenantId,
+        product: { deletedAt: null },
+      },
+      select: { id: true },
+    });
+    if (!faq) throw new NotFoundException('FAQ not found');
+    return this.prisma.productFaq.update({ where: { id: faq.id }, data: dto });
+  }
+
+  async deleteFaq(tenantId: string, productId: string, faqId: string) {
+    const faq = await this.prisma.productFaq.findFirst({
+      where: {
+        id: faqId,
+        productId,
+        tenantId,
+        product: { deletedAt: null },
+      },
+      select: { id: true },
+    });
+    if (!faq) throw new NotFoundException('FAQ not found');
+    await this.prisma.productFaq.delete({ where: { id: faq.id } });
+    return { message: 'FAQ deleted' };
+  }
+
+  async addDetailHeader(
+    tenantId: string,
+    productId: string,
+    dto: CreateDetailHeaderDto,
+  ) {
+    await this.findProductOrFail(tenantId, productId);
+    return this.prisma.$transaction(async (tx) => {
+      const header = await tx.productDetailHeader.create({
+        data: {
+          tenantId,
+          productId,
+          headerName: dto.headerName,
+          sequence: dto.sequence ?? 0,
+        },
+      });
+      if (dto.entries?.length) {
+        await tx.productDetailEntry.createMany({
+          data: dto.entries.map((entry, sequence) => ({
+            headerId: header.id,
+            key: entry.key,
+            value: entry.value,
+            sequence,
+          })),
+        });
+      }
+      return tx.productDetailHeader.findUniqueOrThrow({
+        where: { id: header.id },
+        include: { entries: { orderBy: { sequence: 'asc' } } },
+      });
+    });
+  }
+
+  async updateDetailHeader(
+    tenantId: string,
+    productId: string,
+    headerId: string,
+    dto: UpdateDetailHeaderDto,
+  ) {
+    const header = await this.findDetailHeaderOrFail(tenantId, productId, headerId);
+    return this.prisma.productDetailHeader.update({ where: { id: header.id }, data: dto });
+  }
+
+  async deleteDetailHeader(tenantId: string, productId: string, headerId: string) {
+    const header = await this.findDetailHeaderOrFail(tenantId, productId, headerId);
+    await this.prisma.productDetailHeader.delete({ where: { id: header.id } });
+    return { message: 'Detail header deleted' };
+  }
+
+  async addDetailEntry(
+    tenantId: string,
+    productId: string,
+    headerId: string,
+    dto: DetailEntryDto,
+  ) {
+    await this.findDetailHeaderOrFail(tenantId, productId, headerId);
+    const maxSequence = await this.prisma.productDetailEntry.aggregate({
+      where: { headerId },
+      _max: { sequence: true },
+    });
+    return this.prisma.productDetailEntry.create({
+      data: {
+        headerId,
+        key: dto.key,
+        value: dto.value,
+        sequence: (maxSequence._max.sequence ?? -1) + 1,
+      },
+    });
+  }
+
+  async deleteDetailEntry(
+    tenantId: string,
+    productId: string,
+    headerId: string,
+    entryId: string,
+  ) {
+    const entry = await this.prisma.productDetailEntry.findFirst({
+      where: {
+        id: entryId,
+        headerId,
+        header: {
+          productId,
+          tenantId,
+          product: { deletedAt: null },
+        },
+      },
+      select: { id: true },
+    });
+    if (!entry) throw new NotFoundException('Detail entry not found');
+    await this.prisma.productDetailEntry.delete({ where: { id: entry.id } });
+    return { message: 'Detail entry deleted' };
+  }
+
+  // =========================================================================
   // STATUS UPDATE
   // =========================================================================
 
-  async updateStatus(tenantId: string, productId: string, status: string) {
+  async updateStatus(tenantId: string, productId: string, status: ProductStatus) {
     const product = await this.findProductOrFail(tenantId, productId);
 
     if (status === 'published') {
@@ -316,11 +551,11 @@ export class ProductService {
 
     const updated = await this.prisma.product.update({
       where: { id: productId },
-      data: { status: status as any /* eslint-disable-line @typescript-eslint/no-explicit-any */ },
+      data: { status },
     });
 
     if (status === 'published' && product.status !== 'published') {
-      this.eventEmitter.emit('product.created', { tenantId, productId });
+      this.eventEmitter.emit('product.published', { tenantId, productId });
     }
 
     return updated;
@@ -345,7 +580,7 @@ export class ProductService {
     }
 
     // --- Business Rule: block deletion if there are active bookings ---
-    const [activeBookings, futureBookings] = await Promise.all([
+    const [activeBookings, futureBookings, publishedBundleUses] = await Promise.all([
       // Active bookings: currently in-flight
       this.prisma.bookingItem.count({
         where: {
@@ -367,12 +602,21 @@ export class ProductService {
           },
         },
       }),
+      this.prisma.productCompositionRule.count({
+        where: {
+          tenantId,
+          componentProductId: productId,
+          isActive: true,
+          parentProduct: { status: 'published', deletedAt: null },
+        },
+      }),
     ]);
 
-    if (activeBookings > 0 || futureBookings > 0) {
+    if (activeBookings > 0 || futureBookings > 0 || publishedBundleUses > 0) {
       const parts: string[] = [];
       if (activeBookings > 0) parts.push(`${activeBookings} active booking(s)`);
       if (futureBookings > 0) parts.push(`${futureBookings} future booking(s)`);
+      if (publishedBundleUses > 0) parts.push(`${publishedBundleUses} published bundle(s)`);
       throw new UnprocessableEntityException(
         `Cannot move to trash: this product has ${parts.join(' and ')}. ` +
         `Resolve or cancel all associated bookings before deleting.`,
@@ -420,37 +664,39 @@ export class ProductService {
     });
     if (!product) throw new NotFoundException('Product not found in trash');
 
-    // Check for active bookings — including overdue (item still not returned)
-    const activeBookings = await this.prisma.bookingItem.count({
-      where: {
-        productId,
-        tenantId,
-        booking: {
-          status: { in: ['pending', 'confirmed', 'delivered', 'overdue'] },
-        },
-      },
-    });
-    if (activeBookings > 0) {
-      throw new UnprocessableEntityException(
-        `Cannot permanently delete: product has ${activeBookings} active booking(s). ` +
-        `These must be resolved first.`,
-      );
-    }
-
-    // Use a transaction to clean up all non-cascaded FK references
     await this.prisma.$transaction(async (tx) => {
-      // Nullify product reference on booking items (preserves booking history)
-      await tx.bookingItem.updateMany({
-        where: { productId },
-        data: { productId: null },
-      });
-
-      // Delete reviews (no value once product is permanently gone)
-      await tx.review.deleteMany({ where: { productId } });
-
-      // Now delete the product; dependent catalog and inventory definitions cascade.
+      const dependencyCounts = await Promise.all([
+        tx.bookingItem.count({ where: { tenantId, productId } }),
+        tx.fulfillmentRequirement.count({ where: { tenantId, productId } }),
+        tx.inventoryReservation.count({ where: { tenantId, productId } }),
+        tx.stockUnit.count({ where: { tenantId, variantSize: { variant: { productId } } } }),
+        tx.inventoryPool.count({ where: { tenantId, variantSize: { variant: { productId } } } }),
+        tx.inventoryMovement.count({ where: { tenantId, variantSize: { variant: { productId } } } }),
+        tx.inventoryBlock.count({
+          where: {
+            tenantId,
+            OR: [
+              { productId },
+              { variant: { productId } },
+              { variantSize: { variant: { productId } } },
+            ],
+          },
+        }),
+        tx.productCompositionRule.count({
+          where: { tenantId, OR: [{ parentProductId: productId }, { componentProductId: productId }] },
+        }),
+        tx.productCompositionAlternative.count({ where: { tenantId, productId } }),
+        tx.quote.count({ where: { tenantId, productId } }),
+        tx.review.count({ where: { tenantId, productId } }),
+      ]);
+      if (dependencyCounts.some((count) => count > 0)) {
+        throw new ConflictException({
+          code: 'PRODUCT_HISTORY_CONFLICT',
+          message: 'Only products that have never entered inventory, rental, pricing quote, composition, or review history can be permanently deleted.',
+        });
+      }
       await tx.product.delete({ where: { id: productId } });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     return { message: 'Product permanently deleted' };
   }
@@ -849,6 +1095,69 @@ export class ProductService {
     return this.mapOwnerProductDetail(product);
   }
 
+  async getReadiness(tenantId: string, productId: string): Promise<ProductReadiness> {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, tenantId, deletedAt: null },
+      select: {
+        category: { select: { isActive: true } },
+        productType: {
+          select: { defaultSizeSchema: { select: { id: true, status: true } } },
+        },
+        sizeSchemaOverride: { select: { id: true, status: true } },
+        storefrontItemMode: true,
+        pricingProfile: {
+          select: {
+            policyVersions: {
+              where: { status: 'ACTIVE' },
+              take: 1,
+              select: { ratePlans: { take: 1, select: { id: true } } },
+            },
+          },
+        },
+        variants: {
+          select: {
+            id: true,
+            variantName: true,
+            images: { where: { isFeatured: true }, take: 1, select: { id: true } },
+            sizes: {
+              select: {
+                id: true,
+                trackingMode: true,
+                sizeInstance: { select: { sizeSchemaId: true } },
+              },
+            },
+          },
+        },
+        compositionRules: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            componentProduct: { select: { id: true, status: true, deletedAt: true } },
+            alternatives: {
+              where: { isActive: true },
+              select: {
+                id: true,
+                product: { select: { id: true, status: true, deletedAt: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    return this.evaluateProductReadiness({
+      category: product.category,
+      productType: product.productType,
+      sizeSchemaOverride: product.sizeSchemaOverride,
+      storefrontItemMode: product.storefrontItemMode,
+      variants: product.variants,
+      hasActivePricing: Boolean(product.pricingProfile?.policyVersions[0]?.ratePlans[0]),
+      compositionRules: product.compositionRules,
+    });
+  }
+
   // =========================================================================
   // PRIVATE HELPERS
   // =========================================================================
@@ -882,6 +1191,151 @@ export class ProductService {
     return product;
   }
 
+  private async findDetailHeaderOrFail(
+    tenantId: string,
+    productId: string,
+    headerId: string,
+  ) {
+    const header = await this.prisma.productDetailHeader.findFirst({
+      where: {
+        id: headerId,
+        productId,
+        tenantId,
+        product: { deletedAt: null },
+      },
+      select: { id: true },
+    });
+    if (!header) throw new NotFoundException('Detail header not found');
+    return header;
+  }
+
+  private async validateCatalogReferences(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    input: {
+      categoryId: string;
+      subcategoryId: string | null;
+      productTypeId: string | null;
+      sizeSchemaOverrideId: string | null;
+      eventIds?: string[];
+      storefrontItemMode: string;
+    },
+    productId?: string,
+  ): Promise<void> {
+    const category = await tx.category.findFirst({
+      where: { id: input.categoryId, tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new BadRequestException({
+        code: 'INVALID_CATALOG_REFERENCE',
+        field: 'categoryId',
+        message: 'Choose an active category from this store.',
+      });
+    }
+
+    if (input.subcategoryId) {
+      const subcategory = await tx.subcategory.findFirst({
+        where: {
+          id: input.subcategoryId,
+          tenantId,
+          categoryId: input.categoryId,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!subcategory) {
+        throw new BadRequestException({
+          code: 'INVALID_CATALOG_REFERENCE',
+          field: 'subcategoryId',
+          message: 'Choose an active subcategory that belongs to the selected category.',
+        });
+      }
+    }
+
+    let defaultSizeSchemaId: string | null = null;
+    if (input.productTypeId) {
+      const productType = await tx.productType.findFirst({
+        where: { id: input.productTypeId, tenantId },
+        select: { defaultSizeSchemaId: true },
+      });
+      if (!productType) {
+        throw new BadRequestException({
+          code: 'INVALID_CATALOG_REFERENCE',
+          field: 'productTypeId',
+          message: 'Choose a product type from this store.',
+        });
+      }
+      defaultSizeSchemaId = productType.defaultSizeSchemaId;
+    }
+
+    const activeSizeSchemaId = input.sizeSchemaOverrideId ?? defaultSizeSchemaId;
+    if (activeSizeSchemaId) {
+      const schema = await tx.sizeSchema.findFirst({
+        where: { id: activeSizeSchemaId, tenantId, status: 'active' },
+        select: { id: true },
+      });
+      if (!schema) {
+        throw new BadRequestException({
+          code: 'INVALID_CATALOG_REFERENCE',
+          field: 'sizeSchemaOverrideId',
+          message: 'Choose an active size schema from this store.',
+        });
+      }
+    }
+
+    if (input.eventIds !== undefined) {
+      const uniqueEventIds = [...new Set(input.eventIds)];
+      const eventCount = await tx.event.count({
+        where: { id: { in: uniqueEventIds }, tenantId, isActive: true },
+      });
+      if (eventCount !== uniqueEventIds.length) {
+        throw new BadRequestException({
+          code: 'INVALID_CATALOG_REFERENCE',
+          field: 'eventIds',
+          message: 'One or more selected events are unavailable in this store.',
+        });
+      }
+    }
+
+    if (!productId) return;
+    const variantSizes = await tx.variantSize.findMany({
+      where: { tenantId, variant: { productId } },
+      select: {
+        id: true,
+        trackingMode: true,
+        sizeInstance: { select: { sizeSchemaId: true } },
+      },
+    });
+    if (variantSizes.length > 0 && !activeSizeSchemaId) {
+      throw new ConflictException({
+        code: 'CATALOG_EDIT_CONFLICT',
+        field: 'productTypeId',
+        message: 'A product with configured SKUs must retain an active size schema.',
+      });
+    }
+    if (
+      activeSizeSchemaId &&
+      variantSizes.some((size) => size.sizeInstance.sizeSchemaId !== activeSizeSchemaId)
+    ) {
+      throw new ConflictException({
+        code: 'CATALOG_EDIT_CONFLICT',
+        field: 'sizeSchemaOverrideId',
+        message: 'The selected size schema does not contain the product’s existing SKUs.',
+      });
+    }
+    if (
+      input.storefrontItemMode === 'SPECIFIC_ITEM_SELECTION' &&
+      variantSizes.some((size) => size.trackingMode !== InventoryTrackingMode.SERIALIZED)
+    ) {
+      throw new ConflictException({
+        code: 'CATALOG_EDIT_CONFLICT',
+        field: 'storefrontItemMode',
+        message: 'Customer item selection requires every SKU to use physical-item tracking.',
+      });
+    }
+  }
+
   private async generateUniqueSlug(tenantId: string, name: string, excludeId?: string): Promise<string> {
     const baseSlug = name
       .toLowerCase()
@@ -908,16 +1362,37 @@ export class ProductService {
 
   private ownerReadyWhere(): Prisma.ProductWhereInput {
     return {
+      category: { is: { isActive: true } },
       productTypeId: { not: null },
       AND: [
-        { variants: { some: { sizes: { some: {} } } } },
-        { variants: { some: { images: { some: { isFeatured: true } } } } },
+        {
+          OR: [
+            { sizeSchemaOverride: { is: { status: 'active' } } },
+            {
+              sizeSchemaOverrideId: null,
+              productType: { is: { defaultSizeSchema: { is: { status: 'active' } } } },
+            },
+          ],
+        },
+        { variants: { some: {} } },
+        { variants: { none: { sizes: { none: {} } } } },
+        { variants: { none: { images: { none: { isFeatured: true } } } } },
         {
           pricingProfile: {
             policyVersions: {
               some: { status: 'ACTIVE', ratePlans: { some: {} } },
             },
           },
+        },
+        {
+          OR: [
+            { storefrontItemMode: { not: 'SPECIFIC_ITEM_SELECTION' } },
+            {
+              variants: {
+                none: { sizes: { some: { trackingMode: { not: InventoryTrackingMode.SERIALIZED } } } },
+              },
+            },
+          ],
         },
       ],
     };
@@ -982,12 +1457,14 @@ export class ProductService {
     }
 
     const activeRatePlan = product.pricingProfile?.policyVersions[0]?.ratePlans[0] ?? null;
-    const readiness = this.productReadiness({
-      hasProductType: Boolean(product.productType),
-      hasVariant: product.variants.length > 0,
-      hasSku: skuCount > 0,
-      hasFeaturedImage: Boolean(thumbnailUrl),
+    const readiness = this.evaluateProductReadiness({
+      category: product.category,
+      productType: product.productType,
+      sizeSchemaOverride: product.sizeSchemaOverride,
+      storefrontItemMode: product.storefrontItemMode,
+      variants: product.variants,
       hasActivePricing: Boolean(activeRatePlan),
+      compositionRules: product.compositionRules,
     });
     const trackingMode =
       trackingModes.size === 0
@@ -1028,20 +1505,105 @@ export class ProductService {
     };
   }
 
-  private productReadiness(input: {
-    hasProductType: boolean;
-    hasVariant: boolean;
-    hasSku: boolean;
-    hasFeaturedImage: boolean;
+  private evaluateProductReadiness(input: {
+    category: { isActive: boolean } | null;
+    productType: { defaultSizeSchema: { id: string; status: string } | null } | null;
+    sizeSchemaOverride: { id: string; status: string } | null;
+    storefrontItemMode: string;
+    variants: Array<{
+      id: string;
+      variantName?: string | null;
+      images: Array<{ id: string }>;
+      sizes: Array<{
+        id?: string;
+        trackingMode: InventoryTrackingMode;
+        sizeInstance?: { sizeSchemaId: string };
+      }>;
+    }>;
     hasActivePricing: boolean;
-  }): { ready: boolean; missing: string[] } {
-    const missing: string[] = [];
-    if (!input.hasProductType) missing.push('PRODUCT_TYPE');
-    if (!input.hasVariant) missing.push('VARIANT');
-    if (!input.hasSku) missing.push('RENTABLE_SKU');
-    if (!input.hasFeaturedImage) missing.push('FEATURED_IMAGE');
-    if (!input.hasActivePricing) missing.push('ACTIVE_PRICING');
-    return { ready: missing.length === 0, missing };
+    compositionRules: Array<{
+      id: string;
+      name: string;
+      componentProduct: { id: string; status: ProductStatus; deletedAt: Date | null } | null;
+      alternatives: Array<{
+        id: string;
+        product: { id: string; status: ProductStatus; deletedAt: Date | null };
+      }>;
+    }>;
+  }): ProductReadiness {
+    const blockers: ProductReadinessBlocker[] = [];
+    const block = (
+      code: ProductReadinessCode,
+      section: ProductReadinessSection,
+      message: string,
+      field?: string,
+      entityId?: string,
+    ) => blockers.push({ code, section, message, ...(field ? { field } : {}), ...(entityId ? { entityId } : {}) });
+
+    if (!input.category?.isActive) {
+      block('CATEGORY', 'basic', 'Choose an active category.', 'categoryId');
+    }
+    if (!input.productType) {
+      block('PRODUCT_TYPE', 'sizing', 'Choose a product type.', 'productTypeId');
+    }
+
+    const activeSchema = input.sizeSchemaOverride ?? input.productType?.defaultSizeSchema ?? null;
+    if (!activeSchema || activeSchema.status !== 'active') {
+      block('SIZE_SCHEMA', 'sizing', 'Choose an active size schema.', 'sizeSchemaOverrideId');
+    }
+    if (input.variants.length === 0) {
+      block('VARIANT', 'variants', 'Add at least one product variant.', 'variants');
+    }
+
+    for (const variant of input.variants) {
+      if (variant.sizes.length === 0) {
+        block('RENTABLE_SKU', 'variants', 'Add at least one rentable size to this variant.', 'variants', variant.id);
+      }
+      if (!variant.images.some(Boolean)) {
+        block('VARIANT_MEDIA', 'variants', 'Add a featured image to this variant.', 'variants', variant.id);
+      }
+      if (
+        activeSchema &&
+        variant.sizes.some((size) => size.sizeInstance && size.sizeInstance.sizeSchemaId !== activeSchema.id)
+      ) {
+        block('SIZE_SCHEMA', 'sizing', 'A variant uses a size outside the selected size schema.', 'sizeSchemaOverrideId', variant.id);
+      }
+      if (
+        input.storefrontItemMode === 'SPECIFIC_ITEM_SELECTION' &&
+        variant.sizes.some((size) => size.trackingMode !== InventoryTrackingMode.SERIALIZED)
+      ) {
+        block(
+          'STOREFRONT_ITEM_MODE',
+          'variants',
+          'Customer item selection requires every rentable SKU to use physical-item tracking.',
+          'storefrontItemMode',
+          variant.id,
+        );
+      }
+    }
+
+    if (!input.hasActivePricing) {
+      block('ACTIVE_PRICING', 'pricing', 'Configure and activate a rental pricing policy.', 'ratePlanType');
+    }
+
+    for (const rule of input.compositionRules) {
+      if (
+        !rule.componentProduct ||
+        rule.componentProduct.deletedAt ||
+        rule.componentProduct.status !== ProductStatus.published
+      ) {
+        block('COMPOSITION', 'composition', `Composition rule “${rule.name}” needs a published component product.`, undefined, rule.id);
+      }
+      if (
+        rule.alternatives.some(
+          (alternative) => alternative.product.deletedAt || alternative.product.status !== ProductStatus.published,
+        )
+      ) {
+        block('COMPOSITION', 'composition', `Composition rule “${rule.name}” contains an unavailable alternative.`, undefined, rule.id);
+      }
+    }
+
+    return { ready: blockers.length === 0, blockers };
   }
 
   private buildGuestWhere(tenantId: string, query: ProductQueryDto): Prisma.ProductWhereInput {
@@ -1112,7 +1674,7 @@ export class ProductService {
    */
   private productCardIncludes() {
     return {
-      category: { select: { id: true, name: true, slug: true } },
+      category: { select: { id: true, name: true, slug: true, isActive: true } },
       subcategory: { select: { id: true, name: true, slug: true } },
       events: {
         include: { event: { select: { id: true, name: true } } },
@@ -1228,6 +1790,21 @@ export class ProductService {
           },
         },
       },
+      compositionRules: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          name: true,
+          componentProduct: { select: { id: true, status: true, deletedAt: true } },
+          alternatives: {
+            where: { isActive: true },
+            select: {
+              id: true,
+              product: { select: { id: true, status: true, deletedAt: true } },
+            },
+          },
+        },
+      },
     } as const;
   }
 
@@ -1340,8 +1917,18 @@ export class ProductService {
 
   private mapOwnerProductDetail(product: any) {
     const activeSchema = product.sizeSchemaOverride ?? product.productType?.defaultSizeSchema ?? null;
+    const readiness = this.evaluateProductReadiness({
+      category: product.category,
+      productType: product.productType,
+      sizeSchemaOverride: product.sizeSchemaOverride,
+      storefrontItemMode: product.storefrontItemMode,
+      variants: product.variants,
+      hasActivePricing: Boolean(product.pricingProfile?.policyVersions?.[0]?.ratePlans?.[0]),
+      compositionRules: product.compositionRules ?? [],
+    });
     return {
       ...product,
+      readiness,
       pricing: this.mapActivePricing(product.pricingProfile),
       sizing: activeSchema
         ? {
@@ -1380,58 +1967,13 @@ export class ProductService {
   }
 
   private async assertPublishReady(tenantId: string, productId: string): Promise<void> {
-    const product = await this.prisma.product.findFirst({
-      where: { id: productId, tenantId, deletedAt: null },
-      select: {
-        categoryId: true,
-        productTypeId: true,
-        pricingProfile: {
-          select: {
-            policyVersions: {
-              where: { status: 'ACTIVE' },
-              take: 1,
-              select: { id: true, ratePlans: { take: 1, select: { id: true } } },
-            },
-          },
-        },
-        variants: {
-          select: {
-            images: { where: { isFeatured: true }, take: 1, select: { id: true } },
-            sizes: {
-              select: { id: true },
-            },
-          },
-        },
-      },
-    });
-    if (!product) throw new NotFoundException('Product not found');
-
-    const hasFeaturedImage = product.variants.some((variant) => variant.images.length > 0);
-    const hasActivePricing = Boolean(
-      product.pricingProfile?.policyVersions.some((version) => version.ratePlans.length > 0),
-    );
-
-    const readiness = this.productReadiness({
-      hasProductType: Boolean(product.productTypeId),
-      hasVariant: product.variants.length > 0,
-      hasSku: product.variants.some((variant) => variant.sizes.length > 0),
-      hasFeaturedImage,
-      hasActivePricing,
-    });
+    const readiness = await this.getReadiness(tenantId, productId);
 
     if (!readiness.ready) {
-      const labels: Record<string, string> = {
-        PRODUCT_TYPE: 'product type',
-        VARIANT: 'variant',
-        RENTABLE_SKU: 'rentable SKU',
-        FEATURED_IMAGE: 'featured image',
-        ACTIVE_PRICING: 'active pricing',
-      };
-      const missingLabels = readiness.missing.map((code) => labels[code] ?? code);
       throw new UnprocessableEntityException({
         code: 'PRODUCT_NOT_READY_TO_PUBLISH',
-        message: `Product cannot be published until it has: ${missingLabels.join(', ')}`,
-        missing: readiness.missing,
+        message: 'Product cannot be published until every catalog blocker is resolved.',
+        blockers: readiness.blockers,
       });
     }
   }

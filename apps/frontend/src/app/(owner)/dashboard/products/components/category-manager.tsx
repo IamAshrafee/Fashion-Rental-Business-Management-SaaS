@@ -352,7 +352,7 @@ interface CategoryManagerProps {
 }
 
 export function CategoryManager({ onAddClick, onAddHandled }: CategoryManagerProps) {
-  const { data: categories, isLoading, isError } = useCategories();
+  const { data: categories, isLoading, isError, refetch, isFetching } = useCategories();
   const mutations = useCategoryMutations();
 
   // Drag-and-drop
@@ -510,6 +510,9 @@ export function CategoryManager({ onAddClick, onAddHandled }: CategoryManagerPro
       <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
         <AlertCircle className="h-8 w-8 text-destructive/60" />
         <p className="text-sm">Failed to load categories. Please try again.</p>
+        <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
+          {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry
+        </Button>
       </div>
     );
   }

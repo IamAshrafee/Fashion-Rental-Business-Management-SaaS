@@ -6,9 +6,11 @@ import {
   BadRequestException,
   ServiceUnavailableException,
   OnModuleInit,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import * as Minio from 'minio';
 import sharp from 'sharp';
 import { v4 as uuidv4 } from 'uuid';
@@ -132,50 +134,60 @@ export class UploadService implements OnModuleInit {
     const thumbKey = `${basePath}/thumb_${hash}.webp`;
 
     await this.ensureBucket();
-    await this.minioClient.putObject(this.bucket, fullKey, fullBuffer, fullBuffer.length, {
-      'Content-Type': 'image/webp',
-    });
-    await this.minioClient.putObject(this.bucket, thumbKey, thumbBuffer, thumbBuffer.length, {
-      'Content-Type': 'image/webp',
-    });
+    try {
+      await this.minioClient.putObject(this.bucket, fullKey, fullBuffer, fullBuffer.length, {
+        'Content-Type': 'image/webp',
+      });
+      await this.minioClient.putObject(this.bucket, thumbKey, thumbBuffer, thumbBuffer.length, {
+        'Content-Type': 'image/webp',
+      });
+    } catch (error) {
+      await Promise.allSettled([
+        this.minioClient.removeObject(this.bucket, fullKey),
+        this.minioClient.removeObject(this.bucket, thumbKey),
+      ]);
+      throw error;
+    }
 
     const url = `${this.publicUrl}/${fullKey}`;
     const thumbnailUrl = `${this.publicUrl}/${thumbKey}`;
 
-    // Get next sequence
-    const maxSeq = await this.prisma.productImage.aggregate({
-      where: { variantId },
-      _max: { sequence: true },
-    });
-    const sequence = (maxSeq._max.sequence ?? -1) + 1;
-
-    // If this is the first image or marked as featured, handle featured logic
-    if (isFeatured) {
-      await this.prisma.productImage.updateMany({
-        where: { variantId, isFeatured: true },
-        data: { isFeatured: false },
-      });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const [maxSeq, imageCount] = await Promise.all([
+          tx.productImage.aggregate({
+            where: { variantId, tenantId },
+            _max: { sequence: true },
+          }),
+          tx.productImage.count({ where: { variantId, tenantId } }),
+        ]);
+        const shouldBeFeatured = isFeatured || imageCount === 0;
+        if (shouldBeFeatured) {
+          await tx.productImage.updateMany({
+            where: { variantId, tenantId, isFeatured: true },
+            data: { isFeatured: false },
+          });
+        }
+        return tx.productImage.create({
+          data: {
+            tenantId,
+            variantId,
+            url,
+            thumbnailUrl,
+            isFeatured: shouldBeFeatured,
+            sequence: (maxSeq._max.sequence ?? -1) + 1,
+            originalName: file.originalname,
+            fileSize: fullBuffer.length,
+          },
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      await Promise.allSettled([
+        this.minioClient.removeObject(this.bucket, fullKey),
+        this.minioClient.removeObject(this.bucket, thumbKey),
+      ]);
+      throw error;
     }
-
-    // Check if this is the first image for this variant
-    const imageCount = await this.prisma.productImage.count({ where: { variantId } });
-    const shouldBeFeatured = isFeatured || imageCount === 0;
-
-    // Create DB record
-    const image = await this.prisma.productImage.create({
-      data: {
-        tenantId,
-        variantId,
-        url,
-        thumbnailUrl,
-        isFeatured: shouldBeFeatured,
-        sequence,
-        originalName: file.originalname,
-        fileSize: fullBuffer.length,
-      },
-    });
-
-    return image;
   }
 
   /**
@@ -200,10 +212,41 @@ export class UploadService implements OnModuleInit {
   async deleteProductImage(tenantId: string, imageId: string) {
     const image = await this.prisma.productImage.findFirst({
       where: { id: imageId, tenantId },
+      include: {
+        variant: { select: { product: { select: { status: true } } } },
+      },
     });
     if (!image) throw new NotFoundException('Image not found');
 
-    // Remove from MinIO
+    const imageCount = await this.prisma.productImage.count({
+      where: { tenantId, variantId: image.variantId },
+    });
+    if (image.variant.product.status === 'published' && imageCount <= 1) {
+      throw new ConflictException({
+        code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED',
+        section: 'variants',
+        message: 'Unpublish this product before removing the final image from a variant.',
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.productImage.delete({ where: { id: imageId } });
+      if (image.isFeatured) {
+        const next = await tx.productImage.findFirst({
+          where: { variantId: image.variantId, tenantId },
+          orderBy: { sequence: 'asc' },
+        });
+        if (next) {
+          await tx.productImage.update({
+            where: { id: next.id },
+            data: { isFeatured: true },
+          });
+        }
+      }
+    });
+
+    // Database state is authoritative. Failed object cleanup leaves an
+    // unreachable object, never a product row pointing at a missing image.
     try {
       const fullKey = this.extractKey(image.url);
       const thumbKey = this.extractKey(image.thumbnailUrl);
@@ -213,23 +256,6 @@ export class UploadService implements OnModuleInit {
       this.logger.warn(`Failed to delete MinIO object: ${err}`);
     }
 
-    // Delete DB record
-    await this.prisma.productImage.delete({ where: { id: imageId } });
-
-    // If deleted was featured, make the next image featured
-    if (image.isFeatured) {
-      const next = await this.prisma.productImage.findFirst({
-        where: { variantId: image.variantId },
-        orderBy: { sequence: 'asc' },
-      });
-      if (next) {
-        await this.prisma.productImage.update({
-          where: { id: next.id },
-          data: { isFeatured: true },
-        });
-      }
-    }
-
     return { message: 'Image deleted' };
   }
 
@@ -237,14 +263,30 @@ export class UploadService implements OnModuleInit {
    * Reorder images within a variant.
    */
   async reorderImages(tenantId: string, variantId: string, imageIds: string[]) {
-    const updates = imageIds.map((id, index) =>
-      this.prisma.productImage.update({
-        where: { id },
-        data: { sequence: index },
+    const uniqueIds = [...new Set(imageIds)];
+    if (uniqueIds.length !== imageIds.length) {
+      throw new BadRequestException('An image can only appear once in the reorder request');
+    }
+    const variant = await this.prisma.productVariant.findFirst({
+      where: { id: variantId, tenantId },
+      select: { id: true },
+    });
+    if (!variant) throw new NotFoundException('Variant not found');
+    const [ownedImages, totalImages] = await Promise.all([
+      this.prisma.productImage.count({
+        where: { tenantId, variantId, id: { in: uniqueIds } },
       }),
-    );
+      this.prisma.productImage.count({ where: { tenantId, variantId } }),
+    ]);
+    if (ownedImages !== uniqueIds.length || totalImages !== uniqueIds.length) {
+      throw new BadRequestException('The reorder request must contain every image from this variant exactly once');
+    }
 
-    await this.prisma.$transaction(updates);
+    await this.prisma.$transaction(
+      uniqueIds.map((id, sequence) =>
+        this.prisma.productImage.update({ where: { id }, data: { sequence } }),
+      ),
+    );
     return { message: 'Images reordered' };
   }
 

@@ -12,6 +12,9 @@ import {
   Min,
   Max,
   IsIn,
+  ArrayNotEmpty,
+  ArrayMaxSize,
+  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { InventoryTrackingMode, StorefrontItemVisibilityMode } from '@prisma/client';
@@ -101,7 +104,9 @@ export class UpdateVariantDto {
 // --- Reorder DTO ---
 export class ReorderDto {
   @IsArray()
-  @IsString({ each: true })
+  @ArrayNotEmpty()
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
   ids!: string[];
 }
 

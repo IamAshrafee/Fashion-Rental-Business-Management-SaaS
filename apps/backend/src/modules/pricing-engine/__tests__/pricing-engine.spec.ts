@@ -4,15 +4,17 @@ import { PrismaService } from '../../../prisma/prisma.service';
 
 // Mock Prisma
 const mockPrisma = {
-  pricePolicyVersion: {
+  pricingProfile: {
     findFirst: jest.fn(),
   },
+  quote: { create: jest.fn() },
 };
 
 describe('PricingEngineService', () => {
   let service: PricingEngineService;
 
   beforeEach(async () => {
+    jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PricingEngineService,
@@ -21,6 +23,56 @@ describe('PricingEngineService', () => {
     }).compile();
 
     service = module.get<PricingEngineService>(PricingEngineService);
+  });
+
+  describe('Authoritative quote boundary', () => {
+    it('scopes the profile by tenant and uses the product purchase value', async () => {
+      mockPrisma.pricingProfile.findFirst.mockResolvedValue({
+        currency: 'BDT',
+        durationMode: 'CALENDAR_DAYS',
+        billingRounding: 'CEIL',
+        product: { purchasePrice: 1_000_000 },
+        policyVersions: [{
+          id: 'policy-1',
+          ratePlans: [{
+            id: 'rate-1',
+            type: 'PERCENT_RETAIL',
+            priority: 100,
+            config: { percent: 10, basis: 'PER_RENTAL' },
+            conditionSet: null,
+          }],
+          priceComponents: [],
+        }],
+      });
+
+      const quote = await service.computeQuote({
+        tenantId: 'tenant-1',
+        productId: 'product-1',
+        startAt: new Date('2026-08-10T00:00:00.000Z'),
+        endAt: new Date('2026-08-10T00:00:00.000Z'),
+      });
+
+      expect(quote.subtotalMinor).toBe(100_000);
+      expect(mockPrisma.pricingProfile.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            productId: 'product-1',
+            tenantId: 'tenant-1',
+            product: { deletedAt: null },
+          },
+        }),
+      );
+    });
+
+    it('rejects an inverted rental period before querying pricing', async () => {
+      await expect(service.computeQuote({
+        tenantId: 'tenant-1',
+        productId: 'product-1',
+        startAt: new Date('2026-08-11T00:00:00.000Z'),
+        endAt: new Date('2026-08-10T00:00:00.000Z'),
+      })).rejects.toMatchObject({ status: 400 });
+      expect(mockPrisma.pricingProfile.findFirst).not.toHaveBeenCalled();
+    });
   });
 
   describe('Rate Plan Evaluations', () => {
@@ -153,4 +205,3 @@ describe('PricingEngineService', () => {
     });
   });
 });
-

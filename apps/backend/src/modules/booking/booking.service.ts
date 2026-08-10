@@ -65,6 +65,35 @@ interface CartSummary {
   grandTotal: number;
 }
 
+type SummaryLine = Pick<
+  PricingSnapshot,
+  'cleaningFee' | 'backupSizeFee' | 'tryOnFee' | 'shippingFee' | 'depositAmount' | 'itemTotal'
+>;
+
+/**
+ * Aggregates authoritative item totals without reconstructing the base price.
+ * This preserves composition and add-on adjustments already applied by the
+ * pricing/fulfillment calculation while reporting fees separately.
+ */
+export function computeCartSummary(items: SummaryLine[]): CartSummary {
+  const totalFees = items.reduce(
+    (sum, item) => sum + item.cleaningFee + item.backupSizeFee + item.tryOnFee,
+    0,
+  );
+  const subtotal = items.reduce(
+    (sum, item) =>
+      sum + item.itemTotal - item.cleaningFee - item.backupSizeFee - item.tryOnFee,
+    0,
+  );
+  const totalDeposit = items.reduce((sum, item) => sum + item.depositAmount, 0);
+  const shippingFee = items.reduce((max, item) => Math.max(max, item.shippingFee), 0);
+  const grandTotal = items.reduce((sum, item) => sum + item.itemTotal, 0)
+    + shippingFee
+    + totalDeposit;
+
+  return { subtotal, totalFees, totalDeposit, shippingFee, grandTotal };
+}
+
 const BOOKING_CREATED_INCLUDE = {
   customer: { select: { id: true, fullName: true, phone: true } },
   items: {
@@ -277,7 +306,7 @@ export class BookingService {
     });
     const anyUnavailable = results.some((item) => !item.available);
 
-    const summary = this.computeSummary(results);
+    const summary = computeCartSummary(results);
 
     return {
       valid: !anyUnavailable,
@@ -417,7 +446,7 @@ export class BookingService {
         validatedItems.push(result);
       }
 
-      const summary = this.computeSummary(validatedItems);
+      const summary = computeCartSummary(validatedItems);
 
       // Step 3: Generate booking number (with row-level locking)
       const year = new Date().getFullYear();
@@ -1701,20 +1730,6 @@ export class BookingService {
       item.endDate,
       { backupSize: item.backupSize, tryOn: item.tryOn },
     );
-  }
-
-  /**
-   * Compute booking-level summary from validated item results.
-   */
-  private computeSummary(items: CartItemResult[]): CartSummary {
-    const subtotal = items.reduce((sum, i) => sum + i.baseRental + i.extendedCost, 0);
-    const totalFees = items.reduce((sum, i) => sum + i.cleaningFee + i.backupSizeFee + i.tryOnFee, 0);
-    const totalDeposit = items.reduce((sum, i) => sum + i.depositAmount, 0);
-    // Take max shippingFee (one delivery charge covers all items)
-    const shippingFee = items.reduce((max, i) => Math.max(max, i.shippingFee), 0);
-    const grandTotal = subtotal + totalFees + shippingFee + totalDeposit;
-
-    return { subtotal, totalFees, totalDeposit, shippingFee, grandTotal };
   }
 
   /**

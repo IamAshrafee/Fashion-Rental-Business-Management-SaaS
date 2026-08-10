@@ -9,13 +9,20 @@ describe('ProductService owner catalog list', () => {
     name: 'Red Designer Dress',
     slug: 'red-designer-dress',
     status: 'draft' as const,
+    storefrontItemMode: 'INTERNAL_ONLY' as const,
     targetRentals: 20,
     totalBookings: 4,
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
     updatedAt: new Date('2026-08-02T00:00:00.000Z'),
     deletedAt: null,
-    category: { id: 'category-1', name: 'Dresses', slug: 'dresses' },
-    productType: { id: 'type-1', name: 'Apparel', slug: 'apparel' },
+    category: { id: 'category-1', name: 'Dresses', slug: 'dresses', isActive: true },
+    productType: {
+      id: 'type-1',
+      name: 'Apparel',
+      slug: 'apparel',
+      defaultSizeSchema: { id: 'schema-1', status: 'active' as const },
+    },
+    sizeSchemaOverride: null,
     pricingProfile: {
       headlinePriceMinor: 150000,
       headlineLabel: 'From',
@@ -35,18 +42,23 @@ describe('ProductService owner catalog list', () => {
         ],
         sizes: [
           {
+            id: 'sku-1',
             trackingMode: InventoryTrackingMode.POOLED,
+            sizeInstance: { sizeSchemaId: 'schema-1' },
             inventoryPools: [{ onHandQuantity: 2 }],
             _count: { stockUnits: 0 },
           },
           {
+            id: 'sku-2',
             trackingMode: InventoryTrackingMode.SERIALIZED,
+            sizeInstance: { sizeSchemaId: 'schema-1' },
             inventoryPools: [],
             _count: { stockUnits: 1 },
           },
         ],
       },
     ],
+    compositionRules: [],
     deletedBy: null,
     _count: { bookingItems: 4 },
   };
@@ -55,6 +67,7 @@ describe('ProductService owner catalog list', () => {
     findMany: jest.fn(),
     count: jest.fn(),
     findFirst: jest.fn(),
+    update: jest.fn(),
   };
   const prisma = { product: productDelegate };
   const service = new ProductService(
@@ -86,7 +99,7 @@ describe('ProductService owner catalog list', () => {
         serializedUnits: 1,
         hasStock: true,
       },
-      readiness: { ready: true, missing: [] },
+      readiness: { ready: true, blockers: [] },
     });
     expect(productDelegate.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -155,9 +168,15 @@ describe('ProductService owner catalog list', () => {
 
     const result = await service.listOwner('tenant-1', {});
 
-    expect(result.data[0].readiness).toEqual({
+    expect(result.data[0].readiness).toMatchObject({
       ready: false,
-      missing: ['PRODUCT_TYPE', 'RENTABLE_SKU', 'FEATURED_IMAGE', 'ACTIVE_PRICING'],
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ code: 'PRODUCT_TYPE', section: 'sizing' }),
+        expect.objectContaining({ code: 'SIZE_SCHEMA', section: 'sizing' }),
+        expect.objectContaining({ code: 'RENTABLE_SKU', section: 'variants' }),
+        expect.objectContaining({ code: 'VARIANT_MEDIA', section: 'variants' }),
+        expect.objectContaining({ code: 'ACTIVE_PRICING', section: 'pricing' }),
+      ]),
     });
     expect(result.data[0].inventory).toEqual({
       onHand: 0,
@@ -249,5 +268,65 @@ describe('ProductService owner catalog list', () => {
         schema: { id: 'schema-1', code: 'APPAREL_ALPHA' },
       },
     });
+  });
+
+  it('returns section-addressable publication blockers from the authoritative readiness query', async () => {
+    productDelegate.findFirst.mockResolvedValue({
+      category: { isActive: true },
+      productType: { defaultSizeSchema: { id: 'schema-1', status: 'active' } },
+      sizeSchemaOverride: null,
+      storefrontItemMode: 'SPECIFIC_ITEM_SELECTION',
+      pricingProfile: null,
+      variants: [{
+        id: 'variant-1',
+        variantName: 'Red',
+        images: [],
+        sizes: [{
+          id: 'sku-1',
+          trackingMode: InventoryTrackingMode.POOLED,
+          sizeInstance: { sizeSchemaId: 'schema-1' },
+        }],
+      }],
+      compositionRules: [{
+        id: 'rule-1',
+        name: 'Jewellery set',
+        componentProduct: { id: 'component-1', status: 'draft', deletedAt: null },
+        alternatives: [],
+      }],
+    });
+
+    const readiness = await service.getReadiness('tenant-1', 'product-1');
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'VARIANT_MEDIA', section: 'variants', entityId: 'variant-1' }),
+      expect.objectContaining({ code: 'STOREFRONT_ITEM_MODE', field: 'storefrontItemMode' }),
+      expect.objectContaining({ code: 'ACTIVE_PRICING', section: 'pricing' }),
+      expect.objectContaining({ code: 'COMPOSITION', section: 'composition', entityId: 'rule-1' }),
+    ]));
+  });
+
+  it('rejects publication with the same blocker contract returned by readiness', async () => {
+    productDelegate.findFirst
+      .mockResolvedValueOnce({ id: 'product-1', tenantId: 'tenant-1', status: 'draft', deletedAt: null })
+      .mockResolvedValueOnce({
+        category: { isActive: true },
+        productType: null,
+        sizeSchemaOverride: null,
+        storefrontItemMode: 'INTERNAL_ONLY',
+        pricingProfile: null,
+        variants: [],
+        compositionRules: [],
+      });
+
+    await expect(service.updateStatus('tenant-1', 'product-1', 'published')).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'PRODUCT_NOT_READY_TO_PUBLISH',
+        blockers: expect.arrayContaining([
+          expect.objectContaining({ code: 'PRODUCT_TYPE', section: 'sizing' }),
+        ]),
+      }),
+    });
+    expect(productDelegate.update).not.toHaveBeenCalled();
   });
 });

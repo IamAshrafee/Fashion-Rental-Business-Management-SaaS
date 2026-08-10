@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { BookingService } from './booking.service';
+import { BookingService, computeCartSummary } from './booking.service';
 import type { CreateBookingDto } from './dto/booking.dto';
 
 const request = {
@@ -82,6 +82,33 @@ function serviceWith(prisma: object, customerService: object = {}) {
 }
 
 describe('BookingService', () => {
+  it('preserves bundle adjustments when aggregating authoritative item totals', () => {
+    expect(computeCartSummary([
+      {
+        itemTotal: 175_000,
+        cleaningFee: 10_000,
+        backupSizeFee: 5_000,
+        tryOnFee: 0,
+        shippingFee: 12_000,
+        depositAmount: 50_000,
+      },
+      {
+        itemTotal: 90_000,
+        cleaningFee: 0,
+        backupSizeFee: 0,
+        tryOnFee: 0,
+        shippingFee: 12_000,
+        depositAmount: 20_000,
+      },
+    ])).toEqual({
+      subtotal: 250_000,
+      totalFees: 15_000,
+      totalDeposit: 70_000,
+      shippingFee: 12_000,
+      grandTotal: 347_000,
+    });
+  });
+
   it('returns the original booking for a matching creation idempotency key', async () => {
     const prisma = { booking: { findFirst: jest.fn().mockResolvedValue(existingBooking) } };
     const customerService = { findOrCreateByPhone: jest.fn() };

@@ -6,7 +6,6 @@ import {
   Body,
   Param,
   UseGuards,
-  Req,
 } from '@nestjs/common';
 import { PricingAdminService } from './pricing-admin.service';
 import { PricingEngineService } from './pricing-engine.service';
@@ -15,6 +14,9 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
+import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser, TenantContext } from '@closetrent/types';
 
 @Controller('products/:productId/pricing')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
@@ -30,17 +32,11 @@ export class PricingAdminController {
    */
   @Get()
   @Roles('owner', 'manager')
-  async getPricing(@Req() req: any, @Param('productId') productId: string): Promise<any> {
-    const tenantId = req.user.tenantId;
-    const profile = await this.adminService.getPricingProfile(
-      tenantId,
-      productId,
-    );
-
-    return {
-      success: true,
-      data: profile,
-    };
+  async getPricing(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
+  ) {
+    return this.adminService.getPricingProfile(tenant.id, productId);
   }
 
   /**
@@ -50,23 +46,16 @@ export class PricingAdminController {
   @Post()
   @Roles('owner', 'manager')
   async savePricing(
-    @Req() req: any,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthUser,
     @Param('productId') productId: string,
     @Body() dto: SavePricingDto,
-  ): Promise<any> {
-    const tenantId = req.user.tenantId;
-
-    const result = await this.adminService.savePricing(tenantId, productId, {
+  ) {
+    return this.adminService.savePricing(tenant.id, productId, {
       ratePlan: dto.ratePlan,
       components: dto.components,
-      lateFeePolicy: dto.lateFeePolicy as any,
-    }, req.user.id);
-
-    return {
-      success: true,
-      data: result,
-      message: `Pricing v${result.version} published`,
-    };
+      lateFeePolicy: dto.lateFeePolicy,
+    }, user.id);
   }
 
   /**
@@ -76,38 +65,27 @@ export class PricingAdminController {
   @Post('simulate')
   @Roles('owner', 'manager')
   async simulate(
-    @Req() req: any,
+    @CurrentTenant() tenant: TenantContext,
     @Param('productId') productId: string,
     @Body() dto: SimulatePricingDto,
-  ): Promise<any> {
-    const tenantId = req.user.tenantId;
-
-    const product = await this.pricingEngine['prisma'].product.findFirst({
-      where: { id: productId, tenantId, deletedAt: null },
-      select: { purchasePrice: true },
-    });
-
+  ) {
     const result = await this.pricingEngine.computeQuote({
-      tenantId,
+      tenantId: tenant.id,
       productId,
       startAt: new Date(dto.startAt),
       endAt: new Date(dto.endAt),
-      retailPriceMinor: product?.purchasePrice ?? undefined,
       selectedAddons: dto.selectedAddons,
     });
 
     return {
-      success: true,
-      data: {
-        currency: result.currency,
-        billableDays: result.billableDays,
-        lineItems: result.lineItems,
-        totals: {
-          subtotalMinor: result.subtotalMinor,
-          depositMinor: result.depositMinor,
-          totalDueNowMinor: result.totalDueNowMinor,
-          totalDueLaterMinor: result.totalDueLaterMinor,
-        },
+      currency: result.currency,
+      billableDays: result.billableDays,
+      lineItems: result.lineItems,
+      totals: {
+        subtotalMinor: result.subtotalMinor,
+        depositMinor: result.depositMinor,
+        totalDueNowMinor: result.totalDueNowMinor,
+        totalDueLaterMinor: result.totalDueLaterMinor,
       },
     };
   }
@@ -119,11 +97,9 @@ export class PricingAdminController {
   @Delete()
   @Roles('owner')
   async deletePricing(
-    @Req() req: any,
+    @CurrentTenant() tenant: TenantContext,
     @Param('productId') productId: string,
-  ): Promise<any> {
-    const tenantId = req.user.tenantId;
-    const result = await this.adminService.deletePricingProfile(tenantId, productId);
-    return { success: true, ...result };
+  ) {
+    return this.adminService.deletePricingProfile(tenant.id, productId);
   }
 }

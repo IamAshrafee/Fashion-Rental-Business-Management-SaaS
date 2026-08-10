@@ -2,7 +2,6 @@ import { ReactNode } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Save, Loader2, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 export const EDIT_TABS = [
   { id: 'basic', label: 'Basic Info' },
@@ -17,12 +16,13 @@ interface Props {
   children: (activeTab: EditTabId) => ReactNode;
   onSave: () => void;
   isSaving?: boolean;
+  saveDisabled?: boolean;
   activeTab: EditTabId;
   onTabChange: (tab: EditTabId) => void;
   tabErrors?: Record<EditTabId, boolean>; // if true, show a red dot indicator on the tab
 }
 
-export function TabbedEditLayout({ children, onSave, isSaving, activeTab, onTabChange, tabErrors = {} as Record<EditTabId, boolean> }: Props) {
+export function TabbedEditLayout({ children, onSave, isSaving, saveDisabled, activeTab, onTabChange, tabErrors = {} as Record<EditTabId, boolean> }: Props) {
   // Check if any tab has an error
   const hasGlobalErrors = Object.values(tabErrors).some(Boolean);
 
@@ -38,7 +38,7 @@ export function TabbedEditLayout({ children, onSave, isSaving, activeTab, onTabC
             </span>
           )}
         </h2>
-        <Button onClick={onSave} disabled={isSaving}>
+        <Button onClick={onSave} disabled={isSaving || saveDisabled}>
           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
           Save Changes
         </Button>

@@ -12,6 +12,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -45,6 +46,8 @@ export class CompositionAlternativeInputDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(-1_000_000_000)
+  @Max(1_000_000_000)
   priceAdjustment = 0;
 }
 
@@ -73,6 +76,7 @@ export class CreateCompositionRuleDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(100)
   quantity = 1;
 
   @IsEnum(CompositionSkuResolution)
@@ -89,12 +93,15 @@ export class CreateCompositionRuleDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
+  @Max(1_000_000_000)
   priceAdjustment = 0;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(10_000)
   allocationWeight = 1;
 
   @IsOptional()

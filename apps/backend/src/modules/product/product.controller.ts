@@ -39,7 +39,6 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantContext, AuthUser } from '@closetrent/types';
-import { PrismaService } from '../../prisma/prisma.service';
 
 // =========================================================================
 // GUEST CONTROLLER
@@ -157,7 +156,6 @@ export class ProductOwnerController {
   constructor(
     private readonly productService: ProductService,
     private readonly variantService: VariantService,
-    private readonly prisma: PrismaService,
   ) {}
 
   // --- Product CRUD ---
@@ -199,6 +197,15 @@ export class ProductOwnerController {
     @Param('id') id: string,
   ) {
     return this.productService.getById(tenant.id, id);
+  }
+
+  @Get(':id/readiness')
+  @Roles('owner', 'manager', 'staff')
+  async getReadiness(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+  ) {
+    return this.productService.getReadiness(tenant.id, id);
   }
 
   @Patch(':id')
@@ -307,20 +314,7 @@ export class ProductOwnerController {
     @Param('id') productId: string,
     @Body() dto: CreateFaqDto,
   ) {
-    const maxSeq = await this.prisma.productFaq.aggregate({
-      where: { productId },
-      _max: { sequence: true },
-    });
-
-    return this.prisma.productFaq.create({
-      data: {
-        tenantId: tenant.id,
-        productId,
-        question: dto.question,
-        answer: dto.answer,
-        sequence: (maxSeq._max.sequence ?? -1) + 1,
-      },
-    });
+    return this.productService.addFaq(tenant.id, productId, dto);
   }
 
   @Patch(':productId/faqs/:faqId')
@@ -331,12 +325,7 @@ export class ProductOwnerController {
     @Param('faqId') faqId: string,
     @Body() dto: UpdateFaqDto,
   ) {
-    // Verify the FAQ belongs to this tenant's product before updating
-    const faq = await this.prisma.productFaq.findFirst({
-      where: { id: faqId, productId, tenantId: tenant.id },
-    });
-    if (!faq) throw new Error('FAQ not found');
-    return this.prisma.productFaq.update({ where: { id: faqId }, data: dto });
+    return this.productService.updateFaq(tenant.id, productId, faqId, dto);
   }
 
   @Delete(':productId/faqs/:faqId')
@@ -347,13 +336,7 @@ export class ProductOwnerController {
     @Param('productId') productId: string,
     @Param('faqId') faqId: string,
   ) {
-    // Verify the FAQ belongs to this tenant's product before deleting
-    const faq = await this.prisma.productFaq.findFirst({
-      where: { id: faqId, productId, tenantId: tenant.id },
-    });
-    if (!faq) throw new Error('FAQ not found');
-    await this.prisma.productFaq.delete({ where: { id: faqId } });
-    return { message: 'FAQ deleted' };
+    return this.productService.deleteFaq(tenant.id, productId, faqId);
   }
 
   // --- Detail Headers ---
@@ -366,30 +349,7 @@ export class ProductOwnerController {
     @Param('id') productId: string,
     @Body() dto: CreateDetailHeaderDto,
   ) {
-    const header = await this.prisma.productDetailHeader.create({
-      data: {
-        tenantId: tenant.id,
-        productId,
-        headerName: dto.headerName,
-        sequence: dto.sequence ?? 0,
-      },
-    });
-
-    if (dto.entries?.length) {
-      await this.prisma.productDetailEntry.createMany({
-        data: dto.entries.map((entry, i) => ({
-          headerId: header.id,
-          key: entry.key,
-          value: entry.value,
-          sequence: i,
-        })),
-      });
-    }
-
-    return this.prisma.productDetailHeader.findUnique({
-      where: { id: header.id },
-      include: { entries: { orderBy: { sequence: 'asc' } } },
-    });
+    return this.productService.addDetailHeader(tenant.id, productId, dto);
   }
 
   @Patch(':productId/details/:headerId')
@@ -400,12 +360,7 @@ export class ProductOwnerController {
     @Param('headerId') headerId: string,
     @Body() dto: UpdateDetailHeaderDto,
   ) {
-    // Verify ownership before update
-    const header = await this.prisma.productDetailHeader.findFirst({
-      where: { id: headerId, productId, tenantId: tenant.id },
-    });
-    if (!header) throw new Error('Detail header not found');
-    return this.prisma.productDetailHeader.update({ where: { id: headerId }, data: dto });
+    return this.productService.updateDetailHeader(tenant.id, productId, headerId, dto);
   }
 
   @Delete(':productId/details/:headerId')
@@ -416,36 +371,30 @@ export class ProductOwnerController {
     @Param('productId') productId: string,
     @Param('headerId') headerId: string,
   ) {
-    // Verify ownership before delete
-    const header = await this.prisma.productDetailHeader.findFirst({
-      where: { id: headerId, productId, tenantId: tenant.id },
-    });
-    if (!header) throw new Error('Detail header not found');
-    await this.prisma.productDetailHeader.delete({ where: { id: headerId } });
-    return { message: 'Detail header deleted' };
+    return this.productService.deleteDetailHeader(tenant.id, productId, headerId);
   }
 
   @Post(':productId/details/:headerId/entries')
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.CREATED)
   async addDetailEntry(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
     @Param('headerId') headerId: string,
     @Body() dto: DetailEntryDto,
   ) {
-    return this.prisma.productDetailEntry.create({
-      data: {
-        headerId,
-        key: dto.key,
-        value: dto.value,
-      },
-    });
+    return this.productService.addDetailEntry(tenant.id, productId, headerId, dto);
   }
 
   @Delete(':productId/details/:headerId/entries/:entryId')
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.OK)
-  async deleteDetailEntry(@Param('entryId') entryId: string) {
-    await this.prisma.productDetailEntry.delete({ where: { id: entryId } });
-    return { message: 'Detail entry deleted' };
+  async deleteDetailEntry(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('productId') productId: string,
+    @Param('headerId') headerId: string,
+    @Param('entryId') entryId: string,
+  ) {
+    return this.productService.deleteDetailEntry(tenant.id, productId, headerId, entryId);
   }
 }

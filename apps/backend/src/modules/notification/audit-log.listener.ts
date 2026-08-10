@@ -212,8 +212,8 @@ export class AuditLogListener {
   // PRODUCT EVENTS
   // --------------------------------------------------------------------------
 
-  @OnEvent('product.created')
-  async onProductCreated(event: { tenantId: string; productId: string }) {
+  @OnEvent('product.published')
+  async onProductPublished(event: { tenantId: string; productId: string }) {
     try {
       await this.auditLogService.record({
         tenantId: event.tenantId,
@@ -223,7 +223,7 @@ export class AuditLogListener {
         entityId: event.productId,
       });
     } catch (err) {
-      this.logger.error(`Audit product.created failed: ${(err as Error).message}`);
+      this.logger.error(`Audit product.published failed: ${(err as Error).message}`);
     }
   }
 

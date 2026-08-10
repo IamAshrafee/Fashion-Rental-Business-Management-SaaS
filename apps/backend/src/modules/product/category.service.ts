@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
   UnprocessableEntityException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -14,6 +15,8 @@ import {
   CreateEventDto,
   UpdateEventDto,
 } from './dto/create-category.dto';
+
+const CATALOG_REFERENCE_LIMIT = 500;
 
 @Injectable()
 export class CategoryService {
@@ -31,16 +34,30 @@ export class CategoryService {
   async listCategories(tenantId: string) {
     const categories = await this.prisma.category.findMany({
       where: { tenantId, isActive: true },
-      orderBy: { displayOrder: 'asc' },
+      take: CATALOG_REFERENCE_LIMIT,
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
         subcategories: {
           where: { isActive: true },
-          orderBy: { displayOrder: 'asc' },
+          take: CATALOG_REFERENCE_LIMIT,
+          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
           include: {
-            _count: { select: { products: true } },
+            _count: {
+              select: {
+                products: {
+                  where: { status: 'published', isAvailable: true, deletedAt: null },
+                },
+              },
+            },
           },
         },
-        _count: { select: { products: true } },
+        _count: {
+          select: {
+            products: {
+              where: { status: 'published', isAvailable: true, deletedAt: null },
+            },
+          },
+        },
       },
     });
 
@@ -65,10 +82,12 @@ export class CategoryService {
   async listCategoriesOwner(tenantId: string) {
     return this.prisma.category.findMany({
       where: { tenantId },
-      orderBy: { displayOrder: 'asc' },
+      take: CATALOG_REFERENCE_LIMIT,
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
         subcategories: {
-          orderBy: { displayOrder: 'asc' },
+          take: CATALOG_REFERENCE_LIMIT,
+          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
         },
         _count: { select: { products: true } },
       },
@@ -98,12 +117,27 @@ export class CategoryService {
   }
 
   async updateCategory(tenantId: string, categoryId: string, dto: UpdateCategoryDto) {
-    await this.findCategoryOrFail(tenantId, categoryId);
+    const category = await this.findCategoryOrFail(tenantId, categoryId);
+    if (dto.isActive === false && category.isActive) {
+      const publishedProducts = await this.prisma.product.count({
+        where: { categoryId, tenantId, status: 'published', deletedAt: null },
+      });
+      if (publishedProducts > 0) {
+        throw new UnprocessableEntityException(
+          `Unpublish or move ${publishedProducts} published product(s) before deactivating this category.`,
+        );
+      }
+    }
 
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) {
       data.name = dto.name;
       data.slug = this.slugify(dto.name);
+      const conflict = await this.prisma.category.findFirst({
+        where: { tenantId, slug: data.slug as string, id: { not: categoryId } },
+        select: { id: true },
+      });
+      if (conflict) throw new ConflictException('A category with this name already exists');
     }
     if (dto.icon !== undefined) data.icon = dto.icon;
     if (dto.displayOrder !== undefined) data.displayOrder = dto.displayOrder;
@@ -122,7 +156,7 @@ export class CategoryService {
 
     // Check if products exist
     const productCount = await this.prisma.product.count({
-      where: { categoryId, tenantId, deletedAt: null },
+      where: { categoryId, tenantId },
     });
 
     if (productCount > 0) {
@@ -145,9 +179,17 @@ export class CategoryService {
   // =========================================================================
 
   async createSubcategory(tenantId: string, categoryId: string, dto: CreateSubcategoryDto) {
-    await this.findCategoryOrFail(tenantId, categoryId);
+    const category = await this.findCategoryOrFail(tenantId, categoryId);
+    if (!category.isActive) {
+      throw new UnprocessableEntityException('Reactivate the category before adding subcategories');
+    }
 
     const slug = this.slugify(dto.name);
+    const existing = await this.prisma.subcategory.findUnique({
+      where: { categoryId_slug: { categoryId, slug } },
+      select: { id: true },
+    });
+    if (existing) throw new ConflictException('A subcategory with this name already exists');
 
     return this.prisma.subcategory.create({
       data: {
@@ -165,11 +207,30 @@ export class CategoryService {
       where: { id: subcategoryId, tenantId },
     });
     if (!sub) throw new NotFoundException('Subcategory not found');
+    if (dto.isActive === false && sub.isActive) {
+      const publishedProducts = await this.prisma.product.count({
+        where: { subcategoryId, tenantId, status: 'published', deletedAt: null },
+      });
+      if (publishedProducts > 0) {
+        throw new UnprocessableEntityException(
+          `Unpublish or move ${publishedProducts} published product(s) before deactivating this subcategory.`,
+        );
+      }
+    }
 
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) {
       data.name = dto.name;
       data.slug = this.slugify(dto.name);
+      const conflict = await this.prisma.subcategory.findFirst({
+        where: {
+          categoryId: sub.categoryId,
+          slug: data.slug as string,
+          id: { not: subcategoryId },
+        },
+        select: { id: true },
+      });
+      if (conflict) throw new ConflictException('A subcategory with this name already exists');
     }
     if (dto.displayOrder !== undefined) data.displayOrder = dto.displayOrder;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
@@ -189,7 +250,7 @@ export class CategoryService {
     if (!sub) throw new NotFoundException('Subcategory not found');
 
     const productCount = await this.prisma.product.count({
-      where: { subcategoryId, tenantId, deletedAt: null },
+      where: { subcategoryId, tenantId },
     });
     if (productCount > 0) {
       throw new UnprocessableEntityException(
@@ -208,9 +269,18 @@ export class CategoryService {
   async listEvents(tenantId: string) {
     const events = await this.prisma.event.findMany({
       where: { tenantId, isActive: true },
-      orderBy: { displayOrder: 'asc' },
+      take: CATALOG_REFERENCE_LIMIT,
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
-        _count: { select: { products: true } },
+        _count: {
+          select: {
+            products: {
+              where: {
+                product: { status: 'published', isAvailable: true, deletedAt: null },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -225,7 +295,8 @@ export class CategoryService {
   async listEventsOwner(tenantId: string) {
     return this.prisma.event.findMany({
       where: { tenantId },
-      orderBy: { displayOrder: 'asc' },
+      take: CATALOG_REFERENCE_LIMIT,
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
       include: {
         _count: { select: { products: true } },
       },
@@ -234,6 +305,11 @@ export class CategoryService {
 
   async createEvent(tenantId: string, dto: CreateEventDto) {
     const slug = this.slugify(dto.name);
+    const existing = await this.prisma.event.findUnique({
+      where: { tenantId_slug: { tenantId, slug } },
+      select: { id: true },
+    });
+    if (existing) throw new ConflictException('An event with this name already exists');
 
     return this.prisma.event.create({
       data: {
@@ -255,6 +331,11 @@ export class CategoryService {
     if (dto.name !== undefined) {
       data.name = dto.name;
       data.slug = this.slugify(dto.name);
+      const conflict = await this.prisma.event.findFirst({
+        where: { tenantId, slug: data.slug as string, id: { not: eventId } },
+        select: { id: true },
+      });
+      if (conflict) throw new ConflictException('An event with this name already exists');
     }
     if (dto.displayOrder !== undefined) data.displayOrder = dto.displayOrder;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
@@ -273,14 +354,16 @@ export class CategoryService {
     });
     if (!event) throw new NotFoundException('Event not found');
 
-    // Remove product-event associations then delete
-    // Join through event to scope by tenant
-    await this.prisma.$transaction([
-      this.prisma.productEvent.deleteMany({
-        where: { event: { id: eventId, tenantId } },
-      }),
-      this.prisma.event.deleteMany({ where: { id: eventId, tenantId } }),
-    ]);
+    const productCount = await this.prisma.productEvent.count({
+      where: { eventId, event: { tenantId } },
+    });
+    if (productCount > 0) {
+      throw new UnprocessableEntityException(
+        `Event is assigned to ${productCount} product(s). Deactivate it or remove those assignments first.`,
+      );
+    }
+
+    await this.prisma.event.deleteMany({ where: { id: eventId, tenantId } });
 
     return { message: 'Event deleted' };
   }

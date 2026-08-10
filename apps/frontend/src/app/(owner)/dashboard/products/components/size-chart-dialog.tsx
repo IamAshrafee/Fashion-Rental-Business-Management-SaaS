@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -13,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
 import { useSizeCharts, useSizeChartMutations } from '../hooks/use-product-apis';
-import { SizeSchemaData, SizeInstanceData } from '@/lib/api/products';
+import { SizeSchemaData, sizingApi } from '@/lib/api/products';
 import { SizeSchemaDefinition } from '@closetrent/types';
 
 export function SizeChartDialog({
@@ -27,6 +30,31 @@ export function SizeChartDialog({
 }) {
   const { data: existingCharts, isLoading: isLoadingCharts } = useSizeCharts(schema?.id);
   const mutations = useSizeChartMutations();
+  const queryClient = useQueryClient();
+  const updateMutation = useMutation({
+    mutationFn: ({
+      id,
+      rows,
+    }: {
+      id: string;
+      rows: Array<{
+        sizeLabel: string;
+        measurements: Record<string, unknown>;
+        sortOrder: number;
+      }>;
+    }) => sizingApi.updateSizeChart(id, { rows }),
+    onSuccess: async () => {
+      toast.success('Size guide saved successfully');
+      await queryClient.invalidateQueries({ queryKey: ['owner-size-charts'] });
+      onOpenChange(false);
+    },
+    onError: (error: unknown) => {
+      const message = isAxiosError(error) && typeof error.response?.data?.message === 'string'
+        ? error.response.data.message
+        : 'Failed to save size guide';
+      toast.error(message);
+    },
+  });
 
   // Internal state for grid inputs [sizeLabel][dimension.code] = string
   const [gridData, setGridData] = useState<Record<string, Record<string, string>>>({});
@@ -34,9 +62,6 @@ export function SizeChartDialog({
 
   const def = schema?.definition as SizeSchemaDefinition;
   const dimensions = def?.dimensions || [];
-  // For MVP, if instances aren't easily populated, we might not show them.
-  // Wait, SizeSchemaData type has optional instances. Let's make sure backend actually includes them.
-  // We'll rely on schema.instances.
   const instances = schema?.instances || [];
 
   useEffect(() => {
@@ -79,19 +104,7 @@ export function SizeChartDialog({
     }));
 
     if (chartId) {
-      // Delete old chart and recreate for simplicity in MVP, or normally we'd update.
-      // Since backend doesn't have an update endpoint, we will drop and recreate:
-      mutations.deleteChart.mutate(chartId, {
-        onSuccess: () => {
-          mutations.createChart.mutate({
-            sizeSchemaId: schema.id,
-            title: `${schema.name} Size Guide`,
-            rows
-          }, {
-            onSuccess: () => onOpenChange(false)
-          });
-        }
-      });
+      updateMutation.mutate({ id: chartId, rows });
     } else {
       mutations.createChart.mutate({
         sizeSchemaId: schema.id,
@@ -105,7 +118,9 @@ export function SizeChartDialog({
 
   if (!schema) return null;
 
-  const isSubmitting = mutations.createChart.isPending || mutations.deleteChart.isPending;
+  const isSubmitting = mutations.createChart.isPending
+    || mutations.deleteChart.isPending
+    || updateMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -128,7 +143,7 @@ export function SizeChartDialog({
             </div>
           ) : instances.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground bg-muted/30 rounded-lg border border-dashed mt-4">
-              This schema has no size instances (e.g. XS, S, M) defined. You must recreate the schema to populate initial instances.
+              This schema has no sizes yet. Close this guide and use Manage sizes on the schema row.
             </div>
           ) : (
             <div className="mt-6 overflow-x-auto border rounded-md">

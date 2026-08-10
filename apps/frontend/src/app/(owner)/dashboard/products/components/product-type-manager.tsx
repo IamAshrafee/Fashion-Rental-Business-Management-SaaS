@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
   DialogContent,
@@ -165,7 +164,7 @@ interface ProductTypeManagerProps {
 }
 
 export function ProductTypeManager({ onAddClick, onAddHandled }: ProductTypeManagerProps) {
-  const { data: productTypes, isLoading, isError } = useProductTypes();
+  const { data: productTypes, isLoading, isError, refetch, isFetching } = useProductTypes();
   const mutations = useProductTypeMutations();
 
   // Dialog state
@@ -222,6 +221,9 @@ export function ProductTypeManager({ onAddClick, onAddHandled }: ProductTypeMana
       <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
         <AlertCircle className="h-8 w-8 text-destructive/60" />
         <p className="text-sm">Failed to load product types. Please try again.</p>
+        <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
+          {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry
+        </Button>
       </div>
     );
   }
@@ -317,7 +319,7 @@ export function ProductTypeManager({ onAddClick, onAddHandled }: ProductTypeMana
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
         title="Delete product type?"
-        description={`"${deleteTarget?.name}" will be permanently removed. Products using this type will lose their default sizing associations.`}
+        description={`"${deleteTarget?.name}" will be permanently removed. Types already used by products must be reassigned before deletion.`}
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={handleDeleteConfirm}

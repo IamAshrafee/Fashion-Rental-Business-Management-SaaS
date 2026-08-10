@@ -13,6 +13,7 @@ import {
   UploadedFiles,
   Get,
   Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
@@ -36,7 +37,7 @@ export class UploadController {
   async uploadProductImage(
     @CurrentTenant() tenant: TenantContext,
     @UploadedFile() file: Express.Multer.File,
-    @Body('variantId') variantId: string,
+    @Body('variantId', new ParseUUIDPipe({ version: '4' })) variantId: string,
     @Body('isFeatured') isFeatured?: string,
   ) {
     return this.uploadService.uploadProductImage(
@@ -54,7 +55,7 @@ export class UploadController {
   async uploadProductImages(
     @CurrentTenant() tenant: TenantContext,
     @UploadedFiles() files: Express.Multer.File[],
-    @Body('variantId') variantId: string,
+    @Body('variantId', new ParseUUIDPipe({ version: '4' })) variantId: string,
   ) {
     return this.uploadService.uploadProductImages(tenant.id, variantId, files);
   }
@@ -64,7 +65,7 @@ export class UploadController {
   @HttpCode(HttpStatus.OK)
   async deleteProductImage(
     @CurrentTenant() tenant: TenantContext,
-    @Param('imageId') imageId: string,
+    @Param('imageId', new ParseUUIDPipe({ version: '4' })) imageId: string,
   ) {
     return this.uploadService.deleteProductImage(tenant.id, imageId);
   }
@@ -73,7 +74,7 @@ export class UploadController {
   @Roles('owner', 'manager')
   async reorderImages(
     @CurrentTenant() tenant: TenantContext,
-    @Body('variantId') variantId: string,
+    @Body('variantId', new ParseUUIDPipe({ version: '4' })) variantId: string,
     @Body() dto: ReorderDto,
   ) {
     return this.uploadService.reorderImages(tenant.id, variantId, dto.ids);

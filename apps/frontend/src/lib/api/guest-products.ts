@@ -1,5 +1,5 @@
 import apiClient from '../api-client';
-import type { ApiResponse } from '@closetrent/types';
+import type { ApiResponse, PaginatedResponse } from '@closetrent/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,10 +205,10 @@ export async function getPublicItemOptions(
 export async function getGuestProducts(
   query?: GuestProductsQuery,
 ): Promise<GuestPaginatedProducts> {
-  const { data } = await apiClient.get<GuestPaginatedProducts>('/products', {
+  const { data } = await apiClient.get<PaginatedResponse<GuestProductCard>>('/products', {
     params: query,
   });
-  return data;
+  return { data: data.data, meta: data.meta };
 }
 
 // ─── Storefront Showcase APIs (Landing Page) ──────────────────────────────────
@@ -241,10 +241,10 @@ export interface ShowcaseByEventResponse {
  * Latest arrivals — most recently published products.
  */
 export async function getLatestArrivals(limit = 12): Promise<ShowcaseResponse> {
-  const { data } = await apiClient.get<ShowcaseResponse>('/products/latest', {
+  const { data } = await apiClient.get<ApiResponse<ShowcaseResponse>>('/products/latest', {
     params: { limit },
   });
-  return data;
+  return data.data;
 }
 
 /**
@@ -252,10 +252,10 @@ export async function getLatestArrivals(limit = 12): Promise<ShowcaseResponse> {
  * Popular products — ranked by popularity score.
  */
 export async function getPopularProducts(limit = 12): Promise<ShowcaseResponse> {
-  const { data } = await apiClient.get<ShowcaseResponse>('/products/popular', {
+  const { data } = await apiClient.get<ApiResponse<ShowcaseResponse>>('/products/popular', {
     params: { limit },
   });
-  return data;
+  return data.data;
 }
 
 /**
@@ -266,11 +266,11 @@ export async function getPopularByCategory(
   slug?: string,
   limit = 8,
 ): Promise<ShowcaseByCategoryResponse> {
-  const { data } = await apiClient.get<ShowcaseByCategoryResponse>(
+  const { data } = await apiClient.get<ApiResponse<ShowcaseByCategoryResponse>>(
     '/products/popular/category',
     { params: { slug, limit } },
   );
-  return data;
+  return data.data;
 }
 
 /**
@@ -281,11 +281,11 @@ export async function getPopularBySubcategory(
   slug?: string,
   limit = 8,
 ): Promise<ShowcaseBySubcategoryResponse> {
-  const { data } = await apiClient.get<ShowcaseBySubcategoryResponse>(
+  const { data } = await apiClient.get<ApiResponse<ShowcaseBySubcategoryResponse>>(
     '/products/popular/subcategory',
     { params: { slug, limit } },
   );
-  return data;
+  return data.data;
 }
 
 /**
@@ -296,11 +296,11 @@ export async function getPopularByEvent(
   slug?: string,
   limit = 8,
 ): Promise<ShowcaseByEventResponse> {
-  const { data } = await apiClient.get<ShowcaseByEventResponse>(
+  const { data } = await apiClient.get<ApiResponse<ShowcaseByEventResponse>>(
     '/products/popular/event',
     { params: { slug, limit } },
   );
-  return data;
+  return data.data;
 }
 
 /**
@@ -310,10 +310,10 @@ export async function getPopularByEvent(
 export async function getProductBySlug(
   slug: string,
 ): Promise<GuestProductDetail> {
-  const { data } = await apiClient.get<GuestProductDetail>(
+  const { data } = await apiClient.get<ApiResponse<GuestProductDetail>>(
     `/products/${encodeURIComponent(slug)}`,
   );
-  return data;
+  return data.data;
 }
 
 /**
@@ -321,8 +321,8 @@ export async function getProductBySlug(
  * Filter option counts for the current tenant.
  */
 export async function getProductFilters(): Promise<FilterCounts> {
-  const { data } = await apiClient.get<FilterCounts>('/products/filters');
-  return data;
+  const { data } = await apiClient.get<ApiResponse<FilterCounts>>('/products/filters');
+  return data.data;
 }
 
 /**
@@ -334,10 +334,10 @@ export async function searchProducts(
   page = 1,
   limit = 20,
 ): Promise<SearchResult> {
-  const { data } = await apiClient.get<SearchResult>('/products/search', {
+  const { data } = await apiClient.get<ApiResponse<SearchResult>>('/products/search', {
     params: { q, page, limit },
   });
-  return data;
+  return data.data;
 }
 
 /**
@@ -347,11 +347,11 @@ export async function searchProducts(
 export async function suggestProducts(
   q: string,
 ): Promise<{ suggestions: SearchSuggestion[] }> {
-  const { data } = await apiClient.get<{ suggestions: SearchSuggestion[] }>(
+  const { data } = await apiClient.get<ApiResponse<{ suggestions: SearchSuggestion[] }>>(
     '/products/search/suggest',
     { params: { q } },
   );
-  return data;
+  return data.data;
 }
 
 /**
@@ -359,8 +359,8 @@ export async function suggestProducts(
  * Public category listing for a tenant.
  */
 export async function getGuestCategories(): Promise<GuestCategory[]> {
-  const { data } = await apiClient.get<GuestCategory[]>('/categories');
-  return data;
+  const { data } = await apiClient.get<ApiResponse<GuestCategory[]>>('/categories');
+  return data.data;
 }
 
 /**
@@ -368,8 +368,8 @@ export async function getGuestCategories(): Promise<GuestCategory[]> {
  * Public event listing for a tenant.
  */
 export async function getGuestEvents(): Promise<GuestEvent[]> {
-  const { data } = await apiClient.get<GuestEvent[]>('/events');
-  return data;
+  const { data } = await apiClient.get<ApiResponse<GuestEvent[]>>('/events');
+  return data.data;
 }
 
 /**
@@ -383,9 +383,9 @@ export async function checkDateRange(
   endDate: string,
   quantity = 1,
 ): Promise<DateRangeCheck> {
-  const { data } = await apiClient.post<DateRangeCheck>(
+  const { data } = await apiClient.post<ApiResponse<DateRangeCheck>>(
     `/products/${productId}/check-availability`,
     { variantSizeId, startDate, endDate, quantity },
   );
-  return data;
+  return data.data;
 }

@@ -13,7 +13,7 @@ export const productFormSchema = z.object({
   events: z.array(z.string()).default([]),
   status: z.enum(['draft', 'published', 'archived'] as [ProductStatus, ...ProductStatus[]]).default('draft'),
   purchaseDate: z.string().optional(),
-  purchasePrice: z.number().optional(),
+  purchasePrice: z.number().int().nonnegative().optional(),
   showPurchasePrice: z.boolean().default(false),
   itemCountry: z.string().optional(),
   showCountry: z.boolean().default(false),
@@ -25,7 +25,7 @@ export const productFormSchema = z.object({
       z.object({
         id: z.string().optional(), // Used for edit, or temp ID for DnD
         name: z.string().optional(),
-        sizeInstanceIds: z.array(z.string()).default([]),
+        sizeInstanceIds: z.array(z.string()).min(1, 'At least one rentable size is required').default([]),
         inventoryBySizeId: z.record(z.object({
           trackingMode: z.enum(['POOLED', 'SERIALIZED']).default('POOLED'),
         })).default({}),
@@ -56,13 +56,13 @@ export const productFormSchema = z.object({
 
   // Late fee policy
   lateFeeEnabled: z.boolean().default(false),
-  lateFeeGraceHours: z.number().int().optional(),
-  lateFeeAmountMinor: z.number().int().optional(),
-  lateFeeCapMinor: z.number().int().optional(),
+  lateFeeGraceHours: z.number().int().nonnegative().optional(),
+  lateFeeAmountMinor: z.number().int().nonnegative().optional(),
+  lateFeeCapMinor: z.number().int().positive().optional(),
 
   // Delivery charge is stored as a versioned pricing component.
   shippingMode: z.enum(['free', 'flat'] as [ShippingMode, ...ShippingMode[]]).default('free'),
-  flatShippingFee: z.number().optional(),
+  flatShippingFee: z.number().int().nonnegative().optional(),
 
   // Step 5: Size (schema-driven)
   productTypeId: z.string().min(1, 'Product type is required'),
@@ -103,38 +103,73 @@ export const productFormSchema = z.object({
     return;
   }
 
-  // Validate per rate plan type
+  const positiveInteger = (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value > 0;
+  const nonNegativeInteger = (value: unknown) =>
+    value === undefined || (typeof value === 'number' && Number.isInteger(value) && value >= 0);
+  const pricingIssue = (message: string, path: Array<string | number> = ['ratePlanConfig']) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+
   switch (data.ratePlanType) {
-    case 'PER_DAY':
-      if (!config.unitPriceMinor || Number(config.unitPriceMinor) <= 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Price per day is required', path: ['ratePlanConfig'] });
-      }
-      break;
-    case 'FLAT_PERIOD':
-      if (!config.flatPriceMinor || Number(config.flatPriceMinor) <= 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Package price is required', path: ['ratePlanConfig'] });
-      }
-      if (!config.includedDays || Number(config.includedDays) <= 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Included days is required', path: ['ratePlanConfig'] });
-      }
-      break;
-    case 'TIERED_DAILY': {
-      const tiers = config.tiers as Array<{ pricePerDayMinor: number }> | undefined;
-      if (!tiers?.length) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'At least one pricing tier is required', path: ['ratePlanConfig'] });
+    case 'PER_DAY': {
+      if (!positiveInteger(config.unitPriceMinor)) pricingIssue('Price per day must be greater than zero');
+      const minDays = config.minDays ?? 1;
+      if (!positiveInteger(minDays)) pricingIssue('Minimum rental days must be at least 1');
+      if (config.maxDays !== undefined && (!positiveInteger(config.maxDays) || Number(config.maxDays) < Number(minDays))) {
+        pricingIssue('Maximum rental days cannot be lower than the minimum');
       }
       break;
     }
-    case 'WEEKLY_MONTHLY':
-      if (!config.dailyPriceMinor || Number(config.dailyPriceMinor) <= 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Daily rate is required', path: ['ratePlanConfig'] });
+    case 'FLAT_PERIOD':
+      if (!positiveInteger(config.flatPriceMinor)) pricingIssue('Package price must be greater than zero');
+      if (!positiveInteger(config.includedDays)) pricingIssue('Included days must be at least 1');
+      if (!nonNegativeInteger(config.extraDayPriceMinor)) pricingIssue('Extra-day price must be a valid amount');
+      break;
+    case 'TIERED_DAILY': {
+      const tiers = config.tiers as Array<{ fromDay: number; toDay: number | null; pricePerDayMinor: number }> | undefined;
+      if (!tiers?.length) {
+        pricingIssue('At least one pricing tier is required');
+        break;
       }
+      let expectedFromDay = 1;
+      tiers.forEach((tier, index) => {
+        if (tier.fromDay !== expectedFromDay) pricingIssue(`Tier ${index + 1} must start on day ${expectedFromDay}`);
+        if (!positiveInteger(tier.pricePerDayMinor)) pricingIssue(`Tier ${index + 1} needs a price greater than zero`);
+        if (tier.toDay === null) {
+          if (index !== tiers.length - 1) pricingIssue('Only the final tier can be open-ended');
+        } else if (!positiveInteger(tier.toDay) || tier.toDay < tier.fromDay) {
+          pricingIssue(`Tier ${index + 1} has an invalid end day`);
+        } else {
+          expectedFromDay = tier.toDay + 1;
+        }
+      });
+      if (tiers[tiers.length - 1]?.toDay !== null) pricingIssue('The final tier must cover all later rental days');
+      break;
+    }
+    case 'WEEKLY_MONTHLY':
+      if (!positiveInteger(config.dailyPriceMinor)) pricingIssue('A daily fallback price greater than zero is required');
+      if (!nonNegativeInteger(config.weeklyPriceMinor) || !nonNegativeInteger(config.monthlyPriceMinor)) pricingIssue('Weekly and monthly prices must be valid amounts');
       break;
     case 'PERCENT_RETAIL':
-      if (!config.percent || Number(config.percent) <= 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rental percentage is required', path: ['ratePlanConfig'] });
-      }
+      if (typeof config.percent !== 'number' || config.percent <= 0 || config.percent > 100) pricingIssue('Rental percentage must be between 0 and 100');
+      if (!data.purchasePrice || data.purchasePrice <= 0) pricingIssue('Enter a purchase price before using percentage-of-retail pricing', ['purchasePrice']);
+      if (!nonNegativeInteger(config.minPriceMinor) || !nonNegativeInteger(config.maxPriceMinor)) pricingIssue('Minimum and maximum prices must be valid amounts');
+      if (typeof config.minPriceMinor === 'number' && typeof config.maxPriceMinor === 'number' && config.maxPriceMinor > 0 && config.minPriceMinor > config.maxPriceMinor) pricingIssue('Maximum price cannot be lower than the minimum');
       break;
+  }
+
+  data.pricingComponents.forEach((component, index) => {
+    const pricing = component.config.pricing as Record<string, unknown> | undefined;
+    if (!pricing || !positiveInteger(pricing.amountMinor)) {
+      pricingIssue('Enabled fees, deposits, and add-ons need an amount greater than zero', ['pricingComponents', index, 'config']);
+    }
+  });
+  if (data.shippingMode === 'flat' && (!data.flatShippingFee || data.flatShippingFee <= 0)) {
+    pricingIssue('Flat shipping fee must be greater than zero', ['flatShippingFee']);
+  }
+  if (data.lateFeeEnabled) {
+    if (!data.lateFeeAmountMinor || data.lateFeeAmountMinor <= 0) pricingIssue('Late fee per day must be greater than zero', ['lateFeeAmountMinor']);
+    if (data.lateFeeGraceHours === undefined) pricingIssue('Enter the late-fee grace period', ['lateFeeGraceHours']);
   }
 });
 

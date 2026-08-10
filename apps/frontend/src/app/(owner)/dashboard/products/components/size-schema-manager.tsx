@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
+import { toast } from 'sonner';
 import {
   Edit2,
   Trash2,
@@ -9,7 +12,8 @@ import {
   Loader2,
   AlertCircle,
   Shapes,
-  TableProperties
+  TableProperties,
+  Ruler,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -28,8 +32,159 @@ import { useSizeSchemas, useSizeSchemaMutations } from '../hooks/use-product-api
 import type { SizeSchemaDefinition } from '@closetrent/types';
 import { SizeChartDialog } from './size-chart-dialog';
 
-import { type SizeSchemaData } from '@/lib/api/products';
+import {
+  type CreateSizeInstanceInput,
+  type SizeSchemaData,
+  sizingApi,
+} from '@/lib/api/products';
 // ─── Name Dialog (create/edit) ───────────────────────────────────────────────
+
+type StorefrontSelectorType = 'grid' | 'dropdown';
+
+interface SizeSchemaDialogData {
+  code: string;
+  name: string;
+  description: string;
+  schemaType: string;
+  definition: SizeSchemaDefinition;
+  instances?: CreateSizeInstanceInput[];
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (!isAxiosError(error)) return fallback;
+  const message = error.response?.data?.message;
+  return typeof message === 'string' ? message : fallback;
+}
+
+function ManageSizesDialog({
+  schema,
+  open,
+  onOpenChange,
+}: {
+  schema: SizeSchemaData | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [labelsInput, setLabelsInput] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setLabelsInput('');
+      setDeleteTarget(null);
+    }
+  }, [open]);
+
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['owner-size-schemas'] });
+  };
+  const createMutation = useMutation({
+    mutationFn: (labels: string[]) => sizingApi.createSizeInstances(schema!.id, labels),
+    onSuccess: async () => {
+      toast.success('Sizes added');
+      setLabelsInput('');
+      await refresh();
+    },
+    onError: (error: unknown) => toast.error(errorMessage(error, 'Failed to add sizes')),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => sizingApi.deleteSizeInstance(id),
+    onSuccess: async () => {
+      toast.success('Size removed');
+      setDeleteTarget(null);
+      await refresh();
+    },
+    onError: (error: unknown) => toast.error(errorMessage(error, 'Failed to remove size')),
+  });
+
+  if (!schema) return null;
+  const labels = labelsInput.split(',').map((label) => label.trim()).filter(Boolean);
+  const canAdd = schema.status !== 'deprecated' && labels.length > 0;
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Manage sizes: {schema.name}</DialogTitle>
+            <DialogDescription>
+              Size identities are stable once a product SKU uses them. Unused mistakes can be removed and re-added.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="new-size-labels">Add sizes</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="new-size-labels"
+                  value={labelsInput}
+                  disabled={schema.status === 'deprecated' || createMutation.isPending}
+                  onChange={(event) => setLabelsInput(event.target.value)}
+                  placeholder="XS, S, M, L, XL"
+                />
+                <Button
+                  type="button"
+                  disabled={!canAdd || createMutation.isPending}
+                  onClick={() => createMutation.mutate(labels)}
+                >
+                  {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Enter one or more comma-separated labels.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Current sizes</Label>
+              {schema.instances?.length ? (
+                <div className="divide-y rounded-md border">
+                  {schema.instances.map((instance) => (
+                    <div key={instance.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">{instance.displayLabel}</p>
+                        <p className="text-xs text-muted-foreground">Identity: {instance.normalizedKey}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Remove size ${instance.displayLabel}`}
+                        disabled={deleteMutation.isPending}
+                        onClick={() => setDeleteTarget({ id: instance.id, label: instance.displayLabel })}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed p-5 text-center text-sm text-muted-foreground">
+                  No sizes yet. Add at least one before activation.
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(nextOpen) => { if (!nextOpen) setDeleteTarget(null); }}
+        title="Remove this size?"
+        description={`Remove "${deleteTarget?.label}" from this schema? The operation is blocked if any product SKU uses it.`}
+        confirmLabel="Remove size"
+        variant="destructive"
+        onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.id); }}
+        loading={deleteMutation.isPending}
+      />
+    </>
+  );
+}
 
 type DialogMode =
   | { type: 'create-schema' }
@@ -45,14 +200,14 @@ function SizeSchemaDialog({
   mode: DialogMode | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { code: string; name: string; description: string; schemaType: string; definition: SizeSchemaDefinition; instances?: any[] }) => void;
+  onSubmit: (data: SizeSchemaDialogData) => void;
   isSubmitting: boolean;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [schemaType, setSchemaType] = useState('STANDARD');
   const [dimensionsInput, setDimensionsInput] = useState('');
-  const [selectorType, setSelectorType] = useState<string>('grid');
+  const [selectorType, setSelectorType] = useState<StorefrontSelectorType>('grid');
   const [instancesInput, setInstancesInput] = useState('');
 
   useEffect(() => {
@@ -64,7 +219,7 @@ function SizeSchemaDialog({
       
       const def = mode.schema.definition as SizeSchemaDefinition;
       setDimensionsInput(def?.dimensions?.map(d => d.label).join(', ') || '');
-      setSelectorType(def?.ui?.selectorType || 'grid');
+      setSelectorType(def?.ui?.selectorType === 'dropdown' ? 'dropdown' : 'grid');
       // Instances cannot be edited from this dialog (would need separate UI)
       setInstancesInput('');
     } else {
@@ -106,7 +261,11 @@ function SizeSchemaDialog({
       .split(',')
       .map(s => s.trim())
       .filter(s => s.length > 0)
-      .map((label, idx) => ({ displayLabel: label, sortOrder: idx }));
+      .map((label, idx) => ({
+        normalizedKey: label.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+        displayLabel: label,
+        sortOrder: idx,
+      }));
 
     const code = name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
 
@@ -118,7 +277,7 @@ function SizeSchemaDialog({
       definition: {
         dimensions,
         ui: {
-          selectorType: selectorType as 'grid' | 'dropdown' | 'composite' | 'component',
+          selectorType,
           displayTemplate: '',
           dimensionOrder: dimensions.map(d => d.code)
         },
@@ -212,7 +371,7 @@ function SizeSchemaDialog({
               <select
                 id="schema-selector"
                 value={selectorType}
-                onChange={(e) => setSelectorType(e.target.value as any)}
+                onChange={(e) => setSelectorType(e.target.value as StorefrontSelectorType)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="grid">Grid Buttons (Best for ≤12 sizes)</option>
@@ -249,13 +408,14 @@ interface SizeSchemaManagerProps {
 }
 
 export function SizeSchemaManager({ onAddClick, onAddHandled }: SizeSchemaManagerProps) {
-  const { data: schemas, isLoading, isError } = useSizeSchemas();
+  const { data: schemas, isLoading, isError, refetch, isFetching } = useSizeSchemas();
   const mutations = useSizeSchemaMutations();
 
   const [dialogMode, setDialogMode] = useState<DialogMode | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [chartDialogSchema, setChartDialogSchema] = useState<SizeSchemaData | null>(null);
+  const [sizesDialogSchema, setSizesDialogSchema] = useState<SizeSchemaData | null>(null);
 
   useEffect(() => {
     if (onAddClick) {
@@ -265,7 +425,7 @@ export function SizeSchemaManager({ onAddClick, onAddHandled }: SizeSchemaManage
     }
   }, [onAddClick, onAddHandled]);
 
-  const handleDialogSubmit = (data: { code: string; name: string; description: string; schemaType: string; definition: any; instances?: any[] }) => {
+  const handleDialogSubmit = (data: SizeSchemaDialogData) => {
     if (!dialogMode) return;
 
     if (dialogMode.type === 'create-schema') {
@@ -290,6 +450,9 @@ export function SizeSchemaManager({ onAddClick, onAddHandled }: SizeSchemaManage
 
   const isDialogSubmitting = mutations.createSchema.isPending || mutations.updateSchema.isPending;
   const isDeletePending = mutations.deleteSchema.isPending;
+  const currentSizesDialogSchema = sizesDialogSchema
+    ? schemas?.find((schema) => schema.id === sizesDialogSchema.id) ?? sizesDialogSchema
+    : null;
 
   if (isLoading) {
     return (
@@ -304,6 +467,9 @@ export function SizeSchemaManager({ onAddClick, onAddHandled }: SizeSchemaManage
       <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
         <AlertCircle className="h-8 w-8 text-destructive/60" />
         <p className="text-sm">Failed to load size schemas. Please try again.</p>
+        <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
+          {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry
+        </Button>
       </div>
     );
   }
@@ -385,6 +551,14 @@ export function SizeSchemaManager({ onAddClick, onAddHandled }: SizeSchemaManage
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => setSizesDialogSchema(schema)}
+                  >
+                    <Ruler className="h-4 w-4 mr-2" />
+                    Sizes ({schema.instances?.length ?? 0})
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="mr-2"
                     onClick={() => setChartDialogSchema(schema)}
                   >
@@ -435,7 +609,7 @@ export function SizeSchemaManager({ onAddClick, onAddHandled }: SizeSchemaManage
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
         title="Delete sizing schema?"
-        description={`"${deleteTarget?.name}" will be permanently removed. Products and instances tied to this schema will have their references nullified!`}
+        description={`"${deleteTarget?.name}" will be permanently removed only if no product variants use its sizes. This cannot be undone.`}
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={handleDeleteConfirm}
@@ -446,6 +620,12 @@ export function SizeSchemaManager({ onAddClick, onAddHandled }: SizeSchemaManage
         schema={chartDialogSchema}
         open={!!chartDialogSchema}
         onOpenChange={(open) => { if (!open) setChartDialogSchema(null); }}
+      />
+
+      <ManageSizesDialog
+        schema={currentSizesDialogSchema}
+        open={!!sizesDialogSchema}
+        onOpenChange={(open) => { if (!open) setSizesDialogSchema(null); }}
       />
     </>
   );

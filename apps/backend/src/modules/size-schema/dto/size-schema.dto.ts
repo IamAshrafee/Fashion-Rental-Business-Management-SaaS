@@ -7,6 +7,11 @@ import {
   IsObject,
   MinLength,
   MaxLength,
+  IsInt,
+  Min,
+  IsUUID,
+  ArrayNotEmpty,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -37,7 +42,7 @@ export class CreateSizeInstanceSubsetDto {
   @IsString() @MinLength(1) @MaxLength(100)
   displayLabel!: string;
 
-  @IsOptional()
+  @IsOptional() @IsInt() @Min(0)
   sortOrder?: number;
 }
 
@@ -54,15 +59,12 @@ export class UpdateSizeSchemaDto {
   @IsOptional() @IsEnum(['STANDARD', 'MULTI_PART', 'FREE_SIZE'])
   schemaType?: string;
 
-  @IsOptional() @IsEnum(['DRAFT', 'PUBLISHED', 'ARCHIVED'])
-  status?: string;
-
   @IsOptional() @IsObject()
   definition?: Record<string, unknown>;
 }
 
 export class CreateSizeInstanceDto {
-  @IsString()
+  @IsUUID()
   sizeSchemaId!: string;
 
   @IsString() @MinLength(1) @MaxLength(100)
@@ -71,15 +73,39 @@ export class CreateSizeInstanceDto {
   @IsOptional() @IsObject()
   payload?: Record<string, unknown>;
 
-  @IsOptional()
+  @IsOptional() @IsInt() @Min(0)
+  sortOrder?: number;
+}
+
+export class CreateSizeInstancesBulkDto {
+  @IsUUID()
+  schemaId!: string;
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(100, { each: true })
+  labels!: string[];
+}
+
+export class SizeChartRowDto {
+  @IsString() @MinLength(1) @MaxLength(100)
+  sizeLabel!: string;
+
+  @IsObject()
+  measurements!: Record<string, unknown>;
+
+  @IsOptional() @IsInt() @Min(0)
   sortOrder?: number;
 }
 
 export class CreateSizeChartDto {
-  @IsString()
+  @IsUUID()
   sizeSchemaId!: string;
 
-  @IsOptional() @IsString()
+  @IsOptional() @IsUUID()
   productId?: string;
 
   @IsOptional() @IsString() @MaxLength(200)
@@ -89,11 +115,26 @@ export class CreateSizeChartDto {
   chartMeta?: Record<string, unknown>;
 
   @IsOptional()
-  rows?: Array<{
-    sizeLabel: string;
-    measurements: Record<string, unknown>;
-    sortOrder?: number;
-  }>;
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => SizeChartRowDto)
+  rows?: SizeChartRowDto[];
+}
+
+export class UpdateSizeChartDto {
+  @IsOptional() @IsString() @MaxLength(200)
+  title?: string;
+
+  @IsOptional() @IsObject()
+  chartMeta?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => SizeChartRowDto)
+  rows?: SizeChartRowDto[];
 }
 
 export class CreateProductTypeDto {

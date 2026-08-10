@@ -20,13 +20,20 @@ export class VariantService {
   async addVariant(tenantId: string, productId: string, dto: CreateVariantDto) {
     return this.prisma.$transaction(async (tx) => {
       const sizes = this.normalizeSizes(dto.sizes);
-      await this.validateReferences(
+      const product = await this.validateReferences(
         tx,
         tenantId,
         productId,
         sizes.map((size) => size.sizeInstanceId),
         [dto.mainColorId, ...(dto.identicalColorIds ?? [])],
       );
+      if (product.status === 'published') {
+        throw new ConflictException({
+          code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED',
+          section: 'variants',
+          message: 'Unpublish this product before adding a variant.',
+        });
+      }
 
       const maxSeq = await tx.productVariant.aggregate({
         where: { productId, tenantId },
@@ -83,13 +90,25 @@ export class VariantService {
           }));
       const mainColorId = dto.mainColorId ?? variant.mainColorId;
 
-      await this.validateReferences(
+      const product = await this.validateReferences(
         tx,
         tenantId,
         productId,
         sizes.map((size) => size.sizeInstanceId),
         [mainColorId, ...(dto.identicalColorIds ?? [])],
       );
+
+      const sizeConfigurationChanged = sizesProvided && !this.sameSizeConfiguration(
+        variant.sizes,
+        sizes,
+      );
+      if (product.status === 'published' && sizeConfigurationChanged) {
+        throw new ConflictException({
+          code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED',
+          section: 'variants',
+          message: 'Unpublish this product before changing its rentable SKUs.',
+        });
+      }
 
       await tx.productVariant.update({
         where: { id: variantId },
@@ -124,21 +143,28 @@ export class VariantService {
       where: { id: variantId, productId, tenantId },
       select: {
         id: true,
-        sizes: {
-          select: {
-            id: true,
-            _count: { select: { stockUnits: true, inventoryReservations: true } },
-          },
-        },
+        product: { select: { status: true } },
+        sizes: { select: { id: true } },
       },
     });
     if (!variant) throw new NotFoundException('Variant not found');
-
-    const hasHistory = variant.sizes.some(
-      (size) => size._count.stockUnits > 0 || size._count.inventoryReservations > 0,
-    );
-    if (hasHistory) {
-      throw new ConflictException('Variant cannot be deleted because it has inventory history');
+    if (variant.product.status === 'published') {
+      throw new ConflictException({
+        code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED',
+        section: 'variants',
+        message: 'Unpublish this product before deleting a variant.',
+      });
+    }
+    const bookingItems = await this.prisma.bookingItem.count({ where: { tenantId, variantId } });
+    if (bookingItems > 0) {
+      throw new ConflictException({
+        code: 'SKU_HISTORY_CONFLICT',
+        section: 'variants',
+        message: 'This variant has rental history and cannot be deleted.',
+      });
+    }
+    for (const size of variant.sizes) {
+      await this.assertVariantSizeMutable(this.prisma, tenantId, size.id, 'deleted');
     }
 
     await this.prisma.productVariant.delete({ where: { id: variantId } });
@@ -189,10 +215,11 @@ export class VariantService {
     productId: string,
     sizeInstanceIds: string[],
     colorIds: string[],
-  ): Promise<void> {
+  ) {
     const product = await tx.product.findFirst({
       where: { id: productId, tenantId, deletedAt: null },
       select: {
+        status: true,
         sizeSchemaOverrideId: true,
         productType: { select: { defaultSizeSchemaId: true } },
       },
@@ -210,7 +237,7 @@ export class VariantService {
       throw new BadRequestException('One or more selected colors do not belong to this store');
     }
 
-    if (sizeInstanceIds.length === 0) return;
+    if (sizeInstanceIds.length === 0) return product;
     const activeSchemaId = product.sizeSchemaOverrideId ?? product.productType?.defaultSizeSchemaId;
     if (!activeSchemaId) {
       throw new BadRequestException('Configure a size schema before adding variant sizes');
@@ -226,6 +253,7 @@ export class VariantService {
     if (sizes !== new Set(sizeInstanceIds).size) {
       throw new BadRequestException('One or more sizes do not belong to the product size schema');
     }
+    return product;
   }
 
   private async reconcileSizes(
@@ -247,14 +275,7 @@ export class VariantService {
     const removed = existing.filter((size) => !desiredIds.has(size.sizeInstanceId));
 
     for (const size of removed) {
-      const [units, reservations, bookingItems] = await Promise.all([
-        tx.stockUnit.count({ where: { tenantId, variantSizeId: size.id } }),
-        tx.inventoryReservation.count({ where: { tenantId, variantSizeId: size.id } }),
-        tx.bookingItem.count({ where: { tenantId, variantSizeId: size.id } }),
-      ]);
-      if (units + reservations + bookingItems > 0) {
-        throw new ConflictException('A size with inventory or booking history cannot be removed');
-      }
+      await this.assertVariantSizeMutable(tx, tenantId, size.id, 'removed');
       await tx.variantSize.delete({ where: { id: size.id } });
     }
 
@@ -274,16 +295,7 @@ export class VariantService {
 
       if (!configurationProvided) continue;
       if (current.trackingMode !== desiredSize.trackingMode) {
-        const activeReservations = await tx.inventoryReservation.count({
-          where: {
-            tenantId,
-            variantSizeId: current.id,
-            status: { in: ['PENDING', 'CONFIRMED'] },
-          },
-        });
-        if (activeReservations > 0) {
-          throw new ConflictException('Tracking mode cannot change while reservations exist');
-        }
+        await this.assertVariantSizeMutable(tx, tenantId, current.id, 'changed to another tracking mode');
       }
 
       await tx.variantSize.update({
@@ -292,6 +304,47 @@ export class VariantService {
           trackingMode: desiredSize.trackingMode,
           inventoryVersion: { increment: 1 },
         },
+      });
+    }
+  }
+
+  private sameSizeConfiguration(
+    current: Array<{ sizeInstanceId: string; trackingMode: InventoryTrackingMode }>,
+    desired: Array<{ sizeInstanceId: string; trackingMode: InventoryTrackingMode }>,
+  ): boolean {
+    if (current.length !== desired.length) return false;
+    const desiredBySize = new Map(desired.map((size) => [size.sizeInstanceId, size.trackingMode]));
+    return current.every(
+      (size) => desiredBySize.get(size.sizeInstanceId) === size.trackingMode,
+    );
+  }
+
+  private async assertVariantSizeMutable(
+    tx: Prisma.TransactionClient | PrismaService,
+    tenantId: string,
+    variantSizeId: string,
+    action: string,
+  ): Promise<void> {
+    const dependencyCounts = await Promise.all([
+      tx.stockUnit.count({ where: { tenantId, variantSizeId } }),
+      tx.inventoryPool.count({ where: { tenantId, variantSizeId } }),
+      tx.inventoryReservation.count({ where: { tenantId, variantSizeId } }),
+      tx.bookingItem.count({ where: { tenantId, variantSizeId } }),
+      tx.fulfillmentRequirement.count({ where: { tenantId, variantSizeId } }),
+      tx.inventoryMovement.count({ where: { tenantId, variantSizeId } }),
+      tx.inventoryBlock.count({ where: { tenantId, variantSizeId } }),
+      tx.inventoryTransferLine.count({ where: { tenantId, variantSizeId } }),
+      tx.skuSetComponentDefinition.count({ where: { tenantId, variantSizeId } }),
+      tx.availabilityPolicy.count({ where: { tenantId, variantSizeId } }),
+      tx.productCompositionRule.count({ where: { tenantId, fixedVariantSizeId: variantSizeId } }),
+      tx.productCompositionAlternative.count({ where: { tenantId, variantSizeId } }),
+    ]);
+    if (dependencyCounts.some((count) => count > 0)) {
+      throw new ConflictException({
+        code: 'SKU_HISTORY_CONFLICT',
+        section: 'variants',
+        variantSizeId,
+        message: `This SKU has inventory, rental, composition, or policy history and cannot be ${action}.`,
       });
     }
   }

@@ -8,6 +8,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductTypeDto, UpdateProductTypeDto } from '../size-schema/dto/size-schema.dto';
 
+const CATALOG_REFERENCE_LIMIT = 500;
+
 @Injectable()
 export class ProductTypeService {
   private readonly logger = new Logger(ProductTypeService.name);
@@ -24,7 +26,8 @@ export class ProductTypeService {
   async list(tenantId: string) {
     return this.prisma.productType.findMany({
       where: { tenantId },
-      orderBy: { name: 'asc' },
+      take: CATALOG_REFERENCE_LIMIT,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
       include: {
         defaultSizeSchema: {
           select: { id: true, code: true, name: true, status: true },
@@ -64,9 +67,9 @@ export class ProductTypeService {
     // Validate schema if provided
     if (dto.defaultSizeSchemaId) {
       const schema = await this.prisma.sizeSchema.findFirst({
-        where: { id: dto.defaultSizeSchemaId, tenantId },
+        where: { id: dto.defaultSizeSchemaId, tenantId, status: 'active' },
       });
-      if (!schema) throw new NotFoundException('Default size schema not found');
+      if (!schema) throw new NotFoundException('Active default size schema not found');
     }
 
     return this.prisma.productType.create({
@@ -108,11 +111,27 @@ export class ProductTypeService {
     }
 
     if (dto.defaultSizeSchemaId !== undefined) {
+      if (dto.defaultSizeSchemaId !== pt.defaultSizeSchemaId) {
+        const publishedProducts = await this.prisma.product.count({
+          where: {
+            tenantId,
+            productTypeId: id,
+            sizeSchemaOverrideId: null,
+            status: 'published',
+            deletedAt: null,
+          },
+        });
+        if (publishedProducts > 0) {
+          throw new BadRequestException(
+            `Unpublish or add size overrides to ${publishedProducts} product(s) before changing this default schema.`,
+          );
+        }
+      }
       if (dto.defaultSizeSchemaId) {
         const schema = await this.prisma.sizeSchema.findFirst({
-          where: { id: dto.defaultSizeSchemaId, tenantId },
+          where: { id: dto.defaultSizeSchemaId, tenantId, status: 'active' },
         });
-        if (!schema) throw new NotFoundException('Size schema not found');
+        if (!schema) throw new NotFoundException('Active size schema not found');
       }
       data.defaultSizeSchemaId = dto.defaultSizeSchemaId || null;
     }

@@ -5,11 +5,11 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
-  ChevronLeft, Edit, Copy, ExternalLink, Trash2, Loader2,
+  ChevronLeft, Edit, Copy, Trash2, Loader2,
   Eye, EyeOff, MoreVertical, Tag, Calendar, MapPin, Ruler,
-  HelpCircle, Info, ChevronDown, ChevronRight, Star,
-  DollarSign, Clock, Shield, Sparkles, Package, TrendingUp,
-  Check, X, ImageIcon, Settings, Grid3X3, Boxes
+  HelpCircle, Info, ChevronRight, Star,
+  DollarSign, Shield, Package,
+  Check, X, ImageIcon, Settings, Grid3X3, Boxes, AlertCircle, History
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -37,30 +37,31 @@ import { useSoftDeleteProduct, useUpdateProductStatus } from '../hooks/use-produ
 import { useLocale } from '@/hooks/use-locale';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { Variants } from 'framer-motion';
 import { ProductTrafficCard } from './components/product-traffic-card';
 
 // ─── Animation Variants ───────────────────────────────────────────────────────
 
-const fadeUp = {
+const fadeUp: Variants = {
   hidden: { opacity: 0, y: 12 },
   visible: (i: number = 0) => ({
     opacity: 1,
     y: 0,
-    transition: { duration: 0.35, delay: i * 0.06, ease: [0.25, 0.46, 0.45, 0.94] as any },
+    transition: { duration: 0.35, delay: i * 0.06, ease: [0.25, 0.46, 0.45, 0.94] },
   }),
 };
 
-const fadeIn = {
+const fadeIn: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { duration: 0.3 } },
 };
 
-const scaleIn = {
+const scaleIn: Variants = {
   hidden: { opacity: 0, scale: 0.96 },
-  visible: { opacity: 1, scale: 1, transition: { duration: 0.25, ease: 'easeOut' as any } },
+  visible: { opacity: 1, scale: 1, transition: { duration: 0.25, ease: 'easeOut' } },
 };
 
-const stagger = {
+const stagger: Variants = {
   visible: { transition: { staggerChildren: 0.04 } },
 };
 
@@ -147,8 +148,12 @@ function SectionLabel({ icon: Icon, children }: { icon: React.ElementType; child
   );
 }
 
-function Dot({ on }: { on: boolean }) {
-  return <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${on ? 'bg-emerald-500' : 'bg-muted-foreground/25'}`} />;
+function getSelectorType(definition: unknown): string {
+  if (!definition || typeof definition !== 'object' || Array.isArray(definition)) return 'grid';
+  const ui = (definition as Record<string, unknown>).ui;
+  if (!ui || typeof ui !== 'object' || Array.isArray(ui)) return 'grid';
+  const selectorType = (ui as Record<string, unknown>).selectorType;
+  return typeof selectorType === 'string' ? selectorType : 'grid';
 }
 
 // ─── Hero Image Gallery ───────────────────────────────────────────────────────
@@ -382,7 +387,7 @@ function SizesTab({ sizing, productType }: { sizing: ProductDetail['sizing'], pr
               <Badge variant="outline" className="text-[9px] px-1 uppercase tracking-widest">{sizing.schema.code}</Badge>
             </span>
           } bold />
-          <Row label="Selector Mode" value={<span className="capitalize">{(sizing.schema.definition as any)?.ui?.selectorType || 'grid'}</span>} />
+          <Row label="Selector Mode" value={<span className="capitalize">{getSelectorType(sizing.schema.definition)}</span>} />
         </div>
       </motion.div>
 
@@ -393,7 +398,7 @@ function SizesTab({ sizing, productType }: { sizing: ProductDetail['sizing'], pr
         <SectionLabel icon={Ruler}>Allowed Sizes ({sizing.instances.length})</SectionLabel>
         {sizing.instances.length > 0 ? (
           <div className="flex flex-wrap gap-2 mt-2">
-            {sizing.instances.map((inst, i) => (
+            {sizing.instances.map((inst) => (
               <div
                 key={inst.id}
                 className="flex items-center justify-center rounded-lg border border-border bg-muted/20 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-muted/40"
@@ -436,7 +441,7 @@ function SizesTab({ sizing, productType }: { sizing: ProductDetail['sizing'], pr
                         {chart.rows.map(row => (
                           <tr key={row.id} className="border-b last:border-0 hover:bg-muted/10 transition-colors">
                             <td className="px-3 py-2.5 font-bold text-foreground border-r bg-muted/10">{row.sizeLabel}</td>
-                            {Object.values(row.measurements || {}).map((val: any, idx) => (
+                            {Object.values(row.measurements || {}).map((val, idx) => (
                               <td key={idx} className="px-3 py-2.5 text-foreground/80">{String(val)}</td>
                             ))}
                           </tr>
@@ -524,12 +529,12 @@ export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
-  const { formatPrice, formatDate } = useLocale();
+  const { formatDate } = useLocale();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
-  const { data: product, isLoading, isError, error } = useQuery({
+  const { data: product, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['products', 'detail', id],
     queryFn: () => productApi.getById(id),
     enabled: !!id,
@@ -564,8 +569,12 @@ export default function ProductDetailPage() {
     return (
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <Alert variant="destructive" className="m-6">
-          <AlertDescription>
-            Failed to load product. {(error as Error)?.message || 'Please try again.'}
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>Failed to load product. {(error as Error)?.message || 'Please try again.'}</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              {isFetching ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+              Try again
+            </Button>
           </AlertDescription>
         </Alert>
       </motion.div>
@@ -573,6 +582,7 @@ export default function ProductDetailPage() {
   }
 
   const statusConfig = getStatusConfig(product.status);
+  const canPublish = product.status === 'published' || product.readiness.ready;
   const effectivePrice = getEffectivePrice(product.pricing);
   const targetProgress = product.targetRentals
     ? Math.min(Math.round((product.totalBookings / product.targetRentals) * 100), 100)
@@ -630,7 +640,8 @@ export default function ProductDetailPage() {
             size="sm"
             className="h-7 text-xs px-2.5"
             onClick={handleStatusToggle}
-            disabled={updateStatus.isPending}
+            disabled={updateStatus.isPending || !canPublish}
+            title={!canPublish ? 'Resolve the catalog blockers before publishing' : undefined}
           >
             {updateStatus.isPending ? (
               <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -641,17 +652,17 @@ export default function ProductDetailPage() {
             )}
             {product.status === 'published' ? 'Unpublish' : 'Publish'}
           </Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" asChild>
+          <Button variant="outline" size="sm" className="hidden h-7 px-2.5 text-xs md:inline-flex" asChild>
             <Link href={`/dashboard/products/${id}/edit`}>
               <Edit className="h-3 w-3 mr-1" /> Edit
             </Link>
           </Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" asChild>
+          <Button variant="outline" size="sm" className="hidden h-7 px-2.5 text-xs md:inline-flex" asChild>
             <Link href={`/dashboard/products/${id}/inventory`}>
               <Package className="h-3 w-3 mr-1" /> Inventory
             </Link>
           </Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" asChild>
+          <Button variant="outline" size="sm" className="hidden h-7 px-2.5 text-xs md:inline-flex" asChild>
             <Link href={`/dashboard/products/${id}/composition`}>
               <Boxes className="h-3 w-3 mr-1" /> Bundle
             </Link>
@@ -663,8 +674,23 @@ export default function ProductDetailPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[140px]">
+              <DropdownMenuItem asChild className="text-xs md:hidden">
+                <Link href={`/dashboard/products/${id}/edit`}><Edit className="h-3 w-3 mr-2" /> Edit</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild className="text-xs md:hidden">
+                <Link href={`/dashboard/products/${id}/inventory`}><Package className="h-3 w-3 mr-2" /> Inventory</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild className="text-xs md:hidden">
+                <Link href={`/dashboard/products/${id}/composition`}><Boxes className="h-3 w-3 mr-2" /> Bundle</Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="md:hidden" />
               <DropdownMenuItem onClick={handleCopyId} className="text-xs">
                 <Copy className="h-3 w-3 mr-2" /> Copy ID
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild className="text-xs">
+                <Link href={`/dashboard/settings/activity-log?entityType=product&entityId=${id}`}>
+                  <History className="h-3 w-3 mr-2" /> Product history
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -677,6 +703,37 @@ export default function ProductDetailPage() {
           </DropdownMenu>
         </div>
       </motion.div>
+
+      {!product.readiness.ready && (
+        <motion.div variants={fadeUp} custom={1}>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="font-medium text-foreground">Complete the catalog before publishing</p>
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
+                  {product.readiness.blockers.map((blocker, index) => (
+                    <li key={`${blocker.code}-${blocker.entityId ?? blocker.field ?? index}`}>
+                      {blocker.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  href={
+                    product.readiness.blockers.some((blocker) => blocker.section === 'composition')
+                      ? `/dashboard/products/${id}/composition`
+                      : `/dashboard/products/${id}/edit`
+                  }
+                >
+                  Resolve blockers
+                </Link>
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </motion.div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════════
           HERO — Image + Quick-glance summary (above the fold)

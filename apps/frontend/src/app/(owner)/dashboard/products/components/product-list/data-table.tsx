@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/table';
 import { OwnerListPagination } from '@/components/owner/workspace';
 import type { PaginationMeta, ProductStatus } from '@closetrent/types';
-import type { ProductListItem, ProductReadinessCode } from '@/lib/api/products';
+import type { ProductListItem } from '@/lib/api/products';
 import {
   useSoftDeleteProduct,
   useUpdateProductStatus,
@@ -56,14 +56,6 @@ const moneyFormatter = new Intl.NumberFormat('en-BD', {
   currency: 'BDT',
   maximumFractionDigits: 0,
 });
-
-const readinessLabels: Record<ProductReadinessCode, string> = {
-  PRODUCT_TYPE: 'Product type',
-  VARIANT: 'Variant',
-  RENTABLE_SKU: 'Rentable SKU',
-  FEATURED_IMAGE: 'Featured image',
-  ACTIVE_PRICING: 'Active pricing',
-};
 
 function StatusBadge({ status }: { status: ProductStatus }) {
   if (status === 'published') return <Badge>Published</Badge>;
@@ -85,11 +77,14 @@ function Readiness({ product }: { product: ProductListItem }) {
   if (product.readiness.ready) {
     return <Badge variant="secondary">Ready</Badge>;
   }
-  const missing = product.readiness.missing.map((code) => readinessLabels[code]).join(', ');
+  const [firstBlocker, ...remainingBlockers] = product.readiness.blockers;
   return (
     <div className="flex max-w-48 flex-col items-start gap-1">
       <Badge variant="outline"><AlertCircle data-icon="inline-start" />Needs attention</Badge>
-      <span className="text-xs text-muted-foreground">Missing: {missing}</span>
+      <span className="text-xs text-muted-foreground">
+        {firstBlocker?.message}
+        {remainingBlockers.length > 0 ? ` +${remainingBlockers.length} more` : ''}
+      </span>
     </div>
   );
 }

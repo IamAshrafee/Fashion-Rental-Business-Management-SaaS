@@ -226,7 +226,7 @@ interface EventManagerProps {
 }
 
 export function EventManager({ onAddClick, onAddHandled }: EventManagerProps) {
-  const { data: events, isLoading, isError } = useEventsManage();
+  const { data: events, isLoading, isError, refetch, isFetching } = useEventsManage();
   const mutations = useEventMutations();
 
   // Drag-and-drop sensors
@@ -326,6 +326,9 @@ export function EventManager({ onAddClick, onAddHandled }: EventManagerProps) {
       <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
         <AlertCircle className="h-8 w-8 text-destructive/60" />
         <p className="text-sm">Failed to load events. Please try again.</p>
+        <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
+          {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry
+        </Button>
       </div>
     );
   }

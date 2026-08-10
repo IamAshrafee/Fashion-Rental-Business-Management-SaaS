@@ -76,7 +76,7 @@ export interface ProductListItem {
   };
   readiness: {
     ready: boolean;
-    missing: ProductReadinessCode[];
+    blockers: ProductReadinessBlocker[];
   };
   deletedBy: { id: string; fullName: string } | null;
   _count: { bookingItems: number };
@@ -84,11 +84,35 @@ export interface ProductListItem {
 }
 
 export type ProductReadinessCode =
+  | 'CATEGORY'
   | 'PRODUCT_TYPE'
+  | 'SIZE_SCHEMA'
   | 'VARIANT'
   | 'RENTABLE_SKU'
-  | 'FEATURED_IMAGE'
-  | 'ACTIVE_PRICING';
+  | 'VARIANT_MEDIA'
+  | 'ACTIVE_PRICING'
+  | 'STOREFRONT_ITEM_MODE'
+  | 'COMPOSITION';
+
+export type ProductReadinessSection =
+  | 'basic'
+  | 'sizing'
+  | 'variants'
+  | 'pricing'
+  | 'composition';
+
+export interface ProductReadinessBlocker {
+  code: ProductReadinessCode;
+  section: ProductReadinessSection;
+  message: string;
+  field?: string;
+  entityId?: string;
+}
+
+export interface ProductReadiness {
+  ready: boolean;
+  blockers: ProductReadinessBlocker[];
+}
 
 export interface PricingProfileData {
   profileId: string;
@@ -257,6 +281,7 @@ export interface ProductDetail {
   variants: ProductVariantData[];
   faqs: ProductFaqData[];
   detailHeaders: ProductDetailHeaderData[];
+  readiness: ProductReadiness;
 }
 
 export interface ProductListQuery {
@@ -296,11 +321,11 @@ export const productApi = {
     return data.data;
   },
 
-  /**
-   * PATCH /api/v1/owner/products/:id/archive
-   */
-  archive: async (id: string): Promise<void> => {
-    await apiClient.patch(`/owner/products/${id}/archive`);
+  getReadiness: async (id: string): Promise<ProductReadiness> => {
+    const { data } = await apiClient.get<ApiResponse<ProductReadiness>>(
+      `/owner/products/${id}/readiness`,
+    );
+    return data.data;
   },
 
   /**
@@ -731,6 +756,18 @@ export const sizingApi = {
     await apiClient.delete(`/owner/size-schemas/${id}`);
   },
 
+  createSizeInstances: async (schemaId: string, labels: string[]): Promise<SizeInstanceData[]> => {
+    const { data } = await apiClient.post<ApiResponse<SizeInstanceData[]>>(
+      '/owner/size-instances/bulk',
+      { schemaId, labels },
+    );
+    return data.data;
+  },
+
+  deleteSizeInstance: async (id: string): Promise<void> => {
+    await apiClient.delete(`/owner/size-instances/${id}`);
+  },
+
   listCharts: async (schemaId?: string): Promise<SizeChartData[]> => {
     const { data } = await apiClient.get<ApiResponse<SizeChartData[]>>(`/owner/size-schemas/charts/list${schemaId ? `?schemaId=${schemaId}` : ''}`);
     return data.data;
@@ -748,6 +785,17 @@ export const sizingApi = {
     rows?: CreateSizeChartRowInput[];
   }): Promise<SizeChartData> => {
     const { data } = await apiClient.post<ApiResponse<SizeChartData>>('/owner/size-schemas/charts', payload);
+    return data.data;
+  },
+
+  updateSizeChart: async (chartId: string, payload: {
+    title?: string;
+    rows?: CreateSizeChartRowInput[];
+  }): Promise<SizeChartData> => {
+    const { data } = await apiClient.patch<ApiResponse<SizeChartData>>(
+      `/owner/size-schemas/charts/${chartId}`,
+      payload,
+    );
     return data.data;
   },
 
