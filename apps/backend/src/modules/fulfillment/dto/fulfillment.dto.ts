@@ -7,6 +7,8 @@ import {
   IsInt,
   Min,
   IsNumber,
+  Max,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -18,6 +20,56 @@ export enum CourierProviderEnum {
   PATHAO = 'pathao',
   STEADFAST = 'steadfast',
   MANUAL = 'manual',
+}
+
+export class UpsertCourierConnectionDto {
+  @IsOptional()
+  @IsBoolean()
+  isEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  clientId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  clientSecret?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  username?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  password?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2_147_483_647)
+  storeId?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  sandbox?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  apiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  secretKey?: string;
 }
 
 /**
@@ -159,4 +211,3 @@ export interface SteadfastWebhookPayload {
   delivery_status: string;
   updated_at?: string;
 }
-

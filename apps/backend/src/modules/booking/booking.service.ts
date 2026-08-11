@@ -16,6 +16,7 @@ import { InventoryReservationService } from '../inventory/inventory-reservation.
 import { FulfillmentService, RequirementProposal } from '../inventory/fulfillment.service';
 import type { LateFeePolicy } from '@closetrent/types';
 import { createHash, randomUUID } from 'crypto';
+import { StorefrontCartService } from './storefront-cart.service';
 import {
   CreateBookingDto,
   CreateManualBookingDto,
@@ -189,6 +190,7 @@ const VALID_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
 @Injectable()
 export class BookingService {
   private readonly logger = new Logger(BookingService.name);
+  private readonly storefrontCarts: StorefrontCartService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -198,7 +200,9 @@ export class BookingService {
     private readonly inventoryAvailability: InventoryAvailabilityService,
     private readonly inventoryReservations: InventoryReservationService,
     private readonly fulfillment: FulfillmentService,
-  ) {}
+  ) {
+    this.storefrontCarts = new StorefrontCartService(prisma);
+  }
 
   // =========================================================================
   // AVAILABILITY
@@ -292,7 +296,10 @@ export class BookingService {
    * Validates all cart items — availability + pricing.
    * Called before checkout to show accurate prices and detect conflicts.
    */
-  async validateCart(tenantId: string, dto: ValidateCartDto) {
+  async validateCart(tenantId: string, dto: ValidateCartDto, cartToken?: string) {
+    const storefrontCart = dto.issueCheckoutQuote
+      ? await this.storefrontCarts.requireMatching(tenantId, cartToken, dto.items)
+      : null;
     const { results, proposalsByItem } = await this.prisma.$transaction(async (tx) => {
       const results: CartItemResult[] = [];
       const proposalsByItem: RequirementProposal[][] = [];
@@ -412,7 +419,7 @@ export class BookingService {
     if (!dto.issueCheckoutQuote || !response.valid) return response;
 
     const id = randomUUID();
-    const requestHash = this.canonicalHash(dto.items);
+    const requestHash = this.storefrontCarts.itemsHash(dto.items);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     const quoteHash = this.canonicalHash({
       id,
@@ -425,6 +432,7 @@ export class BookingService {
       data: {
         id,
         tenantId,
+        cartId: storefrontCart!.id,
         requestHash,
         quoteHash,
         requestSnapshot: dto.items as unknown as Prisma.InputJsonValue,
@@ -711,7 +719,12 @@ export class BookingService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
-  async createGuestBooking(tenantId: string, dto: CreateBookingDto, creationKey?: string) {
+  async createGuestBooking(
+    tenantId: string,
+    dto: CreateBookingDto,
+    creationKey?: string,
+    cartToken?: string,
+  ) {
     if (
       dto.autoConfirm
       || dto.initialPayment
@@ -745,7 +758,8 @@ export class BookingService {
     if (dto.paymentMethod === 'sslcommerz' && (!store?.sslcommerzStoreId || !store.sslcommerzStorePass)) {
       throw new BadRequestException('Online card payment is not configured for this store');
     }
-    return this.createBooking(tenantId, dto, creationKey);
+    const cart = await this.storefrontCarts.requireIdentity(tenantId, cartToken);
+    return this.createBooking(tenantId, dto, creationKey, cart.id);
   }
 
   async createManualBooking(
@@ -768,7 +782,12 @@ export class BookingService {
    * 7. Optionally record initial payment
    * 8. Emit booking.created (and booking.confirmed) event
    */
-  async createBooking(tenantId: string, dto: CreateBookingDto, rawCreationKey?: string) {
+  async createBooking(
+    tenantId: string,
+    dto: CreateBookingDto,
+    rawCreationKey?: string,
+    storefrontCartId?: string,
+  ) {
     const manualDto = 'quoteId' in dto ? dto as CreateManualBookingDto : null;
     const storefrontQuoteId = manualDto ? null : dto.checkoutQuoteId ?? null;
     const creationKey = rawCreationKey?.trim() || null;
@@ -840,6 +859,21 @@ export class BookingService {
       }> | null = null;
       if (!manualDto) {
         await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM storefront_carts
+          WHERE tenant_id = ${tenantId} AND id = ${storefrontCartId}
+          FOR UPDATE
+        `);
+        const lockedCart = await tx.storefrontCart.findFirst({
+          where: { id: storefrontCartId ?? '', tenantId },
+          include: { lines: { orderBy: { createdAt: 'asc' } } },
+        });
+        if (!lockedCart || lockedCart.status !== 'ACTIVE' || lockedCart.expiresAt <= new Date()) {
+          throw new ConflictException({ code: 'CART_EXPIRED', message: 'The cart session expired; refresh checkout' });
+        }
+        if (this.storefrontCarts.itemsHash(this.storefrontCarts.toBookingItems(lockedCart.lines)) !== this.storefrontCarts.itemsHash(dto.items)) {
+          throw new ConflictException({ code: 'CART_CHANGED', message: 'The server cart changed; refresh checkout before continuing' });
+        }
+        await tx.$queryRaw(Prisma.sql`
           SELECT id FROM storefront_checkout_quotes
           WHERE tenant_id = ${tenantId} AND id = ${storefrontQuoteId}
           FOR UPDATE
@@ -860,7 +894,10 @@ export class BookingService {
         if (storefrontQuote.quoteHash !== dto.checkoutQuoteHash) {
           throw new ConflictException({ code: 'CHECKOUT_QUOTE_MISMATCH', message: 'The checkout quote identity is invalid' });
         }
-        if (storefrontQuote.requestHash !== this.canonicalHash(dto.items)) {
+        if (storefrontQuote.cartId !== lockedCart.id) {
+          throw new ConflictException({ code: 'CHECKOUT_QUOTE_CART_MISMATCH', message: 'This quote belongs to another cart session' });
+        }
+        if (storefrontQuote.requestHash !== this.storefrontCarts.itemsHash(dto.items)) {
           throw new ConflictException({ code: 'CHECKOUT_INPUTS_CHANGED', message: 'Cart items or rental dates changed after checkout was priced' });
         }
       }
@@ -1069,6 +1106,7 @@ export class BookingService {
           customerId: customer.id,
           quoteId: manualDto?.quoteId ?? null,
           storefrontQuoteId,
+          storefrontCartId: manualDto ? null : storefrontCartId,
           channel: manualDto ? BookingChannel.OWNER_MANUAL : BookingChannel.STOREFRONT,
           rentalStartDate: new Date(storefrontStartDate),
           rentalEndDate: new Date(storefrontEndDate),
@@ -1263,6 +1301,13 @@ export class BookingService {
             },
           });
         }
+      }
+
+      if (!manualDto && storefrontCartId) {
+        await tx.storefrontCart.update({
+          where: { id: storefrontCartId },
+          data: { status: 'CHECKED_OUT', lastActivityAt: now },
+        });
       }
 
       return tx.booking.findUnique({

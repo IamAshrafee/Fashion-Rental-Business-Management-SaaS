@@ -125,6 +125,22 @@ export class ValidateCartDto {
   issueCheckoutQuote?: boolean;
 }
 
+export class StorefrontCartLineDto extends CartItemDto {
+  @IsUUID()
+  lineKey!: string;
+
+  @IsOptional()
+  displaySnapshot?: Record<string, unknown>;
+}
+
+export class ReplaceStorefrontCartDto {
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => StorefrontCartLineDto)
+  items!: StorefrontCartLineDto[];
+}
+
 // ============================================================================
 // BOOKING CREATION
 // ============================================================================

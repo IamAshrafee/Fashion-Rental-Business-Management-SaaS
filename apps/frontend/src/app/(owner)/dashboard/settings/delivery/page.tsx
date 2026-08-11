@@ -1,398 +1,232 @@
 'use client';
 
-import React from 'react';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useStoreSettings, useUpdateCourierSettings } from '../hooks/use-settings';
-import { Separator } from '@/components/ui/separator';
+import { useEffect, useMemo, useState } from 'react';
+import { Activity, CheckCircle2, KeyRound, Loader2, Shield, Truck } from 'lucide-react';
+import type { CourierConnectionView, CourierProviderName, UpsertCourierConnectionDto } from '@closetrent/types';
 import { Badge } from '@/components/ui/badge';
-import { Truck, Shield, TestTube } from 'lucide-react';
-import type { StoreSettings } from '@closetrent/types';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { DistrictLeadDaysEditor } from './district-lead-days-editor';
+import {
+  useCourierConnections,
+  useStoreSettings,
+  useTestCourierConnection,
+  useUpdateDeliverySettings,
+  useUpsertCourierConnection,
+} from '../hooks/use-settings';
 
-const courierSchema = z.object({
-  defaultCourier: z.string().optional(),
-  pickupAddress: z.string().optional(),
-  // Pathao-specific
-  pathaoClientId: z.string().max(255).optional(),
-  pathaoClientSecret: z.string().max(255).optional(),
-  pathaoUsername: z.string().max(255).optional(),
-  pathaoPassword: z.string().max(255).optional(),
-  pathaoStoreId: z.coerce.number().int().optional(),
-  pathaoSandbox: z.boolean().optional(),
-  steadfastApiKey: z.string().max(255).optional(),
-  steadfastSecretKey: z.string().max(255).optional(),
-  
-  // Delivery Schedule
-  pickupLeadDays: z.coerce.number().int().min(0).max(14).optional(),
-});
-
-type CourierValues = z.infer<typeof courierSchema>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// INNER FORM — only ever mounts once data is present.
-// ─────────────────────────────────────────────────────────────────────────────
-function DeliveryForm({ data }: { data: StoreSettings }) {
-  const updateCourier = useUpdateCourierSettings();
-
-  const form = useForm<CourierValues>({
-    resolver: zodResolver(courierSchema),
-    defaultValues: {
-      defaultCourier: data.defaultCourier || 'pathao',
-      pickupAddress: data.pickupAddress || '',
-      pathaoClientId: data.pathaoClientId || '',
-      pathaoClientSecret: data.pathaoClientSecret || '',
-      pathaoUsername: data.pathaoUsername || '',
-      pathaoPassword: data.pathaoPassword || '',
-      pathaoStoreId: data.pathaoStoreId || undefined,
-      pathaoSandbox: data.pathaoSandbox || false,
-      steadfastApiKey: '',
-      steadfastSecretKey: '',
-      pickupLeadDays: data.pickupLeadDays ?? 2,
-    },
-  });
-
-  const selectedCourier = form.watch('defaultCourier');
-  const isSandbox = form.watch('pathaoSandbox');
-
-  const onSubmit = (values: CourierValues) => {
-    updateCourier.mutate(values);
-  };
-
-  return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-
-        {/* ── General ────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <FormField
-            control={form.control}
-            name="defaultCourier"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Default Courier Partner</FormLabel>
-                <FormControl>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select courier" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pathao">Pathao Delivery</SelectItem>
-                      <SelectItem value="steadfast">Steadfast Logistics</SelectItem>
-                      <SelectItem value="manual">Manual / Self-delivery</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <FormField
-          control={form.control}
-          name="pickupAddress"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Pickup Address</FormLabel>
-              <FormControl>
-                <Textarea placeholder="Full address where courier picks up parcels..." className="resize-none min-h-[80px]" {...field} />
-              </FormControl>
-              <FormDescription>
-                The address where the courier will pick up parcels from your store/warehouse.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="pickupLeadDays"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Default Lead Days</FormLabel>
-              <FormControl>
-                <div className="flex items-center gap-2">
-                  <Input type="number" min="0" max="14" className="w-[120px]" {...field} />
-                  <span className="text-sm text-muted-foreground">days</span>
-                </div>
-              </FormControl>
-              <FormDescription>
-                How many days before the rental start date should the courier pick up the order? 
-                This applies to all areas not explicitly configured otherwise.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {/* ── Pathao Credentials ─────────────────────────────────────── */}
-        {selectedCourier === 'pathao' && (
-          <>
-            <Separator />
-            <Card className="border-primary/20">
-              <CardHeader className="pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                    <Truck className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <CardTitle className="text-base">Pathao Courier API</CardTitle>
-                    <CardDescription>
-                      Enter your Pathao merchant credentials to enable automated pickup and tracking.
-                    </CardDescription>
-                  </div>
-                  {isSandbox && (
-                    <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
-                      <TestTube className="h-3 w-3 mr-1" />
-                      Sandbox Mode
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <FormField
-                    control={form.control}
-                    name="pathaoClientId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Client ID</FormLabel>
-                        <FormControl>
-                          <Input placeholder="e.g. YQdJP0yaOG" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="pathaoClientSecret"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Client Secret</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="••••••••" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <FormField
-                    control={form.control}
-                    name="pathaoUsername"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Merchant Email</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="you@example.com" {...field} />
-                        </FormControl>
-                        <FormDescription>
-                          Your Pathao merchant portal login email.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="pathaoPassword"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Merchant Password</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="••••••••" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="pathaoStoreId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Store ID</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="e.g. 150139"
-                          {...field}
-                          value={field.value ?? ''}
-                          onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : undefined)}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Your Pathao store/merchant ID. Find this in the Pathao merchant dashboard or use the sandbox test script.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <Separator />
-
-                <FormField
-                  control={form.control}
-                  name="pathaoSandbox"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">
-                          <div className="flex items-center gap-2">
-                            <TestTube className="h-4 w-4" />
-                            Sandbox / Test Mode
-                          </div>
-                        </FormLabel>
-                        <FormDescription>
-                          When enabled, all API calls go to Pathao&apos;s sandbox environment. 
-                          Use sandbox credentials for testing. Disable for live shipments.
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {/* ── Steadfast / Generic Credentials ────────────────────────── */}
-        {selectedCourier === 'steadfast' && (
-          <>
-            <Separator />
-            <Card>
-              <CardHeader className="pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                    <Shield className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">Steadfast API</CardTitle>
-                    <CardDescription>
-                      Enter your Steadfast API key and secret.
-                    </CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <FormField
-                    control={form.control}
-                    name="steadfastApiKey"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>API Key</FormLabel>
-                        <FormControl>
-                          <Input placeholder="E.g. key_xxx" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="steadfastSecretKey"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>API Secret</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="••••••••" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {data.courierWebhookToken && selectedCourier !== 'manual' && (
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base">Courier status webhook</CardTitle>
-              <CardDescription>
-                Register this private URL in the courier merchant portal so delivery events are authenticated and processed once.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Input
-                readOnly
-                value={`${typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.endsWith('.localhost') || window.location.hostname.endsWith('.local')) ? `${window.location.protocol}//${window.location.hostname}:4000` : typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/webhooks/courier/${selectedCourier}/${data.courierWebhookToken}`}
-                className="font-mono text-xs"
-                onFocus={(event) => event.currentTarget.select()}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="flex justify-end pt-4">
-          <Button type="submit" disabled={updateCourier.isPending}>
-            {updateCourier.isPending ? 'Saving...' : 'Save Courier Settings'}
-          </Button>
-        </div>
-      </form>
-    </Form>
-  );
+interface ConnectionDraft extends UpsertCourierConnectionDto {
+  provider: CourierProviderName;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OUTER PAGE — waits for data, then mounts DeliveryForm with a key.
-// ─────────────────────────────────────────────────────────────────────────────
-export default function CourierSettingsPage() {
-  const { data: response, isLoading } = useStoreSettings();
+const EMPTY_DRAFTS: Record<CourierProviderName, ConnectionDraft> = {
+  pathao: { provider: 'pathao', isEnabled: false, isDefault: false, sandbox: true },
+  steadfast: { provider: 'steadfast', isEnabled: false, isDefault: false },
+  manual: { provider: 'manual', isEnabled: true, isDefault: true },
+};
+
+export default function DeliverySettingsPage() {
+  const settings = useStoreSettings();
+  const connections = useCourierConnections();
+  const updateDelivery = useUpdateDeliverySettings();
+  const upsertConnection = useUpsertCourierConnection();
+  const testConnection = useTestCourierConnection();
+  const [pickupAddress, setPickupAddress] = useState('');
+  const [pickupCity, setPickupCity] = useState('');
+  const [drafts, setDrafts] = useState(EMPTY_DRAFTS);
+
+  useEffect(() => {
+    if (!settings.data?.data) return;
+    setPickupAddress(settings.data.data.pickupAddress ?? '');
+    setPickupCity(settings.data.data.pickupCity ?? '');
+  }, [settings.data]);
+
+  useEffect(() => {
+    if (!connections.data) return;
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const row of connections.data) {
+        next[row.provider] = {
+          ...next[row.provider],
+          isEnabled: row.isEnabled,
+          isDefault: row.isDefault,
+          storeId: typeof row.config.storeId === 'number' ? row.config.storeId : undefined,
+          sandbox: row.config.sandbox === true,
+        };
+      }
+      return next;
+    });
+  }, [connections.data]);
+
+  const connectionMap = useMemo(() => new Map((connections.data ?? []).map((row) => [row.provider, row])), [connections.data]);
+  const updateDraft = (provider: CourierProviderName, patch: Partial<ConnectionDraft>) => {
+    setDrafts((current) => ({ ...current, [provider]: { ...current[provider], ...patch } }));
+  };
+  const saveConnection = (provider: CourierProviderName) => {
+    const { provider: _provider, ...payload } = drafts[provider];
+    upsertConnection.mutate({ provider, payload });
+  };
+
+  if (settings.isLoading || connections.isLoading) {
+    return <div className="h-72 animate-pulse rounded-lg bg-muted" />;
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h3 className="text-lg font-medium">Delivery &amp; Couriers</h3>
-        <p className="text-sm text-muted-foreground">
-          Configure your courier partner API credentials for automated pickup scheduling and real-time order tracking.
-        </p>
+        <h3 className="text-lg font-medium">Delivery &amp; courier connections</h3>
+        <p className="text-sm text-muted-foreground">Configure pickup operations and encrypted provider connections. Credentials are never returned after saving.</p>
       </div>
       <Separator />
 
-      {isLoading && <div className="animate-pulse h-64 bg-muted rounded-md" />}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base"><Truck className="h-4 w-4" /> Pickup operations</CardTitle>
+          <CardDescription>The origin address used for courier handover and pickup scheduling.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="pickup-address">Pickup address</Label>
+            <Input id="pickup-address" value={pickupAddress} onChange={(event) => setPickupAddress(event.target.value)} placeholder="House, road, area, district" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="pickup-city">Pickup city / district</Label>
+            <Input id="pickup-city" value={pickupCity} onChange={(event) => setPickupCity(event.target.value)} placeholder="Dhaka" />
+          </div>
+          <div className="flex items-end justify-end">
+            <Button disabled={updateDelivery.isPending} onClick={() => updateDelivery.mutate({ pickupAddress, pickupCity })}>
+              {updateDelivery.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save pickup settings
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-      {!isLoading && response?.data && (
-        <>
-          <DeliveryForm key={response.data.updatedAt} data={response.data} />
-          <DistrictLeadDaysEditor
-            initialConfig={response.data.pickupLeadDaysConfig}
-            defaultLeadDays={response.data.pickupLeadDays ?? 2}
-          />
-        </>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ConnectionCard
+          title="Pathao Courier"
+          description="OAuth-backed parcel creation, rate lookup, polling, and authenticated webhooks."
+          provider="pathao"
+          draft={drafts.pathao}
+          connection={connectionMap.get('pathao')}
+          saving={upsertConnection.isPending}
+          testing={testConnection.isPending}
+          onChange={(patch) => updateDraft('pathao', patch)}
+          onSave={() => saveConnection('pathao')}
+          onTest={() => testConnection.mutate('pathao')}
+        />
+        <ConnectionCard
+          title="Steadfast"
+          description="API-key parcel creation, status polling, and authenticated webhook ingestion."
+          provider="steadfast"
+          draft={drafts.steadfast}
+          connection={connectionMap.get('steadfast')}
+          saving={upsertConnection.isPending}
+          testing={testConnection.isPending}
+          onChange={(patch) => updateDraft('steadfast', patch)}
+          onSave={() => saveConnection('steadfast')}
+          onTest={() => testConnection.mutate('steadfast')}
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base"><Shield className="h-4 w-4" /> Manual delivery fallback</CardTitle>
+          <CardDescription>Always available for an in-house rider or a courier without an API. It can be selected as the default provider.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-4">
+          <div><p className="font-medium">Manual fulfillment</p><p className="text-sm text-muted-foreground">Staff records the tracking reference and advances shipment stages.</p></div>
+          <div className="flex items-center gap-3">
+            <Label htmlFor="manual-default">Default</Label>
+            <Switch id="manual-default" checked={drafts.manual.isDefault} onCheckedChange={(value) => updateDraft('manual', { isDefault: value })} />
+            <Button variant="outline" onClick={() => saveConnection('manual')}>Save</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {settings.data?.data && (
+        <DistrictLeadDaysEditor
+          initialConfig={settings.data.data.pickupLeadDaysConfig}
+          defaultLeadDays={settings.data.data.pickupLeadDays ?? 2}
+        />
       )}
     </div>
   );
+}
+
+function ConnectionCard({
+  title,
+  description,
+  provider,
+  draft,
+  connection,
+  saving,
+  testing,
+  onChange,
+  onSave,
+  onTest,
+}: {
+  title: string;
+  description: string;
+  provider: 'pathao' | 'steadfast';
+  draft: ConnectionDraft;
+  connection?: CourierConnectionView;
+  saving: boolean;
+  testing: boolean;
+  onChange: (patch: Partial<ConnectionDraft>) => void;
+  onSave: () => void;
+  onTest: () => void;
+}) {
+  const webhookUrl = connection ? `${typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.endsWith('.localhost') || window.location.hostname.endsWith('.local')) ? `${window.location.protocol}//${window.location.hostname}:4000` : typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/webhooks/courier/${provider}/${connection.webhookToken}` : '';
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div><CardTitle className="text-base">{title}</CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
+          <HealthBadge connection={connection} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex flex-wrap gap-6">
+          <label className="flex items-center gap-2 text-sm"><Switch checked={draft.isEnabled ?? false} onCheckedChange={(value) => onChange({ isEnabled: value })} /> Enabled</label>
+          <label className="flex items-center gap-2 text-sm"><Switch checked={draft.isDefault ?? false} onCheckedChange={(value) => onChange({ isDefault: value })} /> Default provider</label>
+        </div>
+        {provider === 'pathao' ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SecretField label="Client ID" value={draft.clientId} saved={connection?.hasCredentials} onChange={(value) => onChange({ clientId: value })} />
+            <SecretField label="Client secret" value={draft.clientSecret} saved={connection?.hasCredentials} onChange={(value) => onChange({ clientSecret: value })} />
+            <SecretField label="Merchant username" value={draft.username} saved={connection?.hasCredentials} onChange={(value) => onChange({ username: value })} />
+            <SecretField label="Merchant password" value={draft.password} saved={connection?.hasCredentials} onChange={(value) => onChange({ password: value })} />
+            <div className="space-y-2"><Label>Store ID</Label><Input type="number" min={1} value={draft.storeId ?? ''} onChange={(event) => onChange({ storeId: event.target.value ? Number(event.target.value) : undefined })} /></div>
+            <label className="flex items-end gap-2 pb-2 text-sm"><Switch checked={draft.sandbox ?? false} onCheckedChange={(value) => onChange({ sandbox: value })} /> Sandbox environment</label>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SecretField label="API key" value={draft.apiKey} saved={connection?.hasCredentials} onChange={(value) => onChange({ apiKey: value })} />
+            <SecretField label="Secret key" value={draft.secretKey} saved={connection?.hasCredentials} onChange={(value) => onChange({ secretKey: value })} />
+          </div>
+        )}
+        {webhookUrl && <div className="space-y-2"><Label>Status webhook URL</Label><Input readOnly value={webhookUrl} className="font-mono text-xs" onFocus={(event) => event.currentTarget.select()} /></div>}
+        {connection?.lastHealthError && <p className="text-sm text-destructive">{connection.lastHealthError}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" disabled={!connection?.hasCredentials || testing} onClick={onTest}>{testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Activity className="mr-2 h-4 w-4" />} Test</Button>
+          <Button disabled={saving} onClick={onSave}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save connection</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SecretField({ label, value, saved, onChange }: { label: string; value?: string; saved?: boolean; onChange: (value: string) => void }) {
+  return <div className="space-y-2"><Label>{label}</Label><div className="relative"><Input type="password" value={value ?? ''} onChange={(event) => onChange(event.target.value)} placeholder={saved ? 'Saved — enter to replace' : 'Required'} /><KeyRound className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" /></div></div>;
+}
+
+function HealthBadge({ connection }: { connection?: CourierConnectionView }) {
+  if (!connection) return <Badge variant="outline">Not configured</Badge>;
+  if (connection.healthStatus === 'healthy') return <Badge className="gap-1 bg-green-600"><CheckCircle2 className="h-3 w-3" /> Healthy</Badge>;
+  if (connection.healthStatus === 'unhealthy') return <Badge variant="destructive">Unhealthy</Badge>;
+  return <Badge variant="secondary">{connection.healthStatus.replaceAll('_', ' ')}</Badge>;
 }

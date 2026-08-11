@@ -17,6 +17,7 @@ import { BookingService } from '../booking/booking.service';
 import { ManualAdapter } from './providers/manual.adapter';
 import { PathaoAdapter, normalisePathaoStatus } from './providers/pathao.adapter';
 import { SteadfastAdapter } from './providers/steadfast.adapter';
+import { CourierConnectionService } from './courier-connection.service';
 import {
   COURIER_STATUS_LABELS,
   COURIER_STATUS_TO_STAGE,
@@ -62,6 +63,7 @@ export class FulfillmentService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly courierConnections: CourierConnectionService,
     private readonly bookingService: BookingService,
     private readonly pathaoAdapter: PathaoAdapter,
     private readonly steadfastAdapter: SteadfastAdapter,
@@ -421,14 +423,10 @@ export class FulfillmentService {
     updatedAt: string | undefined,
     payload: object,
   ) {
-    const settings = await this.prisma.storeSettings.findUnique({
-      where: { courierWebhookToken: token },
-      select: { tenantId: true },
-    });
-    if (!settings) throw new NotFoundException('Webhook endpoint not found');
+    const tenantId = await this.courierConnections.resolveWebhookTenant(token, provider);
     const shipment = await this.prisma.shipment.findFirst({
       where: {
-        tenantId: settings.tenantId,
+        tenantId,
         provider,
         OR: [{ trackingNumber }, { providerReference: trackingNumber }],
       },
@@ -633,38 +631,7 @@ export class FulfillmentService {
   }
 
   private async getTenantCourierSettings(tenantId: string): Promise<CourierSettings> {
-    const settings = await this.prisma.storeSettings.findUnique({
-      where: { tenantId },
-      select: {
-        defaultCourier: true,
-        steadfastApiKey: true,
-        steadfastSecretKey: true,
-        pathaoClientId: true,
-        pathaoClientSecret: true,
-        pathaoUsername: true,
-        pathaoPassword: true,
-        pathaoStoreId: true,
-        pathaoSandbox: true,
-      },
-    });
-    if (!settings) return {};
-    return {
-      defaultProvider: settings.defaultCourier as CourierSettings['defaultProvider'] ?? undefined,
-      pathao: settings.pathaoClientId ? {
-        enabled: Boolean(settings.pathaoClientId && settings.pathaoClientSecret && settings.pathaoUsername && settings.pathaoPassword && settings.pathaoStoreId),
-        clientId: settings.pathaoClientId,
-        clientSecret: settings.pathaoClientSecret ?? '',
-        username: settings.pathaoUsername ?? '',
-        password: settings.pathaoPassword ?? '',
-        defaultStoreId: settings.pathaoStoreId ?? 0,
-        sandbox: settings.pathaoSandbox,
-      } : undefined,
-      steadfast: settings.steadfastApiKey ? {
-        enabled: Boolean(settings.steadfastApiKey && settings.steadfastSecretKey),
-        apiKey: settings.steadfastApiKey,
-        secretKey: settings.steadfastSecretKey ?? '',
-      } : undefined,
-    };
+    return this.courierConnections.getSettings(tenantId);
   }
 
   private toDeliveryProjection(shipment: any, booking: any) {

@@ -174,57 +174,19 @@ export class UpdatePaymentSettingsDto {
 }
 
 // =========================================================================
-// COURIER (PATCH /tenant/courier-settings)
+// DELIVERY OPERATIONS (PATCH /tenant/delivery-settings)
 // =========================================================================
 
-export class UpdateCourierSettingsDto {
+export class UpdateDeliverySettingsDto {
   @IsOptional()
   @IsString()
-  @MaxLength(50)
-  defaultCourier?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  steadfastApiKey?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  steadfastSecretKey?: string;
-
-  @IsOptional()
-  @IsString()
+  @MaxLength(500)
   pickupAddress?: string;
 
-  // ── Pathao-specific credentials ──────────────────────────────────────
   @IsOptional()
   @IsString()
-  @MaxLength(255)
-  pathaoClientId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  pathaoClientSecret?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  pathaoUsername?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  pathaoPassword?: string;
-
-  @IsOptional()
-  @IsInt()
-  pathaoStoreId?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  pathaoSandbox?: boolean;
+  @MaxLength(100)
+  pickupCity?: string;
 
   // ── Pickup Scheduling ──────────────────────────────────────────────────
   @IsOptional()

@@ -13,7 +13,7 @@ import {
   UpdateStoreSettingsDto,
   UpdateLocaleSettingsDto,
   UpdatePaymentSettingsDto,
-  UpdateCourierSettingsDto,
+  UpdateDeliverySettingsDto,
   UpdateOperationalSettingsDto,
 } from './dto/update-settings.dto';
 import * as dns from 'dns';
@@ -211,16 +211,8 @@ export class TenantService {
             sslcommerzStoreId: true,
             // sslcommerzStorePass: EXCLUDED — secret
             sslcommerzSandbox: true,
-            defaultCourier: true,
-            courierWebhookToken: true,
-            // Courier credentials are intentionally excluded.
             pickupAddress: true,
-            pathaoClientId: true,
-            pathaoClientSecret: true,
-            pathaoUsername: true,
-            pathaoPassword: true,
-            pathaoStoreId: true,
-            pathaoSandbox: true,
+            pickupCity: true,
             pickupLeadDays: true,
             pickupLeadDaysConfig: true,
             maxConcurrentSessions: true,
@@ -415,24 +407,19 @@ export class TenantService {
   /**
    * Update courier configuration.
    */
-  async updateCourierSettings(tenantId: string, dto: UpdateCourierSettingsDto) {
-    const secrets = ['pathaoClientSecret', 'pathaoPassword', 'steadfastApiKey', 'steadfastSecretKey'] as const;
-    const update = { ...dto };
-    for (const key of secrets) {
-      if (!update[key]?.trim()) delete update[key];
-    }
+  async updateDeliverySettings(tenantId: string, dto: UpdateDeliverySettingsDto) {
     const settings = await this.prisma.storeSettings.upsert({
       where: { tenantId },
-      update,
+      update: dto,
       create: {
         tenantId,
-        ...update,
+        ...dto,
       },
     });
 
     this.eventEmitter.emit('settings.updated', {
       tenantId,
-      section: 'courier',
+      section: 'delivery',
     });
 
     return settings;

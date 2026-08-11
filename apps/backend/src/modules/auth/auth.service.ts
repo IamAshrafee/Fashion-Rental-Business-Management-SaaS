@@ -164,6 +164,15 @@ export class AuthService {
           weekStart: 'saturday',
         },
       });
+      await tx.courierConnection.create({
+        data: {
+          tenantId: tenant.id,
+          provider: 'manual',
+          isEnabled: true,
+          isDefault: true,
+          healthStatus: 'configured',
+        },
+      });
 
       // 6. Create the tenant's authoritative rental-inventory foundation.
       await this.seedRentalFoundation(tx, tenant.id, user.id);

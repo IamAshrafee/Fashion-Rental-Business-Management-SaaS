@@ -41,19 +41,40 @@ export interface UpdatePaymentSettingsDto {
   sslcommerzSandbox?: boolean;
 }
 
-export interface UpdateCourierSettingsDto {
-  defaultCourier?: string;
-  steadfastApiKey?: string;
-  steadfastSecretKey?: string;
+export interface UpdateDeliverySettingsDto {
   pickupAddress?: string;
-  pathaoClientId?: string;
-  pathaoClientSecret?: string;
-  pathaoUsername?: string;
-  pathaoPassword?: string;
-  pathaoStoreId?: number;
-  pathaoSandbox?: boolean;
+  pickupCity?: string;
   pickupLeadDays?: number;
   pickupLeadDaysConfig?: { districtLeadDays: Record<string, number>; defaultLeadDays: number };
+}
+
+export type CourierProviderName = 'pathao' | 'steadfast' | 'manual';
+
+export interface CourierConnectionView {
+  id: string;
+  provider: CourierProviderName;
+  isEnabled: boolean;
+  isDefault: boolean;
+  config: { storeId?: number; sandbox?: boolean };
+  hasCredentials: boolean;
+  webhookToken: string;
+  healthStatus: 'not_tested' | 'configured' | 'healthy' | 'unhealthy';
+  lastHealthCheckAt: string | null;
+  lastHealthError: string | null;
+  updatedAt: string;
+}
+
+export interface UpsertCourierConnectionDto {
+  isEnabled?: boolean;
+  isDefault?: boolean;
+  clientId?: string;
+  clientSecret?: string;
+  username?: string;
+  password?: string;
+  storeId?: number;
+  sandbox?: boolean;
+  apiKey?: string;
+  secretKey?: string;
 }
 
 export interface UpdateOperationalSettingsDto {
@@ -111,18 +132,9 @@ export interface StoreSettings {
   sslcommerzStorePass?: string;
   sslcommerzSandbox: boolean;
   
-  // Courier
-  defaultCourier?: string;
-  courierWebhookToken?: string;
-  steadfastApiKey?: string;
-  steadfastSecretKey?: string;
+  // Delivery operations
   pickupAddress?: string;
-  pathaoClientId?: string;
-  pathaoClientSecret?: string;
-  pathaoUsername?: string;
-  pathaoPassword?: string;
-  pathaoStoreId?: number;
-  pathaoSandbox?: boolean;
+  pickupCity?: string;
 
   // Pickup scheduling
   pickupLeadDays?: number;

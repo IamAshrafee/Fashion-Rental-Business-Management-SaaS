@@ -3,7 +3,10 @@ import {
   UpdateStoreSettingsDto,
   UpdateLocaleSettingsDto,
   UpdatePaymentSettingsDto,
-  UpdateCourierSettingsDto,
+  UpdateDeliverySettingsDto,
+  UpsertCourierConnectionDto,
+  CourierConnectionView,
+  CourierProviderName,
   UpdateOperationalSettingsDto,
   SetCustomDomainDto,
   StoreSettings,
@@ -32,9 +35,24 @@ export const settingsApi = {
     return data;
   },
 
-  updateCourierSettings: async (payload: UpdateCourierSettingsDto) => {
-    const { data } = await apiClient.patch<ApiResponse<StoreSettings>>('/tenant/courier-settings', payload);
+  updateDeliverySettings: async (payload: UpdateDeliverySettingsDto) => {
+    const { data } = await apiClient.patch<ApiResponse<StoreSettings>>('/tenant/delivery-settings', payload);
     return data;
+  },
+
+  getCourierConnections: async () => {
+    const { data } = await apiClient.get<ApiResponse<CourierConnectionView[]>>('/owner/fulfillment/connections');
+    return data.data;
+  },
+
+  upsertCourierConnection: async (provider: CourierProviderName, payload: UpsertCourierConnectionDto) => {
+    const { data } = await apiClient.put<ApiResponse<CourierConnectionView>>(`/owner/fulfillment/connections/${provider}`, payload);
+    return data.data;
+  },
+
+  testCourierConnection: async (provider: CourierProviderName) => {
+    const { data } = await apiClient.post<ApiResponse<CourierConnectionView>>(`/owner/fulfillment/connections/${provider}/test`);
+    return data.data;
   },
 
   updateOperationalSettings: async (payload: UpdateOperationalSettingsDto) => {

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useCart } from '@/hooks/use-cart';
+import { syncStorefrontCart, useCart } from '@/hooks/use-cart';
 import { useLocale } from '@/hooks/use-locale';
 import { useTenant } from '@/hooks/use-tenant';
 import { createBooking, initiateSslcommerz, validateCart, type CartValidationResponse } from '@/lib/api/guest-booking';
@@ -64,7 +64,8 @@ export default function GuestCheckoutPage() {
     if (!mounted || checkoutItems.length === 0) return;
     let active = true;
     setPricingLoading(true);
-    validateCart({ items: checkoutItems, issueCheckoutQuote: true })
+    syncStorefrontCart(items)
+      .then(() => validateCart({ items: checkoutItems, issueCheckoutQuote: true }))
       .then((result) => {
         if (!active) return;
         setPricing(result);
@@ -77,7 +78,7 @@ export default function GuestCheckoutPage() {
       })
       .finally(() => { if (active) setPricingLoading(false); });
     return () => { active = false; };
-  }, [checkoutItems, mounted]);
+  }, [checkoutItems, items, mounted]);
 
   if (!mounted || items.length === 0) return null;
 
@@ -105,6 +106,7 @@ export default function GuestCheckoutPage() {
     
     setSubmitting(true);
     try {
+      await syncStorefrontCart(items);
       const currentPricing = await validateCart({ items: checkoutItems, issueCheckoutQuote: true });
       setPricing(currentPricing);
       if (!currentPricing.valid || !currentPricing.checkoutQuote) {

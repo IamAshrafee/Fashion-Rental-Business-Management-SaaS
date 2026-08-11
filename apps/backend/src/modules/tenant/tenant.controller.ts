@@ -23,7 +23,7 @@ import {
   UpdateStoreSettingsDto,
   UpdateLocaleSettingsDto,
   UpdatePaymentSettingsDto,
-  UpdateCourierSettingsDto,
+  UpdateDeliverySettingsDto,
   UpdateOperationalSettingsDto,
   SetCustomDomainDto,
 } from './dto/update-settings.dto';
@@ -118,16 +118,16 @@ export class TenantController {
   }
 
   /**
-   * PATCH /api/v1/tenant/courier-settings
-   * Update courier configuration.
+   * PATCH /api/v1/tenant/delivery-settings
+   * Update pickup address and scheduling policy.
    */
-  @Patch('courier-settings')
+  @Patch('delivery-settings')
   @Roles('owner')
-  async updateCourierSettings(
+  async updateDeliverySettings(
     @CurrentTenant() tenant: TenantContext,
-    @Body() dto: UpdateCourierSettingsDto,
+    @Body() dto: UpdateDeliverySettingsDto,
   ) {
-    return this.tenantService.updateCourierSettings(tenant.id, dto);
+    return this.tenantService.updateDeliverySettings(tenant.id, dto);
   }
 
   /**

@@ -271,6 +271,13 @@ enum StorefrontItemVisibilityMode {
   SPECIFIC_ITEM_SELECTION
 }
 
+enum StorefrontCartStatus {
+  ACTIVE
+  CHECKED_OUT
+  ABANDONED
+  EXPIRED
+}
+
 enum StockUnitDisposition {
   ACTIVE
   QUARANTINED
@@ -741,7 +748,7 @@ model Tenant {
   events                         Event[]
   bookings                       Booking[]
   bookingQuotes                  BookingQuote[]
-  storefrontCheckoutQuotes      StorefrontCheckoutQuote[]
+  storefrontCheckoutQuotes       StorefrontCheckoutQuote[]
   depositSettlements             DepositSettlement[]
   customers                      Customer[]
   customerIdentities             CustomerIdentity[]
@@ -793,6 +800,8 @@ model Tenant {
   shipments                      Shipment[]
   shipmentEvents                 ShipmentEvent[]
   courierWebhookReceipts         CourierWebhookReceipt[]
+  courierConnections             CourierConnection[]
+  storefrontCarts                StorefrontCart[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -870,20 +879,8 @@ model StoreSettings {
   sslcommerzStoreId   String? @map("sslcommerz_store_id")
   sslcommerzStorePass String? @map("sslcommerz_store_pass")
   sslcommerzSandbox   Boolean @default(true) @map("sslcommerz_sandbox")
-  defaultCourier      String? @map("default_courier")
-  steadfastApiKey     String? @map("steadfast_api_key")
-  steadfastSecretKey  String? @map("steadfast_secret_key")
-  courierWebhookToken String  @unique @default(uuid()) @map("courier_webhook_token")
   pickupAddress       String? @map("pickup_address")
   pickupCity          String? @map("pickup_city")
-
-  // Pathao-specific credentials (dedicated columns instead of pipe-delimited)
-  pathaoClientId     String? @map("pathao_client_id")
-  pathaoClientSecret String? @map("pathao_client_secret")
-  pathaoUsername     String? @map("pathao_username")
-  pathaoPassword     String? @map("pathao_password")
-  pathaoStoreId      Int?    @map("pathao_store_id")
-  pathaoSandbox      Boolean @default(false) @map("pathao_sandbox")
 
   // Pickup scheduling — district-based lead days
   pickupLeadDays       Int?  @default(2) @map("pickup_lead_days")
@@ -897,6 +894,29 @@ model StoreSettings {
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@map("store_settings")
+}
+
+model CourierConnection {
+  id                   String           @id @default(uuid())
+  tenantId             String           @map("tenant_id")
+  provider             ShipmentProvider
+  isEnabled            Boolean          @default(false) @map("is_enabled")
+  isDefault            Boolean          @default(false) @map("is_default")
+  config               Json             @default("{}") @db.JsonB
+  credentialsEncrypted String?          @map("credentials_encrypted")
+  credentialKeyVersion Int              @default(1) @map("credential_key_version")
+  webhookToken         String           @unique @default(uuid()) @map("webhook_token")
+  healthStatus         String           @default("not_tested") @map("health_status")
+  lastHealthCheckAt    DateTime?        @map("last_health_check_at")
+  lastHealthError      String?          @map("last_health_error")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, provider])
+  @@index([tenantId, isEnabled, isDefault])
+  @@map("courier_connections")
 }
 
 model TenantUser {
@@ -1043,6 +1063,7 @@ model Product {
   fulfillmentSelectionSnapshots FulfillmentSelectionSnapshot[]
   availabilityPolicies          AvailabilityPolicy[]
   onboarding                    ProductOnboarding?
+  storefrontCartLines           StorefrontCartLine[]
 
   @@unique([tenantId, slug])
   @@unique([tenantId, creationKey])
@@ -1112,12 +1133,13 @@ model ProductVariant {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  mainColor       Color            @relation("MainColor", fields: [mainColorId], references: [id])
-  identicalColors VariantColor[]
-  images          ProductImage[]
-  sizes           VariantSize[]
-  inventoryBlocks InventoryBlock[]
+  product             Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mainColor           Color                @relation("MainColor", fields: [mainColorId], references: [id])
+  identicalColors     VariantColor[]
+  images              ProductImage[]
+  sizes               VariantSize[]
+  inventoryBlocks     InventoryBlock[]
+  storefrontCartLines StorefrontCartLine[]
 
   @@unique([productId, onboardingKey])
   @@index([productId])
@@ -1149,6 +1171,7 @@ model VariantSize {
   inventoryPools                InventoryPool[]
   availabilityPolicies          AvailabilityPolicy[]
   inventoryTransferLines        InventoryTransferLine[]
+  storefrontCartLines           StorefrontCartLine[]
 
   @@unique([variantId, sizeInstanceId])
   @@index([variantId])
@@ -1408,6 +1431,7 @@ model BookingQuote {
 model StorefrontCheckoutQuote {
   id               String   @id @default(uuid())
   tenantId         String   @map("tenant_id")
+  cartId           String   @map("cart_id")
   requestHash      String   @map("request_hash")
   quoteHash        String   @map("quote_hash")
   requestSnapshot  Json     @map("request_snapshot") @db.JsonB
@@ -1416,12 +1440,63 @@ model StorefrontCheckoutQuote {
   expiresAt        DateTime @map("expires_at") @db.Timestamptz
   createdAt        DateTime @default(now()) @map("created_at")
 
-  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cart    StorefrontCart @relation(fields: [cartId], references: [id], onDelete: Cascade)
   booking Booking?
 
   @@index([tenantId, expiresAt])
+  @@index([cartId, expiresAt])
   @@index([tenantId, requestHash, createdAt(sort: Desc)])
   @@map("storefront_checkout_quotes")
+}
+
+model StorefrontCart {
+  id             String               @id @default(uuid())
+  tenantId       String               @map("tenant_id")
+  tokenHash      String               @unique @map("token_hash")
+  status         StorefrontCartStatus @default(ACTIVE)
+  expiresAt      DateTime             @map("expires_at") @db.Timestamptz
+  lastActivityAt DateTime             @default(now()) @map("last_activity_at") @db.Timestamptz
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  tenant  Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lines   StorefrontCartLine[]
+  quotes  StorefrontCheckoutQuote[]
+  booking Booking?
+
+  @@index([tenantId, status, expiresAt])
+  @@index([tenantId, lastActivityAt(sort: Desc)])
+  @@map("storefront_carts")
+}
+
+model StorefrontCartLine {
+  id                   String   @id @default(uuid())
+  cartId               String   @map("cart_id")
+  lineKey              String   @map("line_key")
+  productId            String   @map("product_id")
+  variantId            String   @map("variant_id")
+  variantSizeId        String   @map("variant_size_id")
+  preferredStockUnitId String?  @map("preferred_stock_unit_id")
+  quantity             Int      @default(1)
+  startDate            DateTime @map("start_date") @db.Date
+  endDate              DateTime @map("end_date") @db.Date
+  selectedSize         String?  @map("selected_size")
+  configuration        Json     @default("{}") @db.JsonB
+  displaySnapshot      Json     @default("{}") @map("display_snapshot") @db.JsonB
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  cart               StorefrontCart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product            Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant            ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  variantSize        VariantSize    @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  preferredStockUnit StockUnit?     @relation(fields: [preferredStockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([cartId, lineKey])
+  @@index([cartId, updatedAt(sort: Desc)])
+  @@index([productId, variantSizeId])
+  @@map("storefront_cart_lines")
 }
 
 // ============================================================================
@@ -1633,18 +1708,18 @@ model Customer {
   createdAt               DateTime               @default(now()) @map("created_at")
   updatedAt               DateTime               @updatedAt @map("updated_at")
 
-  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
-  identities    CustomerIdentity[]
-  addresses     CustomerAddress[]
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id])
+  identities     CustomerIdentity[]
+  addresses      CustomerAddress[]
   tagAssignments CustomerTagAssignment[]
-  notes         CustomerNote[]
-  consents      CustomerConsent[]
-  events        CustomerEvent[]
-  account       CustomerAccount?
-  bookings      Booking[]
-  reviews       Review[]
-  mergedInto    Customer?               @relation("CustomerMerges", fields: [mergedIntoCustomerId], references: [id], onDelete: Restrict)
-  mergedSources Customer[]               @relation("CustomerMerges")
+  notes          CustomerNote[]
+  consents       CustomerConsent[]
+  events         CustomerEvent[]
+  account        CustomerAccount?
+  bookings       Booking[]
+  reviews        Review[]
+  mergedInto     Customer?               @relation("CustomerMerges", fields: [mergedIntoCustomerId], references: [id], onDelete: Restrict)
+  mergedSources  Customer[]              @relation("CustomerMerges")
 
   @@index([tenantId, status, updatedAt(sort: Desc)])
   @@index([tenantId, fullName])
@@ -1664,8 +1739,8 @@ model CustomerIdentity {
   createdAt       DateTime             @default(now()) @map("created_at")
   updatedAt       DateTime             @updatedAt @map("updated_at")
 
-  tenant   Tenant           @relation(fields: [tenantId], references: [id])
-  customer Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   Tenant            @relation(fields: [tenantId], references: [id])
+  customer Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
   accounts CustomerAccount[]
 
   @@unique([tenantId, kind, normalizedValue])
@@ -1823,6 +1898,7 @@ model Booking {
   customerId           String                 @map("customer_id")
   quoteId              String?                @unique @map("quote_id")
   storefrontQuoteId    String?                @unique @map("storefront_quote_id")
+  storefrontCartId     String?                @unique @map("storefront_cart_id")
   publicTrackingToken  String                 @unique @default(uuid()) @map("public_tracking_token")
   policyVersionId      String?                @map("policy_version_id") // Pricing Engine v2: frozen pricing snapshot
   channel              BookingChannel         @default(STOREFRONT)
@@ -1870,6 +1946,7 @@ model Booking {
   customer               Customer                 @relation(fields: [customerId], references: [id])
   quote                  BookingQuote?            @relation(fields: [quoteId], references: [id], onDelete: Restrict)
   storefrontQuote        StorefrontCheckoutQuote? @relation(fields: [storefrontQuoteId], references: [id], onDelete: Restrict)
+  storefrontCart         StorefrontCart?          @relation(fields: [storefrontCartId], references: [id], onDelete: Restrict)
   policyVersion          PricePolicyVersion?      @relation(fields: [policyVersionId], references: [id])
   sourceLocation         InventoryLocation?       @relation(fields: [sourceLocationId], references: [id], onDelete: Restrict)
   items                  BookingItem[]
@@ -1892,40 +1969,40 @@ model Booking {
 }
 
 model Shipment {
-  id                    String            @id @default(uuid())
-  tenantId              String            @map("tenant_id")
-  bookingId             String            @map("booking_id")
-  direction             ShipmentDirection @default(OUTBOUND)
-  provider              ShipmentProvider
-  status                ShipmentStatus    @default(prepare_parcel)
-  idempotencyKey        String            @map("idempotency_key")
-  requestHash           String            @map("request_hash")
-  providerReference     String?           @map("provider_reference")
-  trackingNumber        String?           @map("tracking_number")
-  recipientName         String            @map("recipient_name")
-  recipientPhone        String            @map("recipient_phone")
-  recipientAddress      String            @map("recipient_address")
-  recipientCity         String            @map("recipient_city")
-  recipientZone         String?           @map("recipient_zone")
-  codAmount             Int               @default(0) @map("cod_amount")
-  quotedFee             Int?              @map("quoted_fee")
-  chargedFee            Int?              @map("charged_fee")
-  weightGrams           Int               @default(1000) @map("weight_grams")
-  itemQuantity          Int               @default(1) @map("item_quantity")
-  specialInstruction    String?           @map("special_instruction")
-  scheduledPickupAt     DateTime?          @map("scheduled_pickup_at")
-  pickupRequestedAt     DateTime?          @map("pickup_requested_at")
-  lastSyncedAt          DateTime?          @map("last_synced_at")
-  deliveredAt           DateTime?          @map("delivered_at")
-  failedReason          String?            @map("failed_reason")
-  rawCreateResponse     Json?              @map("raw_create_response") @db.JsonB
-  createdAt             DateTime           @default(now()) @map("created_at")
-  updatedAt             DateTime           @updatedAt @map("updated_at")
+  id                 String            @id @default(uuid())
+  tenantId           String            @map("tenant_id")
+  bookingId          String            @map("booking_id")
+  direction          ShipmentDirection @default(OUTBOUND)
+  provider           ShipmentProvider
+  status             ShipmentStatus    @default(prepare_parcel)
+  idempotencyKey     String            @map("idempotency_key")
+  requestHash        String            @map("request_hash")
+  providerReference  String?           @map("provider_reference")
+  trackingNumber     String?           @map("tracking_number")
+  recipientName      String            @map("recipient_name")
+  recipientPhone     String            @map("recipient_phone")
+  recipientAddress   String            @map("recipient_address")
+  recipientCity      String            @map("recipient_city")
+  recipientZone      String?           @map("recipient_zone")
+  codAmount          Int               @default(0) @map("cod_amount")
+  quotedFee          Int?              @map("quoted_fee")
+  chargedFee         Int?              @map("charged_fee")
+  weightGrams        Int               @default(1000) @map("weight_grams")
+  itemQuantity       Int               @default(1) @map("item_quantity")
+  specialInstruction String?           @map("special_instruction")
+  scheduledPickupAt  DateTime?         @map("scheduled_pickup_at")
+  pickupRequestedAt  DateTime?         @map("pickup_requested_at")
+  lastSyncedAt       DateTime?         @map("last_synced_at")
+  deliveredAt        DateTime?         @map("delivered_at")
+  failedReason       String?           @map("failed_reason")
+  rawCreateResponse  Json?             @map("raw_create_response") @db.JsonB
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
 
-  tenant  Tenant         @relation(fields: [tenantId], references: [id])
-  booking Booking        @relation(fields: [bookingId], references: [id], onDelete: Restrict)
-  items   ShipmentItem[]
-  events  ShipmentEvent[]
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id])
+  booking         Booking                 @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  items           ShipmentItem[]
+  events          ShipmentEvent[]
   webhookReceipts CourierWebhookReceipt[]
 
   @@unique([tenantId, idempotencyKey])
@@ -2384,6 +2461,7 @@ model StockUnit {
   mediaAttachments      InventoryMediaAttachment[]
   transferUnits         InventoryTransferUnit[]
   preferredReservations InventoryReservation[]     @relation("PreferredReservationUnit")
+  storefrontCartLines   StorefrontCartLine[]
 
   @@unique([tenantId, assetCode])
   @@unique([tenantId, barcode])

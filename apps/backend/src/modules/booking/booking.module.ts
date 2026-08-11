@@ -10,6 +10,7 @@ import {
 } from './booking.controller';
 import { PricingEngineModule } from '../pricing-engine/pricing-engine.module'; // Added PricingEngineModule
 import { InventoryModule } from '../inventory/inventory.module';
+import { StorefrontCartService } from './storefront-cart.service';
 
 /**
  * Booking Module — P07 Booking & Availability Engine.
@@ -33,7 +34,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     ScheduleModule.forRoot(),
   ],
   controllers: [BookingGuestController, BookingOwnerController],
-  providers: [BookingService, InventoryHoldSchedulerService],
-  exports: [BookingService],
+  providers: [BookingService, StorefrontCartService, InventoryHoldSchedulerService],
+  exports: [BookingService, StorefrontCartService],
 })
 export class BookingModule {}

@@ -37,6 +37,9 @@ export default () => ({
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
+  security: {
+    courierCredentialsKey: process.env.COURIER_CREDENTIALS_ENCRYPTION_KEY,
+  },
   bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
 
   // Domain

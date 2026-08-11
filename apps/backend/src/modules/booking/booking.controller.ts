@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Body,
   Param,
   Query,
@@ -11,8 +12,9 @@ import {
   HttpStatus,
   Headers,
   Req,
+  Res,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { BookingService } from './booking.service';
 import {
   CreateBookingDto,
@@ -26,6 +28,7 @@ import {
   BookingQueryDto,
   BookingCalendarQueryDto,
   CheckAvailabilityDto,
+  ReplaceStorefrontCartDto,
 } from './dto/booking.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -35,6 +38,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
 import { BookingStatus } from '@prisma/client';
+import { StorefrontCartService } from './storefront-cart.service';
 
 // ============================================================================
 // GUEST CONTROLLER — Public endpoints
@@ -46,7 +50,47 @@ import { BookingStatus } from '@prisma/client';
  */
 @Controller()
 export class BookingGuestController {
-  constructor(private readonly bookingService: BookingService) {}
+  constructor(
+    private readonly bookingService: BookingService,
+    private readonly storefrontCartService: StorefrontCartService,
+  ) {}
+
+  @Public()
+  @Get('storefront/cart')
+  async getCart(
+    @CurrentTenant() tenant: TenantContext,
+    @Req() req: Request,
+  ) {
+    return this.storefrontCartService.get(
+      tenant.id,
+      req.cookies?.[StorefrontCartService.cookieName],
+    );
+  }
+
+  @Public()
+  @Put('storefront/cart')
+  async replaceCart(
+    @CurrentTenant() tenant: TenantContext,
+    @Body() dto: ReplaceStorefrontCartDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.storefrontCartService.replace(
+      tenant.id,
+      req.cookies?.[StorefrontCartService.cookieName],
+      dto.items,
+    );
+    if (result.issuedToken) {
+      res.cookie(StorefrontCartService.cookieName, result.issuedToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: '/',
+      });
+    }
+    return result.cart;
+  }
 
   /**
    * POST /api/v1/products/:productId/check-availability
@@ -80,8 +124,13 @@ export class BookingGuestController {
   async validateCart(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: ValidateCartDto,
+    @Req() req: Request,
   ) {
-    return this.bookingService.validateCart(tenant.id, dto);
+    return this.bookingService.validateCart(
+      tenant.id,
+      dto,
+      req.cookies?.[StorefrontCartService.cookieName],
+    );
   }
 
   /**
@@ -95,8 +144,14 @@ export class BookingGuestController {
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateBookingDto,
     @Headers('idempotency-key') creationKey?: string,
+    @Req() req?: Request,
   ) {
-    return this.bookingService.createGuestBooking(tenant.id, dto, creationKey);
+    return this.bookingService.createGuestBooking(
+      tenant.id,
+      dto,
+      creationKey,
+      req?.cookies?.[StorefrontCartService.cookieName],
+    );
   }
 
   /**

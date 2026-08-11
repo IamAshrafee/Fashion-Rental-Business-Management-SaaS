@@ -1,6 +1,29 @@
 import apiClient from '@/lib/api-client';
 import { ApiResponse } from '@closetrent/types';
 
+export type StorefrontCartItem = CartValidationRequest['items'][number] & {
+  lineKey: string;
+  displaySnapshot?: Record<string, unknown>;
+};
+
+export interface StorefrontCartResponse {
+  id: string | null;
+  items: StorefrontCartItem[];
+  expiresAt: string | null;
+}
+
+export async function getStorefrontCart(): Promise<StorefrontCartResponse> {
+  const response = await apiClient.get<ApiResponse<StorefrontCartResponse>>('/storefront/cart');
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to load cart');
+  return response.data.data;
+}
+
+export async function replaceStorefrontCart(items: StorefrontCartItem[]): Promise<StorefrontCartResponse> {
+  const response = await apiClient.put<ApiResponse<StorefrontCartResponse>>('/storefront/cart', { items });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to save cart');
+  return response.data.data;
+}
+
 // ─── Cart Validation ─────────────────────────────────────────────────────────
 
 export interface CartValidationRequest {

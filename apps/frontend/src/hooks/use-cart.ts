@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import {
+  getStorefrontCart,
+  replaceStorefrontCart,
+  type StorefrontCartItem,
+} from '@/lib/api/guest-booking';
 
 export interface CartItem {
   cartItemId: string; // Unique generated ID for the item in cart
@@ -42,6 +47,8 @@ export interface CartItem {
 }
 
 const CART_STORAGE_KEY = 'closetrent_guest_cart_v4';
+let hydrationStarted = false;
+let syncChain: Promise<unknown> = Promise.resolve();
 
 
 // Fallback logic for SSR
@@ -59,6 +66,76 @@ const subscribe = (listener: () => void) => {
     window.removeEventListener('cart-update', listener);
   };
 };
+
+function toServerItems(items: CartItem[]): StorefrontCartItem[] {
+  return items.map((item) => ({
+    lineKey: item.cartItemId,
+    productId: item.productId,
+    variantId: item.variantId || '',
+    variantSizeId: item.variantSizeId,
+    preferredStockUnitId: item.preferredStockUnitId,
+    quantity: item.quantity,
+    startDate: item.startDate,
+    endDate: item.endDate,
+    selectedSize: item.selectedSize,
+    tryOn: item.serviceMap.tryOn,
+    backupSize: item.serviceMap.backupSize || undefined,
+    compositionSelections: item.compositionSelections?.map(({ label: _label, ...selection }) => selection),
+    displaySnapshot: {
+      productName: item.productName,
+      categoryName: item.categoryName,
+      featuredImage: item.featuredImage,
+      basePrice: item.basePrice,
+      deposit: item.deposit,
+      durationDays: item.durationDays,
+      bundleSummary: item.bundleSummary,
+      cleaning: item.serviceMap.cleaning,
+      totalPrice: item.totalPrice,
+    },
+  }));
+}
+
+function fromServerItems(items: StorefrontCartItem[]): CartItem[] {
+  return items.map((item) => {
+    const snapshot = item.displaySnapshot ?? {};
+    const durationDays = Math.max(1, Math.round(
+      (new Date(`${item.endDate}T00:00:00Z`).getTime() - new Date(`${item.startDate}T00:00:00Z`).getTime()) / 86_400_000,
+    ) + 1);
+    return {
+      cartItemId: item.lineKey,
+      productId: item.productId,
+      variantId: item.variantId,
+      variantSizeId: item.variantSizeId,
+      preferredStockUnitId: item.preferredStockUnitId,
+      quantity: item.quantity,
+      productName: typeof snapshot.productName === 'string' ? snapshot.productName : 'Rental item',
+      categoryName: typeof snapshot.categoryName === 'string' ? snapshot.categoryName : undefined,
+      featuredImage: typeof snapshot.featuredImage === 'string' ? snapshot.featuredImage : undefined,
+      basePrice: typeof snapshot.basePrice === 'number' ? snapshot.basePrice : 0,
+      deposit: typeof snapshot.deposit === 'number' ? snapshot.deposit : 0,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      durationDays: typeof snapshot.durationDays === 'number' ? snapshot.durationDays : durationDays,
+      selectedSize: item.selectedSize,
+      compositionSelections: item.compositionSelections,
+      bundleSummary: Array.isArray(snapshot.bundleSummary) ? snapshot.bundleSummary as CartItem['bundleSummary'] : undefined,
+      serviceMap: {
+        tryOn: item.tryOn === true,
+        backupSize: item.backupSize,
+        cleaning: snapshot.cleaning === true,
+      },
+      totalPrice: typeof snapshot.totalPrice === 'number' ? snapshot.totalPrice : 0,
+    };
+  });
+}
+
+export function syncStorefrontCart(items: CartItem[]) {
+  const operation = syncChain
+    .catch(() => undefined)
+    .then(() => replaceStorefrontCart(toServerItems(items)));
+  syncChain = operation;
+  return operation;
+}
 
 export function useCart() {
   const storeSnapshot = useSyncExternalStore(subscribe, getCartSnapshot, () => '[]');
@@ -83,6 +160,32 @@ export function useCart() {
   const saveItems = useCallback((newItems: CartItem[]) => {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(newItems));
     window.dispatchEvent(new Event('cart-update'));
+    void syncStorefrontCart(newItems);
+  }, []);
+
+  useEffect(() => {
+    if (hydrationStarted) return;
+    hydrationStarted = true;
+    const initialSnapshot = getCartSnapshot();
+    void getStorefrontCart()
+      .then((serverCart) => {
+        const currentSnapshot = getCartSnapshot();
+        if (currentSnapshot !== initialSnapshot) {
+          const current = JSON.parse(currentSnapshot) as CartItem[];
+          void syncStorefrontCart(current);
+          return;
+        }
+        if (serverCart.items.length > 0) {
+          localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(fromServerItems(serverCart.items)));
+          window.dispatchEvent(new Event('cart-update'));
+        } else {
+          const local = JSON.parse(initialSnapshot) as CartItem[];
+          if (local.length > 0) void syncStorefrontCart(local);
+        }
+      })
+      .catch(() => {
+        // The local copy remains usable; checkout reports any server sync error.
+      });
   }, []);
 
   const addItem = useCallback((item: Omit<CartItem, 'cartItemId'>) => {

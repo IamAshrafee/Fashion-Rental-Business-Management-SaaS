@@ -22,6 +22,7 @@ import { FulfillmentService } from '../src/modules/inventory/fulfillment.service
 import { PricingEngineService } from '../src/modules/pricing-engine/pricing-engine.service';
 import { CustomerService } from '../src/modules/customer/customer.service';
 import { BookingService } from '../src/modules/booking/booking.service';
+import { StorefrontCartService } from '../src/modules/booking/storefront-cart.service';
 import { PaymentService } from '../src/modules/payment/payment.service';
 
 describe('inventory control PostgreSQL contracts', () => {
@@ -48,6 +49,7 @@ describe('inventory control PostgreSQL contracts', () => {
     reservations,
     fulfillment,
   );
+  const storefrontCarts = new StorefrontCartService(prisma as never);
   const payments = new PaymentService(prisma as never, { emit: jest.fn() } as never, {} as never);
   let tenantId: string;
   let ownerId: string;
@@ -218,7 +220,13 @@ describe('inventory control PostgreSQL contracts', () => {
       startDate: '2026-12-05',
       endDate: '2026-12-07',
     }];
-    const quote = await bookings.validateCart(tenantId, { items, issueCheckoutQuote: true });
+    const cartResult = await storefrontCarts.replace(tenantId, undefined, [{
+      ...items[0],
+      lineKey: randomUUID(),
+    }]);
+    const cartToken = cartResult.issuedToken;
+    expect(cartToken).toBeTruthy();
+    const quote = await bookings.validateCart(tenantId, { items, issueCheckoutQuote: true }, cartToken);
     expect(quote).toMatchObject({ valid: true, checkoutQuote: { id: expect.any(String), quoteHash: expect.any(String) } });
     if (!('checkoutQuote' in quote)) throw new Error('Expected a checkout quote');
     const request = {
@@ -233,19 +241,19 @@ describe('inventory control PostgreSQL contracts', () => {
     await expect(bookings.createGuestBooking(tenantId, {
       ...request,
       items: [{ ...items[0], endDate: '2026-12-08' }],
-    }, randomUUID())).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CHECKOUT_INPUTS_CHANGED' }) });
+    }, randomUUID(), cartToken)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CART_CHANGED' }) });
 
     const key = randomUUID();
-    const created = await bookings.createGuestBooking(tenantId, request, key);
-    const replay = await bookings.createGuestBooking(tenantId, request, key);
+    const created = await bookings.createGuestBooking(tenantId, request, key, cartToken);
+    const replay = await bookings.createGuestBooking(tenantId, request, key, cartToken);
     expect(replay).toMatchObject({ bookingId: created.bookingId, trackingToken: created.trackingToken });
     expect(created.trackingToken).toMatch(/^[0-9a-f-]{36}$/);
     await expect(bookings.getBookingByTrackingToken(tenantId, created.trackingToken)).resolves.toMatchObject({
       bookingNumber: created.bookingNumber,
       rentalPeriod: { totalDays: 3 },
     });
-    await expect(bookings.createGuestBooking(tenantId, request, randomUUID())).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'CHECKOUT_QUOTE_ALREADY_USED' }),
+    await expect(bookings.createGuestBooking(tenantId, request, randomUUID(), cartToken)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CART_EXPIRED' }),
     });
   });
 

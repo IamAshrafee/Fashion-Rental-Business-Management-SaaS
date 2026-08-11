@@ -6,7 +6,9 @@ import {
   UpdateStoreSettingsDto, 
   UpdateLocaleSettingsDto, 
   UpdatePaymentSettingsDto, 
-  UpdateCourierSettingsDto, 
+  UpdateDeliverySettingsDto,
+  UpsertCourierConnectionDto,
+  CourierProviderName,
   UpdateOperationalSettingsDto,
   StaffQueryDto,
   InviteStaffDto,
@@ -71,18 +73,42 @@ export const useUpdatePaymentSettings = () => {
   });
 };
 
-export const useUpdateCourierSettings = () => {
+export const useUpdateDeliverySettings = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (dto: UpdateCourierSettingsDto) => settingsApi.updateCourierSettings(dto),
+    mutationFn: (dto: UpdateDeliverySettingsDto) => settingsApi.updateDeliverySettings(dto),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
-      toast.success('Courier configuration updated');
+      toast.success('Delivery operations updated');
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update courier settings');
+      toast.error(err.response?.data?.message || 'Failed to update delivery settings');
     },
+  });
+};
+
+export const useCourierConnections = () => useQuery({
+  queryKey: ['settings', 'courier-connections'],
+  queryFn: settingsApi.getCourierConnections,
+});
+
+export const useUpsertCourierConnection = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ provider, payload }: { provider: CourierProviderName; payload: UpsertCourierConnectionDto }) => settingsApi.upsertCourierConnection(provider, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'courier-connections'] });
+      toast.success('Courier connection saved');
+    },
+  });
+};
+
+export const useTestCourierConnection = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: CourierProviderName) => settingsApi.testCourierConnection(provider),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'courier-connections'] }),
   });
 };
 

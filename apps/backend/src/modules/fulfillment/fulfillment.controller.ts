@@ -16,15 +16,18 @@ import {
   Post,
   Get,
   Patch,
+  Put,
   Body,
   Param,
   Query,
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseEnumPipe,
 } from '@nestjs/common';
 import { FulfillmentService } from './fulfillment.service';
-import { ShipOrderDto, CalculateRateDto, UpdateDeliveryStageDto } from './dto/fulfillment.dto';
+import { ShipOrderDto, CalculateRateDto, UpdateDeliveryStageDto, CourierProviderEnum, UpsertCourierConnectionDto } from './dto/fulfillment.dto';
+import { CourierConnectionService } from './courier-connection.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -36,7 +39,35 @@ import type { DeliveryStageGroup } from './providers/courier-provider.interface'
 @Controller('owner/fulfillment')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class FulfillmentController {
-  constructor(private readonly fulfillmentService: FulfillmentService) {}
+  constructor(
+    private readonly fulfillmentService: FulfillmentService,
+    private readonly courierConnections: CourierConnectionService,
+  ) {}
+
+  @Get('connections')
+  @Roles('owner', 'manager')
+  listConnections(@CurrentTenant() tenant: TenantContext) {
+    return this.courierConnections.list(tenant.id);
+  }
+
+  @Put('connections/:provider')
+  @Roles('owner')
+  upsertConnection(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('provider', new ParseEnumPipe(CourierProviderEnum)) provider: CourierProviderEnum,
+    @Body() dto: UpsertCourierConnectionDto,
+  ) {
+    return this.courierConnections.upsert(tenant.id, provider, dto);
+  }
+
+  @Post('connections/:provider/test')
+  @Roles('owner')
+  testConnection(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('provider', new ParseEnumPipe(CourierProviderEnum)) provider: CourierProviderEnum,
+  ) {
+    return this.courierConnections.test(tenant.id, provider);
+  }
 
   /**
    * POST /api/v1/owner/fulfillment/:bookingId/send-pickup

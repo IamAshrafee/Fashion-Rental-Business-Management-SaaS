@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { MapPin, Clock, Truck, Search, X, Save, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useUpdateCourierSettings } from '../hooks/use-settings';
+import { useUpdateDeliverySettings } from '../hooks/use-settings';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -53,7 +53,7 @@ interface DistrictLeadDaysEditorProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function DistrictLeadDaysEditor({ initialConfig, defaultLeadDays }: DistrictLeadDaysEditorProps) {
-  const updateCourier = useUpdateCourierSettings();
+  const updateCourier = useUpdateDeliverySettings();
   const [search, setSearch] = useState('');
 
   // Build initial district map from saved config or defaults

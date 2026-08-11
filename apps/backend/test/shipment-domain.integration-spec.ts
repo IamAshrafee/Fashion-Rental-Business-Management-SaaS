@@ -2,12 +2,19 @@ import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { FulfillmentService } from '../src/modules/fulfillment/fulfillment.service';
 import { CourierProviderEnum } from '../src/modules/fulfillment/dto/fulfillment.dto';
+import { CourierConnectionService } from '../src/modules/fulfillment/courier-connection.service';
 
 describe('shipment operational domain', () => {
   const prisma = new PrismaClient();
   const updateStatus = jest.fn(async (_tenantId: string, _bookingId: string, status: string) => ({ status }));
+  const connections = new CourierConnectionService(
+    prisma as never,
+    { get: jest.fn((key: string, fallback?: string) => key === 'nodeEnv' ? 'test' : key === 'jwt.secret' ? 'integration-courier-secret' : fallback) } as never,
+    {} as never,
+  );
   const service = new FulfillmentService(
     prisma as never,
+    connections,
     { updateStatus } as never,
     {} as never,
     {} as never,
@@ -25,8 +32,11 @@ describe('shipment operational domain', () => {
     const tenant = await prisma.tenant.create({
       data: { businessName: 'Shipment Store', subdomain: `shipment-${suffix}`, ownerUserId: owner.id },
     });
-    const settings = await prisma.storeSettings.create({
-      data: { tenantId: tenant.id, defaultCourier: 'steadfast' },
+    const connection = await connections.upsert(tenant.id, 'steadfast', {
+      isEnabled: true,
+      isDefault: true,
+      apiKey: 'integration-api-key',
+      secretKey: 'integration-secret-key',
     });
     const customer = await prisma.customer.create({
       data: { tenantId: tenant.id, fullName: 'Shipment Customer' },
@@ -67,8 +77,8 @@ describe('shipment operational domain', () => {
       delivery_status: 'delivered',
       updated_at: new Date().toISOString(),
     };
-    await service.processSteadfastWebhook(settings.courierWebhookToken, webhook);
-    await service.processSteadfastWebhook(settings.courierWebhookToken, webhook);
+    await service.processSteadfastWebhook(connection.webhookToken, webhook);
+    await service.processSteadfastWebhook(connection.webhookToken, webhook);
 
     const shipment = await prisma.shipment.findFirstOrThrow({
       where: { bookingId: booking.id },

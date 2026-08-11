@@ -8,6 +8,7 @@ import { CourierWebhookController } from './fulfillment.webhook.controller';
 import { PathaoAdapter } from './providers/pathao.adapter';
 import { SteadfastAdapter } from './providers/steadfast.adapter';
 import { ManualAdapter } from './providers/manual.adapter';
+import { CourierConnectionService } from './courier-connection.service';
 
 /**
  * Fulfillment Module — P09 Order Fulfillment & Logistics
@@ -40,7 +41,8 @@ import { ManualAdapter } from './providers/manual.adapter';
     PathaoAdapter,
     SteadfastAdapter,
     ManualAdapter,
+    CourierConnectionService,
   ],
-  exports: [FulfillmentService],
+  exports: [FulfillmentService, CourierConnectionService],
 })
 export class FulfillmentModule {}

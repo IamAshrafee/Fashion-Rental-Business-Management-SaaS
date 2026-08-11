@@ -47,6 +47,9 @@ CREATE TYPE "BookingStatus" AS ENUM ('pending', 'confirmed', 'cancelled', 'deliv
 CREATE TYPE "BookingChannel" AS ENUM ('STOREFRONT', 'OWNER_MANUAL');
 
 -- CreateEnum
+CREATE TYPE "StorefrontCartStatus" AS ENUM ('ACTIVE', 'CHECKED_OUT', 'ABANDONED', 'EXPIRED');
+
+-- CreateEnum
 CREATE TYPE "CustomerStatus" AS ENUM ('active', 'blocked', 'merged', 'anonymized', 'archived');
 
 -- CreateEnum
@@ -353,18 +356,8 @@ CREATE TABLE "store_settings" (
     "sslcommerz_store_id" TEXT,
     "sslcommerz_store_pass" TEXT,
     "sslcommerz_sandbox" BOOLEAN NOT NULL DEFAULT true,
-    "default_courier" TEXT,
-    "steadfast_api_key" TEXT,
-    "steadfast_secret_key" TEXT,
-    "courier_webhook_token" TEXT NOT NULL,
     "pickup_address" TEXT,
     "pickup_city" TEXT,
-    "pathao_client_id" TEXT,
-    "pathao_client_secret" TEXT,
-    "pathao_username" TEXT,
-    "pathao_password" TEXT,
-    "pathao_store_id" INTEGER,
-    "pathao_sandbox" BOOLEAN NOT NULL DEFAULT false,
     "pickup_lead_days" INTEGER DEFAULT 2,
     "pickup_lead_days_config" JSONB,
     "max_concurrent_sessions" INTEGER NOT NULL DEFAULT 5,
@@ -739,6 +732,7 @@ CREATE TABLE "booking_quotes" (
 CREATE TABLE "storefront_checkout_quotes" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
+    "cart_id" TEXT NOT NULL,
     "request_hash" TEXT NOT NULL,
     "quote_hash" TEXT NOT NULL,
     "request_snapshot" JSONB NOT NULL,
@@ -748,6 +742,41 @@ CREATE TABLE "storefront_checkout_quotes" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "storefront_checkout_quotes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "storefront_carts" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "token_hash" TEXT NOT NULL,
+    "status" "StorefrontCartStatus" NOT NULL DEFAULT 'ACTIVE',
+    "expires_at" TIMESTAMPTZ NOT NULL,
+    "last_activity_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "storefront_carts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "storefront_cart_lines" (
+    "id" TEXT NOT NULL,
+    "cart_id" TEXT NOT NULL,
+    "line_key" TEXT NOT NULL,
+    "product_id" TEXT NOT NULL,
+    "variant_id" TEXT NOT NULL,
+    "variant_size_id" TEXT NOT NULL,
+    "preferred_stock_unit_id" TEXT,
+    "quantity" INTEGER NOT NULL DEFAULT 1,
+    "start_date" DATE NOT NULL,
+    "end_date" DATE NOT NULL,
+    "selected_size" TEXT,
+    "configuration" JSONB NOT NULL DEFAULT '{}',
+    "display_snapshot" JSONB NOT NULL DEFAULT '{}',
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "storefront_cart_lines_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1042,6 +1071,7 @@ CREATE TABLE "bookings" (
     "customer_id" TEXT NOT NULL,
     "quote_id" TEXT,
     "storefront_quote_id" TEXT,
+    "storefront_cart_id" TEXT,
     "public_tracking_token" TEXT NOT NULL,
     "policy_version_id" TEXT,
     "channel" "BookingChannel" NOT NULL DEFAULT 'STOREFRONT',
@@ -1129,6 +1159,25 @@ CREATE TABLE "booking_items" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "booking_items_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "courier_connections" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "provider" "ShipmentProvider" NOT NULL,
+    "is_enabled" BOOLEAN NOT NULL DEFAULT false,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
+    "config" JSONB NOT NULL DEFAULT '{}',
+    "credentials_encrypted" TEXT,
+    "credential_key_version" INTEGER NOT NULL DEFAULT 1,
+    "webhook_token" TEXT NOT NULL,
+    "health_status" TEXT NOT NULL DEFAULT 'not_tested',
+    "last_health_check_at" TIMESTAMP(3),
+    "last_health_error" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "courier_connections_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -2112,9 +2161,6 @@ CREATE UNIQUE INDEX "tenant_usage_snapshots_tenant_id_snapshot_date_key" ON "ten
 CREATE UNIQUE INDEX "store_settings_tenant_id_key" ON "store_settings"("tenant_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "store_settings_courier_webhook_token_key" ON "store_settings"("courier_webhook_token");
-
--- CreateIndex
 CREATE INDEX "tenant_users_user_id_idx" ON "tenant_users"("user_id");
 
 -- CreateIndex
@@ -2268,7 +2314,28 @@ CREATE INDEX "booking_quotes_tenant_id_inputs_hash_idx" ON "booking_quotes"("ten
 CREATE INDEX "storefront_checkout_quotes_tenant_id_expires_at_idx" ON "storefront_checkout_quotes"("tenant_id", "expires_at");
 
 -- CreateIndex
+CREATE INDEX "storefront_checkout_quotes_cart_id_expires_at_idx" ON "storefront_checkout_quotes"("cart_id", "expires_at");
+
+-- CreateIndex
 CREATE INDEX "storefront_checkout_quotes_tenant_id_request_hash_created_at_idx" ON "storefront_checkout_quotes"("tenant_id", "request_hash", "created_at" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "storefront_carts_token_hash_key" ON "storefront_carts"("token_hash");
+
+-- CreateIndex
+CREATE INDEX "storefront_carts_tenant_id_status_expires_at_idx" ON "storefront_carts"("tenant_id", "status", "expires_at");
+
+-- CreateIndex
+CREATE INDEX "storefront_carts_tenant_id_last_activity_at_idx" ON "storefront_carts"("tenant_id", "last_activity_at" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "storefront_cart_lines_cart_id_line_key_key" ON "storefront_cart_lines"("cart_id", "line_key");
+
+-- CreateIndex
+CREATE INDEX "storefront_cart_lines_cart_id_updated_at_idx" ON "storefront_cart_lines"("cart_id", "updated_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "storefront_cart_lines_product_id_variant_size_id_idx" ON "storefront_cart_lines"("product_id", "variant_size_id");
 
 -- CreateIndex
 CREATE INDEX "product_types_tenant_id_idx" ON "product_types"("tenant_id");
@@ -2412,6 +2479,9 @@ CREATE UNIQUE INDEX "bookings_quote_id_key" ON "bookings"("quote_id");
 CREATE UNIQUE INDEX "bookings_storefront_quote_id_key" ON "bookings"("storefront_quote_id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "bookings_storefront_cart_id_key" ON "bookings"("storefront_cart_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "bookings_public_tracking_token_key" ON "bookings"("public_tracking_token");
 
 -- CreateIndex
@@ -2431,6 +2501,14 @@ CREATE INDEX "booking_items_product_id_idx" ON "booking_items"("product_id");
 
 -- CreateIndex
 CREATE INDEX "booking_items_variant_size_id_idx" ON "booking_items"("variant_size_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "courier_connections_webhook_token_key" ON "courier_connections"("webhook_token");
+CREATE UNIQUE INDEX "courier_connections_tenant_id_provider_key" ON "courier_connections"("tenant_id", "provider");
+CREATE INDEX "courier_connections_tenant_id_is_enabled_is_default_idx" ON "courier_connections"("tenant_id", "is_enabled", "is_default");
+
+-- Only one enabled workflow can be the tenant's automatic courier choice.
+CREATE UNIQUE INDEX "courier_connections_one_default_per_tenant" ON "courier_connections"("tenant_id") WHERE "is_default" = true;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "shipments_tenant_id_idempotency_key_key" ON "shipments"("tenant_id", "idempotency_key");
@@ -3133,6 +3211,27 @@ ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_tenant_id_fkey" FORE
 ALTER TABLE "storefront_checkout_quotes" ADD CONSTRAINT "storefront_checkout_quotes_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "storefront_checkout_quotes" ADD CONSTRAINT "storefront_checkout_quotes_cart_id_fkey" FOREIGN KEY ("cart_id") REFERENCES "storefront_carts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storefront_carts" ADD CONSTRAINT "storefront_carts_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_cart_id_fkey" FOREIGN KEY ("cart_id") REFERENCES "storefront_carts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_variant_size_id_fkey" FOREIGN KEY ("variant_size_id") REFERENCES "variant_sizes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_preferred_stock_unit_id_fkey" FOREIGN KEY ("preferred_stock_unit_id") REFERENCES "stock_units"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3241,6 +3340,9 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_quote_id_fkey" FOREIGN KEY ("quo
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_storefront_quote_id_fkey" FOREIGN KEY ("storefront_quote_id") REFERENCES "storefront_checkout_quotes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_storefront_cart_id_fkey" FOREIGN KEY ("storefront_cart_id") REFERENCES "storefront_carts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_policy_version_id_fkey" FOREIGN KEY ("policy_version_id") REFERENCES "price_policy_versions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3248,6 +3350,8 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_source_location_id_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "booking_items" ADD CONSTRAINT "booking_items_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "courier_connections" ADD CONSTRAINT "courier_connections_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
