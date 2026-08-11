@@ -105,8 +105,8 @@ export function isCustomDomain(host: string): boolean {
 export function getSubdomainApiUrl(host: string): string {
   const hostname = host.split(':')[0];
 
-  // Development: *.localhost → same subdomain on backend port
-  if (hostname.endsWith('.localhost') || hostname === 'localhost') {
+  // Development: *.localhost -> same subdomain on backend port
+  if (hostname.endsWith('.localhost') || hostname === 'localhost' || hostname === '127.0.0.1') {
     return `http://${hostname}:4000/api/v1`;
   }
 

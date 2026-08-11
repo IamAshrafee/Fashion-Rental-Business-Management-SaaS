@@ -35,8 +35,8 @@ function getApiBaseUrl(): string {
 
   const hostname = window.location.hostname;
 
-  // Development: *.localhost → backend on same subdomain, port 4000
-  if (hostname.endsWith('.localhost') || hostname === 'localhost') {
+  // Development: *.localhost -> backend on same subdomain, port 4000
+  if (hostname.endsWith('.localhost') || hostname === 'localhost' || hostname === '127.0.0.1') {
     return `http://${hostname}:4000/api/v1`;
   }
 
