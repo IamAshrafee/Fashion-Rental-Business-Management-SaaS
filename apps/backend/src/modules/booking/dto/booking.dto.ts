@@ -17,6 +17,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   ValidateIf,
+  IsEmail,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -118,6 +119,10 @@ export class ValidateCartDto {
   @ValidateNested({ each: true })
   @Type(() => CartItemDto)
   items!: CartItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  issueCheckoutQuote?: boolean;
 }
 
 // ============================================================================
@@ -133,6 +138,7 @@ export class CustomerInfoDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(30)
   phone!: string;
 
   @IsOptional()
@@ -140,7 +146,8 @@ export class CustomerInfoDto {
   altPhone?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail()
+  @MaxLength(254)
   email?: string;
 }
 
@@ -322,16 +329,30 @@ export class CreateBookingDto {
   paymentMethod!: PaymentMethodType;
 
   @IsOptional()
+  @IsUUID()
+  checkoutQuoteId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(64)
+  @MaxLength(64)
+  checkoutQuoteHash?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   customerNotes?: string;
 
-  @IsOptional()
+  @ValidateIf((dto: CreateBookingDto) => dto.paymentMethod === 'bkash')
   @IsString()
+  @MinLength(5)
+  @MaxLength(100)
   bkashTransactionId?: string;
 
-  @IsOptional()
+  @ValidateIf((dto: CreateBookingDto) => dto.paymentMethod === 'nagad')
   @IsString()
+  @MinLength(5)
+  @MaxLength(100)
   nagadTransactionId?: string;
 
   // ── Manual booking power-ups ──

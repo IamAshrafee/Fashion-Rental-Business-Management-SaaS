@@ -1,14 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Payment } from '../../types';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Clock, CheckCircle } from 'lucide-react';
+import { PlusCircle, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { RecordPaymentModal } from '../../components/modals/record-payment-modal';
 import { formatMinorMoney } from '@/lib/money';
+import { bookingApi } from '@/lib/api/bookings';
+import { toast } from 'sonner';
 
 interface PaymentHistoryProps {
   payments: Payment[];
@@ -19,6 +22,16 @@ interface PaymentHistoryProps {
 
 export function PaymentHistory({ payments, bookingId, balanceDue, depositBalance }: PaymentHistoryProps) {
   const [showRecordModal, setShowRecordModal] = useState(false);
+  const queryClient = useQueryClient();
+  const reviewClaim = useMutation({
+    mutationFn: ({ paymentId, approve }: { paymentId: string; approve: boolean }) =>
+      bookingApi.reviewPaymentClaim(bookingId, paymentId, { approve }),
+    onSuccess: (_, variables) => {
+      toast.success(variables.approve ? 'Payment claim verified' : 'Payment claim rejected');
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'detail', bookingId] });
+    },
+    onError: (error: Error) => toast.error(error.message || 'Could not review payment claim'),
+  });
 
   return (
     <>
@@ -72,6 +85,16 @@ export function PaymentHistory({ payments, bookingId, balanceDue, depositBalance
                   )}
                   {payment.notes && (
                     <div className="text-xs text-muted-foreground italic mt-1">{payment.notes}</div>
+                  )}
+                  {payment.status === 'pending' && (payment.method === 'bkash' || payment.method === 'nagad') && (
+                    <div className="mt-2 flex gap-2 border-t pt-3">
+                      <Button size="sm" className="h-8" disabled={reviewClaim.isPending} onClick={() => reviewClaim.mutate({ paymentId: payment.id, approve: true })}>
+                        {reviewClaim.isPending && reviewClaim.variables?.paymentId === payment.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle className="mr-1 h-3 w-3" />} Verify
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-8 text-destructive" disabled={reviewClaim.isPending} onClick={() => reviewClaim.mutate({ paymentId: payment.id, approve: false })}>
+                        <XCircle className="mr-1 h-3 w-3" /> Reject
+                      </Button>
+                    </div>
                   )}
                 </div>
               ))}

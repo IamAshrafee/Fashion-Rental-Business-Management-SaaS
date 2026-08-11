@@ -212,8 +212,8 @@ export class TenantService {
             // sslcommerzStorePass: EXCLUDED — secret
             sslcommerzSandbox: true,
             defaultCourier: true,
-            // courierApiKey: EXCLUDED — secret
-            // courierSecretKey: EXCLUDED — secret
+            courierWebhookToken: true,
+            // Courier credentials are intentionally excluded.
             pickupAddress: true,
             pathaoClientId: true,
             pathaoClientSecret: true,
@@ -274,6 +274,8 @@ export class TenantService {
             youtubeUrl: true,
             bkashNumber: true,
             nagadNumber: true,
+            sslcommerzStoreId: true,
+            sslcommerzStorePass: true,
             defaultLanguage: true,
             timezone: true,
             country: true,
@@ -316,6 +318,7 @@ export class TenantService {
       youtubeUrl: settings?.youtubeUrl ?? null,
       bkashNumber: settings?.bkashNumber ?? null,
       nagadNumber: settings?.nagadNumber ?? null,
+      sslcommerzEnabled: Boolean(settings?.sslcommerzStoreId && settings.sslcommerzStorePass),
       locale: {
         language: settings?.defaultLanguage ?? 'en',
         timezone: settings?.timezone ?? 'UTC',
@@ -413,12 +416,17 @@ export class TenantService {
    * Update courier configuration.
    */
   async updateCourierSettings(tenantId: string, dto: UpdateCourierSettingsDto) {
+    const secrets = ['pathaoClientSecret', 'pathaoPassword', 'steadfastApiKey', 'steadfastSecretKey'] as const;
+    const update = { ...dto };
+    for (const key of secrets) {
+      if (!update[key]?.trim()) delete update[key];
+    }
     const settings = await this.prisma.storeSettings.upsert({
       where: { tenantId },
-      update: dto,
+      update,
       create: {
         tenantId,
-        ...dto,
+        ...update,
       },
     });
 

@@ -209,6 +209,46 @@ describe('inventory control PostgreSQL contracts', () => {
     expect(availableItems.data.map((item) => item.id)).not.toContain(serviceUnit.id);
   });
 
+  it('binds storefront booking creation to one expiring server quote and a private tracking token', async () => {
+    const items = [{
+      productId,
+      variantId,
+      variantSizeId: pooledSkuId,
+      quantity: 1,
+      startDate: '2026-12-05',
+      endDate: '2026-12-07',
+    }];
+    const quote = await bookings.validateCart(tenantId, { items, issueCheckoutQuote: true });
+    expect(quote).toMatchObject({ valid: true, checkoutQuote: { id: expect.any(String), quoteHash: expect.any(String) } });
+    if (!('checkoutQuote' in quote)) throw new Error('Expected a checkout quote');
+    const request = {
+      checkoutQuoteId: quote.checkoutQuote!.id,
+      checkoutQuoteHash: quote.checkoutQuote!.quoteHash,
+      customer: { fullName: 'Storefront Customer', phone: `019${Date.now().toString().slice(-8)}` },
+      delivery: { address: 'Storefront Road 12', area: 'Dhanmondi', city: 'Dhaka', country: 'BD' },
+      items,
+      paymentMethod: 'cod' as const,
+    };
+    await expect(bookings.createGuestBooking(tenantId, request)).rejects.toThrow('Idempotency-Key is required');
+    await expect(bookings.createGuestBooking(tenantId, {
+      ...request,
+      items: [{ ...items[0], endDate: '2026-12-08' }],
+    }, randomUUID())).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CHECKOUT_INPUTS_CHANGED' }) });
+
+    const key = randomUUID();
+    const created = await bookings.createGuestBooking(tenantId, request, key);
+    const replay = await bookings.createGuestBooking(tenantId, request, key);
+    expect(replay).toMatchObject({ bookingId: created.bookingId, trackingToken: created.trackingToken });
+    expect(created.trackingToken).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(bookings.getBookingByTrackingToken(tenantId, created.trackingToken)).resolves.toMatchObject({
+      bookingNumber: created.bookingNumber,
+      rentalPeriod: { totalDays: 3 },
+    });
+    await expect(bookings.createGuestBooking(tenantId, request, randomUUID())).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CHECKOUT_QUOTE_ALREADY_USED' }),
+    });
+  });
+
   it('binds owner booking creation to a fresh location-aware quote and safely replays it', async () => {
     const plan = {
       startDate: '2026-11-10',

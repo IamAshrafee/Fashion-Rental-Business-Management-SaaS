@@ -527,6 +527,36 @@ enum TransactionStatus {
   refunded
 }
 
+enum ShipmentDirection {
+  OUTBOUND
+  RETURN
+}
+
+enum ShipmentProvider {
+  pathao
+  steadfast
+  manual
+}
+
+enum ShipmentStatus {
+  prepare_parcel
+  pickup_pending
+  pickup_assigned
+  pickup_failed
+  picked_up
+  at_hub
+  in_transit
+  at_destination
+  out_for_delivery
+  delivered
+  partial_delivered
+  returned_to_sender
+  cancelled
+  on_hold
+  error
+  unknown
+}
+
 enum SubscriptionStatus {
   active
   past_due
@@ -711,6 +741,7 @@ model Tenant {
   events                         Event[]
   bookings                       Booking[]
   bookingQuotes                  BookingQuote[]
+  storefrontCheckoutQuotes      StorefrontCheckoutQuote[]
   depositSettlements             DepositSettlement[]
   customers                      Customer[]
   customerIdentities             CustomerIdentity[]
@@ -759,6 +790,9 @@ model Tenant {
   inventoryTransferLines         InventoryTransferLine[]
   inventoryTransferUnits         InventoryTransferUnit[]
   inventoryTransferEvents        InventoryTransferEvent[]
+  shipments                      Shipment[]
+  shipmentEvents                 ShipmentEvent[]
+  courierWebhookReceipts         CourierWebhookReceipt[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -837,8 +871,9 @@ model StoreSettings {
   sslcommerzStorePass String? @map("sslcommerz_store_pass")
   sslcommerzSandbox   Boolean @default(true) @map("sslcommerz_sandbox")
   defaultCourier      String? @map("default_courier")
-  courierApiKey       String? @map("courier_api_key")
-  courierSecretKey    String? @map("courier_secret_key")
+  steadfastApiKey     String? @map("steadfast_api_key")
+  steadfastSecretKey  String? @map("steadfast_secret_key")
+  courierWebhookToken String  @unique @default(uuid()) @map("courier_webhook_token")
   pickupAddress       String? @map("pickup_address")
   pickupCity          String? @map("pickup_city")
 
@@ -1370,6 +1405,25 @@ model BookingQuote {
   @@map("booking_quotes")
 }
 
+model StorefrontCheckoutQuote {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  requestHash      String   @map("request_hash")
+  quoteHash        String   @map("quote_hash")
+  requestSnapshot  Json     @map("request_snapshot") @db.JsonB
+  responseSnapshot Json     @map("response_snapshot") @db.JsonB
+  grandTotal       Int      @map("grand_total")
+  expiresAt        DateTime @map("expires_at") @db.Timestamptz
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  booking Booking?
+
+  @@index([tenantId, expiresAt])
+  @@index([tenantId, requestHash, createdAt(sort: Desc)])
+  @@map("storefront_checkout_quotes")
+}
+
 // ============================================================================
 // SIZING MODULE — Schema-Driven Architecture
 // ============================================================================
@@ -1768,6 +1822,8 @@ model Booking {
   bookingNumber        String                 @map("booking_number")
   customerId           String                 @map("customer_id")
   quoteId              String?                @unique @map("quote_id")
+  storefrontQuoteId    String?                @unique @map("storefront_quote_id")
+  publicTrackingToken  String                 @unique @default(uuid()) @map("public_tracking_token")
   policyVersionId      String?                @map("policy_version_id") // Pricing Engine v2: frozen pricing snapshot
   channel              BookingChannel         @default(STOREFRONT)
   rentalStartDate      DateTime?              @map("rental_start_date") @db.Date
@@ -1799,16 +1855,6 @@ model Booking {
   deliveryExtra        Json?                  @map("delivery_extra") @db.JsonB
   customerNotes        String?                @map("customer_notes")
   internalNotes        String?                @map("internal_notes")
-  trackingNumber       String?                @map("tracking_number")
-  courierProvider      String?                @map("courier_provider")
-  courierConsignmentId String?                @map("courier_consignment_id")
-  courierStatus        String?                @map("courier_status")
-  courierStatusHistory Json?                  @map("courier_status_history") @db.JsonB
-  pickupRequestedAt    DateTime?              @map("pickup_requested_at")
-  pickupJobId          String?                @map("pickup_job_id")
-  scheduledPickupAt    DateTime?              @map("scheduled_pickup_at")
-  deliveryLeadDays     Int?                   @map("delivery_lead_days")
-  courierErrorReason   String?                @map("courier_error_reason")
   cancellationReason   String?                @map("cancellation_reason")
   cancelledBy          CancelledBy?           @map("cancelled_by")
   cancelledAt          DateTime?              @map("cancelled_at")
@@ -1823,6 +1869,7 @@ model Booking {
   tenant                 Tenant                   @relation(fields: [tenantId], references: [id])
   customer               Customer                 @relation(fields: [customerId], references: [id])
   quote                  BookingQuote?            @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  storefrontQuote        StorefrontCheckoutQuote? @relation(fields: [storefrontQuoteId], references: [id], onDelete: Restrict)
   policyVersion          PricePolicyVersion?      @relation(fields: [policyVersionId], references: [id])
   sourceLocation         InventoryLocation?       @relation(fields: [sourceLocationId], references: [id], onDelete: Restrict)
   items                  BookingItem[]
@@ -1832,16 +1879,116 @@ model Booking {
   FulfillmentRequirement FulfillmentRequirement[]
   depositSettlements     DepositSettlement[]
   fulfillmentExtensions  FulfillmentExtension[]
+  shipments              Shipment[]
 
   @@unique([tenantId, bookingNumber])
   @@unique([tenantId, creationKey])
   @@index([tenantId, status])
-  @@index([tenantId, courierStatus])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([customerId])
   @@index([tenantId, sourceLocationId, rentalStartDate, rentalEndDate])
   @@index([policyVersionId])
   @@map("bookings")
+}
+
+model Shipment {
+  id                    String            @id @default(uuid())
+  tenantId              String            @map("tenant_id")
+  bookingId             String            @map("booking_id")
+  direction             ShipmentDirection @default(OUTBOUND)
+  provider              ShipmentProvider
+  status                ShipmentStatus    @default(prepare_parcel)
+  idempotencyKey        String            @map("idempotency_key")
+  requestHash           String            @map("request_hash")
+  providerReference     String?           @map("provider_reference")
+  trackingNumber        String?           @map("tracking_number")
+  recipientName         String            @map("recipient_name")
+  recipientPhone        String            @map("recipient_phone")
+  recipientAddress      String            @map("recipient_address")
+  recipientCity         String            @map("recipient_city")
+  recipientZone         String?           @map("recipient_zone")
+  codAmount             Int               @default(0) @map("cod_amount")
+  quotedFee             Int?              @map("quoted_fee")
+  chargedFee            Int?              @map("charged_fee")
+  weightGrams           Int               @default(1000) @map("weight_grams")
+  itemQuantity          Int               @default(1) @map("item_quantity")
+  specialInstruction    String?           @map("special_instruction")
+  scheduledPickupAt     DateTime?          @map("scheduled_pickup_at")
+  pickupRequestedAt     DateTime?          @map("pickup_requested_at")
+  lastSyncedAt          DateTime?          @map("last_synced_at")
+  deliveredAt           DateTime?          @map("delivered_at")
+  failedReason          String?            @map("failed_reason")
+  rawCreateResponse     Json?              @map("raw_create_response") @db.JsonB
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id])
+  booking Booking        @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  items   ShipmentItem[]
+  events  ShipmentEvent[]
+  webhookReceipts CourierWebhookReceipt[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([provider, providerReference])
+  @@unique([provider, trackingNumber])
+  @@index([tenantId, status, scheduledPickupAt])
+  @@index([bookingId, direction, createdAt(sort: Desc)])
+  @@map("shipments")
+}
+
+model ShipmentItem {
+  id            String @id @default(uuid())
+  shipmentId    String @map("shipment_id")
+  bookingItemId String @map("booking_item_id")
+  quantity      Int
+
+  shipment    Shipment    @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  bookingItem BookingItem @relation(fields: [bookingItemId], references: [id], onDelete: Restrict)
+
+  @@unique([shipmentId, bookingItemId])
+  @@index([bookingItemId])
+  @@map("shipment_items")
+}
+
+model ShipmentEvent {
+  id              String         @id @default(uuid())
+  tenantId        String         @map("tenant_id")
+  shipmentId      String         @map("shipment_id")
+  status          ShipmentStatus
+  label           String
+  source          String
+  providerEventId String?        @map("provider_event_id")
+  dedupeKey       String         @map("dedupe_key")
+  rawPayload      Json?          @map("raw_payload") @db.JsonB
+  occurredAt      DateTime       @map("occurred_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, dedupeKey])
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@map("shipment_events")
+}
+
+model CourierWebhookReceipt {
+  id              String           @id @default(uuid())
+  tenantId        String           @map("tenant_id")
+  shipmentId      String?          @map("shipment_id")
+  provider        ShipmentProvider
+  externalEventId String?          @map("external_event_id")
+  payloadHash     String           @map("payload_hash")
+  payload         Json             @db.JsonB
+  processedAt     DateTime?        @map("processed_at")
+  errorReason     String?          @map("error_reason")
+  receivedAt      DateTime         @default(now()) @map("received_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, payloadHash])
+  @@index([tenantId, receivedAt(sort: Desc)])
+  @@map("courier_webhook_receipts")
 }
 
 model BookingItem {
@@ -1893,6 +2040,7 @@ model BookingItem {
   stockUnitInspections          StockUnitInspection[]
   stockUnitIssues               StockUnitIssue[]
   depositSettlement             DepositSettlement?
+  shipmentItems                 ShipmentItem[]
 
   @@index([bookingId])
   @@index([productId])

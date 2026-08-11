@@ -48,20 +48,20 @@ export default function GuestCartPage() {
         })),
       });
       setValidation(result);
-    } catch (err: any) {
-      setValidationError(err?.message || 'Failed to validate cart');
+    } catch (err: unknown) {
+      setValidationError(err instanceof Error ? err.message : 'Failed to validate cart');
       setValidation(null);
     } finally {
       setValidating(false);
     }
   }, [items]);
 
-  // Auto-validate on mount when items exist
+  // Revalidate after every cart mutation; debounce rapid date edits.
   useEffect(() => {
-    if (mounted && items.length > 0) {
-      handleValidate();
-    }
-  }, [mounted]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!mounted || items.length === 0) return;
+    const timer = window.setTimeout(() => void handleValidate(), 250);
+    return () => window.clearTimeout(timer);
+  }, [mounted, handleValidate, items.length]);
 
   // Edit dates handlers
   const startEditing = (itemId: string, startDate: string, endDate: string) => {
@@ -74,8 +74,8 @@ export default function GuestCartPage() {
     if (editStartDate && editEndDate) {
       const start = new Date(editStartDate);
       const end = new Date(editEndDate);
-      const days = end > start
-        ? Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24))
+      const days = end >= start
+        ? Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1
         : 0;
       if (days > 0) {
         updateItem(cartItemId, {
@@ -93,7 +93,7 @@ export default function GuestCartPage() {
     trackEvent('checkout_started', {
       metadata: {
         cartItemCount: items.length,
-        grandTotal: validation?.summary?.grandTotal || totalPrice,
+        grandTotal: validation?.summary?.grandTotal ?? totalPrice,
       },
       useBeacon: true // Guarantee sending during navigation
     });
@@ -125,11 +125,11 @@ export default function GuestCartPage() {
 
   // Use validated data if available
   const summary = validation?.summary;
-  const rentalSubtotal = summary?.subtotal || items.reduce((sum, item) => sum + item.basePrice, 0);
-  const totalFees = summary?.totalFees || 0;
-  const validatedDeposit = summary?.totalDeposit || totalDeposit;
-  const shippingFee = summary?.shippingFee || 0;
-  const grandTotal = summary?.grandTotal || totalPrice;
+  const rentalSubtotal = summary?.subtotal ?? items.reduce((sum, item) => sum + item.basePrice, 0);
+  const totalFees = summary?.totalFees ?? 0;
+  const validatedDeposit = summary?.totalDeposit ?? totalDeposit;
+  const shippingFee = summary?.shippingFee ?? 0;
+  const grandTotal = summary?.grandTotal ?? totalPrice;
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -187,7 +187,7 @@ export default function GuestCartPage() {
                       {item.productName}
                     </h3>
                     <span className="font-bold text-gray-900">
-                      {formatPrice(validatedItem?.itemTotal || item.totalPrice)}
+                      {formatPrice(validatedItem?.itemTotal ?? item.totalPrice)}
                     </span>
                   </div>
 
@@ -261,7 +261,7 @@ export default function GuestCartPage() {
                   <div className="mt-2 text-xs text-gray-500 grid grid-cols-2 gap-x-4 gap-y-1">
                     <span className="flex justify-between">
                       Rental:{' '}
-                      <span>{formatPrice(validatedItem?.rentalPrice || item.basePrice)}</span>
+                      <span>{formatPrice(validatedItem?.rentalPrice ?? item.basePrice)}</span>
                     </span>
                     {(validatedItem?.tryOnFee || 0) > 0 && (
                       <span className="flex justify-between">
@@ -278,7 +278,7 @@ export default function GuestCartPage() {
                     )}
                     <span className="flex justify-between text-orange-600 font-medium">
                       Deposit:{' '}
-                      <span>{formatPrice(validatedItem?.deposit || item.deposit)}</span>
+                      <span>{formatPrice(validatedItem?.deposit ?? item.deposit)}</span>
                     </span>
                   </div>
 

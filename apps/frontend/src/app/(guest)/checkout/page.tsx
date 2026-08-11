@@ -1,18 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useCart } from '@/hooks/use-cart';
 import { useLocale } from '@/hooks/use-locale';
 import { useTenant } from '@/hooks/use-tenant';
-import { lookupCustomer, createBooking } from '@/lib/api/guest-booking';
-import { ArrowLeft, CheckCircle2, Loader2, MapPin, CreditCard, UserCircle } from 'lucide-react';
+import { createBooking, initiateSslcommerz, validateCart, type CartValidationResponse } from '@/lib/api/guest-booking';
+import { ArrowLeft, Loader2, MapPin, CreditCard, UserCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function GuestCheckoutPage() {
   const router = useRouter();
-  const { items, totalPrice, totalDeposit, clearCart } = useCart();
+  const { items, clearCart } = useCart();
   const { formatPrice } = useLocale();
   const { tenant } = useTenant();
 
@@ -20,6 +20,9 @@ export default function GuestCheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [errorObj, setErrorObj] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState('');
+  const [pricing, setPricing] = useState<CartValidationResponse | null>(null);
+  const [pricingLoading, setPricingLoading] = useState(true);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -36,9 +39,19 @@ export default function GuestCheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'sslcommerz'>('cod');
   const [transactionId, setTransactionId] = useState('');
   
-  // Auto-fill state
-  const [returningCustomer, setReturningCustomer] = useState(false);
-  const [lookingUp, setLookingUp] = useState(false);
+  const checkoutItems = useMemo(() => items.map(i => ({
+    productId: i.productId,
+    variantId: i.variantId || '',
+    variantSizeId: i.variantSizeId,
+    preferredStockUnitId: i.preferredStockUnitId,
+    quantity: i.quantity,
+    startDate: i.startDate,
+    endDate: i.endDate,
+    selectedSize: i.selectedSize,
+    tryOn: i.serviceMap?.tryOn || false,
+    backupSize: i.serviceMap?.backupSize || undefined,
+    compositionSelections: i.compositionSelections?.map(({ label: _label, ...selection }) => selection),
+  })), [items]);
 
   useEffect(() => {
     setMounted(true);
@@ -47,31 +60,34 @@ export default function GuestCheckoutPage() {
     }
   }, [items.length, router]);
 
+  useEffect(() => {
+    if (!mounted || checkoutItems.length === 0) return;
+    let active = true;
+    setPricingLoading(true);
+    validateCart({ items: checkoutItems, issueCheckoutQuote: true })
+      .then((result) => {
+        if (!active) return;
+        setPricing(result);
+        setGlobalError(result.valid ? '' : 'One or more items are no longer available for these dates.');
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setPricing(null);
+        setGlobalError(error instanceof Error ? error.message : 'Could not confirm current availability.');
+      })
+      .finally(() => { if (active) setPricingLoading(false); });
+    return () => { active = false; };
+  }, [checkoutItems, mounted]);
+
   if (!mounted || items.length === 0) return null;
 
-  const handlePhoneBlur = async () => {
-    if (formData.phone.length === 11 && formData.phone.startsWith('01')) {
-      setLookingUp(true);
-      const result = await lookupCustomer(formData.phone);
-      setLookingUp(false);
-      
-      if (result.found && result.customer) {
-        setReturningCustomer(true);
-        setFormData(prev => ({
-          ...prev,
-          name: result.customer!.fullName || prev.name,
-          email: result.customer!.email || prev.email,
-          address: result.customer!.addressLine1 || prev.address,
-          district: result.customer!.city || prev.district,
-        }));
-      }
-    }
-  };
+  const summary = pricing?.summary;
+  const authoritativeTotal = summary?.grandTotal ?? 0;
 
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!formData.name) errs.name = 'Name is required';
-    if (!formData.phone || formData.phone.length !== 11) errs.phone = 'Valid 11-digit phone required';
+    if (!/^(01\d{9}|\+?[1-9]\d{7,14})$/.test(formData.phone)) errs.phone = 'Enter a valid mobile number';
     if (!formData.address) errs.address = 'Detailed address is required';
     if (!formData.area) errs.area = 'Area is required';
     if (!formData.district) errs.district = 'District is required';
@@ -89,7 +105,12 @@ export default function GuestCheckoutPage() {
     
     setSubmitting(true);
     try {
-      // Structure payload matching backend expectations defined in guest-booking API
+      const currentPricing = await validateCart({ items: checkoutItems, issueCheckoutQuote: true });
+      setPricing(currentPricing);
+      if (!currentPricing.valid || !currentPricing.checkoutQuote) {
+        throw new Error('Availability changed. Review your cart and choose available dates.');
+      }
+      if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
       const response = await createBooking({
         customer: {
           fullName: formData.name,
@@ -101,37 +122,32 @@ export default function GuestCheckoutPage() {
           area: formData.area || undefined,
           district: formData.district || undefined,
         },
-        items: items.map(i => ({
-          productId: i.productId,
-          variantId: i.variantId || '',
-          variantSizeId: i.variantSizeId,
-          preferredStockUnitId: i.preferredStockUnitId,
-          quantity: i.quantity,
-          startDate: i.startDate,
-          endDate: i.endDate,
-          tryOn: i.serviceMap?.tryOn || false,
-          backupSize: i.serviceMap?.backupSize || undefined,
-          compositionSelections: i.compositionSelections?.map(({ label: _label, ...selection }) => selection),
-        })),
+        items: checkoutItems,
         paymentMethod,
+        checkoutQuoteId: currentPricing.checkoutQuote.id,
+        checkoutQuoteHash: currentPricing.checkoutQuote.quoteHash,
         bkashTransactionId: paymentMethod === 'bkash' ? transactionId : undefined,
         nagadTransactionId: paymentMethod === 'nagad' ? transactionId : undefined,
         customerNotes: formData.notes || undefined,
-      });
-      
-      clearCart();
+      }, idempotencyKeyRef.current);
 
-      // If SSLCommerz requires redirect
-      if (paymentMethod === 'sslcommerz' && response.paymentUrl) {
-        window.location.href = response.paymentUrl; // Hard redirect
-        return;
+      if (paymentMethod === 'sslcommerz') {
+        try {
+          const paymentUrl = await initiateSslcommerz(response.bookingId, response.trackingToken);
+          clearCart();
+          window.location.assign(paymentUrl);
+          return;
+        } catch {
+          clearCart();
+          router.push(`/booking/confirmation?number=${encodeURIComponent(response.bookingNumber)}&token=${encodeURIComponent(response.trackingToken)}&bookingId=${encodeURIComponent(response.bookingId)}&payment=retry`);
+          return;
+        }
       }
-      
-      // Standard local redirect to success page
-      router.push(`/booking/confirmation?number=${response.bookingNumber}`);
+      clearCart();
+      router.push(`/booking/confirmation?number=${encodeURIComponent(response.bookingNumber)}&token=${encodeURIComponent(response.trackingToken)}`);
 
-    } catch (err: any) {
-      setGlobalError(err.message || 'Failed to place booking. Dates may have become unavailable.');
+    } catch (err: unknown) {
+      setGlobalError(err instanceof Error ? err.message : 'Failed to place booking. Dates may have become unavailable.');
       setSubmitting(false);
     }
   };
@@ -170,17 +186,14 @@ export default function GuestCheckoutPage() {
                     className={cn(
                       "w-full rounded-none border p-3 text-sm focus:ring-0 transition-colors",
                       errorObj.phone ? "border-red-500 focus:border-red-500" : "border-gray-300 focus:border-black",
-                      returningCustomer && "bg-green-50 border-green-200"
+                      "bg-white"
                     )}
                     value={formData.phone}
-                    onChange={e => setFormData({...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 11)})}
-                    onBlur={handlePhoneBlur}
+                    onChange={e => setFormData({...formData, phone: e.target.value.replace(/[^+\d]/g, '').slice(0, 16)})}
                     disabled={submitting}
                   />
-                  {lookingUp && <Loader2 className="absolute right-3 top-3 h-5 w-5 animate-spin text-gray-400" />}
                 </div>
                 {errorObj.phone && <p className="text-red-500 text-xs">{errorObj.phone}</p>}
-                {returningCustomer && <p className="text-green-600 text-xs flex items-center gap-1 mt-1"><CheckCircle2 className="h-3 w-3" /> Welcome back! We filled in your details.</p>}
               </div>
 
               <div className="space-y-1">
@@ -302,17 +315,17 @@ export default function GuestCheckoutPage() {
                 </div>
               </label>
 
-              <label className={cn("flex cursor-pointer items-start gap-4 border p-4 transition-colors", paymentMethod === 'bkash' ? "border-black bg-gray-50" : "border-gray-200")}>
+              {tenant?.bkashNumber && <label className={cn("flex cursor-pointer items-start gap-4 border p-4 transition-colors", paymentMethod === 'bkash' ? "border-black bg-gray-50" : "border-gray-200")}>
                 <input type="radio" name="payment" className="mt-1 h-5 w-5 border-gray-300 text-black focus:ring-black" checked={paymentMethod === 'bkash'} onChange={() => setPaymentMethod('bkash')} />
                 <div className="flex flex-col w-full">
                   <span className="font-bold text-gray-900">bKash Manual Send</span>
-                  <span className="text-sm text-gray-500">Send {formatPrice(totalPrice)} to our bKash number.</span>
+                  <span className="text-sm text-gray-500">Send {formatPrice(authoritativeTotal)} to the store bKash number.</span>
                   
                   {paymentMethod === 'bkash' && (
                     <div className="mt-4 border-t border-gray-200 pt-4 cursor-default" onClick={e => e.preventDefault()}>
                       <div className="bg-pink-50 p-3 mb-3 border border-pink-200 text-pink-900 text-sm">
-                        bKash Personal: <strong>{tenant?.bkashNumber || 'Not configured'}</strong> <br/>
-                        Amount: <strong>{formatPrice(totalPrice)}</strong>
+                        bKash: <strong>{tenant.bkashNumber}</strong> <br/>
+                        Amount: <strong>{formatPrice(authoritativeTotal)}</strong>
                       </div>
                       <label className="text-sm font-medium text-gray-700 block mb-1">Enter Transaction ID (TrxID) *</label>
                       <input
@@ -329,15 +342,34 @@ export default function GuestCheckoutPage() {
                     </div>
                   )}
                 </div>
-              </label>
+              </label>}
+
+              {tenant?.nagadNumber && <label className={cn("flex cursor-pointer items-start gap-4 border p-4 transition-colors", paymentMethod === 'nagad' ? "border-black bg-gray-50" : "border-gray-200")}>
+                <input type="radio" name="payment" className="mt-1 h-5 w-5 border-gray-300 text-black focus:ring-black" checked={paymentMethod === 'nagad'} onChange={() => setPaymentMethod('nagad')} />
+                <div className="flex w-full flex-col">
+                  <span className="font-bold text-gray-900">Nagad Manual Send</span>
+                  <span className="text-sm text-gray-500">Send {formatPrice(authoritativeTotal)} to the store Nagad number.</span>
+                  {paymentMethod === 'nagad' && (
+                    <div className="mt-4 cursor-default border-t border-gray-200 pt-4" onClick={e => e.preventDefault()}>
+                      <div className="mb-3 border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900">
+                        Nagad: <strong>{tenant.nagadNumber}</strong><br />
+                        Amount: <strong>{formatPrice(authoritativeTotal)}</strong>
+                      </div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Enter Transaction ID *</label>
+                      <input type="text" value={transactionId} onChange={e => setTransactionId(e.target.value.toUpperCase())} className={cn("w-full border bg-white p-3 text-sm uppercase", errorObj.transactionId ? "border-red-500" : "border-gray-300 focus:border-black")} />
+                      {errorObj.transactionId && <p className="mt-1 text-xs text-red-500">{errorObj.transactionId}</p>}
+                    </div>
+                  )}
+                </div>
+              </label>}
               
-              <label className={cn("flex cursor-pointer items-start gap-4 border p-4 transition-colors", paymentMethod === 'sslcommerz' ? "border-black bg-gray-50" : "border-gray-200")}>
+              {tenant?.sslcommerzEnabled && <label className={cn("flex cursor-pointer items-start gap-4 border p-4 transition-colors", paymentMethod === 'sslcommerz' ? "border-black bg-gray-50" : "border-gray-200")}>
                 <input type="radio" name="payment" className="mt-1 h-5 w-5 border-gray-300 text-black focus:ring-black" checked={paymentMethod === 'sslcommerz'} onChange={() => setPaymentMethod('sslcommerz')} />
                 <div className="flex flex-col">
                   <span className="font-bold text-gray-900">SSLCommerz (Card / Online Banking)</span>
                   <span className="text-sm text-gray-500">Redirects securely to SSLCommerz to process payment.</span>
                 </div>
-              </label>
+              </label>}
             </div>
           </section>
 
@@ -349,7 +381,7 @@ export default function GuestCheckoutPage() {
             <h2 className="font-display text-xl font-bold tracking-tight text-gray-900 mb-6">Order Booking</h2>
             
             <div className="space-y-4 text-sm mb-6 border-b border-gray-100 pb-6 max-h-[40vh] overflow-y-auto no-scrollbar">
-               {items.map(item => (
+               {items.map((item, index) => (
                  <div key={item.cartItemId} className="flex gap-3">
                    {/* eslint-disable-next-line @next/next/no-img-element */}
                    <img src={item.featuredImage || '/placeholder-product.jpg'} alt="" className="w-12 h-16 object-cover bg-gray-100" />
@@ -357,7 +389,7 @@ export default function GuestCheckoutPage() {
                      <p className="font-semibold text-gray-900 line-clamp-1">{item.productName}</p>
                      <p className="text-gray-500 text-xs">{item.startDate} ({item.durationDays}d)</p>
                    </div>
-                   <div className="font-semibold">{formatPrice(item.totalPrice)}</div>
+                   <div className="font-semibold">{formatPrice(pricing?.items[index]?.itemTotal ?? item.totalPrice)}</div>
                  </div>
                ))}
             </div>
@@ -365,17 +397,17 @@ export default function GuestCheckoutPage() {
             <div className="space-y-3 text-sm text-gray-600 mb-6">
               <div className="flex justify-between">
                 <span>Total Deposit (Refundable)</span>
-                <span className="font-medium text-orange-600">{formatPrice(totalDeposit)}</span>
+                <span className="font-medium text-orange-600">{formatPrice(summary?.totalDeposit ?? 0)}</span>
               </div>
               <div className="flex justify-between pt-2 text-xl font-bold text-gray-900 border-t border-gray-200">
                 <span>Grand Total</span>
-                <span>{formatPrice(totalPrice)}</span>
+                <span>{pricingLoading ? 'Checking…' : formatPrice(authoritativeTotal)}</span>
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || pricingLoading || !pricing?.valid || !pricing.checkoutQuote}
               className="flex w-full items-center justify-center gap-2 bg-black px-6 py-4 text-sm font-bold uppercase tracking-widest text-white transition-colors hover:bg-gray-800 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : `Confirm Booking`}

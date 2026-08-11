@@ -1,61 +1,60 @@
-/**
- * Fulfillment Service — Order Fulfillment & Logistics
- *
- * Orchestrates the delivery lifecycle which is separate from the booking lifecycle:
- *
- * BOOKING:  pending → confirmed ──────────────────────→ delivered → returned → ...
- *                         │                                  ▲
- *                         ▼                                  │
- * DELIVERY: prepare_parcel → awaiting_pickup → in_transit → delivered
- *                              (+ error at any stage)
- *
- * This service:
- * 1. Manages the delivery lifecycle (prepare_parcel → awaiting_pickup → in_transit → delivered)
- * 2. Selects the appropriate courier adapter for a tenant
- * 3. Creates parcels via the courier adapter (auto or manual trigger)
- * 4. Tracks parcels via the courier adapter
- * 5. Processes incoming courier webhooks and updates delivery status
- * 6. Calculates shipping rates
- * 7. Schedules pickup requests automatically based on district lead days
- * 8. Polls courier APIs for status updates (CRON job)
- * 9. Detects stuck pickups and auto-marks as error
- * 10. Provides a delivery dashboard endpoint for tenants
- */
-
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import {
+  Prisma,
+  ShipmentProvider,
+  ShipmentStatus,
+} from '@prisma/client';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BookingService } from '../booking/booking.service';
-import { PathaoAdapter } from './providers/pathao.adapter';
-import { SteadfastAdapter } from './providers/steadfast.adapter';
 import { ManualAdapter } from './providers/manual.adapter';
+import { PathaoAdapter, normalisePathaoStatus } from './providers/pathao.adapter';
+import { SteadfastAdapter } from './providers/steadfast.adapter';
 import {
+  COURIER_STATUS_LABELS,
+  COURIER_STATUS_TO_STAGE,
   CourierSettings,
-  TrackingResult,
+  CourierStatusSlug,
+  DeliveryStageGroup,
+  DistrictLeadDaysConfig,
   ParcelResult,
   ShippingRate,
-  CourierStatusSlug,
-  CourierStatusEvent,
-  COURIER_STATUS_LABELS,
-  PathaoConfig,
-  DistrictLeadDaysConfig,
-  DeliveryStageGroup,
-  COURIER_STATUS_TO_STAGE,
+  TrackingResult,
 } from './providers/courier-provider.interface';
 import {
-  ShipOrderDto,
-  CourierProviderEnum,
   CalculateRateDto,
+  CourierProviderEnum,
+  DeliveryStageEnum,
   PathaoWebhookPayload,
+  ShipOrderDto,
   SteadfastWebhookPayload,
   UpdateDeliveryStageDto,
-  DeliveryStageEnum,
 } from './dto/fulfillment.dto';
+
+const TERMINAL_SHIPMENT_STATUSES: ShipmentStatus[] = [
+  'delivered',
+  'returned_to_sender',
+  'cancelled',
+];
+
+const ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = [
+  'pickup_pending',
+  'pickup_assigned',
+  'picked_up',
+  'at_hub',
+  'in_transit',
+  'at_destination',
+  'out_for_delivery',
+  'on_hold',
+  'unknown',
+];
 
 @Injectable()
 export class FulfillmentService {
@@ -70,875 +69,321 @@ export class FulfillmentService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  // =========================================================================
-  // SEND PICKUP REQUEST (manual trigger — "Send Pickup Now")
-  // =========================================================================
-
-  /**
-   * Manually sends a pickup request to the courier API immediately.
-   * Used when the owner wants to skip the scheduled wait.
-   * Also used by the auto-scheduled job.
-   */
   async sendPickupNow(
     tenantId: string,
     bookingId: string,
     dto?: ShipOrderDto,
-  ): Promise<{
-    bookingId: string;
-    bookingNumber: string;
-    courierStatus: string;
-    courierProvider: string;
-    trackingNumber: string | null;
-    parcel?: ParcelResult;
-  }> {
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId, deletedAt: null },
-      select: {
-        id: true,
-        bookingNumber: true,
-        status: true,
-        courierStatus: true,
-        courierConsignmentId: true,
-        courierStatusHistory: true,
-        deliveryName: true,
-        deliveryPhone: true,
-        deliveryAddressLine1: true,
-        deliveryCity: true,
-        grandTotal: true,
-        paymentMethod: true,
-        totalPaid: true,
-      },
-    });
-
-    if (!booking) {
-      throw new NotFoundException(`Booking ${bookingId} not found`);
-    }
-
+  ) {
+    const booking = await this.getShippableBooking(tenantId, bookingId);
     if (booking.status !== 'confirmed') {
-      throw new BadRequestException(
-        `Booking must be in "confirmed" status. Current status: "${booking.status}"`,
-      );
+      throw new BadRequestException(`Booking must be confirmed before dispatch. Current status: ${booking.status}`);
     }
 
-    // Allow sending pickup from prepare_parcel or error stages
-    if (booking.courierStatus && !['prepare_parcel', 'error', 'pickup_failed'].includes(booking.courierStatus)) {
-      throw new BadRequestException(
-        `Pickup already requested. Current delivery status: "${booking.courierStatus}"`,
-      );
+    const provider = (dto?.courierProvider ?? await this.defaultProvider(tenantId)) as ShipmentProvider;
+    const useApi = dto?.useApi ?? provider !== 'manual';
+    if (provider === 'manual' && useApi) {
+      throw new BadRequestException('Manual delivery cannot use a courier API');
+    }
+    if (!useApi && provider !== 'manual' && !dto?.trackingNumber?.trim()) {
+      throw new BadRequestException('A tracking number is required when recording a courier shipment manually');
     }
 
-    // Already has a consignment — don't create a duplicate
-    if (booking.courierConsignmentId) {
-      throw new BadRequestException(
-        `Booking already has a consignment ID: ${booking.courierConsignmentId}`,
-      );
+    let shipment = await this.prisma.shipment.findFirst({
+      where: {
+        tenantId,
+        bookingId,
+        direction: 'OUTBOUND',
+        status: { notIn: TERMINAL_SHIPMENT_STATUSES },
+      },
+      include: { events: { orderBy: { occurredAt: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!shipment) shipment = await this.createPreparedShipment(tenantId, bookingId, provider);
+    if (shipment.providerReference || shipment.trackingNumber) {
+      throw new ConflictException({
+        code: 'SHIPMENT_ALREADY_DISPATCHED',
+        message: `Shipment already has tracking ${shipment.trackingNumber ?? shipment.providerReference}`,
+      });
     }
-
-    const courierProvider = dto?.courierProvider ?? CourierProviderEnum.PATHAO;
-    const useApi = dto?.useApi ?? true;
-    let parcelResult: ParcelResult | undefined;
-    let trackingNumber: string | null = dto?.trackingNumber ?? null;
-
-    if (useApi && courierProvider !== CourierProviderEnum.MANUAL) {
-      const courierSettings = await this.getTenantCourierSettings(tenantId);
-      const codAmount = dto?.codAmount ?? (
-        booking.paymentMethod === 'cod'
-          ? booking.grandTotal - booking.totalPaid
-          : 0
-      );
-
-      const createParams = {
-        merchantOrderId: booking.bookingNumber,
-        recipientName: booking.deliveryName,
-        recipientPhone: booking.deliveryPhone,
-        recipientAddress: booking.deliveryAddressLine1,
-        recipientCity: booking.deliveryCity,
-        codAmount,
-        specialInstruction: dto?.specialInstruction,
-        itemQuantity: 1,
-        weightKg: 1,
-      };
-
-      switch (courierProvider) {
-        case CourierProviderEnum.PATHAO: {
-          const pathaoConfig = courierSettings.pathao;
-          if (!pathaoConfig?.enabled || !pathaoConfig.clientId) {
-            throw new BadRequestException('Pathao is not configured or enabled for this tenant.');
-          }
-          parcelResult = await this.pathaoAdapter.createParcel(createParams, pathaoConfig);
-          break;
-        }
-        case CourierProviderEnum.STEADFAST: {
-          const steadfastConfig = courierSettings.steadfast;
-          if (!steadfastConfig?.enabled || !steadfastConfig.apiKey) {
-            throw new BadRequestException('Steadfast is not configured or enabled for this tenant.');
-          }
-          parcelResult = await this.steadfastAdapter.createParcel(createParams, steadfastConfig);
-          break;
-        }
-        default:
-          throw new BadRequestException(`Unsupported courier provider for API mode: ${courierProvider}`);
-      }
-
-      trackingNumber = parcelResult.trackingId;
-    } else if (courierProvider === CourierProviderEnum.MANUAL) {
-      parcelResult = await this.manualAdapter.createParcel({
-        merchantOrderId: booking.bookingNumber,
-        recipientName: booking.deliveryName,
-        recipientPhone: booking.deliveryPhone,
-        recipientAddress: booking.deliveryAddressLine1,
-        recipientCity: booking.deliveryCity,
-        codAmount: dto?.codAmount ?? 0,
+    if (!['prepare_parcel', 'error', 'pickup_failed'].includes(shipment.status)) {
+      throw new ConflictException({
+        code: 'SHIPMENT_DISPATCH_IN_PROGRESS',
+        message: `Shipment is already ${shipment.status.replaceAll('_', ' ')}`,
       });
     }
 
-    // Append to courier status history
-    const history = this.getStatusHistory(booking.courierStatusHistory);
-    const newEvent: CourierStatusEvent = {
-      status: 'pickup_pending',
-      label: COURIER_STATUS_LABELS.pickup_pending,
-      timestamp: new Date().toISOString(),
-      source: 'system',
-    };
-    history.push(newEvent);
+    const codAmount = dto?.codAmount ?? (
+      booking.paymentMethod === 'cod' ? Math.max(0, booking.grandTotal - booking.totalPaid) : 0
+    );
+    if (codAmount > Math.max(0, booking.grandTotal - booking.totalPaid)) {
+      throw new BadRequestException('COD collection cannot exceed the remaining booking balance');
+    }
 
-    // Update booking with courier details — delivery stage moves to awaiting_pickup
-    await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        trackingNumber,
-        courierProvider: courierProvider,
-        courierConsignmentId: parcelResult?.trackingId ?? trackingNumber,
-        courierStatus: 'pickup_pending',
-        courierErrorReason: null,
+    await this.transitionShipment(shipment.id, tenantId, 'pickup_pending', {
+      label: 'Dispatch request submitted',
+      source: 'system',
+      dedupeKey: `dispatch:${randomUUID()}`,
+      update: {
+        provider,
+        codAmount,
+        specialInstruction: dto?.specialInstruction?.trim() || null,
         pickupRequestedAt: new Date(),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        courierStatusHistory: history as any,
+        failedReason: null,
       },
     });
 
-    this.logger.log(
-      `Pickup requested for ${booking.bookingNumber} via ${courierProvider}` +
-        (trackingNumber ? ` — tracking: ${trackingNumber}` : ' (no tracking)'),
-    );
+    let parcel: ParcelResult | undefined;
+    let trackingNumber = dto?.trackingNumber?.trim() || null;
+    try {
+      const params = {
+        merchantOrderId: `${booking.bookingNumber}-${shipment.id.slice(0, 8)}`,
+        recipientName: booking.deliveryName,
+        recipientPhone: booking.deliveryPhone,
+        recipientAddress: booking.deliveryAddressLine1,
+        recipientCity: booking.deliveryCity,
+        recipientZone: this.deliveryZone(booking.deliveryExtra),
+        codAmount,
+        specialInstruction: dto?.specialInstruction,
+        itemQuantity: booking.items.reduce((sum, item) => sum + item.quantity, 0),
+        weightKg: Math.max(0.5, booking.items.reduce((sum, item) => sum + item.quantity, 0) * 0.5),
+      };
+      if (useApi) {
+        const settings = await this.getTenantCourierSettings(tenantId);
+        if (provider === 'pathao') {
+          if (!settings.pathao?.enabled) throw new BadRequestException('Pathao is not completely configured');
+          parcel = await this.pathaoAdapter.createParcel(params, settings.pathao);
+        } else if (provider === 'steadfast') {
+          if (!settings.steadfast?.enabled) throw new BadRequestException('Steadfast is not completely configured');
+          parcel = await this.steadfastAdapter.createParcel(params, settings.steadfast);
+        }
+        trackingNumber = parcel?.trackingId ?? null;
+      } else if (provider === 'manual') {
+        parcel = await this.manualAdapter.createParcel(params);
+        trackingNumber = trackingNumber ?? parcel.trackingId;
+      }
+
+      shipment = await this.prisma.shipment.update({
+        where: { id: shipment.id },
+        data: {
+          provider,
+          providerReference: parcel?.trackingId ?? trackingNumber,
+          trackingNumber,
+          chargedFee: parcel?.deliveryFee ?? null,
+          rawCreateResponse: parcel?.raw === undefined ? Prisma.DbNull : parcel.raw as Prisma.InputJsonValue,
+          lastSyncedAt: new Date(),
+        },
+        include: { events: { orderBy: { occurredAt: 'asc' } } },
+      });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Courier dispatch failed';
+      await this.transitionShipment(shipment.id, tenantId, 'error', {
+        label: `Dispatch failed: ${message}`,
+        source: 'system',
+        dedupeKey: `dispatch-error:${randomUUID()}`,
+        update: { failedReason: message },
+      });
+      this.eventEmitter.emit('fulfillment.pickupFailed', {
+        tenantId,
+        bookingId,
+        bookingNumber: booking.bookingNumber,
+        error: message,
+      });
+      throw cause;
+    }
 
     this.eventEmitter.emit('fulfillment.pickupRequested', {
       tenantId,
       bookingId,
       bookingNumber: booking.bookingNumber,
-      courierProvider,
+      courierProvider: provider,
       trackingNumber,
     });
-
-    return {
-      bookingId: booking.id,
-      bookingNumber: booking.bookingNumber,
-      courierStatus: 'pickup_pending',
-      courierProvider,
-      trackingNumber,
-      parcel: parcelResult,
-    };
+    return this.toDeliveryProjection(shipment, booking);
   }
 
-  // =========================================================================
-  // MANUAL DELIVERY STAGE UPDATE
-  // =========================================================================
-
-  /**
-   * Manually update the delivery stage for a booking.
-   * Supports all transitions including error recovery.
-   * When stage is 'delivered', also transitions booking status to delivered.
-   */
-  async updateDeliveryStage(
-    tenantId: string,
-    bookingId: string,
-    dto: UpdateDeliveryStageDto,
-  ): Promise<{ bookingId: string; courierStatus: string; bookingStatus: string }> {
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId, deletedAt: null },
-      select: {
-        id: true,
-        bookingNumber: true,
-        status: true,
-        courierStatus: true,
-        courierStatusHistory: true,
-      },
+  async updateDeliveryStage(tenantId: string, bookingId: string, dto: UpdateDeliveryStageDto) {
+    const booking = await this.getShippableBooking(tenantId, bookingId);
+    const shipment = await this.prisma.shipment.findFirst({
+      where: { tenantId, bookingId, direction: 'OUTBOUND' },
+      orderBy: { createdAt: 'desc' },
     });
-
-    if (!booking) {
-      throw new NotFoundException(`Booking ${bookingId} not found`);
-    }
-
-    // Must be in confirmed status (delivery module only manages confirmed bookings)
-    if (booking.status !== 'confirmed') {
-      throw new BadRequestException(
-        `Booking must be in "confirmed" status for delivery stage changes. Current: "${booking.status}"`,
-      );
-    }
-
-    // Map delivery stage to courier status slug
-    const stageToSlug: Record<DeliveryStageEnum, CourierStatusSlug> = {
-      [DeliveryStageEnum.PREPARE_PARCEL]: 'prepare_parcel',
-      [DeliveryStageEnum.AWAITING_PICKUP]: 'pickup_pending',
-      [DeliveryStageEnum.IN_TRANSIT]: 'in_transit',
-      [DeliveryStageEnum.DELIVERED]: 'delivered',
-      [DeliveryStageEnum.ERROR]: 'error',
+    if (!shipment) throw new NotFoundException('Shipment has not been prepared');
+    const statusByStage: Record<DeliveryStageEnum, ShipmentStatus> = {
+      prepare_parcel: 'prepare_parcel',
+      awaiting_pickup: 'pickup_pending',
+      in_transit: 'in_transit',
+      delivered: 'delivered',
+      error: 'error',
     };
-
-    const newCourierStatus = stageToSlug[dto.stage];
-
-    // Append to history
-    const history = this.getStatusHistory(booking.courierStatusHistory);
-    history.push({
-      status: newCourierStatus,
-      label: dto.reason || COURIER_STATUS_LABELS[newCourierStatus],
-      timestamp: new Date().toISOString(),
+    const status = statusByStage[dto.stage];
+    await this.transitionShipment(shipment.id, tenantId, status, {
+      label: dto.reason?.trim() || COURIER_STATUS_LABELS[status],
       source: 'manual',
+      dedupeKey: `manual:${status}:${randomUUID()}`,
+      update: {
+        failedReason: status === 'error' ? dto.reason?.trim() || 'Manually marked as error' : null,
+        deliveredAt: status === 'delivered' ? new Date() : undefined,
+      },
     });
-
-    // Build update data
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updateData: any = {
-      courierStatus: newCourierStatus,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      courierStatusHistory: history as any,
-    };
-
-    if (dto.stage === DeliveryStageEnum.ERROR) {
-      updateData.courierErrorReason = dto.reason || 'Manually marked as error';
-    } else {
-      updateData.courierErrorReason = null;
+    let bookingStatus = booking.status;
+    if (status === 'delivered' && booking.status === 'confirmed') {
+      bookingStatus = (await this.bookingService.updateStatus(tenantId, bookingId, 'delivered')).status;
     }
-
-    await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: updateData,
-    });
-
-    this.logger.log(
-      `${booking.bookingNumber}: delivery stage manually set to ${newCourierStatus}` +
-        (dto.reason ? ` — reason: ${dto.reason}` : ''),
-    );
-
-    // If delivered, also transition booking status
-    let bookingStatus: string = booking.status;
-    if (dto.stage === DeliveryStageEnum.DELIVERED) {
-      try {
-        const updated = await this.bookingService.updateStatus(tenantId, bookingId, 'delivered');
-        bookingStatus = updated.status;
-        this.logger.log(
-          `Manual delivery: ${booking.bookingNumber} booking status → delivered`,
-        );
-      } catch (err) {
-        this.logger.error(
-          `Failed to update booking status for ${booking.bookingNumber}: ${(err as Error).message}`,
-        );
-      }
-    }
-
-    return {
-      bookingId: booking.id,
-      courierStatus: newCourierStatus,
-      bookingStatus,
-    };
+    return { bookingId, shipmentId: shipment.id, courierStatus: status, bookingStatus };
   }
 
-  // =========================================================================
-  // AUTO-SCHEDULE PICKUP (event-driven)
-  // =========================================================================
-
-  /**
-   * Listens for booking.confirmed events.
-   * Sets the delivery stage to 'prepare_parcel' and schedules a pickup.
-   */
   @OnEvent('booking.confirmed')
-  async onBookingConfirmed(payload: {
-    tenantId: string;
-    bookingId: string;
-    bookingNumber: string;
-  }): Promise<void> {
-    const { tenantId, bookingId, bookingNumber } = payload;
-
+  async onBookingConfirmed(payload: { tenantId: string; bookingId: string; bookingNumber: string }) {
     try {
-      // Get booking with items to find earliest start date
-      const booking = await this.prisma.booking.findFirst({
-        where: { id: bookingId, tenantId },
-        select: {
-          id: true,
-          bookingNumber: true,
-          deliveryCity: true,
-          items: { select: { startDate: true } },
-        },
-      });
-
-      if (!booking || booking.items.length === 0) return;
-
-      // Calculate pickup date using district-based lead days
-      const { pickupDate, leadDays } = await this.calculatePickupDate(tenantId, booking);
-
-      // Set delivery stage to prepare_parcel immediately
-      const statusEvent: CourierStatusEvent = {
-        status: 'prepare_parcel',
-        label: 'Parcel preparation started',
-        timestamp: new Date().toISOString(),
-        source: 'system',
-      };
-
-      await this.prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-          courierStatus: 'prepare_parcel',
-          scheduledPickupAt: pickupDate,
-          deliveryLeadDays: leadDays,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          courierStatusHistory: [statusEvent] as any,
-        },
-      });
-
-      // Check if tenant has courier API configured for auto-scheduling
-      const courierSettings = await this.getTenantCourierSettings(tenantId);
-      const hasApiCourier = courierSettings.pathao?.enabled || courierSettings.steadfast?.enabled;
-
-      if (hasApiCourier) {
-        // Calculate delay in milliseconds
-        const now = new Date();
-        const delayMs = Math.max(0, pickupDate.getTime() - now.getTime());
-
-        // Emit event for the jobs system to schedule the delayed job
+      const booking = await this.getShippableBooking(payload.tenantId, payload.bookingId);
+      if (booking.handoverMethod === 'CUSTOMER_PICKUP') return;
+      const provider = await this.defaultProvider(payload.tenantId);
+      const shipment = await this.createPreparedShipment(payload.tenantId, payload.bookingId, provider);
+      const pickupDate = shipment.scheduledPickupAt ?? new Date();
+      const settings = await this.getTenantCourierSettings(payload.tenantId);
+      if ((provider === 'pathao' && settings.pathao?.enabled) || (provider === 'steadfast' && settings.steadfast?.enabled)) {
         this.eventEmitter.emit('fulfillment.schedulePickup', {
-          tenantId,
-          bookingId,
-          bookingNumber,
+          tenantId: payload.tenantId,
+          bookingId: payload.bookingId,
+          bookingNumber: payload.bookingNumber,
           scheduledAt: pickupDate.toISOString(),
-          delayMs,
+          delayMs: Math.max(0, pickupDate.getTime() - Date.now()),
         });
-
-        this.logger.log(
-          `${bookingNumber}: prepare_parcel → auto-pickup scheduled at ${pickupDate.toISOString()} ` +
-            `(${leadDays}-day lead, ${Math.ceil(delayMs / (1000 * 60 * 60))}h from now)`,
-        );
-      } else {
-        this.logger.log(
-          `${bookingNumber}: prepare_parcel (manual delivery — no auto-pickup scheduled)`,
-        );
       }
-    } catch (err) {
-      this.logger.error(
-        `Failed to initialize delivery for ${bookingNumber}: ${(err as Error).message}`,
-      );
+    } catch (cause) {
+      this.logger.error(`Could not prepare shipment for ${payload.bookingNumber}: ${cause instanceof Error ? cause.message : cause}`);
     }
   }
 
-  // =========================================================================
-  // REQUEST PICKUP (called by the scheduled job)
-  // =========================================================================
-
-  /**
-   * Sends a pickup request to the courier API for a confirmed booking.
-   * Called by the BullMQ delayed job when the pickup date arrives.
-   */
   async requestPickup(tenantId: string, bookingId: string): Promise<void> {
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId, deletedAt: null },
-      select: {
-        id: true,
-        bookingNumber: true,
-        status: true,
-        courierStatus: true,
-        deliveryName: true,
-        deliveryPhone: true,
-        deliveryAddressLine1: true,
-        deliveryCity: true,
-        grandTotal: true,
-        paymentMethod: true,
-        totalPaid: true,
-        courierConsignmentId: true,
-        courierStatusHistory: true,
-      },
-    });
-
-    if (!booking) {
-      this.logger.warn(`requestPickup: Booking ${bookingId} not found`);
-      return;
-    }
-
-    // Don't request pickup if booking was cancelled or not confirmed
-    if (booking.status !== 'confirmed') {
-      this.logger.warn(
-        `requestPickup: Booking ${booking.bookingNumber} is ${booking.status}, skipping pickup`,
-      );
-      return;
-    }
-
-    // Only proceed if in prepare_parcel stage
-    if (booking.courierStatus !== 'prepare_parcel') {
-      this.logger.warn(
-        `requestPickup: Booking ${booking.bookingNumber} delivery stage is ${booking.courierStatus}, skipping`,
-      );
-      return;
-    }
-
-    // Don't request if already has a consignment
-    if (booking.courierConsignmentId) {
-      this.logger.warn(
-        `requestPickup: Booking ${booking.bookingNumber} already has consignment ${booking.courierConsignmentId}`,
-      );
-      return;
-    }
-
-    const courierSettings = await this.getTenantCourierSettings(tenantId);
-    const pathaoConfig = courierSettings.pathao;
-
-    if (!pathaoConfig?.enabled) {
-      this.logger.warn(`requestPickup: Pathao not configured for tenant ${tenantId}`);
-      return;
-    }
-
-    // Calculate COD amount
-    const codAmount = booking.paymentMethod === 'cod'
-      ? booking.grandTotal - booking.totalPaid
-      : 0;
-
     try {
-      const parcelResult = await this.pathaoAdapter.createParcel(
-        {
-          merchantOrderId: booking.bookingNumber,
-          recipientName: booking.deliveryName,
-          recipientPhone: booking.deliveryPhone,
-          recipientAddress: booking.deliveryAddressLine1,
-          recipientCity: booking.deliveryCity,
-          codAmount,
-          itemQuantity: 1,
-          weightKg: 1,
-        },
-        pathaoConfig,
-      );
-
-      // Append to history
-      const history = this.getStatusHistory(booking.courierStatusHistory);
-      history.push({
-        status: 'pickup_pending',
-        label: COURIER_STATUS_LABELS.pickup_pending,
-        timestamp: new Date().toISOString(),
-        source: 'system',
+      const provider = await this.defaultProvider(tenantId);
+      await this.sendPickupNow(tenantId, bookingId, {
+        courierProvider: provider as CourierProviderEnum,
+        useApi: provider !== 'manual',
       });
-
-      await this.prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-          trackingNumber: parcelResult.trackingId,
-          courierProvider: 'pathao',
-          courierConsignmentId: parcelResult.trackingId,
-          courierStatus: 'pickup_pending',
-          courierErrorReason: null,
-          pickupRequestedAt: new Date(),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          courierStatusHistory: history as any,
-        },
-      });
-
-      this.logger.log(
-        `Auto-pickup requested for ${booking.bookingNumber} — consignment: ${parcelResult.trackingId}`,
-      );
-
-      // Notify the owner
-      this.eventEmitter.emit('fulfillment.pickupRequested', {
-        tenantId,
-        bookingId,
-        bookingNumber: booking.bookingNumber,
-        consignmentId: parcelResult.trackingId,
-        deliveryFee: parcelResult.deliveryFee,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Auto-pickup failed for ${booking.bookingNumber}: ${(err as Error).message}`,
-      );
-
-      // Mark as error so tenant can see it in the dashboard
-      const history = this.getStatusHistory(booking.courierStatusHistory);
-      history.push({
-        status: 'error',
-        label: `Pickup Request Failed: ${(err as Error).message}`,
-        timestamp: new Date().toISOString(),
-        source: 'system',
-      });
-
-      await this.prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-          courierStatus: 'error',
-          courierErrorReason: `Auto-pickup failed: ${(err as Error).message}`,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          courierStatusHistory: history as any,
-        },
-      });
-
-      // Notify the owner about the failure
-      this.eventEmitter.emit('fulfillment.pickupFailed', {
-        tenantId,
-        bookingId,
-        bookingNumber: booking.bookingNumber,
-        error: (err as Error).message,
-      });
+    } catch (cause) {
+      this.logger.warn(`Scheduled pickup failed for ${bookingId}: ${cause instanceof Error ? cause.message : cause}`);
     }
   }
 
-  // =========================================================================
-  // CHECK STUCK PICKUPS (CRON job)
-  // =========================================================================
-
-  /**
-   * Finds bookings stuck in 'pickup_pending' for 3+ days and marks them as error.
-   * Called by the CRON scheduler every 6 hours.
-   */
-  async checkStuckPickups(): Promise<void> {
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-    const stuckBookings = await this.prisma.booking.findMany({
-      where: {
-        courierStatus: 'pickup_pending',
-        pickupRequestedAt: { lt: threeDaysAgo },
-        status: 'confirmed',
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        tenantId: true,
-        bookingNumber: true,
-        courierStatusHistory: true,
-      },
+  async checkStuckPickups() {
+    const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const stuck = await this.prisma.shipment.findMany({
+      where: { status: 'pickup_pending', pickupRequestedAt: { lt: cutoff } },
+      include: { booking: { select: { bookingNumber: true } } },
     });
-
-    if (stuckBookings.length === 0) return;
-
-    this.logger.log(`Found ${stuckBookings.length} stuck pickup(s), marking as error...`);
-
-    for (const booking of stuckBookings) {
-      const history = this.getStatusHistory(booking.courierStatusHistory);
-      history.push({
-        status: 'error',
-        label: 'Pickup not completed within 3 days — auto-marked as error',
-        timestamp: new Date().toISOString(),
+    for (const shipment of stuck) {
+      await this.transitionShipment(shipment.id, shipment.tenantId, 'error', {
+        label: 'Pickup not completed within three days',
         source: 'system',
+        dedupeKey: `stuck:${cutoff.toISOString().slice(0, 10)}`,
+        update: { failedReason: 'Pickup not completed within three days' },
       });
-
-      await this.prisma.booking.update({
-        where: { id: booking.id },
-        data: {
-          courierStatus: 'error',
-          courierErrorReason: 'Pickup not completed within 3 days',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          courierStatusHistory: history as any,
-        },
-      });
-
-      this.logger.warn(`${booking.bookingNumber}: stuck pickup auto-marked as error`);
-
-      // Notify owner
       this.eventEmitter.emit('fulfillment.stuckPickup', {
-        tenantId: booking.tenantId,
-        bookingId: booking.id,
-        bookingNumber: booking.bookingNumber,
-      });
-    }
-  }
-
-  // =========================================================================
-  // POLL COURIER STATUSES (CRON job)
-  // =========================================================================
-
-  /**
-   * Polls Pathao API for all bookings with active shipments.
-   * Called by the CRON job every 15 minutes.
-   * Processes across all active tenants.
-   */
-  async pollAllCourierStatuses(): Promise<void> {
-    // Find all bookings with active courier shipments
-    const activeShipments = await this.prisma.booking.findMany({
-      where: {
-        courierConsignmentId: { not: null },
-        courierProvider: 'pathao',
-        courierStatus: {
-          notIn: ['delivered', 'returned_to_sender', 'cancelled', 'prepare_parcel', 'error'],
-        },
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        tenantId: true,
-        bookingNumber: true,
-        status: true,
-        courierConsignmentId: true,
-        courierStatus: true,
-        courierStatusHistory: true,
-      },
-    });
-
-    if (activeShipments.length === 0) return;
-
-    this.logger.log(`Polling ${activeShipments.length} active Pathao shipments...`);
-
-    // Group by tenant to reuse credentials
-    const byTenant = new Map<string, typeof activeShipments>();
-    for (const shipment of activeShipments) {
-      const list = byTenant.get(shipment.tenantId) ?? [];
-      list.push(shipment);
-      byTenant.set(shipment.tenantId, list);
-    }
-
-    let updatedCount = 0;
-
-    for (const [tenantId, shipments] of byTenant) {
-      try {
-        const courierSettings = await this.getTenantCourierSettings(tenantId);
-        const pathaoConfig = courierSettings.pathao;
-        if (!pathaoConfig?.enabled) continue;
-
-        for (const shipment of shipments) {
-          try {
-            const updated = await this.pollSingleShipment(
-              shipment,
-              pathaoConfig,
-            );
-            if (updated) updatedCount++;
-          } catch (err) {
-            this.logger.warn(
-              `Poll failed for ${shipment.bookingNumber}: ${(err as Error).message}`,
-            );
-          }
-        }
-      } catch (err) {
-        this.logger.warn(
-          `Poll failed for tenant ${tenantId}: ${(err as Error).message}`,
-        );
-      }
-    }
-
-    if (updatedCount > 0) {
-      this.logger.log(`Courier poll complete: ${updatedCount} shipment(s) updated`);
-    }
-  }
-
-  /**
-   * Polls a single shipment and updates the booking if status changed.
-   */
-  private async pollSingleShipment(
-    shipment: {
-      id: string;
-      tenantId: string;
-      bookingNumber: string;
-      status: string;
-      courierConsignmentId: string | null;
-      courierStatus: string | null;
-      courierStatusHistory: unknown;
-    },
-    pathaoConfig: PathaoConfig,
-  ): Promise<boolean> {
-    if (!shipment.courierConsignmentId) return false;
-
-    const info = await this.pathaoAdapter.getOrderInfo(
-      shipment.courierConsignmentId,
-      pathaoConfig,
-    );
-
-    // Skip if status hasn't changed
-    if (info.normalisedStatus === shipment.courierStatus) return false;
-
-    const newStatus = info.normalisedStatus;
-
-    // Append to history
-    const history = this.getStatusHistory(shipment.courierStatusHistory);
-    history.push({
-      status: newStatus,
-      label: COURIER_STATUS_LABELS[newStatus] ?? info.rawStatus,
-      timestamp: info.updatedAt ?? new Date().toISOString(),
-      source: 'pathao',
-    });
-
-    // Update booking courier status
-    await this.prisma.booking.update({
-      where: { id: shipment.id },
-      data: {
-        courierStatus: newStatus,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        courierStatusHistory: history as any,
-      },
-    });
-
-    this.logger.log(
-      `${shipment.bookingNumber}: courier ${shipment.courierStatus} → ${newStatus}`,
-    );
-
-    // Auto-transitions
-    await this.handleCourierAutoTransition(shipment, newStatus);
-
-    return true;
-  }
-
-  /**
-   * Handles auto-transitions based on courier status changes.
-   * - delivered → booking becomes DELIVERED (confirmed → delivered)
-   * - returned → alert owner
-   */
-  private async handleCourierAutoTransition(
-    shipment: {
-      id: string;
-      tenantId: string;
-      bookingNumber: string;
-      status: string;
-    },
-    newCourierStatus: CourierStatusSlug,
-  ): Promise<void> {
-    // Auto-mark as DELIVERED when courier delivers
-    if (
-      newCourierStatus === 'delivered' &&
-      shipment.status === 'confirmed'
-    ) {
-      try {
-        await this.bookingService.updateStatus(shipment.tenantId, shipment.id, 'delivered');
-        this.logger.log(
-          `Auto-delivered: ${shipment.bookingNumber} (courier delivered)`,
-        );
-
-        this.eventEmitter.emit('fulfillment.delivered.auto', {
-          tenantId: shipment.tenantId,
-          bookingId: shipment.id,
-          bookingNumber: shipment.bookingNumber,
-          provider: 'pathao',
-        });
-      } catch (err) {
-        this.logger.error(
-          `Auto-deliver failed for ${shipment.bookingNumber}: ${(err as Error).message}`,
-        );
-      }
-    }
-
-    // Alert owner on return
-    if (newCourierStatus === 'returned_to_sender') {
-      this.eventEmitter.emit('fulfillment.courier.return_alert', {
         tenantId: shipment.tenantId,
-        bookingId: shipment.id,
-        bookingNumber: shipment.bookingNumber,
-        provider: 'pathao',
+        bookingId: shipment.bookingId,
+        bookingNumber: shipment.booking.bookingNumber,
       });
     }
   }
 
-  // =========================================================================
-  // TRACK ORDER
-  // =========================================================================
+  async pollAllCourierStatuses() {
+    const shipments = await this.prisma.shipment.findMany({
+      where: {
+        trackingNumber: { not: null },
+        provider: { in: ['pathao', 'steadfast'] },
+        status: { in: ACTIVE_SHIPMENT_STATUSES },
+      },
+      include: { booking: { select: { status: true, bookingNumber: true } } },
+    });
+    for (const shipment of shipments) {
+      try {
+        const settings = await this.getTenantCourierSettings(shipment.tenantId);
+        let result: TrackingResult;
+        if (shipment.provider === 'pathao') {
+          if (!settings.pathao?.enabled) continue;
+          result = await this.pathaoAdapter.trackParcel(shipment.trackingNumber!, settings.pathao);
+        } else {
+          if (!settings.steadfast?.enabled) continue;
+          result = await this.steadfastAdapter.trackParcel(shipment.trackingNumber!, settings.steadfast);
+        }
+        const status = this.statusFromTracking(result);
+        if (status !== shipment.status) {
+          await this.applyProviderStatus(shipment, status, result.rawStatus, result.updatedAt ?? new Date(), 'poll', result.raw);
+        } else {
+          await this.prisma.shipment.update({ where: { id: shipment.id }, data: { lastSyncedAt: new Date() } });
+        }
+      } catch (cause) {
+        this.logger.warn(`Shipment poll failed for ${shipment.id}: ${cause instanceof Error ? cause.message : cause}`);
+      }
+    }
+  }
 
   async trackOrder(tenantId: string, bookingId: string): Promise<TrackingResult> {
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId, deletedAt: null },
-      select: {
-        id: true,
-        bookingNumber: true,
-        status: true,
-        trackingNumber: true,
-        courierProvider: true,
-      },
+    const shipment = await this.prisma.shipment.findFirst({
+      where: { tenantId, bookingId, direction: 'OUTBOUND' },
+      orderBy: { createdAt: 'desc' },
     });
-
-    if (!booking) throw new NotFoundException(`Booking ${bookingId} not found`);
-
-    if (!booking.trackingNumber) {
-      throw new BadRequestException('This order has no tracking number.');
+    if (!shipment?.trackingNumber) throw new BadRequestException('This booking has no dispatched shipment');
+    if (shipment.provider === 'manual') return this.manualAdapter.trackParcel(shipment.trackingNumber);
+    const settings = await this.getTenantCourierSettings(tenantId);
+    if (shipment.provider === 'pathao') {
+      if (!settings.pathao?.enabled) throw new BadRequestException('Pathao is not configured');
+      return this.pathaoAdapter.trackParcel(shipment.trackingNumber, settings.pathao);
     }
-
-    const provider = booking.courierProvider as CourierProviderEnum | null;
-
-    if (!provider || provider === CourierProviderEnum.MANUAL) {
-      return this.manualAdapter.trackParcel(booking.trackingNumber);
-    }
-
-    const courierSettings = await this.getTenantCourierSettings(tenantId);
-
-    switch (provider) {
-      case CourierProviderEnum.PATHAO: {
-        const config = courierSettings.pathao;
-        if (!config?.enabled) throw new BadRequestException('Pathao not configured');
-        return this.pathaoAdapter.trackParcel(booking.trackingNumber, config);
-      }
-      case CourierProviderEnum.STEADFAST: {
-        const config = courierSettings.steadfast;
-        if (!config?.enabled) throw new BadRequestException('Steadfast not configured');
-        return this.steadfastAdapter.trackParcel(booking.trackingNumber, config);
-      }
-      default:
-        throw new BadRequestException(`Unknown courier provider: ${provider}`);
-    }
+    if (!settings.steadfast?.enabled) throw new BadRequestException('Steadfast is not configured');
+    return this.steadfastAdapter.trackParcel(shipment.trackingNumber, settings.steadfast);
   }
 
-  // =========================================================================
-  // CALCULATE RATE
-  // =========================================================================
-
-  async calculateShippingRate(
-    tenantId: string,
-    dto: CalculateRateDto,
-  ): Promise<ShippingRate | null> {
+  async calculateShippingRate(tenantId: string, dto: CalculateRateDto): Promise<ShippingRate | null> {
     const params = {
       pickupCity: dto.pickupCity,
       deliveryCity: dto.deliveryCity,
       weightKg: dto.weightKg,
       codAmount: dto.codAmount,
     };
-
-    switch (dto.courierProvider) {
-      case CourierProviderEnum.PATHAO: {
-        const courierSettings = await this.getTenantCourierSettings(tenantId);
-        const config = courierSettings.pathao;
-        if (!config?.enabled) return null;
-        return this.pathaoAdapter.calculateShipping(params, config);
-      }
-      case CourierProviderEnum.STEADFAST: {
-        const courierSettings = await this.getTenantCourierSettings(tenantId);
-        const config = courierSettings.steadfast;
-        if (!config?.enabled) return null;
-        return this.steadfastAdapter.calculateShipping(params);
-      }
-      case CourierProviderEnum.MANUAL:
-      default:
-        return this.manualAdapter.calculateShipping(params);
+    const settings = await this.getTenantCourierSettings(tenantId);
+    if (dto.courierProvider === 'pathao') {
+      if (!settings.pathao?.enabled) return null;
+      return this.pathaoAdapter.calculateShipping(params, settings.pathao);
     }
+    if (dto.courierProvider === 'steadfast') {
+      if (!settings.steadfast?.enabled) return null;
+      return this.steadfastAdapter.calculateShipping(params);
+    }
+    return this.manualAdapter.calculateShipping(params);
   }
 
-  // =========================================================================
-  // DELIVERY DASHBOARD (Tenant-facing)
-  // =========================================================================
-
-  /**
-   * Returns delivery-related data for the tenant's dashboard:
-   * - Grouped counts by delivery stage (5 groups)
-   * - Paginated list of active deliveries
-   */
   async getDeliveryDashboard(
     tenantId: string,
-    filters?: {
-      courierStatus?: string[];
-      stage?: DeliveryStageGroup;
-      page?: number;
-      limit?: number;
-    },
+    filters?: { courierStatus?: string[]; stage?: DeliveryStageGroup; page?: number; limit?: number },
   ) {
-    const page = filters?.page ?? 1;
-    const limit = Math.min(filters?.limit ?? 20, 100);
-    const skip = (page - 1) * limit;
-
-    // Get counts by courier status (only bookings with delivery tracking)
-    const statusCounts = await this.prisma.booking.groupBy({
-      by: ['courierStatus'],
-      where: {
-        tenantId,
-        courierStatus: { not: null },
-        deletedAt: null,
-      },
-      _count: true,
-    });
-
-    // Build stage-grouped summary
+    const page = Math.max(1, filters?.page ?? 1);
+    const limit = Math.min(100, Math.max(1, filters?.limit ?? 20));
+    const requestedStatuses = filters?.stage
+      ? Object.entries(COURIER_STATUS_TO_STAGE).filter(([, stage]) => stage === filters.stage).map(([status]) => status as ShipmentStatus)
+      : filters?.courierStatus?.filter((status): status is ShipmentStatus => status in COURIER_STATUS_TO_STAGE);
+    const where: Prisma.ShipmentWhereInput = {
+      tenantId,
+      direction: 'OUTBOUND',
+      ...(requestedStatuses?.length ? { status: { in: requestedStatuses } } : {}),
+    };
+    const [counts, shipments, total] = await Promise.all([
+      this.prisma.shipment.groupBy({ by: ['status'], where: { tenantId, direction: 'OUTBOUND' }, _count: true }),
+      this.prisma.shipment.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [{ scheduledPickupAt: 'asc' }, { createdAt: 'desc' }],
+        include: {
+          events: { orderBy: { occurredAt: 'asc' } },
+          booking: { include: { items: { select: { productName: true, startDate: true, endDate: true } } } },
+        },
+      }),
+      this.prisma.shipment.count({ where }),
+    ]);
+    const summary: Record<string, number> = {};
     const stageSummary: Record<DeliveryStageGroup, number> = {
       prepare_parcel: 0,
       awaiting_pickup: 0,
@@ -946,292 +391,254 @@ export class FulfillmentService {
       delivered: 0,
       error: 0,
     };
-
-    const rawSummary: Record<string, number> = {};
-    for (const group of statusCounts) {
-      if (group.courierStatus) {
-        rawSummary[group.courierStatus] = group._count;
-        const stageGroup = COURIER_STATUS_TO_STAGE[group.courierStatus as CourierStatusSlug] ?? 'error';
-        stageSummary[stageGroup] += group._count;
-      }
+    for (const count of counts) {
+      summary[count.status] = count._count;
+      stageSummary[COURIER_STATUS_TO_STAGE[count.status]] += count._count;
     }
-
-    // Build deliveries query
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {
-      tenantId,
-      courierStatus: { not: null },
-      deletedAt: null,
-    };
-
-    // Filter by stage group or specific courier statuses
-    if (filters?.stage) {
-      const slugsForStage = Object.entries(COURIER_STATUS_TO_STAGE)
-        .filter(([, group]) => group === filters.stage)
-        .map(([slug]) => slug);
-      where.courierStatus = { in: slugsForStage };
-    } else if (filters?.courierStatus?.length) {
-      where.courierStatus = { in: filters.courierStatus };
-    }
-
-    const [deliveries, total] = await Promise.all([
-      this.prisma.booking.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: [
-          { scheduledPickupAt: 'asc' },
-          { createdAt: 'desc' },
-        ],
-        select: {
-          id: true,
-          bookingNumber: true,
-          status: true,
-          courierProvider: true,
-          courierConsignmentId: true,
-          courierStatus: true,
-          courierStatusHistory: true,
-          courierErrorReason: true,
-          trackingNumber: true,
-          pickupRequestedAt: true,
-          scheduledPickupAt: true,
-          deliveryLeadDays: true,
-          deliveredAt: true,
-          deliveryName: true,
-          deliveryPhone: true,
-          deliveryCity: true,
-          grandTotal: true,
-          items: {
-            select: {
-              productName: true,
-              startDate: true,
-              endDate: true,
-            },
-          },
-        },
-      }),
-      this.prisma.booking.count({ where }),
-    ]);
-
     return {
-      summary: rawSummary,
+      summary,
       stageSummary,
-      data: deliveries,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      data: shipments.map((shipment) => this.toDeliveryProjection(shipment, shipment.booking)),
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
-  // =========================================================================
-  // WEBHOOK PROCESSING
-  // =========================================================================
-
-  async processPathaoWebhook(payload: PathaoWebhookPayload): Promise<void> {
-    const trackingId = payload.consignment_id;
-    const rawStatus = payload.order_status ?? '';
-
-    this.logger.log(`Pathao webhook: ${trackingId} → "${rawStatus}"`);
-
-    const booking = await this.prisma.booking.findFirst({
-      where: {
-        OR: [
-          { courierConsignmentId: trackingId },
-          { trackingNumber: trackingId },
-        ],
-      },
-      select: {
-        id: true,
-        tenantId: true,
-        status: true,
-        bookingNumber: true,
-        courierStatus: true,
-        courierStatusHistory: true,
-      },
-    });
-
-    if (!booking) {
-      this.logger.warn(`Pathao webhook: no booking found for tracking ID ${trackingId}`);
-      return;
-    }
-
-    // Import the normaliser from the adapter
-    const { normalisePathaoStatus } = await import('./providers/pathao.adapter');
-    const newStatus = normalisePathaoStatus(rawStatus);
-
-    // Skip if status hasn't changed
-    if (newStatus === booking.courierStatus) return;
-
-    // Append to history
-    const history = this.getStatusHistory(booking.courierStatusHistory);
-    history.push({
-      status: newStatus,
-      label: COURIER_STATUS_LABELS[newStatus] ?? rawStatus,
-      timestamp: payload.updated_at ?? new Date().toISOString(),
-      source: 'webhook',
-    });
-
-    await this.prisma.booking.update({
-      where: { id: booking.id },
-      data: {
-        courierStatus: newStatus,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        courierStatusHistory: history as any,
-      },
-    });
-
-    // Handle auto-transitions
-    await this.handleCourierAutoTransition(booking, newStatus);
+  async processPathaoWebhook(token: string, payload: PathaoWebhookPayload) {
+    if (!payload.consignment_id) throw new BadRequestException('Missing Pathao consignment ID');
+    await this.processWebhook(token, 'pathao', payload.consignment_id, payload.order_status ?? '', payload.updated_at, payload);
   }
 
-  async processSteadfastWebhook(payload: SteadfastWebhookPayload): Promise<void> {
-    const trackingId = payload.tracking_code;
-    const rawStatus = payload.delivery_status ?? '';
-
-    this.logger.log(`Steadfast webhook: ${trackingId} → "${rawStatus}"`);
-
-    const booking = await this.prisma.booking.findFirst({
-      where: { trackingNumber: trackingId },
-      select: { id: true, tenantId: true, status: true, bookingNumber: true },
-    });
-
-    if (!booking) {
-      this.logger.warn(`Steadfast webhook: no booking found for tracking ID ${trackingId}`);
-      return;
-    }
-
-    await this.applyWebhookStatus(booking, 'steadfast', rawStatus);
+  async processSteadfastWebhook(token: string, payload: SteadfastWebhookPayload) {
+    if (!payload.tracking_code) throw new BadRequestException('Missing Steadfast tracking code');
+    await this.processWebhook(token, 'steadfast', payload.tracking_code, payload.delivery_status ?? '', payload.updated_at, payload);
   }
 
-  // =========================================================================
-  // HELPERS
-  // =========================================================================
-
-  /**
-   * Legacy webhook status handler for Steadfast.
-   */
-  private async applyWebhookStatus(
-    booking: { id: string; tenantId: string; status: string; bookingNumber: string },
-    provider: string,
+  private async processWebhook(
+    token: string,
+    provider: ShipmentProvider,
+    trackingNumber: string,
     rawStatus: string,
-  ): Promise<void> {
-    const lowerStatus = rawStatus.toLowerCase();
-
-    if (
-      lowerStatus.includes('delivered') &&
-      !lowerStatus.includes('return') &&
-      booking.status === 'confirmed'
-    ) {
-      try {
-        await this.bookingService.updateStatus(booking.tenantId, booking.id, 'delivered');
-        this.logger.log(
-          `Webhook (${provider}): Auto-marked booking ${booking.bookingNumber} as delivered`,
-        );
-
-        this.eventEmitter.emit('fulfillment.delivered.auto', {
-          tenantId: booking.tenantId,
-          bookingId: booking.id,
-          bookingNumber: booking.bookingNumber,
-          provider,
-        });
-      } catch (err) {
-        this.logger.error(
-          `Webhook (${provider}): Failed to auto-deliver ${booking.bookingNumber} — ${(err as Error).message}`,
-        );
-      }
-      return;
-    }
-
-    if (lowerStatus.includes('return')) {
-      this.eventEmitter.emit('fulfillment.courier.return_alert', {
-        tenantId: booking.tenantId,
-        bookingId: booking.id,
-        bookingNumber: booking.bookingNumber,
+    updatedAt: string | undefined,
+    payload: object,
+  ) {
+    const settings = await this.prisma.storeSettings.findUnique({
+      where: { courierWebhookToken: token },
+      select: { tenantId: true },
+    });
+    if (!settings) throw new NotFoundException('Webhook endpoint not found');
+    const shipment = await this.prisma.shipment.findFirst({
+      where: {
+        tenantId: settings.tenantId,
         provider,
+        OR: [{ trackingNumber }, { providerReference: trackingNumber }],
+      },
+      include: { booking: { select: { status: true, bookingNumber: true } } },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found for webhook');
+    const payloadHash = this.hash(payload);
+    const receipt = await this.prisma.courierWebhookReceipt.findUnique({
+      where: { provider_payloadHash: { provider, payloadHash } },
+    });
+    if (receipt) return;
+    const created = await this.prisma.courierWebhookReceipt.create({
+      data: {
+        tenantId: shipment.tenantId,
+        shipmentId: shipment.id,
+        provider,
+        payloadHash,
+        payload: payload as Prisma.InputJsonValue,
+      },
+    });
+    try {
+      const status = provider === 'pathao' ? normalisePathaoStatus(rawStatus) : this.normaliseSteadfastStatus(rawStatus);
+      await this.applyProviderStatus(
+        shipment,
+        status,
         rawStatus,
+        updatedAt ? new Date(updatedAt) : new Date(),
+        'webhook',
+        payload,
+        `webhook:${payloadHash}`,
+      );
+      await this.prisma.courierWebhookReceipt.update({ where: { id: created.id }, data: { processedAt: new Date() } });
+    } catch (cause) {
+      await this.prisma.courierWebhookReceipt.update({
+        where: { id: created.id },
+        data: { errorReason: cause instanceof Error ? cause.message : 'Webhook processing failed' },
+      });
+      throw cause;
+    }
+  }
+
+  private async applyProviderStatus(
+    shipment: { id: string; tenantId: string; bookingId: string; direction: 'OUTBOUND' | 'RETURN'; booking: { status: string; bookingNumber: string } },
+    status: ShipmentStatus,
+    rawStatus: string,
+    occurredAt: Date,
+    source: string,
+    raw?: unknown,
+    dedupeKey = `provider:${status}:${occurredAt.toISOString()}`,
+  ) {
+    await this.transitionShipment(shipment.id, shipment.tenantId, status, {
+      label: COURIER_STATUS_LABELS[status] ?? rawStatus,
+      source,
+      dedupeKey,
+      occurredAt,
+      raw,
+      update: {
+        lastSyncedAt: new Date(),
+        deliveredAt: status === 'delivered' ? occurredAt : undefined,
+        failedReason: ['error', 'pickup_failed', 'partial_delivered', 'returned_to_sender'].includes(status) ? rawStatus : null,
+      },
+    });
+    if (shipment.direction === 'OUTBOUND' && status === 'delivered' && shipment.booking.status === 'confirmed') {
+      await this.bookingService.updateStatus(shipment.tenantId, shipment.bookingId, 'delivered');
+      this.eventEmitter.emit('fulfillment.delivered.auto', {
+        tenantId: shipment.tenantId,
+        bookingId: shipment.bookingId,
+        bookingNumber: shipment.booking.bookingNumber,
+      });
+    }
+    if (status === 'returned_to_sender') {
+      this.eventEmitter.emit('fulfillment.courier.return_alert', {
+        tenantId: shipment.tenantId,
+        bookingId: shipment.bookingId,
+        bookingNumber: shipment.booking.bookingNumber,
       });
     }
   }
 
-  /**
-   * Calculates the pickup date using district-based lead days.
-   * Looks up the delivery city/district in the tenant's pickupLeadDaysConfig.
-   */
-  private async calculatePickupDate(
+  private async createPreparedShipment(tenantId: string, bookingId: string, provider: ShipmentProvider) {
+    const existing = await this.prisma.shipment.findUnique({
+      where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: `booking-confirmed:${bookingId}:OUTBOUND` } },
+      include: { events: { orderBy: { occurredAt: 'asc' } } },
+    });
+    if (existing) return existing;
+    const booking = await this.getShippableBooking(tenantId, bookingId);
+    const { pickupDate } = await this.calculatePickupDate(tenantId, booking.deliveryCity, booking.items);
+    const itemQuantity = booking.items.reduce((sum, item) => sum + item.quantity, 0);
+    const request = {
+      bookingId,
+      provider,
+      recipientName: booking.deliveryName,
+      recipientPhone: booking.deliveryPhone,
+      recipientAddress: booking.deliveryAddressLine1,
+      recipientCity: booking.deliveryCity,
+      itemQuantity,
+    };
+    return this.prisma.shipment.create({
+      data: {
+        tenantId,
+        bookingId,
+        provider,
+        idempotencyKey: `booking-confirmed:${bookingId}:OUTBOUND`,
+        requestHash: this.hash(request),
+        recipientName: booking.deliveryName,
+        recipientPhone: booking.deliveryPhone,
+        recipientAddress: booking.deliveryAddressLine1,
+        recipientCity: booking.deliveryCity,
+        recipientZone: this.deliveryZone(booking.deliveryExtra),
+        itemQuantity,
+        weightGrams: Math.max(500, itemQuantity * 500),
+        scheduledPickupAt: pickupDate,
+        items: { create: booking.items.map((item) => ({ bookingItemId: item.id, quantity: item.quantity })) },
+        events: {
+          create: {
+            tenantId,
+            status: 'prepare_parcel',
+            label: COURIER_STATUS_LABELS.prepare_parcel,
+            source: 'system',
+            dedupeKey: 'shipment-created',
+            occurredAt: new Date(),
+          },
+        },
+      },
+      include: { events: { orderBy: { occurredAt: 'asc' } } },
+    });
+  }
+
+  private async transitionShipment(
+    shipmentId: string,
     tenantId: string,
-    booking: {
-      deliveryCity: string;
-      items: { startDate: Date }[];
+    status: ShipmentStatus,
+    details: {
+      label: string;
+      source: string;
+      dedupeKey: string;
+      occurredAt?: Date;
+      raw?: unknown;
+      update?: Prisma.ShipmentUpdateInput;
     },
-  ): Promise<{ pickupDate: Date; leadDays: number }> {
-    // Find the earliest item start date
-    const earliestStart = booking.items.reduce<Date | null>((min, item) => {
-      return !min || item.startDate < min ? item.startDate : min;
-    }, null);
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM shipments WHERE id = ${shipmentId} AND tenant_id = ${tenantId} FOR UPDATE`);
+      const existing = await tx.shipmentEvent.findUnique({
+        where: { shipmentId_dedupeKey: { shipmentId, dedupeKey: details.dedupeKey } },
+      });
+      if (existing) return tx.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
+      await tx.shipmentEvent.create({
+        data: {
+          tenantId,
+          shipmentId,
+          status,
+          label: details.label,
+          source: details.source,
+          dedupeKey: details.dedupeKey,
+          rawPayload: details.raw === undefined ? Prisma.DbNull : details.raw as Prisma.InputJsonValue,
+          occurredAt: details.occurredAt ?? new Date(),
+        },
+      });
+      return tx.shipment.update({
+        where: { id: shipmentId },
+        data: { status, ...(details.update ?? {}) },
+      });
+    });
+  }
 
-    if (!earliestStart) {
-      return { pickupDate: new Date(), leadDays: 0 };
-    }
+  private async getShippableBooking(tenantId: string, bookingId: string) {
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: bookingId, tenantId, deletedAt: null },
+      include: { items: { select: { id: true, quantity: true, productName: true, startDate: true, endDate: true } } },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    return booking;
+  }
 
+  private async calculatePickupDate(tenantId: string, deliveryCity: string, items: Array<{ startDate: Date }>) {
+    const earliest = items.reduce<Date | null>((value, item) => !value || item.startDate < value ? item.startDate : value, null);
+    if (!earliest) return { pickupDate: new Date(), leadDays: 0 };
     const settings = await this.prisma.storeSettings.findUnique({
       where: { tenantId },
-      select: {
-        pickupLeadDays: true,
-        pickupLeadDaysConfig: true,
-      },
+      select: { pickupLeadDays: true, pickupLeadDaysConfig: true },
     });
-
-    // Determine lead days from district config
     let leadDays = settings?.pickupLeadDays ?? 2;
-
     if (settings?.pickupLeadDaysConfig) {
       const config = settings.pickupLeadDaysConfig as unknown as DistrictLeadDaysConfig;
-      const deliveryDistrict = booking.deliveryCity.toLowerCase().trim();
-
-      if (config.districtLeadDays && deliveryDistrict) {
-        leadDays = config.districtLeadDays[deliveryDistrict] ?? config.defaultLeadDays ?? leadDays;
-      }
+      leadDays = config.districtLeadDays?.[deliveryCity.toLowerCase().trim()] ?? config.defaultLeadDays ?? leadDays;
     }
-
-    // Calculate pickup date = earliestStart - leadDays
-    const pickupDate = new Date(earliestStart);
+    const pickupDate = new Date(earliest);
     pickupDate.setDate(pickupDate.getDate() - leadDays);
-
-    // If pickup date is in the past, request immediately
-    const now = new Date();
-    if (pickupDate < now) {
-      return { pickupDate: now, leadDays };
-    }
-
-    // Set pickup to 12:01 AM on the pickup date (send before 12 PM cutoff)
     pickupDate.setHours(0, 1, 0, 0);
-
-    return { pickupDate, leadDays };
+    return { pickupDate: pickupDate < new Date() ? new Date() : pickupDate, leadDays };
   }
 
-  /**
-   * Extracts courier status history from booking JSON field.
-   */
-  private getStatusHistory(raw: unknown): CourierStatusEvent[] {
-    return Array.isArray(raw) ? [...(raw as CourierStatusEvent[])] : [];
+  private async defaultProvider(tenantId: string): Promise<ShipmentProvider> {
+    const settings = await this.getTenantCourierSettings(tenantId);
+    const configured = settings.defaultProvider;
+    if (configured === 'pathao' && settings.pathao?.enabled) return 'pathao';
+    if (configured === 'steadfast' && settings.steadfast?.enabled) return 'steadfast';
+    if (settings.pathao?.enabled) return 'pathao';
+    if (settings.steadfast?.enabled) return 'steadfast';
+    return 'manual';
   }
 
-  /**
-   * Loads tenant courier settings from StoreSettings.
-   * Uses dedicated Pathao columns for credentials.
-   */
   private async getTenantCourierSettings(tenantId: string): Promise<CourierSettings> {
     const settings = await this.prisma.storeSettings.findUnique({
       where: { tenantId },
       select: {
         defaultCourier: true,
-        courierApiKey: true,
-        courierSecretKey: true,
-        pickupAddress: true,
-        // Dedicated Pathao columns
+        steadfastApiKey: true,
+        steadfastSecretKey: true,
         pathaoClientId: true,
         pathaoClientSecret: true,
         pathaoUsername: true,
@@ -1240,53 +647,80 @@ export class FulfillmentService {
         pathaoSandbox: true,
       },
     });
-
     if (!settings) return {};
-
-    const result: CourierSettings = {
-      defaultProvider: (settings.defaultCourier as CourierSettings['defaultProvider']) ?? undefined,
-    };
-
-    // Build Pathao config from dedicated columns
-    if (settings.pathaoClientId) {
-      result.pathao = {
-        enabled: !!(
-          settings.pathaoClientId &&
-          settings.pathaoClientSecret &&
-          settings.pathaoUsername &&
-          settings.pathaoPassword
-        ),
-        clientId: settings.pathaoClientId ?? '',
+    return {
+      defaultProvider: settings.defaultCourier as CourierSettings['defaultProvider'] ?? undefined,
+      pathao: settings.pathaoClientId ? {
+        enabled: Boolean(settings.pathaoClientId && settings.pathaoClientSecret && settings.pathaoUsername && settings.pathaoPassword && settings.pathaoStoreId),
+        clientId: settings.pathaoClientId,
         clientSecret: settings.pathaoClientSecret ?? '',
         username: settings.pathaoUsername ?? '',
         password: settings.pathaoPassword ?? '',
         defaultStoreId: settings.pathaoStoreId ?? 0,
-        sandbox: settings.pathaoSandbox ?? false,
-      };
-    } else if (settings.defaultCourier === 'pathao' && settings.courierApiKey) {
-      // Legacy: pipe-delimited format
-      const [clientId, username] = (settings.courierApiKey ?? '').split('|');
-      const [clientSecret, password] = (settings.courierSecretKey ?? '').split('|');
+        sandbox: settings.pathaoSandbox,
+      } : undefined,
+      steadfast: settings.steadfastApiKey ? {
+        enabled: Boolean(settings.steadfastApiKey && settings.steadfastSecretKey),
+        apiKey: settings.steadfastApiKey,
+        secretKey: settings.steadfastSecretKey ?? '',
+      } : undefined,
+    };
+  }
 
-      result.pathao = {
-        enabled: !!(clientId && username && clientSecret && password),
-        clientId: clientId ?? '',
-        clientSecret: clientSecret ?? '',
-        username: username ?? '',
-        password: password ?? '',
-        defaultStoreId: 0,
-      };
-    }
+  private toDeliveryProjection(shipment: any, booking: any) {
+    const events = (shipment.events ?? []).map((event: any) => ({
+      status: event.status,
+      label: event.label,
+      timestamp: event.occurredAt,
+      source: event.source,
+    }));
+    return {
+      id: booking.id,
+      shipmentId: shipment.id,
+      bookingNumber: booking.bookingNumber,
+      status: booking.status,
+      courierProvider: shipment.provider,
+      courierConsignmentId: shipment.providerReference,
+      courierStatus: shipment.status,
+      courierStatusHistory: events,
+      courierErrorReason: shipment.failedReason,
+      trackingNumber: shipment.trackingNumber,
+      pickupRequestedAt: shipment.pickupRequestedAt,
+      scheduledPickupAt: shipment.scheduledPickupAt,
+      deliveredAt: shipment.deliveredAt,
+      deliveryName: booking.deliveryName,
+      deliveryPhone: booking.deliveryPhone,
+      deliveryCity: booking.deliveryCity,
+      grandTotal: booking.grandTotal,
+      items: booking.items,
+    };
+  }
 
-    // Build Steadfast config
-    if (settings.defaultCourier === 'steadfast' && settings.courierApiKey) {
-      result.steadfast = {
-        enabled: !!(settings.courierApiKey && settings.courierSecretKey),
-        apiKey: settings.courierApiKey ?? '',
-        secretKey: settings.courierSecretKey ?? '',
-      };
-    }
+  private deliveryZone(extra: Prisma.JsonValue | null): string | undefined {
+    if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return undefined;
+    const value = (extra as Prisma.JsonObject).area;
+    return typeof value === 'string' ? value : undefined;
+  }
 
-    return result;
+  private statusFromTracking(result: TrackingResult): ShipmentStatus {
+    if (result.normalisedStatus === 'delivered') return 'delivered';
+    if (result.normalisedStatus === 'returned') return 'returned_to_sender';
+    if (result.normalisedStatus === 'in_transit') return 'in_transit';
+    return 'unknown';
+  }
+
+  private normaliseSteadfastStatus(raw: string): ShipmentStatus {
+    const status = raw.toLowerCase().trim();
+    if (status.includes('partial')) return 'partial_delivered';
+    if (status.includes('delivered')) return 'delivered';
+    if (status.includes('return')) return 'returned_to_sender';
+    if (status.includes('cancel')) return 'cancelled';
+    if (status.includes('hold')) return 'on_hold';
+    if (status.includes('transit') || status.includes('review')) return 'in_transit';
+    return 'unknown';
+  }
+
+  private hash(value: unknown) {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
   }
 }

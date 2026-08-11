@@ -48,9 +48,21 @@ export class RecordPaymentDto {
 // ============================================================================
 
 export class InitiatePaymentDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID()
   bookingId!: string;
+
+  @IsUUID()
+  trackingToken!: string;
+}
+
+export class ReviewPaymentClaimDto {
+  @IsBoolean()
+  approve!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
 }
 
 // ============================================================================

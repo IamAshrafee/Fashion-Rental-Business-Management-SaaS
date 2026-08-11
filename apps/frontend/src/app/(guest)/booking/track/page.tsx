@@ -1,61 +1,11 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { trackBooking } from '@/lib/api/guest-booking';
-import {
-  Search,
-  Package,
-  CheckCircle2,
-  ArrowLeft,
-  Loader2,
-  AlertCircle,
-} from 'lucide-react';
 import Link from 'next/link';
-import { useLocale } from '@/hooks/use-locale';
-
-interface TrackingData {
-  bookingNumber: string;
-  status: string;
-  trackingNumber?: string | null;
-  courierProvider?: string | null;
-  courierStatus?: string | null;
-  customerName: string;
-  deliveryAddress: string;
-  items: Array<{
-    productName: string;
-    colorName?: string;
-    startDate: string;
-    endDate: string;
-  }>;
-  grandTotal: number;
-  paidAmount: number;
-  createdAt: string;
-  statusTimeline: Array<{
-    status: string;
-    label: string;
-    timestamp: string | null;
-    type: 'business' | 'courier';
-    done: boolean;
-  }>;
-}
-
-const STATUS_ORDER = [
-  'pending',
-  'confirmed',
-  'delivered',
-  'returned',
-  'completed',
-];
-
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'Order Placed',
-  confirmed: 'Confirmed',
-  delivered: 'Delivered',
-  returned: 'Returned',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-};
+import { AlertCircle, ArrowLeft, Loader2, Package, Search } from 'lucide-react';
+import { trackBooking, type PublicBookingTracking } from '@/lib/api/guest-booking';
+import { cn } from '@/lib/utils';
 
 export default function GuestBookingTrackPage() {
   return (
@@ -67,300 +17,105 @@ export default function GuestBookingTrackPage() {
 
 function GuestBookingTrackContent() {
   const searchParams = useSearchParams();
-  const initialOrderNumber = searchParams?.get('number') || '';
-  const { formatPrice } = useLocale();
-
-  const [orderNumber, setOrderNumber] = useState(initialOrderNumber);
+  const initialToken = searchParams?.get('token') ?? '';
+  const [token, setToken] = useState(initialToken);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [bookingData, setBookingData] = useState<TrackingData | null>(null);
+  const [booking, setBooking] = useState<PublicBookingTracking | null>(null);
 
-  const handleTrack = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setBookingData(null);
-
-    if (!orderNumber.trim()) {
-      setError('Booking Number is required.');
+  const load = async (trackingToken: string) => {
+    if (!trackingToken.trim()) {
+      setError('Open the private tracking link from your booking confirmation.');
       return;
     }
-
     setLoading(true);
+    setError('');
     try {
-      const data = await trackBooking(orderNumber.trim());
-      if (data && typeof data === 'object') {
-        const raw = data as any;
-        const currentStatus = raw.status || 'pending';
-
-        let timeline: any[] = [];
-        if (raw.timeline && Array.isArray(raw.timeline)) {
-          // Push completed events from backend history
-          timeline = raw.timeline.map((evt: any) => ({
-            status: evt.status,
-            label: evt.label,
-            timestamp: evt.at,
-            type: evt.type || 'business',
-            done: true,
-          }));
-
-          // Predict future business events to complete the progress bar
-          const businessEvents = raw.timeline.filter((e: any) => (e.type || 'business') === 'business').map((e: any) => e.status);
-          if (currentStatus !== 'cancelled') {
-             for (const flowStep of STATUS_ORDER) {
-                if (!businessEvents.includes(flowStep)) {
-                   timeline.push({
-                     status: flowStep,
-                     label: STATUS_LABELS[flowStep] || flowStep,
-                     timestamp: null,
-                     type: 'business',
-                     done: false
-                   });
-                }
-             }
-          }
-        } else {
-          // Fallback if backend does not use unified timeline
-          const currentIdx = STATUS_ORDER.indexOf(currentStatus);
-          timeline = STATUS_ORDER.map((s, i) => ({
-            status: s,
-            label: STATUS_LABELS[s] || s,
-            timestamp: i <= currentIdx ? raw.createdAt : null,
-            type: 'business',
-            done: i <= currentIdx,
-          }));
-        }
-
-        setBookingData({
-          bookingNumber: raw.bookingNumber || orderNumber,
-          status: currentStatus,
-          trackingNumber: raw.trackingNumber,
-          courierProvider: raw.courierProvider,
-          courierStatus: raw.courierStatus,
-          customerName: raw.deliveryName || raw.customer?.fullName || raw.customerName || 'Customer',
-          deliveryAddress: raw.deliveryAddressLine1 || raw.deliveryAddress || raw.customer?.addressLine1 || '',
-          items: raw.items?.map((item: any) => ({
-            productName: item.productName || item.name || 'Product',
-            colorName: item.colorName,
-            startDate: item.startDate,
-            endDate: item.endDate,
-          })) || [],
-          grandTotal: raw.grandTotal || 0,
-          paidAmount: raw.totalPaid || raw.paidAmount || 0,
-          createdAt: raw.createdAt || '',
-          statusTimeline: timeline,
-        });
-      } else {
-        setError('Booking not found. Please check your booking number.');
-      }
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message ||
-          err?.message ||
-          'Could not find booking. Check your booking number and try again.',
-      );
+      setBooking(await trackBooking(trackingToken.trim()));
+    } catch (cause: unknown) {
+      setBooking(null);
+      setError(cause instanceof Error ? cause.message : 'This tracking link is invalid or expired.');
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    if (initialToken) void load(initialToken);
+    // The initial capability is intentionally consumed once from the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialToken]);
+
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8 bg-gray-50 min-h-screen">
-      <div className="mb-8">
-        <Link
-          href="/"
-          className="text-sm font-medium text-gray-500 hover:text-black flex items-center gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to Store
+    <main className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6">
+      <div className="mx-auto max-w-4xl">
+        <Link href="/" className="mb-8 inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-black">
+          <ArrowLeft className="h-4 w-4" /> Back to store
         </Link>
-      </div>
 
-      <div className="bg-white p-8 shadow-sm border border-gray-100">
-        <h1 className="font-display text-3xl font-bold tracking-tight text-gray-900 mb-2">
-          Track Your Order
-        </h1>
-        <p className="text-gray-500 mb-8">
-          Enter your booking number below to view the current status of your
-          rental.
-        </p>
-
-        <form
-          onSubmit={handleTrack}
-          className="flex flex-col gap-4 sm:flex-row items-end"
-        >
-          <div className="w-full sm:flex-1">
-            <label className="text-sm font-medium text-gray-700 mb-1 block">
-              Booking Number
+        <section className="border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-gray-900">Track your rental</h1>
+          <p className="mt-2 text-gray-500">Use the private tracking code from your confirmation link. A booking number alone cannot expose customer information.</p>
+          <form className="mt-6 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); void load(token); }}>
+            <label className="flex-1">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Private tracking code</span>
+              <input value={token} onChange={(event) => setToken(event.target.value.trim())} autoComplete="off" className="h-12 w-full border border-gray-300 px-3 outline-none focus:border-black" placeholder="Paste your tracking code" />
             </label>
-            <input
-              type="text"
-              placeholder="e.g. ORD-2026-123"
-              className="w-full rounded-none border border-gray-300 p-3 outline-none focus:border-black"
-              value={orderNumber}
-              onChange={(e) => setOrderNumber(e.target.value.toUpperCase())}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-black px-8 py-3 font-semibold uppercase tracking-wider text-white hover:bg-gray-800 transition-colors h-12"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <Search className="h-4 w-4" /> Track
-              </>
-            )}
-          </button>
-        </form>
-        {error && (
-          <div className="flex items-center gap-2 text-red-600 text-sm mt-3">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error}
-          </div>
-        )}
-      </div>
+            <button disabled={loading} className="mt-auto inline-flex h-12 items-center justify-center gap-2 bg-black px-7 text-sm font-semibold uppercase tracking-wider text-white disabled:opacity-60">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Track
+            </button>
+          </form>
+          {error && <p className="mt-3 flex items-center gap-2 text-sm text-red-600"><AlertCircle className="h-4 w-4" />{error}</p>}
+        </section>
 
-      {/* Results */}
-      {bookingData && (
-        <div className="mt-8 bg-white p-8 shadow-sm border border-gray-100 grid md:grid-cols-2 gap-12">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 mb-6 font-display">
-              Status Timeline
-            </h2>
+        {booking && (
+          <section className="mt-8 grid gap-8 border border-gray-100 bg-white p-6 shadow-sm md:grid-cols-2 sm:p-8">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Booking</p>
+              <h2 className="mt-1 text-2xl font-bold text-gray-900">{booking.bookingNumber}</h2>
+              <span className="mt-3 inline-flex bg-gray-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">{booking.status.replaceAll('_', ' ')}</span>
 
-            <div className="relative border-l-2 border-gray-200 ml-3 space-y-8 pb-4">
-              {bookingData.statusTimeline.map((event, idx) => (
-                <div key={idx} className={`relative ${event.type === 'courier' ? 'pl-8 opacity-90' : 'pl-6'}`}>
-                  {/* Circle Marker */}
-                  <div
-                    className={`absolute ${
-                      event.type === 'courier' 
-                        ? '-left-[6px] top-1.5 h-2.5 w-2.5 bg-gray-500 border-white' 
-                        : `-left-[9px] top-0 h-4 w-4 bg-${event.done ? 'black' : 'gray-300'}`
-                    } rounded-full border-2 border-white`}
-                  />
-                  <div>
-                    <h3
-                      className={`${event.type === 'courier' ? 'text-sm font-medium text-gray-700' : 'font-bold'} ${
-                        event.done ? (event.type === 'business' ? 'text-gray-900' : '') : 'text-gray-400'
-                      }`}
-                    >
-                      {event.label}
-                    </h3>
-                    {event.done && event.timestamp && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        {new Date(event.timestamp).toLocaleString(undefined, {
-                          month: 'short', day: 'numeric',
-                          hour: '2-digit', minute: '2-digit'
-                        })}
-                      </p>
-                    )}
+              <div className="mt-8 border-l-2 border-gray-200 pl-6">
+                {booking.timeline.map((event, index) => (
+                  <div key={`${event.status}-${event.at}-${index}`} className="relative pb-7 last:pb-0">
+                    <span className={cn('absolute -left-[31px] top-1 h-3 w-3 rounded-full ring-4 ring-white', event.type === 'courier' ? 'bg-blue-500' : 'bg-black')} />
+                    <p className="font-semibold text-gray-900">{event.label}</p>
+                    <p className="mt-1 text-xs text-gray-500">{new Date(event.at).toLocaleString()}</p>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-6">
-            <div className="bg-gray-50 p-6 border border-gray-100 h-fit">
-              <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">
-                Order Details
-              </h2>
-            <ul className="text-sm text-gray-600 space-y-3 mb-6">
-              <li>
-                <strong className="text-gray-900 w-24 inline-block">
-                  Order No:
-                </strong>{' '}
-                {bookingData.bookingNumber}
-              </li>
-              <li>
-                <strong className="text-gray-900 w-24 inline-block">
-                  Customer:
-                </strong>{' '}
-                {bookingData.customerName}
-              </li>
-              {bookingData.deliveryAddress && (
-                <li className="flex">
-                  <strong className="text-gray-900 w-24 shrink-0 inline-block">
-                    Delivery:
-                  </strong>
-                  <span>{bookingData.deliveryAddress}</span>
-                </li>
+            <div className="space-y-6">
+              {booking.rentalPeriod && (
+                <div className="bg-gray-50 p-5">
+                  <h3 className="font-bold text-gray-900">Rental period</h3>
+                  <p className="mt-2 text-sm text-gray-600">{new Date(booking.rentalPeriod.startDate).toLocaleDateString()} – {new Date(booking.rentalPeriod.endDate).toLocaleDateString()}</p>
+                  <p className="mt-1 text-sm text-gray-500">{booking.rentalPeriod.totalDays} days</p>
+                </div>
               )}
-              {bookingData.grandTotal > 0 && (
-                <li>
-                  <strong className="text-gray-900 w-24 inline-block">
-                    Total:
-                  </strong>{' '}
-                  {formatPrice(bookingData.grandTotal)}
-                </li>
-              )}
-            </ul>
-
-            {bookingData.items.length > 0 && (
-              <>
-                <h3 className="font-bold text-gray-900 text-sm mb-2">
-                  Items Rented
-                </h3>
-                <div className="space-y-2 text-sm text-gray-600 bg-white p-3 border border-gray-200 shadow-sm">
-                  {bookingData.items.map((item, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="font-medium">
-                        {item.productName}
-                        {item.colorName && (
-                          <span className="text-gray-400 font-normal">
-                            {' '}
-                            ({item.colorName})
-                          </span>
-                        )}
-                      </span>
-                      {item.startDate && item.endDate && (
-                        <span className="text-xs">
-                          {new Date(item.startDate).toLocaleDateString()} –{' '}
-                          {new Date(item.endDate).toLocaleDateString()}
-                        </span>
-                      )}
+              <div>
+                <h3 className="font-bold text-gray-900">Items</h3>
+                <div className="mt-3 divide-y border border-gray-200">
+                  {booking.items.map((item, index) => (
+                    <div key={`${item.productName}-${index}`} className="p-4">
+                      <p className="font-medium text-gray-900">{item.productName}</p>
+                      <p className="mt-1 text-xs text-gray-500">{new Date(item.startDate).toLocaleDateString()} – {new Date(item.endDate).toLocaleDateString()}</p>
                     </div>
                   ))}
                 </div>
-              </>
-            )}
-          </div>
-
-          {bookingData.trackingNumber && bookingData.courierProvider && (
-            <div className="bg-blue-50/50 p-6 border border-blue-100 shadow-sm h-fit">
-              <div className="flex items-center gap-3 mb-4 border-b border-blue-200 pb-2">
-                <Package className="h-5 w-5 text-blue-600" />
-                <h2 className="text-lg font-bold text-gray-900">
-                  Shipping Information
-                </h2>
               </div>
-              <ul className="text-sm text-gray-700 space-y-3 mb-6">
-                <li className="flex justify-between items-center bg-white p-3 border border-blue-100 rounded-sm">
-                  <span className="text-gray-500 font-medium tracking-wide text-xs uppercase">Tracking ID</span>
-                  <strong className="font-mono text-blue-700">{bookingData.trackingNumber}</strong>
-                </li>
-                <li className="flex justify-between items-center bg-white p-3 border border-blue-100 rounded-sm">
-                  <span className="text-gray-500 font-medium tracking-wide text-xs uppercase">Courier</span>
-                  <span className="capitalize font-semibold text-gray-900">{bookingData.courierProvider}</span>
-                </li>
-              </ul>
-              
-              {bookingData.courierProvider.toLowerCase() === 'pathao' && (
-                <a
-                  href={`https://pathao.com/tracking/?consignment_id=${bookingData.trackingNumber}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-semibold py-3 px-4 hover:bg-blue-700 transition"
-                >
-                  Track on Pathao <Search className="h-4 w-4" />
-                </a>
+              {booking.trackingNumber && (
+                <div className="border border-blue-100 bg-blue-50 p-5">
+                  <h3 className="flex items-center gap-2 font-bold text-gray-900"><Package className="h-4 w-4 text-blue-600" /> Delivery</h3>
+                  <p className="mt-2 text-sm text-gray-600">{booking.courierProvider ?? 'Courier'} · <span className="font-mono">{booking.trackingNumber}</span></p>
+                  {booking.courierStatus && <p className="mt-1 text-xs uppercase tracking-wide text-blue-700">{booking.courierStatus.replaceAll('_', ' ')}</p>}
+                </div>
               )}
             </div>
-          )}
-        </div>
-        </div>
-      )}
-    </div>
+          </section>
+        )}
+      </div>
+    </main>
   );
 }

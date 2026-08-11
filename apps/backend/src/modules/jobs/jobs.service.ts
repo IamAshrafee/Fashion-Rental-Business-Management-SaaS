@@ -237,12 +237,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
-    // Save the job ID on the booking so it can be cancelled if needed
-    await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: { pickupJobId: job.id ?? jobId },
-    });
-
     this.logger.log(
       `Pickup job scheduled for ${bookingNumber}: delay=${Math.ceil(delayMs / (1000 * 60 * 60))}h, jobId=${job.id}`,
     );
@@ -258,25 +252,15 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     bookingId: string;
     bookingNumber: string;
   }): Promise<void> {
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: payload.bookingId },
-      select: { pickupJobId: true },
-    });
-
-    if (booking?.pickupJobId) {
-      try {
-        const job = await this.fulfillmentQueue.getJob(booking.pickupJobId);
-        if (job && (await job.isDelayed())) {
-          await job.remove();
-          this.logger.log(
-            `Cancelled pickup job ${booking.pickupJobId} for ${payload.bookingNumber}`,
-          );
-        }
-      } catch (err) {
-        this.logger.warn(
-          `Failed to cancel pickup job ${booking.pickupJobId}: ${(err as Error).message}`,
-        );
+    const jobId = `pickup:${payload.bookingId}`;
+    try {
+      const job = await this.fulfillmentQueue.getJob(jobId);
+      if (job && (await job.isDelayed())) {
+        await job.remove();
+        this.logger.log(`Cancelled pickup job ${jobId} for ${payload.bookingNumber}`);
       }
+    } catch (err) {
+      this.logger.warn(`Failed to cancel pickup job ${jobId}: ${(err as Error).message}`);
     }
   }
 

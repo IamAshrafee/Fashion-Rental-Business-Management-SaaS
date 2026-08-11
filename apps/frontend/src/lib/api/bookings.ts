@@ -728,6 +728,14 @@ export const bookingApi = {
     });
   },
 
+  reviewPaymentClaim: async (
+    bookingId: string,
+    paymentId: string,
+    payload: { approve: boolean; reason?: string },
+  ): Promise<void> => {
+    await apiClient.patch(`/owner/bookings/${bookingId}/payments/${paymentId}/review`, payload);
+  },
+
   /**
    * GET /api/v1/owner/bookings/:id/payments
    */

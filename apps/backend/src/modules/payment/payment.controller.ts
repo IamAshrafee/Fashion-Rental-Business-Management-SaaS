@@ -19,6 +19,7 @@ import { PaymentService } from './payment.service';
 import {
   RecordPaymentDto,
   InitiatePaymentDto,
+  ReviewPaymentClaimDto,
   SettleDepositDto,
 } from './dto/payment.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -58,6 +59,7 @@ export class PaymentGuestController {
     const result = await this.paymentService.initiateSslcommerz(
       tenant.id,
       dto.bookingId,
+      dto.trackingToken,
     );
     return {
       success: true,
@@ -102,15 +104,17 @@ export class PaymentGuestController {
 
     // Look up the booking number for the redirect
     let bookingNumber = '';
+    let trackingToken = '';
     try {
       const booking = await this.paymentService.getBookingNumber(bookingId);
       bookingNumber = booking?.bookingNumber || bookingId;
+      trackingToken = booking?.publicTrackingToken || '';
     } catch {
       bookingNumber = bookingId;
     }
 
     return res.redirect(
-      `${frontendUrl}/booking/confirmation?number=${encodeURIComponent(bookingNumber)}&payment=success`,
+      `${frontendUrl}/booking/confirmation?number=${encodeURIComponent(bookingNumber)}&token=${encodeURIComponent(trackingToken)}&payment=success`,
     );
   }
 
@@ -201,6 +205,25 @@ export class PaymentOwnerController {
       bookingId,
     );
     return { success: true, ...result };
+  }
+
+  @Patch(':id/payments/:paymentId/review')
+  @Roles('owner', 'manager')
+  async reviewPaymentClaim(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') bookingId: string,
+    @Param('paymentId') paymentId: string,
+    @Body() dto: ReviewPaymentClaimDto,
+    @Req() req: Request & { user?: { id: string } },
+  ) {
+    const payment = await this.paymentService.reviewPaymentClaim(
+      tenant.id,
+      bookingId,
+      paymentId,
+      dto,
+      req.user?.id ?? 'unknown',
+    );
+    return { success: true, data: payment };
   }
 }
 

@@ -189,6 +189,9 @@ CREATE TYPE "DamageLevel" AS ENUM ('none', 'minor', 'moderate', 'severe', 'destr
 
 -- CreateEnum
 CREATE TYPE "TransactionStatus" AS ENUM ('pending', 'verified', 'failed', 'refunded');
+CREATE TYPE "ShipmentDirection" AS ENUM ('OUTBOUND', 'RETURN');
+CREATE TYPE "ShipmentProvider" AS ENUM ('pathao', 'steadfast', 'manual');
+CREATE TYPE "ShipmentStatus" AS ENUM ('prepare_parcel', 'pickup_pending', 'pickup_assigned', 'pickup_failed', 'picked_up', 'at_hub', 'in_transit', 'at_destination', 'out_for_delivery', 'delivered', 'partial_delivered', 'returned_to_sender', 'cancelled', 'on_hold', 'error', 'unknown');
 
 -- CreateEnum
 CREATE TYPE "SubscriptionStatus" AS ENUM ('active', 'past_due', 'cancelled', 'trial', 'free_tier', 'grace_period', 'suspended');
@@ -351,8 +354,9 @@ CREATE TABLE "store_settings" (
     "sslcommerz_store_pass" TEXT,
     "sslcommerz_sandbox" BOOLEAN NOT NULL DEFAULT true,
     "default_courier" TEXT,
-    "courier_api_key" TEXT,
-    "courier_secret_key" TEXT,
+    "steadfast_api_key" TEXT,
+    "steadfast_secret_key" TEXT,
+    "courier_webhook_token" TEXT NOT NULL,
     "pickup_address" TEXT,
     "pickup_city" TEXT,
     "pathao_client_id" TEXT,
@@ -732,6 +736,21 @@ CREATE TABLE "booking_quotes" (
 );
 
 -- CreateTable
+CREATE TABLE "storefront_checkout_quotes" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "quote_hash" TEXT NOT NULL,
+    "request_snapshot" JSONB NOT NULL,
+    "response_snapshot" JSONB NOT NULL,
+    "grand_total" INTEGER NOT NULL,
+    "expires_at" TIMESTAMPTZ NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "storefront_checkout_quotes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "product_types" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
@@ -1022,6 +1041,8 @@ CREATE TABLE "bookings" (
     "booking_number" TEXT NOT NULL,
     "customer_id" TEXT NOT NULL,
     "quote_id" TEXT,
+    "storefront_quote_id" TEXT,
+    "public_tracking_token" TEXT NOT NULL,
     "policy_version_id" TEXT,
     "channel" "BookingChannel" NOT NULL DEFAULT 'STOREFRONT',
     "rental_start_date" DATE,
@@ -1053,16 +1074,6 @@ CREATE TABLE "bookings" (
     "delivery_extra" JSONB,
     "customer_notes" TEXT,
     "internal_notes" TEXT,
-    "tracking_number" TEXT,
-    "courier_provider" TEXT,
-    "courier_consignment_id" TEXT,
-    "courier_status" TEXT,
-    "courier_status_history" JSONB,
-    "pickup_requested_at" TIMESTAMP(3),
-    "pickup_job_id" TEXT,
-    "scheduled_pickup_at" TIMESTAMP(3),
-    "delivery_lead_days" INTEGER,
-    "courier_error_reason" TEXT,
     "cancellation_reason" TEXT,
     "cancelled_by" "CancelledBy",
     "cancelled_at" TIMESTAMP(3),
@@ -1118,6 +1129,77 @@ CREATE TABLE "booking_items" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "booking_items_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "shipments" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "booking_id" TEXT NOT NULL,
+    "direction" "ShipmentDirection" NOT NULL DEFAULT 'OUTBOUND',
+    "provider" "ShipmentProvider" NOT NULL,
+    "status" "ShipmentStatus" NOT NULL DEFAULT 'prepare_parcel',
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "provider_reference" TEXT,
+    "tracking_number" TEXT,
+    "recipient_name" TEXT NOT NULL,
+    "recipient_phone" TEXT NOT NULL,
+    "recipient_address" TEXT NOT NULL,
+    "recipient_city" TEXT NOT NULL,
+    "recipient_zone" TEXT,
+    "cod_amount" INTEGER NOT NULL DEFAULT 0,
+    "quoted_fee" INTEGER,
+    "charged_fee" INTEGER,
+    "weight_grams" INTEGER NOT NULL DEFAULT 1000,
+    "item_quantity" INTEGER NOT NULL DEFAULT 1,
+    "special_instruction" TEXT,
+    "scheduled_pickup_at" TIMESTAMP(3),
+    "pickup_requested_at" TIMESTAMP(3),
+    "last_synced_at" TIMESTAMP(3),
+    "delivered_at" TIMESTAMP(3),
+    "failed_reason" TEXT,
+    "raw_create_response" JSONB,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "shipments_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "shipment_items" (
+    "id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "booking_item_id" TEXT NOT NULL,
+    "quantity" INTEGER NOT NULL,
+    CONSTRAINT "shipment_items_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "shipment_events" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "status" "ShipmentStatus" NOT NULL,
+    "label" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "provider_event_id" TEXT,
+    "dedupe_key" TEXT NOT NULL,
+    "raw_payload" JSONB,
+    "occurred_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "shipment_events_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "courier_webhook_receipts" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT,
+    "provider" "ShipmentProvider" NOT NULL,
+    "external_event_id" TEXT,
+    "payload_hash" TEXT NOT NULL,
+    "payload" JSONB NOT NULL,
+    "processed_at" TIMESTAMP(3),
+    "error_reason" TEXT,
+    "received_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "courier_webhook_receipts_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -2030,6 +2112,9 @@ CREATE UNIQUE INDEX "tenant_usage_snapshots_tenant_id_snapshot_date_key" ON "ten
 CREATE UNIQUE INDEX "store_settings_tenant_id_key" ON "store_settings"("tenant_id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "store_settings_courier_webhook_token_key" ON "store_settings"("courier_webhook_token");
+
+-- CreateIndex
 CREATE INDEX "tenant_users_user_id_idx" ON "tenant_users"("user_id");
 
 -- CreateIndex
@@ -2180,6 +2265,12 @@ CREATE INDEX "booking_quotes_tenant_id_expires_at_idx" ON "booking_quotes"("tena
 CREATE INDEX "booking_quotes_tenant_id_inputs_hash_idx" ON "booking_quotes"("tenant_id", "inputs_hash");
 
 -- CreateIndex
+CREATE INDEX "storefront_checkout_quotes_tenant_id_expires_at_idx" ON "storefront_checkout_quotes"("tenant_id", "expires_at");
+
+-- CreateIndex
+CREATE INDEX "storefront_checkout_quotes_tenant_id_request_hash_created_at_idx" ON "storefront_checkout_quotes"("tenant_id", "request_hash", "created_at" DESC);
+
+-- CreateIndex
 CREATE INDEX "product_types_tenant_id_idx" ON "product_types"("tenant_id");
 
 -- CreateIndex
@@ -2306,9 +2397,6 @@ CREATE INDEX "customer_accounts_tenant_id_status_idx" ON "customer_accounts"("te
 CREATE INDEX "bookings_tenant_id_status_idx" ON "bookings"("tenant_id", "status");
 
 -- CreateIndex
-CREATE INDEX "bookings_tenant_id_courier_status_idx" ON "bookings"("tenant_id", "courier_status");
-
--- CreateIndex
 CREATE INDEX "bookings_tenant_id_created_at_idx" ON "bookings"("tenant_id", "created_at" DESC);
 
 -- CreateIndex
@@ -2319,6 +2407,12 @@ CREATE INDEX "bookings_policy_version_id_idx" ON "bookings"("policy_version_id")
 
 -- CreateIndex
 CREATE UNIQUE INDEX "bookings_quote_id_key" ON "bookings"("quote_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "bookings_storefront_quote_id_key" ON "bookings"("storefront_quote_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "bookings_public_tracking_token_key" ON "bookings"("public_tracking_token");
 
 -- CreateIndex
 CREATE INDEX "bookings_tenant_id_source_location_id_rental_start_date_rental_end_date_idx" ON "bookings"("tenant_id", "source_location_id", "rental_start_date", "rental_end_date");
@@ -2337,6 +2431,19 @@ CREATE INDEX "booking_items_product_id_idx" ON "booking_items"("product_id");
 
 -- CreateIndex
 CREATE INDEX "booking_items_variant_size_id_idx" ON "booking_items"("variant_size_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shipments_tenant_id_idempotency_key_key" ON "shipments"("tenant_id", "idempotency_key");
+CREATE UNIQUE INDEX "shipments_provider_provider_reference_key" ON "shipments"("provider", "provider_reference");
+CREATE UNIQUE INDEX "shipments_provider_tracking_number_key" ON "shipments"("provider", "tracking_number");
+CREATE INDEX "shipments_tenant_id_status_scheduled_pickup_at_idx" ON "shipments"("tenant_id", "status", "scheduled_pickup_at");
+CREATE INDEX "shipments_booking_id_direction_created_at_idx" ON "shipments"("booking_id", "direction", "created_at" DESC);
+CREATE UNIQUE INDEX "shipment_items_shipment_id_booking_item_id_key" ON "shipment_items"("shipment_id", "booking_item_id");
+CREATE INDEX "shipment_items_booking_item_id_idx" ON "shipment_items"("booking_item_id");
+CREATE UNIQUE INDEX "shipment_events_shipment_id_dedupe_key_key" ON "shipment_events"("shipment_id", "dedupe_key");
+CREATE INDEX "shipment_events_tenant_id_occurred_at_idx" ON "shipment_events"("tenant_id", "occurred_at" DESC);
+CREATE UNIQUE INDEX "courier_webhook_receipts_provider_payload_hash_key" ON "courier_webhook_receipts"("provider", "payload_hash");
+CREATE INDEX "courier_webhook_receipts_tenant_id_received_at_idx" ON "courier_webhook_receipts"("tenant_id", "received_at" DESC);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "damage_reports_booking_item_id_key" ON "damage_reports"("booking_item_id");
@@ -3023,6 +3130,9 @@ ALTER TABLE "quote_line_items" ADD CONSTRAINT "quote_line_items_quote_id_fkey" F
 ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "storefront_checkout_quotes" ADD CONSTRAINT "storefront_checkout_quotes_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3128,6 +3238,9 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_customer_id_fkey" FOREIGN KEY ("
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_quote_id_fkey" FOREIGN KEY ("quote_id") REFERENCES "booking_quotes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_storefront_quote_id_fkey" FOREIGN KEY ("storefront_quote_id") REFERENCES "storefront_checkout_quotes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_policy_version_id_fkey" FOREIGN KEY ("policy_version_id") REFERENCES "price_policy_versions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3135,6 +3248,15 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_source_location_id_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "booking_items" ADD CONSTRAINT "booking_items_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "shipments" ADD CONSTRAINT "shipments_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "shipments" ADD CONSTRAINT "shipments_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "shipment_items" ADD CONSTRAINT "shipment_items_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "shipment_items" ADD CONSTRAINT "shipment_items_booking_item_id_fkey" FOREIGN KEY ("booking_item_id") REFERENCES "booking_items"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "shipment_events" ADD CONSTRAINT "shipment_events_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "shipment_events" ADD CONSTRAINT "shipment_events_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "courier_webhook_receipts" ADD CONSTRAINT "courier_webhook_receipts_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "courier_webhook_receipts" ADD CONSTRAINT "courier_webhook_receipts_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "booking_items" ADD CONSTRAINT "booking_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE SET NULL ON UPDATE CASCADE;

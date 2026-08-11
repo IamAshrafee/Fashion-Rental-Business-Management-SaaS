@@ -112,10 +112,10 @@ export function DistrictLeadDaysEditor({ initialConfig, defaultLeadDays }: Distr
       defaultLeadDays: fallback,
     };
     updateCourier.mutate(
-      { pickupLeadDays: fallback, pickupLeadDaysConfig: configPayload as any },
+      { pickupLeadDays: fallback, pickupLeadDaysConfig: configPayload },
       {
         onSuccess: () => toast.success('District lead days saved'),
-        onError: (err: any) => toast.error(err.message || 'Failed to save'),
+        onError: (err: unknown) => toast.error(err instanceof Error ? err.message : 'Failed to save'),
       }
     );
   };

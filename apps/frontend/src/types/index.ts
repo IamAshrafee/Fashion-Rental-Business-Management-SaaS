@@ -48,6 +48,7 @@ export interface TenantPublicInfo {
   youtubeUrl: string | null;
   bkashNumber: string | null;
   nagadNumber: string | null;
+  sslcommerzEnabled: boolean;
   locale: TenantLocale;
 }
 

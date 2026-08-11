@@ -22,6 +22,7 @@ export interface CartValidationRequest {
       quantity?: number;
     }>;
   }>;
+  issueCheckoutQuote?: boolean;
 }
 
 export interface CartValidationResponse {
@@ -58,6 +59,11 @@ export interface CartValidationResponse {
     totalDeposit: number;
     shippingFee: number;
     grandTotal: number;
+  };
+  checkoutQuote?: {
+    id: string;
+    quoteHash: string;
+    expiresAt: string;
   };
 }
 
@@ -103,6 +109,8 @@ export interface CheckoutPayload {
     }>;
   }>;
   paymentMethod: 'cod' | 'bkash' | 'nagad' | 'sslcommerz';
+  checkoutQuoteId: string;
+  checkoutQuoteHash: string;
   bkashTransactionId?: string;
   nagadTransactionId?: string;
   customerNotes?: string;
@@ -111,8 +119,11 @@ export interface CheckoutPayload {
 export interface BookingResponse {
   bookingId: string;
   bookingNumber: string;
+  trackingToken: string;
   status: string;
-  paymentUrl?: string; // If sslcommerz
+  paymentMethod: CheckoutPayload['paymentMethod'];
+  grandTotal: number;
+  breakdown: CartValidationResponse['summary'] & { discountAmount: number };
 }
 
 /**
@@ -130,38 +141,6 @@ export async function validateCart(payload: CartValidationRequest): Promise<Cart
 }
 
 /**
- * Looks up existing customer details based on phone number to auto-fill checkout fields.
- *
- * GET /api/v1/customers/lookup?phone=...
- */
-export async function lookupCustomer(
-  phone: string,
-): Promise<{
-  found: boolean;
-  customer: {
-    fullName: string;
-    phone: string;
-    email: string | null;
-    addressLine1: string | null;
-    addressLine2: string | null;
-    city: string | null;
-    state: string | null;
-    postalCode: string | null;
-    country: string | null;
-  } | null;
-}> {
-  try {
-    const response = await apiClient.get<{
-      found: boolean;
-      customer: any;
-    }>(`/customers/lookup?phone=${encodeURIComponent(phone)}`);
-    return response.data;
-  } catch {
-    return { found: false, customer: null };
-  }
-}
-
-/**
  * Finalizes the order submission to the server.
  * The payload shape matches the backend's CreateBookingDto exactly:
  * - customer: { fullName, phone, altPhone?, email? }
@@ -171,12 +150,43 @@ export async function lookupCustomer(
  *
  * POST /api/v1/bookings
  */
-export async function createBooking(payload: CheckoutPayload): Promise<BookingResponse> {
-  const response = await apiClient.post<ApiResponse<BookingResponse>>('/bookings', payload);
+export async function createBooking(payload: CheckoutPayload, idempotencyKey: string): Promise<BookingResponse> {
+  const response = await apiClient.post<ApiResponse<BookingResponse>>('/bookings', payload, {
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
   if (!response.data.success) {
     throw new Error(response.data.message || 'Failed to submit booking');
   }
   return response.data.data;
+}
+
+export async function initiateSslcommerz(bookingId: string, trackingToken: string): Promise<string> {
+  const response = await apiClient.post<ApiResponse<{ paymentUrl: string; sessionKey: string }>>(
+    '/payments/initiate',
+    { bookingId, trackingToken },
+  );
+  if (!response.data.success || !response.data.data?.paymentUrl) {
+    throw new Error(response.data.message || 'Failed to start secure payment');
+  }
+  return response.data.data.paymentUrl;
+}
+
+export interface PublicBookingTracking {
+  bookingNumber: string;
+  status: string;
+  trackingNumber: string | null;
+  courierProvider: string | null;
+  courierStatus: string | null;
+  timeline: Array<{ status: string; label: string; at: string; type: 'business' | 'courier' }>;
+  rentalPeriod: null | {
+    startDate: string;
+    endDate: string;
+    totalDays: number;
+    daysRemaining: number;
+    isActive: boolean;
+    isOverdue: boolean;
+  };
+  items: Array<{ productName: string; startDate: string; endDate: string }>;
 }
 
 /**
@@ -184,9 +194,9 @@ export async function createBooking(payload: CheckoutPayload): Promise<BookingRe
  *
  * GET /api/v1/bookings/:bookingNumber/status
  */
-export async function trackBooking(bookingNumber: string): Promise<any> {
-  const response = await apiClient.get<ApiResponse<any>>(
-    `/bookings/${encodeURIComponent(bookingNumber)}/status`,
+export async function trackBooking(trackingToken: string): Promise<PublicBookingTracking> {
+  const response = await apiClient.get<ApiResponse<PublicBookingTracking>>(
+    `/bookings/track/${encodeURIComponent(trackingToken)}`,
   );
   if (!response.data.success) {
     throw new Error(response.data.message || 'Failed to track booking');

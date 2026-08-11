@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
 export interface CartItem {
   cartItemId: string; // Unique generated ID for the item in cart
@@ -41,7 +41,7 @@ export interface CartItem {
   totalPrice: number;      // Calculated total
 }
 
-const CART_STORAGE_KEY = 'closetrent_guest_cart_v3';
+const CART_STORAGE_KEY = 'closetrent_guest_cart_v4';
 
 
 // Fallback logic for SSR
@@ -63,7 +63,22 @@ const subscribe = (listener: () => void) => {
 export function useCart() {
   const storeSnapshot = useSyncExternalStore(subscribe, getCartSnapshot, () => '[]');
   
-  const items: CartItem[] = JSON.parse(storeSnapshot);
+  const items = useMemo<CartItem[]>(() => {
+    try {
+      const parsed: unknown = JSON.parse(storeSnapshot);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item): item is CartItem => Boolean(
+        item && typeof item === 'object'
+        && typeof (item as CartItem).cartItemId === 'string'
+        && typeof (item as CartItem).productId === 'string'
+        && typeof (item as CartItem).variantSizeId === 'string'
+        && typeof (item as CartItem).startDate === 'string'
+        && typeof (item as CartItem).endDate === 'string',
+      ));
+    } catch {
+      return [];
+    }
+  }, [storeSnapshot]);
 
   const saveItems = useCallback((newItems: CartItem[]) => {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(newItems));
@@ -73,7 +88,7 @@ export function useCart() {
   const addItem = useCallback((item: Omit<CartItem, 'cartItemId'>) => {
     const newItem = {
       ...item,
-      cartItemId: Math.random().toString(36).substring(2, 9),
+      cartItemId: crypto.randomUUID(),
     };
     saveItems([...items, newItem]);
   }, [items, saveItems]);

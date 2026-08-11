@@ -43,8 +43,8 @@ export interface UpdatePaymentSettingsDto {
 
 export interface UpdateCourierSettingsDto {
   defaultCourier?: string;
-  courierApiKey?: string;
-  courierSecretKey?: string;
+  steadfastApiKey?: string;
+  steadfastSecretKey?: string;
   pickupAddress?: string;
   pathaoClientId?: string;
   pathaoClientSecret?: string;
@@ -53,7 +53,7 @@ export interface UpdateCourierSettingsDto {
   pathaoStoreId?: number;
   pathaoSandbox?: boolean;
   pickupLeadDays?: number;
-  pickupLeadDaysConfig?: Record<string, number>;
+  pickupLeadDaysConfig?: { districtLeadDays: Record<string, number>; defaultLeadDays: number };
 }
 
 export interface UpdateOperationalSettingsDto {
@@ -113,8 +113,9 @@ export interface StoreSettings {
   
   // Courier
   defaultCourier?: string;
-  courierApiKey?: string;
-  courierSecretKey?: string;
+  courierWebhookToken?: string;
+  steadfastApiKey?: string;
+  steadfastSecretKey?: string;
   pickupAddress?: string;
   pathaoClientId?: string;
   pathaoClientSecret?: string;
@@ -125,7 +126,7 @@ export interface StoreSettings {
 
   // Pickup scheduling
   pickupLeadDays?: number;
-  pickupLeadDaysConfig?: Record<string, number>;
+  pickupLeadDaysConfig?: { districtLeadDays: Record<string, number>; defaultLeadDays: number };
   
   // Operational
   maxConcurrentSessions: number;

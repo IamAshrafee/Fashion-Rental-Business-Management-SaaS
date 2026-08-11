@@ -11,6 +11,7 @@ import {
   Min,
   Max,
   Matches,
+  IsObject,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -185,12 +186,12 @@ export class UpdateCourierSettingsDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
-  courierApiKey?: string;
+  steadfastApiKey?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(255)
-  courierSecretKey?: string;
+  steadfastSecretKey?: string;
 
   @IsOptional()
   @IsString()
@@ -233,7 +234,8 @@ export class UpdateCourierSettingsDto {
   pickupLeadDays?: number;
 
   @IsOptional()
-  pickupLeadDaysConfig?: Record<string, number>;
+  @IsObject()
+  pickupLeadDaysConfig?: { districtLeadDays: Record<string, number>; defaultLeadDays: number };
 }
 
 // =========================================================================

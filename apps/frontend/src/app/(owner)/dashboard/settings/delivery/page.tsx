@@ -36,9 +36,8 @@ const courierSchema = z.object({
   pathaoPassword: z.string().max(255).optional(),
   pathaoStoreId: z.coerce.number().int().optional(),
   pathaoSandbox: z.boolean().optional(),
-  // Legacy (for Steadfast / others)
-  courierApiKey: z.string().max(255).optional(),
-  courierSecretKey: z.string().max(255).optional(),
+  steadfastApiKey: z.string().max(255).optional(),
+  steadfastSecretKey: z.string().max(255).optional(),
   
   // Delivery Schedule
   pickupLeadDays: z.coerce.number().int().min(0).max(14).optional(),
@@ -63,8 +62,8 @@ function DeliveryForm({ data }: { data: StoreSettings }) {
       pathaoPassword: data.pathaoPassword || '',
       pathaoStoreId: data.pathaoStoreId || undefined,
       pathaoSandbox: data.pathaoSandbox || false,
-      courierApiKey: data.courierApiKey || '',
-      courierSecretKey: data.courierSecretKey || '',
+      steadfastApiKey: '',
+      steadfastSecretKey: '',
       pickupLeadDays: data.pickupLeadDays ?? 2,
     },
   });
@@ -308,7 +307,7 @@ function DeliveryForm({ data }: { data: StoreSettings }) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <FormField
                     control={form.control}
-                    name="courierApiKey"
+                    name="steadfastApiKey"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>API Key</FormLabel>
@@ -321,7 +320,7 @@ function DeliveryForm({ data }: { data: StoreSettings }) {
                   />
                   <FormField
                     control={form.control}
-                    name="courierSecretKey"
+                    name="steadfastSecretKey"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>API Secret</FormLabel>
@@ -336,6 +335,25 @@ function DeliveryForm({ data }: { data: StoreSettings }) {
               </CardContent>
             </Card>
           </>
+        )}
+
+        {data.courierWebhookToken && selectedCourier !== 'manual' && (
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Courier status webhook</CardTitle>
+              <CardDescription>
+                Register this private URL in the courier merchant portal so delivery events are authenticated and processed once.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Input
+                readOnly
+                value={`${typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.endsWith('.localhost') || window.location.hostname.endsWith('.local')) ? `${window.location.protocol}//${window.location.hostname}:4000` : typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/webhooks/courier/${selectedCourier}/${data.courierWebhookToken}`}
+                className="font-mono text-xs"
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </CardContent>
+          </Card>
         )}
 
         <div className="flex justify-end pt-4">
@@ -370,7 +388,7 @@ export default function CourierSettingsPage() {
         <>
           <DeliveryForm key={response.data.updatedAt} data={response.data} />
           <DistrictLeadDaysEditor
-            initialConfig={response.data.pickupLeadDaysConfig as any}
+            initialConfig={response.data.pickupLeadDaysConfig}
             defaultLeadDays={response.data.pickupLeadDays ?? 2}
           />
         </>

@@ -14,7 +14,6 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { BookingService } from './booking.service';
-import { CustomerService } from '../customer/customer.service';
 import {
   CreateBookingDto,
   CreateManualBookingDto,
@@ -47,10 +46,7 @@ import { BookingStatus } from '@prisma/client';
  */
 @Controller()
 export class BookingGuestController {
-  constructor(
-    private readonly bookingService: BookingService,
-    private readonly customerService: CustomerService,
-  ) {}
+  constructor(private readonly bookingService: BookingService) {}
 
   /**
    * POST /api/v1/products/:productId/check-availability
@@ -104,30 +100,17 @@ export class BookingGuestController {
   }
 
   /**
-   * GET /api/v1/bookings/:bookingNumber/status
-   * Guest order tracking — public, only needs booking number.
+   * GET /api/v1/bookings/track/:token
+   * Capability URL for guest tracking. The high-entropy token is issued only
+   * to the customer who created the booking.
    */
   @Public()
-  @Get('bookings/:bookingNumber/status')
+  @Get('bookings/track/:token')
   async getOrderStatus(
     @CurrentTenant() tenant: TenantContext,
-    @Param('bookingNumber') bookingNumber: string,
+    @Param('token') token: string,
   ) {
-    return this.bookingService.getBookingByNumber(tenant.id, bookingNumber);
-  }
-
-  /**
-   * GET /api/v1/customers/lookup?phone=01712345678
-   * Public customer lookup for checkout auto-fill.
-   * Returns minimal customer info (name, address) — no sensitive data.
-   */
-  @Public()
-  @Get('customers/lookup')
-  async lookupCustomer(
-    @CurrentTenant() tenant: TenantContext,
-    @Query('phone') phone: string,
-  ) {
-    return this.customerService.lookupByPhone(tenant.id, phone);
+    return this.bookingService.getBookingByTrackingToken(tenant.id, token);
   }
 }
 

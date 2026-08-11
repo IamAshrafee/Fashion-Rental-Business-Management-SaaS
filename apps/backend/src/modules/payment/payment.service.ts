@@ -17,6 +17,7 @@ import {
 } from '@prisma/client';
 import {
   RecordPaymentDto,
+  ReviewPaymentClaimDto,
   SettleDepositDto,
 } from './dto/payment.dto';
 import { createHash } from 'crypto';
@@ -201,6 +202,108 @@ export class PaymentService {
     return result.payment;
   }
 
+  async reviewPaymentClaim(
+    tenantId: string,
+    bookingId: string,
+    paymentId: string,
+    dto: ReviewPaymentClaimDto,
+    actorUserId: string,
+  ) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM bookings WHERE tenant_id = ${tenantId} AND id = ${bookingId} FOR UPDATE
+      `);
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM payments WHERE tenant_id = ${tenantId} AND id = ${paymentId} FOR UPDATE
+      `);
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, tenantId, deletedAt: null },
+      });
+      if (!booking) throw new NotFoundException('Booking not found');
+      const claim = await tx.payment.findFirst({
+        where: { id: paymentId, bookingId, tenantId },
+      });
+      if (!claim) throw new NotFoundException('Payment claim not found');
+      if (!['bkash', 'nagad'].includes(claim.method)) {
+        throw new BadRequestException('Only customer-submitted mobile-payment claims can be reviewed here');
+      }
+      if (claim.status !== 'pending') {
+        throw new ConflictException({ code: 'PAYMENT_CLAIM_ALREADY_REVIEWED', message: 'This payment claim has already been reviewed' });
+      }
+
+      const reviewedAt = new Date();
+      if (!dto.approve) {
+        const payment = await tx.payment.update({
+          where: { id: claim.id },
+          data: {
+            status: 'failed',
+            recordedBy: actorUserId,
+            notes: dto.reason?.trim() || 'Customer payment claim rejected',
+            providerResponse: {
+              review: { approved: false, reviewedAt: reviewedAt.toISOString(), actorUserId },
+            },
+          },
+        });
+        return { payment, bookingNumber: booking.bookingNumber, approved: false };
+      }
+
+      const verified = await tx.payment.aggregate({
+        where: { tenantId, bookingId, status: 'verified' },
+        _sum: { amount: true, depositAmount: true },
+      });
+      const alreadyPaid = verified._sum.amount ?? 0;
+      if (claim.amount > booking.grandTotal - alreadyPaid) {
+        throw new ConflictException({
+          code: 'PAYMENT_CLAIM_EXCEEDS_BALANCE',
+          message: 'The claimed amount exceeds the remaining booking balance',
+          remainingBalance: booking.grandTotal - alreadyPaid,
+        });
+      }
+      const payment = await tx.payment.update({
+        where: { id: claim.id },
+        data: {
+          status: 'verified',
+          recordedBy: actorUserId,
+          verifiedAt: reviewedAt,
+          notes: dto.reason?.trim() || 'Customer payment claim verified',
+          providerResponse: {
+            review: { approved: true, reviewedAt: reviewedAt.toISOString(), actorUserId },
+          },
+        },
+      });
+      const newTotalPaid = alreadyPaid + claim.amount;
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          totalPaid: newTotalPaid,
+          paymentStatus: this.calculatePaymentStatus(newTotalPaid, booking.grandTotal) as PaymentStatus,
+        },
+      });
+      await this.updateDepositProjection(
+        tx,
+        tenantId,
+        bookingId,
+        booking.totalDeposit,
+        (verified._sum.depositAmount ?? 0) + claim.depositAmount,
+      );
+      return { payment, bookingNumber: booking.bookingNumber, approved: true };
+    });
+
+    if (result.approved) {
+      this.eventEmitter.emit('payment.received', {
+        tenantId,
+        bookingId,
+        paymentId: result.payment.id,
+        amount: result.payment.amount,
+        rentalAmount: result.payment.rentalAmount,
+        depositAmount: result.payment.depositAmount,
+        method: result.payment.method,
+        bookingNumber: result.bookingNumber,
+      });
+    }
+    return result.payment;
+  }
+
   // =========================================================================
   // PAYMENT QUERIES
   // =========================================================================
@@ -264,16 +367,18 @@ export class PaymentService {
   async initiateSslcommerz(
     tenantId: string,
     bookingId: string,
+    trackingToken: string,
   ): Promise<SslcommerzInitResult> {
     // Load booking + tenant's store settings
     const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId, deletedAt: null },
+      where: { id: bookingId, tenantId, publicTrackingToken: trackingToken, deletedAt: null },
       select: {
         id: true,
         bookingNumber: true,
         grandTotal: true,
         totalPaid: true,
         totalDeposit: true,
+        paymentMethod: true,
         deliveryName: true,
         deliveryPhone: true,
         deliveryAddressLine1: true,
@@ -281,6 +386,9 @@ export class PaymentService {
       },
     });
     if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.paymentMethod !== 'sslcommerz') {
+      throw new BadRequestException('This booking was not created for online card payment');
+    }
 
     const paid = await this.prisma.payment.aggregate({
       where: { tenantId, bookingId, status: 'verified' },
@@ -771,7 +879,7 @@ export class PaymentService {
   async getBookingNumber(bookingId: string) {
     return this.prisma.booking.findUnique({
       where: { id: bookingId },
-      select: { bookingNumber: true },
+      select: { bookingNumber: true, publicTrackingToken: true },
     });
   }
 

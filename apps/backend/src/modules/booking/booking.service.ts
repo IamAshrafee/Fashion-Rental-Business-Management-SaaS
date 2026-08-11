@@ -15,7 +15,7 @@ import { InventoryAvailabilityService } from '../inventory/inventory-availabilit
 import { InventoryReservationService } from '../inventory/inventory-reservation.service';
 import { FulfillmentService, RequirementProposal } from '../inventory/fulfillment.service';
 import type { LateFeePolicy } from '@closetrent/types';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import {
   CreateBookingDto,
   CreateManualBookingDto,
@@ -370,7 +370,7 @@ export class BookingService {
 
     const summary = computeCartSummary(results);
 
-    return {
+    const response = {
       valid: !anyUnavailable,
       items: results.map((item, itemIndex) => ({
         productId: item.productId,
@@ -406,6 +406,40 @@ export class BookingService {
         totalDeposit: summary.totalDeposit,
         shippingFee: summary.shippingFee,
         grandTotal: summary.grandTotal,
+      },
+    };
+
+    if (!dto.issueCheckoutQuote || !response.valid) return response;
+
+    const id = randomUUID();
+    const requestHash = this.canonicalHash(dto.items);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const quoteHash = this.canonicalHash({
+      id,
+      tenantId,
+      requestHash,
+      response,
+      expiresAt: expiresAt.toISOString(),
+    });
+    await this.prisma.storefrontCheckoutQuote.create({
+      data: {
+        id,
+        tenantId,
+        requestHash,
+        quoteHash,
+        requestSnapshot: dto.items as unknown as Prisma.InputJsonValue,
+        responseSnapshot: response as unknown as Prisma.InputJsonValue,
+        grandTotal: summary.grandTotal,
+        expiresAt,
+      },
+    });
+
+    return {
+      ...response,
+      checkoutQuote: {
+        id,
+        quoteHash,
+        expiresAt: expiresAt.toISOString(),
       },
     };
   }
@@ -687,6 +721,30 @@ export class BookingService {
     ) {
       throw new BadRequestException('Owner-only booking controls are not accepted by the storefront endpoint');
     }
+    if (!creationKey?.trim()) {
+      throw new BadRequestException('Idempotency-Key is required for storefront booking creation');
+    }
+    if (!dto.checkoutQuoteId || !dto.checkoutQuoteHash) {
+      throw new BadRequestException('A current checkout quote is required');
+    }
+    const store = await this.prisma.storeSettings.findUnique({
+      where: { tenantId },
+      select: {
+        bkashNumber: true,
+        nagadNumber: true,
+        sslcommerzStoreId: true,
+        sslcommerzStorePass: true,
+      },
+    });
+    if (dto.paymentMethod === 'bkash' && !store?.bkashNumber) {
+      throw new BadRequestException('bKash is not configured for this store');
+    }
+    if (dto.paymentMethod === 'nagad' && !store?.nagadNumber) {
+      throw new BadRequestException('Nagad is not configured for this store');
+    }
+    if (dto.paymentMethod === 'sslcommerz' && (!store?.sslcommerzStoreId || !store.sslcommerzStorePass)) {
+      throw new BadRequestException('Online card payment is not configured for this store');
+    }
     return this.createBooking(tenantId, dto, creationKey);
   }
 
@@ -712,6 +770,7 @@ export class BookingService {
    */
   async createBooking(tenantId: string, dto: CreateBookingDto, rawCreationKey?: string) {
     const manualDto = 'quoteId' in dto ? dto as CreateManualBookingDto : null;
+    const storefrontQuoteId = manualDto ? null : dto.checkoutQuoteId ?? null;
     const creationKey = rawCreationKey?.trim() || null;
     const creationRequestHash = creationKey ? this.bookingRequestHash(dto) : null;
     if (creationKey && creationKey.length > 200) {
@@ -776,6 +835,35 @@ export class BookingService {
     let booking: BookingCreatedRecord | null;
     try {
       booking = await this.runSerializableTransaction(async (tx) => {
+      let storefrontQuote: Prisma.StorefrontCheckoutQuoteGetPayload<{
+        include: { booking: { select: { id: true } } };
+      }> | null = null;
+      if (!manualDto) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM storefront_checkout_quotes
+          WHERE tenant_id = ${tenantId} AND id = ${storefrontQuoteId}
+          FOR UPDATE
+        `);
+        storefrontQuote = await tx.storefrontCheckoutQuote.findFirst({
+          where: { id: storefrontQuoteId ?? '', tenantId },
+          include: { booking: { select: { id: true } } },
+        });
+        if (!storefrontQuote) {
+          throw new ConflictException({ code: 'CHECKOUT_QUOTE_NOT_FOUND', message: 'The checkout quote no longer exists; refresh checkout' });
+        }
+        if (storefrontQuote.booking) {
+          throw new ConflictException({ code: 'CHECKOUT_QUOTE_ALREADY_USED', message: 'This checkout quote has already been used' });
+        }
+        if (storefrontQuote.expiresAt <= new Date()) {
+          throw new ConflictException({ code: 'CHECKOUT_QUOTE_EXPIRED', message: 'Prices and availability expired; refresh checkout' });
+        }
+        if (storefrontQuote.quoteHash !== dto.checkoutQuoteHash) {
+          throw new ConflictException({ code: 'CHECKOUT_QUOTE_MISMATCH', message: 'The checkout quote identity is invalid' });
+        }
+        if (storefrontQuote.requestHash !== this.canonicalHash(dto.items)) {
+          throw new ConflictException({ code: 'CHECKOUT_INPUTS_CHANGED', message: 'Cart items or rental dates changed after checkout was priced' });
+        }
+      }
       if (manualDto) {
         await tx.$queryRaw(Prisma.sql`
           SELECT id FROM booking_quotes
@@ -921,6 +1009,14 @@ export class BookingService {
       }
 
       const grandTotalAfterDiscount = summary.grandTotal - discountAmount;
+      if (storefrontQuote && storefrontQuote.grandTotal !== grandTotalAfterDiscount) {
+        throw new ConflictException({
+          code: 'CHECKOUT_TOTAL_CHANGED',
+          message: 'The authoritative total changed; refresh checkout before placing the booking',
+          previousTotal: storefrontQuote.grandTotal,
+          currentTotal: grandTotalAfterDiscount,
+        });
+      }
       if (manualDto && acceptedQuote && (
         acceptedQuote.subtotal !== summary.subtotal
         || acceptedQuote.totalFees !== summary.totalFees
@@ -956,6 +1052,12 @@ export class BookingService {
       // Determine initial status (auto-confirm power-up)
       const initialStatus = dto.autoConfirm ? 'confirmed' : 'pending';
       const now = new Date();
+      const storefrontStartDate = manualDto
+        ? manualDto.plan.startDate
+        : dto.items.reduce((earliest, item) => item.startDate < earliest ? item.startDate : earliest, dto.items[0].startDate);
+      const storefrontEndDate = manualDto
+        ? manualDto.plan.endDate
+        : dto.items.reduce((latest, item) => item.endDate > latest ? item.endDate : latest, dto.items[0].endDate);
 
       // Step 5: Create booking
       const newBooking = await tx.booking.create({
@@ -966,12 +1068,13 @@ export class BookingService {
           bookingNumber,
           customerId: customer.id,
           quoteId: manualDto?.quoteId ?? null,
+          storefrontQuoteId,
           channel: manualDto ? BookingChannel.OWNER_MANUAL : BookingChannel.STOREFRONT,
-          rentalStartDate: manualDto ? new Date(manualDto.plan.startDate) : null,
-          rentalEndDate: manualDto ? new Date(manualDto.plan.endDate) : null,
+          rentalStartDate: new Date(storefrontStartDate),
+          rentalEndDate: new Date(storefrontEndDate),
           sourceLocationId: manualDto?.plan.sourceLocationId ?? null,
-          handoverMethod: manualDto?.plan.handoverMethod,
-          returnMethod: manualDto?.plan.returnMethod,
+          handoverMethod: manualDto?.plan.handoverMethod ?? 'DELIVERY',
+          returnMethod: manualDto?.plan.returnMethod ?? 'BUSINESS_PICKUP',
           status: initialStatus,
           paymentMethod: dto.paymentMethod as PaymentMethod,
           paymentStatus: 'unpaid',
@@ -1057,6 +1160,43 @@ export class BookingService {
           proposals: fulfillmentProposals[itemIndex],
           itemRevenue: adjustedItemTotal,
           sourceLocationId: manualDto?.plan.sourceLocationId,
+        });
+      }
+
+      const submittedTransactionId = dto.paymentMethod === 'bkash'
+        ? dto.bkashTransactionId?.trim()
+        : dto.paymentMethod === 'nagad'
+          ? dto.nagadTransactionId?.trim()
+          : null;
+      if (!manualDto && submittedTransactionId) {
+        const duplicateTransaction = await tx.payment.findFirst({
+          where: { tenantId, transactionId: submittedTransactionId },
+          select: { id: true },
+        });
+        if (duplicateTransaction) {
+          throw new ConflictException({
+            code: 'PAYMENT_TRANSACTION_DUPLICATE',
+            message: 'This mobile-payment transaction ID has already been submitted',
+          });
+        }
+        await tx.payment.create({
+          data: {
+            tenantId,
+            bookingId: newBooking.id,
+            idempotencyKey: `claim:${createHash('sha256').update(creationKey ?? newBooking.id).digest('hex')}`,
+            requestHash: this.canonicalHash({
+              method: dto.paymentMethod,
+              transactionId: submittedTransactionId,
+              amount: grandTotalAfterDiscount,
+            }),
+            amount: grandTotalAfterDiscount,
+            rentalAmount: grandTotalAfterDiscount - summary.totalDeposit,
+            depositAmount: summary.totalDeposit,
+            method: dto.paymentMethod as PaymentMethod,
+            status: 'pending',
+            transactionId: submittedTransactionId,
+            notes: 'Customer-submitted payment claim awaiting verification',
+          },
         });
       }
 
@@ -1155,6 +1295,7 @@ export class BookingService {
       tenantId,
       bookingId: booking.id,
       bookingNumber: booking.bookingNumber,
+      trackingToken: booking.publicTrackingToken,
       customerId: booking.customerId,
       grandTotal: booking.grandTotal,
     });
@@ -1183,6 +1324,7 @@ export class BookingService {
     return {
       bookingId: booking.id,
       bookingNumber: booking.bookingNumber,
+      trackingToken: booking.publicTrackingToken,
       status: booking.status,
       paymentMethod: booking.paymentMethod,
       grandTotal: booking.grandTotal,
@@ -1691,6 +1833,12 @@ export class BookingService {
           take: 201,
           include: { actor: { select: { id: true, fullName: true } } },
         },
+        shipments: {
+          where: { direction: 'OUTBOUND' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { events: { orderBy: { occurredAt: 'asc' } } },
+        },
       },
     });
 
@@ -1700,8 +1848,23 @@ export class BookingService {
       ?? booking.customer.identities.find((identity) => identity.kind === 'phone');
     const primaryEmail = booking.customer.identities.find((identity) => identity.kind === 'email' && identity.isPrimary)
       ?? booking.customer.identities.find((identity) => identity.kind === 'email');
+    const shipment = booking.shipments[0] ?? null;
     return {
       ...booking,
+      shipments: undefined,
+      trackingNumber: shipment?.trackingNumber ?? null,
+      courierProvider: shipment?.provider ?? null,
+      courierConsignmentId: shipment?.providerReference ?? null,
+      courierStatus: shipment?.status ?? null,
+      courierStatusHistory: shipment?.events.map((event) => ({
+        status: event.status,
+        label: event.label,
+        timestamp: event.occurredAt,
+        source: event.source,
+      })) ?? [],
+      pickupRequestedAt: shipment?.pickupRequestedAt ?? null,
+      scheduledPickupAt: shipment?.scheduledPickupAt ?? null,
+      courierErrorReason: shipment?.failedReason ?? null,
       customer: {
         ...booking.customer,
         primaryPhone: primaryPhone?.value ?? null,
@@ -1726,11 +1889,10 @@ export class BookingService {
       cancelledAt: Date | null;
       cancellationReason: string | null;
       updatedAt: Date;
-      courierStatusHistory: Prisma.JsonValue | null;
     },
   ) {
     const sourceLimit = 201;
-    const [events, versions, substitutions, extensions, payments, settlements, damageReports] =
+    const [events, versions, substitutions, extensions, payments, settlements, damageReports, shipmentEvents] =
       await Promise.all([
         this.prisma.fulfillmentRequirementEvent.findMany({
           where: { tenantId, requirement: { bookingId: booking.id } },
@@ -1783,6 +1945,11 @@ export class BookingService {
           take: sourceLimit,
           include: { reporter: { select: { id: true, fullName: true } } },
         }),
+        this.prisma.shipmentEvent.findMany({
+          where: { tenantId, shipment: { bookingId: booking.id } },
+          orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+          take: sourceLimit,
+        }),
       ]);
 
     const timeline: BookingOperationalTimelineEvent[] = [
@@ -1802,19 +1969,18 @@ export class BookingService {
       timeline.push(this.timelineEvent('booking-overdue', 'BOOKING', 'BOOKING_OVERDUE', 'Rental overdue', booking.updatedAt));
     }
 
-    if (Array.isArray(booking.courierStatusHistory)) {
-      for (const [index, raw] of booking.courierStatusHistory.entries()) {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-        const event = raw as Record<string, unknown>;
-        if (typeof event.timestamp !== 'string' || typeof event.status !== 'string') continue;
-        timeline.push(this.timelineEvent(
-          `courier-${index}-${event.timestamp}`,
-          'COURIER',
-          `COURIER_${event.status.toUpperCase()}`,
-          typeof event.label === 'string' ? event.label : event.status.replace(/_/g, ' '),
-          event.timestamp,
-        ));
-      }
+    for (const event of shipmentEvents) {
+      timeline.push(this.timelineEvent(
+        `shipment-event-${event.id}`,
+        'COURIER',
+        `SHIPMENT_${event.status.toUpperCase()}`,
+        event.label,
+        event.occurredAt,
+        null,
+        null,
+        null,
+        { shipmentId: event.shipmentId, source: event.source },
+      ));
     }
 
     for (const event of events) {
@@ -1924,7 +2090,7 @@ export class BookingService {
     const limit = 200;
     return {
       events: timeline.slice(0, limit),
-      truncated: timeline.length > limit || [events, versions, substitutions, extensions, payments, settlements, damageReports]
+      truncated: timeline.length > limit || [events, versions, substitutions, extensions, payments, settlements, damageReports, shipmentEvents]
         .some((source) => source.length === sourceLimit),
       limit,
     };
@@ -1944,17 +2110,12 @@ export class BookingService {
     return { id, category, code, label, occurredAt, actor, reason, amountMinor, ...(metadata ? { metadata } : {}) };
   }
 
-  async getBookingByNumber(tenantId: string, bookingNumber: string) {
+  async getBookingByTrackingToken(tenantId: string, trackingToken: string) {
     const booking = await this.prisma.booking.findFirst({
-      where: { bookingNumber, tenantId },
+      where: { publicTrackingToken: trackingToken, tenantId },
       select: {
         bookingNumber: true,
         status: true,
-        trackingNumber: true,
-        courierProvider: true,
-        courierStatus: true,
-        courierStatusHistory: true,
-        pickupRequestedAt: true,
         deliveryName: true,
         deliveryAddressLine1: true,
         grandTotal: true,
@@ -1971,6 +2132,17 @@ export class BookingService {
             endDate: true,
           },
         },
+        shipments: {
+          where: { direction: 'OUTBOUND' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            trackingNumber: true,
+            provider: true,
+            status: true,
+            events: { orderBy: { occurredAt: 'asc' }, select: { status: true, label: true, occurredAt: true } },
+          },
+        },
       },
     });
 
@@ -1984,31 +2156,9 @@ export class BookingService {
     ];
     if (booking.confirmedAt)  timeline.push({ status: 'confirmed',  label: 'Order Confirmed',  at: booking.confirmedAt, type: 'business' });
 
-    // Merge courier status history events chronologically
-    if (Array.isArray(booking.courierStatusHistory)) {
-      const history = booking.courierStatusHistory as Array<{
-        status: string;
-        label: string;
-        timestamp: string;
-        source: string;
-      }>;
-
-      for (const event of history) {
-        // Skip duplicates of business stages already in the timeline
-        if (event.status === 'pickup_pending' || event.status === 'pickup_assigned' ||
-            event.status === 'pickup_failed' || event.status === 'picked_up' ||
-            event.status === 'at_hub' || event.status === 'in_transit' ||
-            event.status === 'at_destination' || event.status === 'out_for_delivery' ||
-            event.status === 'partial_delivered' || event.status === 'returned_to_sender' ||
-            event.status === 'on_hold' || event.status === 'unknown') {
-          timeline.push({
-            status: event.status,
-            label: event.label,
-            at: event.timestamp,
-            type: 'courier',
-          });
-        }
-      }
+    const shipment = booking.shipments[0] ?? null;
+    for (const event of shipment?.events ?? []) {
+      timeline.push({ status: event.status, label: event.label, at: event.occurredAt, type: 'courier' });
     }
 
     if (booking.deliveredAt)  timeline.push({ status: 'delivered',  label: 'Delivered',        at: booking.deliveredAt, type: 'business' });
@@ -2031,7 +2181,7 @@ export class BookingService {
     const rentalPeriod = earliestStart && latestEnd ? {
       startDate: earliestStart,
       endDate: latestEnd,
-      totalDays: Math.ceil((latestEnd.getTime() - earliestStart.getTime()) / (1000 * 60 * 60 * 24)),
+      totalDays: Math.ceil((latestEnd.getTime() - earliestStart.getTime()) / (1000 * 60 * 60 * 24)) + 1,
       daysRemaining: Math.max(0, Math.ceil((latestEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))),
       isActive: booking.status === 'delivered' && now >= earliestStart && now <= latestEnd,
       isOverdue: booking.status === 'delivered' && now > latestEnd,
@@ -2040,9 +2190,9 @@ export class BookingService {
     return {
       bookingNumber: booking.bookingNumber,
       status: booking.status,
-      trackingNumber: booking.trackingNumber,
-      courierProvider: booking.courierProvider,
-      courierStatus: booking.courierStatus,
+      trackingNumber: shipment?.trackingNumber ?? null,
+      courierProvider: shipment?.provider ?? null,
+      courierStatus: shipment?.status ?? null,
       timeline,
       rentalPeriod,
       items: booking.items,
@@ -2104,7 +2254,7 @@ export class BookingService {
           where: {
             tenantId,
             status: 'confirmed',
-            courierStatus: { in: ['in_transit', 'out_for_delivery', 'at_destination'] },
+            shipments: { some: { direction: 'OUTBOUND', status: { in: ['in_transit', 'out_for_delivery', 'at_destination'] } } },
             deletedAt: null,
             items: {
               some: {

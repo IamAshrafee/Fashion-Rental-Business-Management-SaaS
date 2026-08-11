@@ -27,7 +27,7 @@ export class CourierWebhookController {
   constructor(private readonly fulfillmentService: FulfillmentService) {}
 
   /**
-   * POST /api/v1/webhooks/courier/:provider
+   * POST /api/v1/webhooks/courier/:provider/:token
    *
    * Receives courier status webhooks. The :provider param routes to the
    * correct parser (pathao | steadfast).
@@ -36,10 +36,11 @@ export class CourierWebhookController {
    * Processing errors are logged but not surfaced to the courier.
    */
   @Public()
-  @Post(':provider')
+  @Post(':provider/:token')
   @HttpCode(HttpStatus.OK)
   async receiveWebhook(
     @Param('provider') provider: string,
+    @Param('token') token: string,
     @Body() body: unknown,
   ): Promise<{ received: boolean }> {
     this.logger.log(`Courier webhook received from provider: ${provider}`);
@@ -48,12 +49,14 @@ export class CourierWebhookController {
       switch (provider.toLowerCase()) {
         case 'pathao':
           await this.fulfillmentService.processPathaoWebhook(
+            token,
             body as PathaoWebhookPayload,
           );
           break;
 
         case 'steadfast':
           await this.fulfillmentService.processSteadfastWebhook(
+            token,
             body as SteadfastWebhookPayload,
           );
           break;
