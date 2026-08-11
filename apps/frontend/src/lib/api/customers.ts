@@ -1,53 +1,128 @@
 import apiClient from '@/lib/api-client';
-import { Customer, CustomerDetail, CreateCustomerDto, UpdateCustomerDto, AddCustomerTagDto, PaginatedResponse, ApiResponse } from '@closetrent/types';
+import {
+  AddCustomerTagDto,
+  ApiResponse,
+  CreateCustomerDto,
+  Customer,
+  CustomerAddressInput,
+  CustomerDetail,
+  CustomerIdentityInput,
+  CustomerTag,
+  PaginatedResponse,
+  UpdateCustomerDto,
+} from '@closetrent/types';
+
+export type CustomerListParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  tagId?: string;
+  status?: string;
+  hasAccount?: boolean;
+  sort?: string;
+};
 
 export const customerApi = {
-  getCustomers: async (params?: { page?: number; limit?: number; search?: string; tag?: string; sort?: string }) => {
-    // Split combined sort param "name_asc" into { sort: "name", order: "asc" }
+  async getCustomers(params?: CustomerListParams) {
     const apiParams: Record<string, unknown> = { ...params };
     if (params?.sort) {
-      const lastUnderscore = params.sort.lastIndexOf('_');
-      if (lastUnderscore > 0) {
-        apiParams.sort = params.sort.substring(0, lastUnderscore);
-        apiParams.order = params.sort.substring(lastUnderscore + 1);
+      const splitAt = params.sort.lastIndexOf('_');
+      if (splitAt > 0) {
+        apiParams.sort = params.sort.slice(0, splitAt);
+        apiParams.order = params.sort.slice(splitAt + 1);
       }
     }
     const { data } = await apiClient.get<PaginatedResponse<Customer>>('/owner/customers', { params: apiParams });
     return data;
   },
 
-  getCustomerById: async (id: string) => {
+  async getCustomerById(id: string) {
     const { data } = await apiClient.get<ApiResponse<CustomerDetail>>(`/owner/customers/${id}`);
     return data;
   },
 
-  createCustomer: async (payload: CreateCustomerDto) => {
+  async createCustomer(payload: CreateCustomerDto) {
     const { data } = await apiClient.post<ApiResponse<CustomerDetail>>('/owner/customers', payload);
     return data;
   },
 
-  updateCustomer: async (id: string, payload: UpdateCustomerDto) => {
+  async updateCustomer(id: string, payload: UpdateCustomerDto) {
     const { data } = await apiClient.patch<ApiResponse<CustomerDetail>>(`/owner/customers/${id}`, payload);
     return data;
   },
 
-  deleteCustomer: async (id: string) => {
-    const { data } = await apiClient.delete<ApiResponse<unknown>>(`/owner/customers/${id}`);
+  async archiveCustomer(id: string) {
+    const { data } = await apiClient.delete<ApiResponse<{ id: string; status: string }>>(`/owner/customers/${id}`);
     return data;
   },
 
-  getCustomerTags: async () => {
-    const { data } = await apiClient.get<ApiResponse<string[]>>('/owner/customers/tags');
+  async anonymizeCustomer(id: string) {
+    const { data } = await apiClient.post<ApiResponse<{ id: string; status: string }>>(`/owner/customers/${id}/anonymize`);
     return data;
   },
 
-  addCustomerTag: async (id: string, payload: AddCustomerTagDto) => {
-    const { data } = await apiClient.post<ApiResponse<unknown>>(`/owner/customers/${id}/tags`, payload);
+  async mergeCustomer(targetId: string, sourceCustomerId: string) {
+    const { data } = await apiClient.post<ApiResponse<unknown>>(`/owner/customers/${targetId}/merge`, { sourceCustomerId });
     return data;
   },
 
-  removeCustomerTag: async (id: string, tag: string) => {
-    const { data } = await apiClient.delete<ApiResponse<unknown>>(`/owner/customers/${id}/tags/${encodeURIComponent(tag)}`);
+  async getCustomerTags() {
+    const { data } = await apiClient.get<ApiResponse<CustomerTag[]>>('/owner/customers/tags');
+    return data;
+  },
+
+  async createCustomerTag(payload: { name: string; color?: string }) {
+    const { data } = await apiClient.post<ApiResponse<CustomerTag>>('/owner/customers/tags', payload);
+    return data;
+  },
+
+  async addCustomerTag(id: string, payload: AddCustomerTagDto) {
+    const { data } = await apiClient.post<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/tags`, payload);
+    return data;
+  },
+
+  async removeCustomerTag(id: string, tagId: string) {
+    const { data } = await apiClient.delete<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/tags/${tagId}`);
+    return data;
+  },
+
+  async addIdentity(id: string, payload: CustomerIdentityInput) {
+    const { data } = await apiClient.post<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/identities`, payload);
+    return data;
+  },
+
+  async setPrimaryIdentity(id: string, identityId: string) {
+    const { data } = await apiClient.patch<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/identities/primary`, { identityId });
+    return data;
+  },
+
+  async removeIdentity(id: string, identityId: string) {
+    const { data } = await apiClient.delete<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/identities/${identityId}`);
+    return data;
+  },
+
+  async addAddress(id: string, payload: CustomerAddressInput) {
+    const { data } = await apiClient.post<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/addresses`, payload);
+    return data;
+  },
+
+  async updateAddress(id: string, addressId: string, payload: Partial<CustomerAddressInput>) {
+    const { data } = await apiClient.patch<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/addresses/${addressId}`, payload);
+    return data;
+  },
+
+  async archiveAddress(id: string, addressId: string) {
+    const { data } = await apiClient.delete<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/addresses/${addressId}`);
+    return data;
+  },
+
+  async addNote(id: string, payload: { body: string; isPinned?: boolean }) {
+    const { data } = await apiClient.post<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/notes`, payload);
+    return data;
+  },
+
+  async recordConsent(id: string, payload: { purpose: string; channel?: string; granted: boolean; source: string }) {
+    const { data } = await apiClient.post<ApiResponse<CustomerDetail>>(`/owner/customers/${id}/consents`, payload);
     return data;
   },
 };

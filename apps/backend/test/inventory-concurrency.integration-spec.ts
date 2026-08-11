@@ -221,11 +221,20 @@ describe('rental inventory database concurrency', () => {
         inventoryState: 'AVAILABLE',
       }),
     ]));
+    const customerPhone = `01${Date.now().toString().slice(-9)}`;
     const customer = await prisma.customer.create({
       data: {
         tenantId: tenant.id,
         fullName: 'Integration Customer',
-        phone: `01${Date.now().toString().slice(-9)}`,
+        identities: {
+          create: {
+            tenantId: tenant.id,
+            kind: 'phone',
+            value: customerPhone,
+            normalizedValue: `+88${customerPhone}`,
+            isPrimary: true,
+          },
+        },
       },
     });
     const booking = await prisma.booking.create({
@@ -240,7 +249,7 @@ describe('rental inventory database concurrency', () => {
         subtotal: 1000,
         grandTotal: 1000,
         deliveryName: customer.fullName,
-        deliveryPhone: customer.phone,
+        deliveryPhone: customerPhone,
         deliveryAddressLine1: 'Integration address',
         deliveryCity: 'Dhaka',
         deliveryCountry: 'BD',
@@ -258,7 +267,7 @@ describe('rental inventory database concurrency', () => {
           subtotal: 1000,
           grandTotal: 1000,
           deliveryName: customer.fullName,
-          deliveryPhone: customer.phone,
+          deliveryPhone: customerPhone,
           deliveryAddressLine1: 'Integration address',
           deliveryCity: 'Dhaka',
           deliveryCountry: 'BD',

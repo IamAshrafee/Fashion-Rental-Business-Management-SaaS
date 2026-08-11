@@ -1,133 +1,151 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { AuthUser, TenantContext } from '@closetrent/types';
+import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantGuard } from '../../common/guards/tenant.guard';
 import { CustomerService } from './customer.service';
 import {
+  AddAddressDto,
+  AddIdentityDto,
+  AddNoteDto,
+  AssignTagDto,
   CreateCustomerDto,
-  UpdateCustomerDto,
+  CreateTagDefinitionDto,
   CustomerQueryDto,
-  AddTagDto,
+  MergeCustomerDto,
+  RecordConsentDto,
+  SetPrimaryIdentityDto,
+  UpdateAddressDto,
+  UpdateCustomerDto,
 } from './dto/customer.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { TenantGuard } from '../../common/guards/tenant.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
-import { TenantContext } from '@closetrent/types';
-
-// =========================================================================
-// Customer Management Controller
-// =========================================================================
 
 @Controller('owner/customers')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
-  /**
-   * GET /owner/customers/lookup?phone=01712345678
-   * Customer lookup for checkout auto-fill. Requires auth — returns minimal data.
-   */
   @Get('lookup')
   @Roles('owner', 'manager', 'staff')
-  async lookup(
-    @CurrentTenant() tenant: TenantContext,
-    @Query('phone') phone: string,
-  ) {
+  lookup(@CurrentTenant() tenant: TenantContext, @Query('phone') phone: string) {
     return this.customerService.lookupByPhone(tenant.id, phone);
   }
 
-  /**
-   * GET /owner/customers/tags
-   * List all unique tags used in this tenant (for filter dropdown).
-   */
   @Get('tags')
   @Roles('owner', 'manager', 'staff')
-  async listTags(@CurrentTenant() tenant: TenantContext) {
+  listTags(@CurrentTenant() tenant: TenantContext) {
     return this.customerService.listTenantTags(tenant.id);
   }
 
-  // --- CRUD ---
+  @Post('tags')
+  @Roles('owner', 'manager')
+  createTag(@CurrentTenant() tenant: TenantContext, @Body() dto: CreateTagDefinitionDto) {
+    return this.customerService.createTagDefinition(tenant.id, dto);
+  }
 
   @Get()
   @Roles('owner', 'manager', 'staff')
-  async list(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: CustomerQueryDto,
-  ) {
+  list(@CurrentTenant() tenant: TenantContext, @Query() query: CustomerQueryDto) {
     return this.customerService.list(tenant.id, query);
   }
 
   @Get(':id')
   @Roles('owner', 'manager', 'staff')
-  async getById(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  getById(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.customerService.getById(tenant.id, id);
   }
 
   @Post()
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.CREATED)
-  async create(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: CreateCustomerDto,
-  ) {
-    return this.customerService.create(tenant.id, dto);
+  create(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Body() dto: CreateCustomerDto) {
+    return this.customerService.create(tenant.id, dto, user.id);
   }
 
   @Patch(':id')
   @Roles('owner', 'manager')
-  async update(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-    @Body() dto: UpdateCustomerDto,
-  ) {
-    return this.customerService.update(tenant.id, id, dto);
+  update(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateCustomerDto) {
+    return this.customerService.update(tenant.id, id, dto, user.id);
+  }
+
+  @Post(':id/identities')
+  @Roles('owner', 'manager')
+  addIdentity(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AddIdentityDto) {
+    return this.customerService.addIdentity(tenant.id, id, dto, user.id);
+  }
+
+  @Patch(':id/identities/primary')
+  @Roles('owner', 'manager')
+  setPrimaryIdentity(@CurrentTenant() tenant: TenantContext, @Param('id') id: string, @Body() dto: SetPrimaryIdentityDto) {
+    return this.customerService.setPrimaryIdentity(tenant.id, id, dto.identityId);
+  }
+
+  @Delete(':id/identities/:identityId')
+  @Roles('owner', 'manager')
+  removeIdentity(@CurrentTenant() tenant: TenantContext, @Param('id') id: string, @Param('identityId') identityId: string) {
+    return this.customerService.removeIdentity(tenant.id, id, identityId);
+  }
+
+  @Post(':id/addresses')
+  @Roles('owner', 'manager')
+  addAddress(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AddAddressDto) {
+    return this.customerService.addAddress(tenant.id, id, dto, user.id);
+  }
+
+  @Patch(':id/addresses/:addressId')
+  @Roles('owner', 'manager')
+  updateAddress(@CurrentTenant() tenant: TenantContext, @Param('id') id: string, @Param('addressId') addressId: string, @Body() dto: UpdateAddressDto) {
+    return this.customerService.updateAddress(tenant.id, id, addressId, dto);
+  }
+
+  @Delete(':id/addresses/:addressId')
+  @Roles('owner', 'manager')
+  archiveAddress(@CurrentTenant() tenant: TenantContext, @Param('id') id: string, @Param('addressId') addressId: string) {
+    return this.customerService.archiveAddress(tenant.id, id, addressId);
+  }
+
+  @Post(':id/notes')
+  @Roles('owner', 'manager', 'staff')
+  addNote(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AddNoteDto) {
+    return this.customerService.addNote(tenant.id, id, dto, user.id);
+  }
+
+  @Post(':id/consents')
+  @Roles('owner', 'manager')
+  recordConsent(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RecordConsentDto) {
+    return this.customerService.recordConsent(tenant.id, id, dto, user.id);
+  }
+
+  @Post(':id/tags')
+  @Roles('owner', 'manager')
+  assignTag(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AssignTagDto) {
+    return this.customerService.assignTag(tenant.id, id, dto.tagId, user.id);
+  }
+
+  @Delete(':id/tags/:tagId')
+  @Roles('owner', 'manager')
+  unassignTag(@CurrentTenant() tenant: TenantContext, @Param('id') id: string, @Param('tagId') tagId: string) {
+    return this.customerService.unassignTag(tenant.id, id, tagId);
+  }
+
+  @Post(':id/merge')
+  @Roles('owner')
+  merge(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: MergeCustomerDto) {
+    return this.customerService.merge(tenant.id, id, dto, user.id);
   }
 
   @Delete(':id')
   @Roles('owner')
   @HttpCode(HttpStatus.OK)
-  async delete(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
-    return this.customerService.softDelete(tenant.id, id);
+  archive(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.customerService.archive(tenant.id, id, user.id);
   }
 
-  // --- Tags ---
-
-  @Post(':id/tags')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async addTag(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-    @Body() dto: AddTagDto,
-  ) {
-    return this.customerService.addTag(tenant.id, id, dto.tag);
-  }
-
-  @Delete(':id/tags/:tag')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async removeTag(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-    @Param('tag') tag: string,
-  ) {
-    return this.customerService.removeTag(tenant.id, id, tag);
+  @Post(':id/anonymize')
+  @Roles('owner')
+  anonymize(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.customerService.anonymize(tenant.id, id, user.id);
   }
 }

@@ -102,7 +102,7 @@ export class AnalyticsService {
     // Better way to do active customers in range:
     // We can count how many of these active customers were created in this period
     const allStoreCustomers = await this.prisma.customer.findMany({
-        where: { tenantId, deletedAt: null }
+        where: { tenantId, status: { notIn: ['merged', 'anonymized', 'archived'] } }
     });
     const newCount = allStoreCustomers.filter(c => c.createdAt >= from && c.createdAt <= to).length;
     const returningUsersCount = allStoreCustomers.filter(c => c.totalBookings > 1).length;

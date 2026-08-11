@@ -159,7 +159,7 @@ export interface BookingCreatedResponse {
     discountAmount: number;
     grandTotal: number;
   };
-  customer: { id: string; fullName: string; phone: string };
+  customer: { id: string; fullName: string; primaryPhone: string | null };
   items: Array<{
     id: string;
     productName: string;
@@ -187,7 +187,7 @@ export interface BookingListItem {
   grandTotal: number;
   deliveryName: string;
   createdAt: string;
-  customer: { id: string; fullName: string; phone: string; email?: string };
+  customer: { id: string; fullName: string; primaryPhone: string | null; primaryEmail: string | null };
   items: Array<{
     id: string;
     productName: string;
@@ -230,7 +230,7 @@ export interface BookingCalendarItem {
   id: string;
   bookingNumber: string;
   status: string;
-  customer: { id: string; fullName: string; phone: string };
+  customer: { id: string; fullName: string; primaryPhone: string | null };
   items: Array<{ id: string; productName: string; startDate: string; endDate: string }>;
 }
 
@@ -396,12 +396,12 @@ export interface BookingDetailResponse {
   customer: {
     id: string;
     fullName: string;
-    phone: string;
-    altPhone: string | null;
-    email: string | null;
+    primaryPhone: string | null;
+    primaryEmail: string | null;
+    identities: Array<{ id: string; kind: 'phone' | 'email'; value: string; isPrimary: boolean }>;
     totalBookings: number;
     totalSpent: number;
-    tags: Array<{ id: string; tag: string }>;
+    tags: Array<{ id: string; name: string; color: string | null }>;
   };
   items: BookingDetailItem[];
   payments: BookingDetailPayment[];

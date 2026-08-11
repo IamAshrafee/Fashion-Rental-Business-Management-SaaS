@@ -47,7 +47,7 @@ const existingBooking = {
   totalDeposit: 50000,
   discountAmount: 0,
   grandTotal: 200000,
-  customer: { id: 'customer-1', fullName: 'Nadia Rahman', phone: '01700000000' },
+  customer: { id: 'customer-1', fullName: 'Nadia Rahman', identities: [{ value: '01700000000' }] },
   items: [
     {
       id: 'item-1',
@@ -156,7 +156,11 @@ describe('BookingService', () => {
       handoverMethod: 'CUSTOMER_PICKUP',
       returnMethod: 'CUSTOMER_DROPOFF',
       sourceLocation: { id: 'location-1', code: 'MAIN', name: 'Main showroom' },
-      customer: { id: 'customer-1', fullName: 'Nadia Rahman', phone: '01700000000' },
+      customer: {
+        id: 'customer-1',
+        fullName: 'Nadia Rahman',
+        identities: [{ kind: 'phone', value: '01700000000', isPrimary: true }],
+      },
       items: [
         {
           id: 'item-1',

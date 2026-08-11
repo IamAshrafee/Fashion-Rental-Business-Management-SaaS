@@ -40,7 +40,7 @@ export class NotificationListener {
       const [booking, store] = await Promise.all([
         this.prisma.booking.findUnique({
           where: { id: event.bookingId },
-          include: { customer: { select: { fullName: true, phone: true } } },
+          include: { customer: { select: { fullName: true } } },
         }),
         this.getStoreInfo(event.tenantId),
       ]);
@@ -66,8 +66,8 @@ export class NotificationListener {
       }
 
       // SMS to customer — booking placement confirmation (#9)
-      if (store.smsEnabled && booking.customer.phone) {
-        await this.smsService.send(booking.customer.phone, 'booking_placed', {
+      if (store.smsEnabled && booking.deliveryPhone) {
+        await this.smsService.send(booking.deliveryPhone, 'booking_placed', {
           bookingNumber: event.bookingNumber,
           storeName: store.storeName,
         });
@@ -91,9 +91,9 @@ export class NotificationListener {
         data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
       });
 
-      if (store.smsEnabled && booking.customer.phone) {
+      if (store.smsEnabled && booking.deliveryPhone) {
         const deliveryDate = booking.items[0]?.startDate?.toLocaleDateString('en-BD') ?? 'soon';
-        await this.smsService.send(booking.customer.phone, 'booking_confirmed', {
+        await this.smsService.send(booking.deliveryPhone, 'booking_confirmed', {
           bookingNumber: event.bookingNumber,
           deliveryDate,
           storeName: store.storeName,
@@ -118,8 +118,8 @@ export class NotificationListener {
         data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
       });
 
-      if (store.smsEnabled && booking.customer.phone) {
-        await this.smsService.send(booking.customer.phone, 'booking_cancelled', {
+      if (store.smsEnabled && booking.deliveryPhone) {
+        await this.smsService.send(booking.deliveryPhone, 'booking_cancelled', {
           bookingNumber: event.bookingNumber,
           phone: store.phone ?? '',
           storeName: store.storeName,
@@ -150,8 +150,8 @@ export class NotificationListener {
         data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
       });
 
-      if (store.smsEnabled && booking.customer.phone) {
-        await this.smsService.send(booking.customer.phone, 'pickup_requested', {
+      if (store.smsEnabled && booking.deliveryPhone) {
+        await this.smsService.send(booking.deliveryPhone, 'pickup_requested', {
           bookingNumber: event.bookingNumber,
           trackingLink: event.trackingNumber ?? undefined,
           storeName: store.storeName,
@@ -181,8 +181,8 @@ export class NotificationListener {
       });
 
       // SMS to customer only on day 1
-      if (event.lateDays <= 1 && store.smsEnabled && booking.customer.phone) {
-        await this.smsService.send(booking.customer.phone, 'booking_overdue', {
+      if (event.lateDays <= 1 && store.smsEnabled && booking.deliveryPhone) {
+        await this.smsService.send(booking.deliveryPhone, 'booking_overdue', {
           bookingNumber: event.bookingNumber,
           storeName: store.storeName,
         });
@@ -206,12 +206,12 @@ export class NotificationListener {
         data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber },
       });
 
-      if (store.smsEnabled && booking.customer.phone) {
+      if (store.smsEnabled && booking.deliveryPhone) {
         const depositTotal = booking.items.reduce(
           (sum, item) => sum + (item.depositAmount ?? 0),
           0,
         );
-        await this.smsService.send(booking.customer.phone, 'booking_completed', {
+        await this.smsService.send(booking.deliveryPhone, 'booking_completed', {
           depositAmount: depositTotal,
           storeName: store.storeName,
         });
@@ -430,7 +430,7 @@ export class NotificationListener {
       this.prisma.booking.findUnique({
         where: { id: event.bookingId },
         include: {
-          customer: { select: { fullName: true, phone: true } },
+          customer: { select: { fullName: true } },
           items: { select: { depositAmount: true, startDate: true } },
         },
       }),

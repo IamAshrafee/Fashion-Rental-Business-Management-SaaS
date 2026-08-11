@@ -135,6 +135,54 @@ enum BookingChannel {
   OWNER_MANUAL
 }
 
+enum CustomerStatus {
+  active
+  blocked
+  merged
+  anonymized
+  archived
+}
+
+enum CustomerIdentityKind {
+  phone
+  email
+}
+
+enum CustomerAddressKind {
+  delivery
+  billing
+  other
+}
+
+enum CustomerContactChannel {
+  phone
+  sms
+  whatsapp
+  email
+}
+
+enum CustomerAccountStatus {
+  invited
+  active
+  locked
+  disabled
+}
+
+enum CustomerEventType {
+  created
+  profile_updated
+  identity_added
+  address_added
+  tag_assigned
+  note_added
+  consent_changed
+  booking_created
+  payment_recorded
+  merged
+  anonymized
+  archived
+}
+
 enum BookingHandoverMethod {
   DELIVERY
   CUSTOMER_PICKUP
@@ -665,6 +713,14 @@ model Tenant {
   bookingQuotes                  BookingQuote[]
   depositSettlements             DepositSettlement[]
   customers                      Customer[]
+  customerIdentities             CustomerIdentity[]
+  customerAddresses              CustomerAddress[]
+  customerTagDefinitions         CustomerTagDefinition[]
+  customerTagAssignments         CustomerTagAssignment[]
+  customerNotes                  CustomerNote[]
+  customerConsents               CustomerConsent[]
+  customerEvents                 CustomerEvent[]
+  customerAccounts               CustomerAccount[]
   notifications                  Notification[]
   auditLogs                      AuditLog[]
   sessions                       Session[]
@@ -1508,48 +1564,196 @@ model ProductFaq {
 // ============================================================================
 
 model Customer {
-  id            String    @id @default(uuid())
-  tenantId      String    @map("tenant_id")
-  fullName      String    @map("full_name")
-  phone         String
-  altPhone      String?   @map("alt_phone")
-  email         String?
-  addressLine1  String?   @map("address_line1")
-  addressLine2  String?   @map("address_line2")
-  city          String?
-  state         String?
-  postalCode    String?   @map("postal_code")
-  country       String?
-  addressExtra  Json?     @map("address_extra") @db.JsonB
-  notes         String?
-  totalBookings Int       @default(0) @map("total_bookings")
-  totalSpent    Int       @default(0) @map("total_spent")
-  lastBookingAt DateTime? @map("last_booking_at")
-  deletedAt     DateTime? @map("deleted_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                      String                 @id @default(uuid())
+  tenantId                String                 @map("tenant_id")
+  fullName                String                 @map("full_name")
+  status                  CustomerStatus         @default(active)
+  preferredContactChannel CustomerContactChannel @default(phone) @map("preferred_contact_channel")
+  preferredLocale         String                 @default("en-BD") @map("preferred_locale")
+  source                  String?
+  totalBookings           Int                    @default(0) @map("total_bookings")
+  totalSpent              Int                    @default(0) @map("total_spent")
+  lastBookingAt           DateTime?              @map("last_booking_at")
+  mergedIntoCustomerId    String?                @map("merged_into_customer_id")
+  archivedAt              DateTime?              @map("archived_at")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
 
-  tenant   Tenant        @relation(fields: [tenantId], references: [id])
-  bookings Booking[]
-  tags     CustomerTag[]
-  reviews  Review[]
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  identities    CustomerIdentity[]
+  addresses     CustomerAddress[]
+  tagAssignments CustomerTagAssignment[]
+  notes         CustomerNote[]
+  consents      CustomerConsent[]
+  events        CustomerEvent[]
+  account       CustomerAccount?
+  bookings      Booking[]
+  reviews       Review[]
+  mergedInto    Customer?               @relation("CustomerMerges", fields: [mergedIntoCustomerId], references: [id], onDelete: Restrict)
+  mergedSources Customer[]               @relation("CustomerMerges")
 
-  @@unique([tenantId, phone])
+  @@index([tenantId, status, updatedAt(sort: Desc)])
   @@index([tenantId, fullName])
+  @@index([mergedIntoCustomerId])
   @@map("customers")
 }
 
-model CustomerTag {
-  id         String @id @default(uuid())
-  tenantId   String @map("tenant_id")
-  customerId String @map("customer_id")
-  tag        String
+model CustomerIdentity {
+  id              String               @id @default(uuid())
+  tenantId        String               @map("tenant_id")
+  customerId      String               @map("customer_id")
+  kind            CustomerIdentityKind
+  value           String
+  normalizedValue String               @map("normalized_value")
+  isPrimary       Boolean              @default(false) @map("is_primary")
+  verifiedAt      DateTime?            @map("verified_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
 
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  customer Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  accounts CustomerAccount[]
+
+  @@unique([tenantId, kind, normalizedValue])
+  @@index([customerId, kind])
+  @@map("customer_identities")
+}
+
+model CustomerAddress {
+  id            String              @id @default(uuid())
+  tenantId      String              @map("tenant_id")
+  customerId    String              @map("customer_id")
+  kind          CustomerAddressKind @default(delivery)
+  label         String?
+  recipientName String?             @map("recipient_name")
+  phone         String?
+  addressLine1  String              @map("address_line1")
+  addressLine2  String?             @map("address_line2")
+  area          String?
+  city          String?
+  state         String?
+  postalCode    String?             @map("postal_code")
+  country       String              @default("BD")
+  instructions  String?
+  isDefault     Boolean             @default(false) @map("is_default")
+  lastUsedAt    DateTime?           @map("last_used_at")
+  archivedAt    DateTime?           @map("archived_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@unique([customerId, tag])
-  @@index([tenantId])
-  @@map("customer_tags")
+  @@index([customerId, kind, archivedAt])
+  @@index([tenantId, city])
+  @@map("customer_addresses")
+}
+
+model CustomerTagDefinition {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id])
+  assignments CustomerTagAssignment[]
+
+  @@unique([tenantId, name])
+  @@map("customer_tag_definitions")
+}
+
+model CustomerTagAssignment {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  customerId String   @map("customer_id")
+  tagId      String   @map("tag_id")
+  assignedBy String?  @map("assigned_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant                @relation(fields: [tenantId], references: [id])
+  customer Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag      CustomerTagDefinition @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, tagId])
+  @@index([tenantId, tagId])
+  @@map("customer_tag_assignments")
+}
+
+model CustomerNote {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  customerId String   @map("customer_id")
+  body       String
+  isPinned   Boolean  @default(false) @map("is_pinned")
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, isPinned, createdAt(sort: Desc)])
+  @@map("customer_notes")
+}
+
+model CustomerConsent {
+  id         String                  @id @default(uuid())
+  tenantId   String                  @map("tenant_id")
+  customerId String                  @map("customer_id")
+  purpose    String
+  channel    CustomerContactChannel?
+  granted    Boolean
+  source     String
+  recordedBy String?                 @map("recorded_by")
+  recordedAt DateTime                @default(now()) @map("recorded_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, purpose, recordedAt(sort: Desc)])
+  @@map("customer_consents")
+}
+
+model CustomerEvent {
+  id         String            @id @default(uuid())
+  tenantId   String            @map("tenant_id")
+  customerId String            @map("customer_id")
+  type       CustomerEventType
+  summary    String
+  data       Json?             @db.JsonB
+  actorId    String?           @map("actor_id")
+  occurredAt DateTime          @default(now()) @map("occurred_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, occurredAt(sort: Desc)])
+  @@index([tenantId, type, occurredAt(sort: Desc)])
+  @@map("customer_events")
+}
+
+model CustomerAccount {
+  id              String                @id @default(uuid())
+  tenantId        String                @map("tenant_id")
+  customerId      String                @unique @map("customer_id")
+  loginIdentityId String?               @map("login_identity_id")
+  status          CustomerAccountStatus @default(invited)
+  passwordHash    String?               @map("password_hash")
+  invitedAt       DateTime?             @map("invited_at")
+  activatedAt     DateTime?             @map("activated_at")
+  lastLoginAt     DateTime?             @map("last_login_at")
+  lockedUntil     DateTime?             @map("locked_until")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id])
+  customer      Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  loginIdentity CustomerIdentity? @relation(fields: [loginIdentityId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, loginIdentityId])
+  @@index([tenantId, status])
+  @@map("customer_accounts")
 }
 
 // ============================================================================

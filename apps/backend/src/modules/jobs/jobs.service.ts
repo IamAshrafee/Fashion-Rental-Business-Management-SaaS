@@ -467,7 +467,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           },
         },
         include: {
-          customer: { select: { phone: true, fullName: true } },
+          customer: { select: { fullName: true } },
           items: { select: { endDate: true } },
         },
       });
@@ -476,7 +476,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'tomorrow';
 
         await this.notificationsQueue.add('sms.send', {
-          to: booking.customer.phone,
+          to: booking.deliveryPhone,
           template: 'return_reminder',
           data: { returnDate, storeName },
         });
@@ -497,7 +497,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           },
         },
         include: {
-          customer: { select: { phone: true, fullName: true } },
+          customer: { select: { fullName: true } },
           items: { select: { endDate: true } },
         },
       });
@@ -506,7 +506,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'today';
 
         await this.notificationsQueue.add('sms.send', {
-          to: booking.customer.phone,
+          to: booking.deliveryPhone,
           template: 'return_due_today',
           data: { returnDate, storeName },
         });
@@ -632,7 +632,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           where: { tenantId: tenant.id, deletedAt: { lt: cutoff } },
         }),
         this.prisma.customer.deleteMany({
-          where: { tenantId: tenant.id, deletedAt: { lt: cutoff } },
+          where: {
+            tenantId: tenant.id,
+            status: { in: ['anonymized', 'archived'] },
+            archivedAt: { lt: cutoff },
+            bookings: { none: {} },
+            reviews: { none: {} },
+          },
         }),
       ]);
       totalProducts += products.count;
@@ -836,7 +842,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
                   where: { tenantId: tenant.id, deletedAt: null },
                 }),
                 this.prisma.customer.count({
-                  where: { tenantId: tenant.id, deletedAt: null },
+                  where: { tenantId: tenant.id, status: { notIn: ['merged', 'anonymized', 'archived'] } },
                 }),
                 this.prisma.tenantUser.count({
                   where: { tenantId: tenant.id, isActive: true },

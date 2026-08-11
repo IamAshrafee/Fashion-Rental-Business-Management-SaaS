@@ -55,19 +55,7 @@ import {
 } from '../hooks/use-manual-booking-draft';
 import { RentalPlanStep } from './rental-plan-step';
 
-// ─── Extended customer type (the list endpoint returns full model) ──────────
-/** The backend customer list returns all Prisma columns, but the shared
- *  `Customer` type is minimal. We extend it here for auto-fill. */
-interface CustomerForAutoFill extends Customer {
-  altPhone?: string | null;
-  addressLine1?: string | null;
-  addressLine2?: string | null;
-  state?: string | null;
-  postalCode?: string | null;
-  country?: string | null;
-  notes?: string | null;
-  addressExtra?: Record<string, string> | null;
-}
+type CustomerForAutoFill = Customer;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -399,19 +387,16 @@ export function ManualBookingForm() {
   const handleSelectCustomer = (customer: CustomerForAutoFill) => {
     // Full auto-fill — all known fields
     form.setValue('fullName', customer.fullName);
-    form.setValue('phone', customer.phone);
-    if (customer.altPhone) form.setValue('altPhone', customer.altPhone);
-    if (customer.email) form.setValue('email', customer.email);
-    if (customer.addressLine1) form.setValue('address', customer.addressLine1);
-    if (customer.city) form.setValue('city', customer.city);
-    if (customer.state) form.setValue('district', customer.state);
-    if (customer.postalCode) form.setValue('postalCode', customer.postalCode);
-    // addressExtra may have area/thana
-    if (customer.addressExtra) {
-      const extra = customer.addressExtra as Record<string, string>;
-      if (extra.area) form.setValue('area', extra.area);
-      if (extra.thana) form.setValue('thana', extra.thana);
-      if (extra.district) form.setValue('district', extra.district);
+    if (customer.primaryPhone) form.setValue('phone', customer.primaryPhone);
+    const alternatePhone = customer.identities.find((identity) => identity.kind === 'phone' && !identity.isPrimary)?.value;
+    if (alternatePhone) form.setValue('altPhone', alternatePhone);
+    if (customer.primaryEmail) form.setValue('email', customer.primaryEmail);
+    if (customer.defaultAddress) {
+      form.setValue('address', customer.defaultAddress.addressLine1);
+      if (customer.defaultAddress.city) form.setValue('city', customer.defaultAddress.city);
+      if (customer.defaultAddress.state) form.setValue('district', customer.defaultAddress.state);
+      if (customer.defaultAddress.postalCode) form.setValue('postalCode', customer.defaultAddress.postalCode);
+      if (customer.defaultAddress.area) form.setValue('area', customer.defaultAddress.area);
     }
     setCustomerSearch('');
     setShowCustomerDropdown(false);
@@ -1028,7 +1013,7 @@ export function ManualBookingForm() {
                             >
                               <UserCheck className="h-3.5 w-3.5 text-green-600 shrink-0" />
                               <span className="font-medium">{c.fullName}</span>
-                              <span className="text-muted-foreground">{c.phone}</span>
+                              <span className="text-muted-foreground">{c.primaryPhone}</span>
                               {c.totalBookings > 0 && (
                                 <Badge variant="secondary" className="text-[10px] ml-auto">{c.totalBookings} bookings</Badge>
                               )}

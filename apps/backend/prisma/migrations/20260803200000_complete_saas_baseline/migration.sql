@@ -47,6 +47,24 @@ CREATE TYPE "BookingStatus" AS ENUM ('pending', 'confirmed', 'cancelled', 'deliv
 CREATE TYPE "BookingChannel" AS ENUM ('STOREFRONT', 'OWNER_MANUAL');
 
 -- CreateEnum
+CREATE TYPE "CustomerStatus" AS ENUM ('active', 'blocked', 'merged', 'anonymized', 'archived');
+
+-- CreateEnum
+CREATE TYPE "CustomerIdentityKind" AS ENUM ('phone', 'email');
+
+-- CreateEnum
+CREATE TYPE "CustomerAddressKind" AS ENUM ('delivery', 'billing', 'other');
+
+-- CreateEnum
+CREATE TYPE "CustomerContactChannel" AS ENUM ('phone', 'sms', 'whatsapp', 'email');
+
+-- CreateEnum
+CREATE TYPE "CustomerAccountStatus" AS ENUM ('invited', 'active', 'locked', 'disabled');
+
+-- CreateEnum
+CREATE TYPE "CustomerEventType" AS ENUM ('created', 'profile_updated', 'identity_added', 'address_added', 'tag_assigned', 'note_added', 'consent_changed', 'booking_created', 'payment_recorded', 'merged', 'anonymized', 'archived');
+
+-- CreateEnum
 CREATE TYPE "BookingHandoverMethod" AS ENUM ('DELIVERY', 'CUSTOMER_PICKUP');
 
 -- CreateEnum
@@ -854,21 +872,15 @@ CREATE TABLE "customers" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
     "full_name" TEXT NOT NULL,
-    "phone" TEXT NOT NULL,
-    "alt_phone" TEXT,
-    "email" TEXT,
-    "address_line1" TEXT,
-    "address_line2" TEXT,
-    "city" TEXT,
-    "state" TEXT,
-    "postal_code" TEXT,
-    "country" TEXT,
-    "address_extra" JSONB,
-    "notes" TEXT,
+    "status" "CustomerStatus" NOT NULL DEFAULT 'active',
+    "preferred_contact_channel" "CustomerContactChannel" NOT NULL DEFAULT 'phone',
+    "preferred_locale" TEXT NOT NULL DEFAULT 'en-BD',
+    "source" TEXT,
     "total_bookings" INTEGER NOT NULL DEFAULT 0,
     "total_spent" INTEGER NOT NULL DEFAULT 0,
     "last_booking_at" TIMESTAMP(3),
-    "deleted_at" TIMESTAMP(3),
+    "merged_into_customer_id" TEXT,
+    "archived_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
@@ -876,13 +888,129 @@ CREATE TABLE "customers" (
 );
 
 -- CreateTable
-CREATE TABLE "customer_tags" (
+CREATE TABLE "customer_identities" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
     "customer_id" TEXT NOT NULL,
-    "tag" TEXT NOT NULL,
+    "kind" "CustomerIdentityKind" NOT NULL,
+    "value" TEXT NOT NULL,
+    "normalized_value" TEXT NOT NULL,
+    "is_primary" BOOLEAN NOT NULL DEFAULT false,
+    "verified_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "customer_tags_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "customer_identities_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "customer_addresses" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "customer_id" TEXT NOT NULL,
+    "kind" "CustomerAddressKind" NOT NULL DEFAULT 'delivery',
+    "label" TEXT,
+    "recipient_name" TEXT,
+    "phone" TEXT,
+    "address_line1" TEXT NOT NULL,
+    "address_line2" TEXT,
+    "area" TEXT,
+    "city" TEXT,
+    "state" TEXT,
+    "postal_code" TEXT,
+    "country" TEXT NOT NULL DEFAULT 'BD',
+    "instructions" TEXT,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
+    "last_used_at" TIMESTAMP(3),
+    "archived_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "customer_addresses_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "customer_tag_definitions" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "color" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "customer_tag_definitions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "customer_tag_assignments" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "customer_id" TEXT NOT NULL,
+    "tag_id" TEXT NOT NULL,
+    "assigned_by" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "customer_tag_assignments_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "customer_notes" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "customer_id" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "is_pinned" BOOLEAN NOT NULL DEFAULT false,
+    "created_by" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "customer_notes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "customer_consents" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "customer_id" TEXT NOT NULL,
+    "purpose" TEXT NOT NULL,
+    "channel" "CustomerContactChannel",
+    "granted" BOOLEAN NOT NULL,
+    "source" TEXT NOT NULL,
+    "recorded_by" TEXT,
+    "recorded_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "customer_consents_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "customer_events" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "customer_id" TEXT NOT NULL,
+    "type" "CustomerEventType" NOT NULL,
+    "summary" TEXT NOT NULL,
+    "data" JSONB,
+    "actor_id" TEXT,
+    "occurred_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "customer_events_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "customer_accounts" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "customer_id" TEXT NOT NULL,
+    "login_identity_id" TEXT,
+    "status" "CustomerAccountStatus" NOT NULL DEFAULT 'invited',
+    "password_hash" TEXT,
+    "invited_at" TIMESTAMP(3),
+    "activated_at" TIMESTAMP(3),
+    "last_login_at" TIMESTAMP(3),
+    "locked_until" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "customer_accounts_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -2121,13 +2249,58 @@ CREATE INDEX "product_faqs_tenant_id_idx" ON "product_faqs"("tenant_id");
 CREATE INDEX "customers_tenant_id_full_name_idx" ON "customers"("tenant_id", "full_name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "customers_tenant_id_phone_key" ON "customers"("tenant_id", "phone");
+CREATE INDEX "customers_tenant_id_status_updated_at_idx" ON "customers"("tenant_id", "status", "updated_at" DESC);
 
 -- CreateIndex
-CREATE INDEX "customer_tags_tenant_id_idx" ON "customer_tags"("tenant_id");
+CREATE INDEX "customers_merged_into_customer_id_idx" ON "customers"("merged_into_customer_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "customer_tags_customer_id_tag_key" ON "customer_tags"("customer_id", "tag");
+CREATE UNIQUE INDEX "customer_identities_tenant_id_kind_normalized_value_key" ON "customer_identities"("tenant_id", "kind", "normalized_value");
+
+-- CreateIndex
+CREATE INDEX "customer_identities_customer_id_kind_idx" ON "customer_identities"("customer_id", "kind");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "customer_identities_one_primary_per_kind" ON "customer_identities"("customer_id", "kind") WHERE "is_primary" = true;
+
+-- CreateIndex
+CREATE INDEX "customer_addresses_customer_id_kind_archived_at_idx" ON "customer_addresses"("customer_id", "kind", "archived_at");
+
+-- CreateIndex
+CREATE INDEX "customer_addresses_tenant_id_city_idx" ON "customer_addresses"("tenant_id", "city");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "customer_addresses_one_default_per_kind" ON "customer_addresses"("customer_id", "kind") WHERE "is_default" = true AND "archived_at" IS NULL;
+
+-- CreateIndex
+CREATE UNIQUE INDEX "customer_tag_definitions_tenant_id_name_key" ON "customer_tag_definitions"("tenant_id", "name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "customer_tag_assignments_customer_id_tag_id_key" ON "customer_tag_assignments"("customer_id", "tag_id");
+
+-- CreateIndex
+CREATE INDEX "customer_tag_assignments_tenant_id_tag_id_idx" ON "customer_tag_assignments"("tenant_id", "tag_id");
+
+-- CreateIndex
+CREATE INDEX "customer_notes_customer_id_is_pinned_created_at_idx" ON "customer_notes"("customer_id", "is_pinned", "created_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "customer_consents_customer_id_purpose_recorded_at_idx" ON "customer_consents"("customer_id", "purpose", "recorded_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "customer_events_customer_id_occurred_at_idx" ON "customer_events"("customer_id", "occurred_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "customer_events_tenant_id_type_occurred_at_idx" ON "customer_events"("tenant_id", "type", "occurred_at" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "customer_accounts_customer_id_key" ON "customer_accounts"("customer_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "customer_accounts_tenant_id_login_identity_id_key" ON "customer_accounts"("tenant_id", "login_identity_id");
+
+-- CreateIndex
+CREATE INDEX "customer_accounts_tenant_id_status_idx" ON "customer_accounts"("tenant_id", "status");
 
 -- CreateIndex
 CREATE INDEX "bookings_tenant_id_status_idx" ON "bookings"("tenant_id", "status");
@@ -2892,7 +3065,58 @@ ALTER TABLE "product_faqs" ADD CONSTRAINT "product_faqs_product_id_fkey" FOREIGN
 ALTER TABLE "customers" ADD CONSTRAINT "customers_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "customer_tags" ADD CONSTRAINT "customer_tags_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "customers" ADD CONSTRAINT "customers_merged_into_customer_id_fkey" FOREIGN KEY ("merged_into_customer_id") REFERENCES "customers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_identities" ADD CONSTRAINT "customer_identities_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_identities" ADD CONSTRAINT "customer_identities_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_addresses" ADD CONSTRAINT "customer_addresses_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_addresses" ADD CONSTRAINT "customer_addresses_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_tag_definitions" ADD CONSTRAINT "customer_tag_definitions_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_tag_assignments" ADD CONSTRAINT "customer_tag_assignments_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_tag_assignments" ADD CONSTRAINT "customer_tag_assignments_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_tag_assignments" ADD CONSTRAINT "customer_tag_assignments_tag_id_fkey" FOREIGN KEY ("tag_id") REFERENCES "customer_tag_definitions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_notes" ADD CONSTRAINT "customer_notes_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_notes" ADD CONSTRAINT "customer_notes_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_consents" ADD CONSTRAINT "customer_consents_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_consents" ADD CONSTRAINT "customer_consents_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_events" ADD CONSTRAINT "customer_events_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_events" ADD CONSTRAINT "customer_events_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_accounts" ADD CONSTRAINT "customer_accounts_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_accounts" ADD CONSTRAINT "customer_accounts_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "customer_accounts" ADD CONSTRAINT "customer_accounts_login_identity_id_fkey" FOREIGN KEY ("login_identity_id") REFERENCES "customer_identities"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

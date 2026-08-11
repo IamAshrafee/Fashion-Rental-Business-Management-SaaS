@@ -120,7 +120,18 @@ export function computeCartSummary(items: SummaryLine[]): CartSummary {
 }
 
 const BOOKING_CREATED_INCLUDE = {
-  customer: { select: { id: true, fullName: true, phone: true } },
+  customer: {
+    select: {
+      id: true,
+      fullName: true,
+      identities: {
+        where: { kind: 'phone' as const },
+        orderBy: [{ isPrimary: 'desc' as const }, { createdAt: 'asc' as const }],
+        take: 1,
+        select: { value: true },
+      },
+    },
+  },
   items: {
     select: {
       id: true,
@@ -1183,7 +1194,11 @@ export class BookingService {
         discountAmount: booking.discountAmount,
         grandTotal: booking.grandTotal,
       },
-      customer: booking.customer,
+      customer: {
+        id: booking.customer.id,
+        fullName: booking.customer.fullName,
+        primaryPhone: booking.customer.identities[0]?.value ?? null,
+      },
       items: booking.items,
       payments: booking.payments,
     };
@@ -1367,7 +1382,7 @@ export class BookingService {
         { deliveryName: { contains: search, mode: 'insensitive' } },
         { deliveryPhone: { contains: search } },
         { customer: { fullName: { contains: search, mode: 'insensitive' } } },
-        { customer: { phone: { contains: search } } },
+        { customer: { identities: { some: { value: { contains: search, mode: 'insensitive' } } } } },
       ];
     }
 
@@ -1399,7 +1414,14 @@ export class BookingService {
         orderBy: [orderBy, { id: 'asc' }],
         include: {
           customer: {
-            select: { id: true, fullName: true, phone: true, email: true },
+            select: {
+              id: true,
+              fullName: true,
+              identities: {
+                orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+                select: { kind: true, value: true, isPrimary: true },
+              },
+            },
           },
           sourceLocation: { select: { id: true, code: true, name: true } },
           items: {
@@ -1506,6 +1528,16 @@ export class BookingService {
         ];
         return {
           ...booking,
+          customer: {
+            id: booking.customer.id,
+            fullName: booking.customer.fullName,
+            primaryPhone: booking.customer.identities.find((identity) => identity.kind === 'phone' && identity.isPrimary)?.value
+              ?? booking.customer.identities.find((identity) => identity.kind === 'phone')?.value
+              ?? null,
+            primaryEmail: booking.customer.identities.find((identity) => identity.kind === 'email' && identity.isPrimary)?.value
+              ?? booking.customer.identities.find((identity) => identity.kind === 'email')?.value
+              ?? null,
+          },
           operations: {
             rentalStartDate,
             rentalEndDate,
@@ -1564,7 +1596,18 @@ export class BookingService {
         id: true,
         bookingNumber: true,
         status: true,
-        customer: { select: { id: true, fullName: true, phone: true } },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            identities: {
+              where: { kind: 'phone' },
+              orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+              take: 1,
+              select: { value: true },
+            },
+          },
+        },
         items: {
           where: { endDate: { gte: start }, startDate: { lte: end } },
           orderBy: [{ startDate: 'asc' }, { id: 'asc' }],
@@ -1578,7 +1621,14 @@ export class BookingService {
         message: 'This calendar range contains more than 5,000 bookings; select a narrower range',
       });
     }
-    return rows;
+    return rows.map((row) => ({
+      ...row,
+      customer: {
+        id: row.customer.id,
+        fullName: row.customer.fullName,
+        primaryPhone: row.customer.identities[0]?.value ?? null,
+      },
+    }));
   }
 
   async getBookingById(tenantId: string, bookingId: string) {
@@ -1586,7 +1636,10 @@ export class BookingService {
       where: { id: bookingId, tenantId, deletedAt: null },
       include: {
         customer: {
-          include: { tags: true },
+          include: {
+            identities: { orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }] },
+            tagAssignments: { include: { tag: true } },
+          },
         },
         sourceLocation: {
           select: { id: true, code: true, name: true, timezone: true },
@@ -1643,7 +1696,21 @@ export class BookingService {
 
     if (!booking) throw new NotFoundException('Booking not found');
     const operationalTimeline = await this.getOperationalTimeline(tenantId, booking);
-    return { ...booking, operationalTimeline };
+    const primaryPhone = booking.customer.identities.find((identity) => identity.kind === 'phone' && identity.isPrimary)
+      ?? booking.customer.identities.find((identity) => identity.kind === 'phone');
+    const primaryEmail = booking.customer.identities.find((identity) => identity.kind === 'email' && identity.isPrimary)
+      ?? booking.customer.identities.find((identity) => identity.kind === 'email');
+    return {
+      ...booking,
+      customer: {
+        ...booking.customer,
+        primaryPhone: primaryPhone?.value ?? null,
+        primaryEmail: primaryEmail?.value ?? null,
+        tags: booking.customer.tagAssignments.map((assignment) => assignment.tag),
+        tagAssignments: undefined,
+      },
+      operationalTimeline,
+    };
   }
 
   private async getOperationalTimeline(

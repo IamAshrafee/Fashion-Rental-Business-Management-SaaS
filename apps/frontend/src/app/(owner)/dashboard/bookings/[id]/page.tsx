@@ -192,8 +192,8 @@ export default function BookingDetailPage() {
     customer: {
       id: booking.customer.id,
       fullName: customerName,
-      phone: booking.customer.phone,
-      email: booking.customer.email || undefined,
+      phone: booking.customer.primaryPhone ?? booking.deliveryPhone,
+      email: booking.customer.primaryEmail || undefined,
       totalBookings: booking.customer.totalBookings ?? 0,
     },
     items: mappedItems,
@@ -353,16 +353,13 @@ export default function BookingDetailPage() {
                 >
                   {customerName}
                 </Link>
-                <div className="text-muted-foreground">{booking.customer.phone}</div>
-                {booking.customer.altPhone && (
-                  <div className="text-muted-foreground text-sm">Alt: {booking.customer.altPhone}</div>
-                )}
-                {booking.customer.email && <div className="text-muted-foreground">{booking.customer.email}</div>}
+                <div className="text-muted-foreground">{booking.customer.primaryPhone ?? 'No primary phone'}</div>
+                {booking.customer.primaryEmail && <div className="text-muted-foreground">{booking.customer.primaryEmail}</div>}
                 {booking.customer.tags?.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {booking.customer.tags.map((t) => (
                       <span key={t.id} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-secondary text-secondary-foreground">
-                        {t.tag}
+                        {t.name}
                       </span>
                     ))}
                   </div>

@@ -1,505 +1,118 @@
 'use client';
 
+import Link from 'next/link';
+import { FormEvent, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useCustomer, useUpdateCustomer, useDeleteCustomer, useAddCustomerTag, useRemoveCustomerTag } from '../hooks/use-customers';
-import { useStoreSettings } from '../../settings/hooks/use-settings';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { ArrowLeft, MapPin, Mail, Phone, Clock, Plus, X, Pencil, Trash2, ChevronDown, CalendarDays, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
-import { useState } from 'react';
+import { ArrowLeft, CalendarDays, Mail, MapPin, MessageSquarePlus, Phone, Plus, ShieldCheck, Tag, UserRound } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { useStoreSettings } from '../../settings/hooks/use-settings';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { UpdateCustomerDto } from '@closetrent/types';
+  useAddAddress, useAddIdentity, useAddNote, useArchiveCustomer, useAssignCustomerTag,
+  useCreateCustomerTag, useCustomer, useCustomerTags, useRecordConsent,
+  useRemoveCustomerTag, useSetPrimaryIdentity, useUpdateCustomer,
+} from '../hooks/use-customers';
+
+type DialogName = 'profile' | 'identity' | 'address' | 'note' | 'tag' | 'consent' | null;
 
 export default function CustomerProfilePage() {
   const router = useRouter();
   const { id } = useParams() as { id: string };
-
   const { data: response, isLoading, isError } = useCustomer(id);
   const { data: settingsResponse } = useStoreSettings();
-  const updateCustomer = useUpdateCustomer();
-  const deleteCustomer = useDeleteCustomer();
-  const addTag = useAddCustomerTag();
+  const { data: tagsResponse } = useCustomerTags();
+  const [dialog, setDialog] = useState<DialogName>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const update = useUpdateCustomer();
+  const archive = useArchiveCustomer();
+  const addIdentity = useAddIdentity();
+  const setPrimary = useSetPrimaryIdentity();
+  const addAddress = useAddAddress();
+  const addNote = useAddNote();
+  const assignTag = useAssignCustomerTag();
   const removeTag = useRemoveCustomerTag();
-
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [newTag, setNewTag] = useState('');
-  const [isAddingTag, setIsAddingTag] = useState(false);
-
-  // S2: Delete confirmation state
-  const [deleteOpen, setDeleteOpen] = useState(false);
-
-  // S8: Edit customer dialog state
-  const [editOpen, setEditOpen] = useState(false);
-
-  // S10: Booking history - show more
-  const [showAllBookings, setShowAllBookings] = useState(false);
-
+  const createTag = useCreateCustomerTag();
+  const recordConsent = useRecordConsent();
   const customer = response?.data;
-  const settings = settingsResponse?.data;
+  const tags = tagsResponse?.data ?? [];
+  const currency = settingsResponse?.data.currencyCode || 'BDT';
+  const money = (amount: number) => new Intl.NumberFormat('en-BD', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount / 100);
 
-  // #14: Use currency from store settings, fallback to BDT
-  const currencyCode = settings?.currencyCode || 'BDT';
+  if (isLoading) return <main className="flex flex-col gap-5 p-4 md:p-8"><Skeleton className="h-12 w-80" /><Skeleton className="h-40 w-full" /><Skeleton className="h-96 w-full" /></main>;
+  if (isError || !customer) return <main className="p-8"><Alert variant="destructive"><AlertTitle>Customer unavailable</AlertTitle><AlertDescription>The profile may have been merged, anonymized, or removed.</AlertDescription></Alert></main>;
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+  const closeOnSuccess = { onSuccess: () => setDialog(null) };
+  const submitProfile = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    update.mutate({ id, payload: { fullName: String(form.get('fullName')), status: String(form.get('status')) as typeof customer.status, preferredContactChannel: String(form.get('channel')) as typeof customer.preferredContactChannel, preferredLocale: String(form.get('locale')), source: String(form.get('source')) || undefined } }, closeOnSuccess);
   };
-
-  // C2: Build address string from correct Prisma fields
-  const buildAddress = () => {
-    if (!customer) return null;
-    const parts = [
-      customer.addressLine1,
-      customer.addressLine2,
-      customer.city,
-      customer.state,
-      customer.postalCode,
-      customer.country,
-    ].filter(Boolean);
-    return parts.length > 0 ? parts.join(', ') : null;
-  };
-
-  const handleNotesSave = () => {
-    if (!customer) return;
-    updateCustomer.mutate({
-      id: customer.id,
-      payload: { notes }
-    });
-    setIsEditingNotes(false);
-  };
-
-  const startEditingNotes = () => {
-    setNotes(customer?.notes || '');
-    setIsEditingNotes(true);
-  };
-
-  const handleAddTag = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTag.trim() || !customer) return;
-    addTag.mutate({ id: customer.id, tag: newTag.trim() });
-    setNewTag('');
-    setIsAddingTag(false);
-  };
-
-  const handleRemoveTag = (tag: string) => {
-    if (!customer) return;
-    removeTag.mutate({ id: customer.id, tag });
-  };
-
-  // S2: Handle delete
-  const handleDelete = () => {
-    if (!customer) return;
-    deleteCustomer.mutate(customer.id, {
-      onSuccess: () => {
-        setDeleteOpen(false);
-        router.push('/dashboard/customers');
-      },
-    });
-  };
-
-  // C2: Helper — sends trimmed value or empty string (to clear), skips if unchanged
-  const fieldVal = (raw: FormDataEntryValue | null): string | undefined => {
-    const val = (raw as string) ?? '';
-    return val.trim(); // empty string ⟹ backend sets field to ''
-  };
-
-  // S8: Handle edit submit
-  const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!customer) return;
-    const form = new FormData(e.currentTarget);
-    const payload: UpdateCustomerDto = {
-      fullName: fieldVal(form.get('fullName')) || undefined, // name can't be empty
-      altPhone: fieldVal(form.get('altPhone')),
-      email: fieldVal(form.get('email')),
-      addressLine1: fieldVal(form.get('addressLine1')),
-      addressLine2: fieldVal(form.get('addressLine2')),
-      city: fieldVal(form.get('city')),
-      state: fieldVal(form.get('state')),
-      postalCode: fieldVal(form.get('postalCode')),
-      country: fieldVal(form.get('country')),
-    };
-    updateCustomer.mutate({ id: customer.id, payload }, {
-      onSuccess: () => setEditOpen(false),
-    });
-  };
-
-  // S10: Limit displayed bookings unless "show all" toggled
-  const visibleBookings = showAllBookings
-    ? customer?.bookings
-    : customer?.bookings?.slice(0, 10);
-
-  if (isLoading) {
-    return <div className="p-8 text-center animate-pulse text-muted-foreground">Loading profile...</div>;
-  }
-
-  // S1: Network/server error handling
-  if (isError) {
-    return (
-      <div className="p-8 text-center space-y-4">
-        <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
-        <p className="text-destructive font-medium">Failed to load customer profile.</p>
-        <p className="text-sm text-muted-foreground">Please check your connection and try again.</p>
-        <Button onClick={() => router.back()} variant="outline" className="mt-2">Go Back</Button>
-      </div>
-    );
-  }
-
-  if (!customer) {
-    return (
-      <div className="p-8 text-center text-destructive">
-        <p>Customer not found.</p>
-        <Button onClick={() => router.back()} className="mt-4">Go Back</Button>
-      </div>
-    );
-  }
+  const submitIdentity = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); addIdentity.mutate({ id, kind: String(form.get('kind')) as 'phone' | 'email', value: String(form.get('value')) }, closeOnSuccess); };
+  const submitAddress = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); addAddress.mutate({ id, payload: { kind: String(form.get('kind')) as 'delivery' | 'billing' | 'other', label: String(form.get('label')) || undefined, recipientName: String(form.get('recipientName')) || undefined, phone: String(form.get('phone')) || undefined, addressLine1: String(form.get('addressLine1')), area: String(form.get('area')) || undefined, city: String(form.get('city')) || undefined, state: String(form.get('state')) || undefined, postalCode: String(form.get('postalCode')) || undefined, country: 'BD', isDefault: form.get('isDefault') === 'on' } }, closeOnSuccess); };
+  const submitNote = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); addNote.mutate({ id, body: String(form.get('body')), isPinned: form.get('isPinned') === 'on' }, closeOnSuccess); };
+  const submitConsent = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); recordConsent.mutate({ id, purpose: String(form.get('purpose')), channel: String(form.get('channel')), granted: form.get('granted') === 'true', source: String(form.get('source')) }, closeOnSuccess); };
+  const submitTag = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const tagId = String(form.get('tagId') ?? ''); const newName = String(form.get('newTag') ?? '').trim(); if (tagId) assignTag.mutate({ id, tagId }, closeOnSuccess); else if (newName) createTag.mutate({ name: newName }, { onSuccess: (result) => { const created = (result as { data?: { id?: string } })?.data; if (created?.id) assignTag.mutate({ id, tagId: created.id }, closeOnSuccess); } }); };
 
   return (
-    <div className="flex-1 space-y-6 p-8 pt-6 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Button variant="outline" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h2 className="text-3xl font-bold tracking-tight">Customer Profile</h2>
-        </div>
-        
-        {/* S2 + S8: Action buttons */}
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-            <Pencil className="h-4 w-4 mr-2" />
-            Edit
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete
-          </Button>
-        </div>
-      </div>
+    <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex items-start gap-4"><Button variant="outline" size="icon" onClick={() => router.push('/dashboard/customers')} aria-label="Back to customers"><ArrowLeft /></Button><Avatar className="size-12"><AvatarFallback>{customer.fullName.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</AvatarFallback></Avatar><div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold tracking-tight">{customer.fullName}</h1><Badge variant={customer.status === 'active' ? 'secondary' : 'outline'}>{customer.status}</Badge>{customer.account ? <Badge variant="outline">Account {customer.account.status}</Badge> : <Badge variant="outline">No login account</Badge>}</div><p className="text-sm text-muted-foreground">Customer since {format(new Date(customer.createdAt), 'dd MMM yyyy')} · Preferred: {customer.preferredContactChannel}</p><div className="flex flex-wrap gap-1">{customer.tags.map((tag) => <Badge key={tag.id} variant="outline">{tag.name}<button type="button" className="ml-1" onClick={() => removeTag.mutate({ id, tagId: tag.id })} aria-label={`Remove ${tag.name}`}>×</button></Badge>)}</div></div></div>
+        <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setDialog('tag')}><Tag data-icon="inline-start" />Tag</Button><Button variant="outline" onClick={() => setDialog('note')}><MessageSquarePlus data-icon="inline-start" />Add note</Button><Button onClick={() => setDialog('profile')}>Edit profile</Button></div>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left Column: Details — S4: Fixed dark mode colors */}
-        <div className="col-span-1 space-y-6">
-          <div className="p-6 bg-card border rounded-xl shadow-sm space-y-4">
-            <h3 className="text-xl font-bold">{customer.fullName}</h3>
-            
-            <div className="flex flex-wrap gap-2 items-center">
-              {customer.tags?.map((tag: string) => (
-                <Badge key={tag} variant="secondary" className="px-2 py-1 pr-1 flex items-center gap-1 text-sm bg-primary/10 text-primary border-primary/20">
-                  {tag}
-                  <button 
-                    onClick={() => handleRemoveTag(tag)}
-                    className="hover:bg-primary/20 rounded-full p-0.5"
-                    aria-label={`Remove tag ${tag}`}
-                  >
-                    <X size={12} />
-                  </button>
-                </Badge>
-              ))}
-              
-              {isAddingTag ? (
-                <form onSubmit={handleAddTag} className="flex items-center">
-                  <Input 
-                    autoFocus
-                    className="h-6 w-24 text-xs px-2 py-0" 
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    onBlur={() => !newTag && setIsAddingTag(false)}
-                  />
-                </form>
-              ) : (
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-6 px-2 text-xs border border-dashed text-muted-foreground"
-                  onClick={() => setIsAddingTag(true)}
-                >
-                  <Plus size={12} className="mr-1" /> Add Tag
-                </Button>
-              )}
-            </div>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Card><CardHeader><CardDescription>Bookings</CardDescription><CardTitle>{customer.totalBookings}</CardTitle></CardHeader></Card>
+        <Card><CardHeader><CardDescription>Lifetime paid</CardDescription><CardTitle>{money(customer.totalSpent)}</CardTitle></CardHeader></Card>
+        <Card><CardHeader><CardDescription>Last booking</CardDescription><CardTitle className="text-lg">{customer.lastBookingAt ? format(new Date(customer.lastBookingAt), 'dd MMM yyyy') : 'Never'}</CardTitle></CardHeader></Card>
+        <Card><CardHeader><CardDescription>Account readiness</CardDescription><CardTitle className="text-lg">{customer.primaryPhone || customer.primaryEmail ? customer.account ? 'Enabled' : 'Ready to invite' : 'Contact required'}</CardTitle></CardHeader></Card>
+      </section>
 
-            {/* S4: Fixed - use text-foreground instead of text-gray-900 */}
-            <div className="space-y-3 pt-4 border-t text-sm">
-              <div className="flex items-center text-muted-foreground">
-                <Phone className="w-4 h-4 mr-3 flex-shrink-0" />
-                <span className="text-foreground">{customer.phone}</span>
-                {customer.altPhone && <span className="ml-2 text-xs">(Alt: {customer.altPhone})</span>}
-              </div>
-              <div className="flex items-center text-muted-foreground">
-                <Mail className="w-4 h-4 mr-3 flex-shrink-0" />
-                <span className="text-foreground">{customer.email || 'N/A'}</span>
-              </div>
+      {customer.status === 'blocked' ? <Alert variant="destructive"><ShieldCheck /><AlertTitle>Booking blocked</AlertTitle><AlertDescription>This customer cannot create a booking until their profile status is restored to active.</AlertDescription></Alert> : null}
 
-              {/* C2: Fixed — use correct Prisma address fields */}
-              <div className="flex items-start text-muted-foreground">
-                <MapPin className="w-4 h-4 mr-3 mt-0.5 flex-shrink-0" />
-                <span className="text-foreground">
-                  {buildAddress() || 'N/A'}
-                </span>
-              </div>
-            </div>
+      <Tabs defaultValue="overview" className="flex flex-col gap-4">
+        <TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="bookings">Bookings ({customer.totalBookingCount})</TabsTrigger><TabsTrigger value="notes">Notes ({customer.notes.length})</TabsTrigger><TabsTrigger value="timeline">Timeline</TabsTrigger><TabsTrigger value="privacy">Consent & privacy</TabsTrigger></TabsList>
 
-            {/* S4: Customer since date */}
-            {customer.createdAt && (
-              <div className="flex items-center text-xs text-muted-foreground pt-2">
-                <CalendarDays className="w-3.5 h-3.5 mr-1.5" />
-                Customer since {format(new Date(customer.createdAt), 'MMM d, yyyy')}
-              </div>
-            )}
+        <TabsContent value="overview" className="grid gap-4 lg:grid-cols-2">
+          <Card><CardHeader className="flex-row items-start justify-between"><div><CardTitle>Contact identities</CardTitle><CardDescription>Verified or primary ways to identify this customer.</CardDescription></div><Button size="sm" variant="outline" onClick={() => setDialog('identity')}><Plus data-icon="inline-start" />Add</Button></CardHeader><CardContent className="flex flex-col gap-3">{customer.identities.map((identity) => <div key={identity.id} className="flex items-center justify-between gap-3 rounded-md border p-3"><div className="flex items-center gap-3">{identity.kind === 'phone' ? <Phone className="size-4 text-muted-foreground" /> : <Mail className="size-4 text-muted-foreground" />}<div><p>{identity.value}</p><p className="text-xs text-muted-foreground">{identity.kind}{identity.verifiedAt ? ' · verified' : ' · unverified'}</p></div></div>{identity.isPrimary ? <Badge>Primary</Badge> : <Button size="sm" variant="ghost" onClick={() => setPrimary.mutate({ id, identityId: identity.id })}>Make primary</Button>}</div>)}</CardContent></Card>
+          <Card><CardHeader className="flex-row items-start justify-between"><div><CardTitle>Addresses</CardTitle><CardDescription>Saved delivery and billing destinations.</CardDescription></div><Button size="sm" variant="outline" onClick={() => setDialog('address')}><Plus data-icon="inline-start" />Add</Button></CardHeader><CardContent className="flex flex-col gap-3">{customer.addresses.length ? customer.addresses.map((address) => <div key={address.id} className="flex items-start gap-3 rounded-md border p-3"><MapPin className="mt-1 size-4 text-muted-foreground" /><div className="flex flex-1 flex-col gap-1"><div className="flex flex-wrap gap-2"><span className="font-medium">{address.label || address.kind}</span>{address.isDefault ? <Badge variant="secondary">Default</Badge> : null}</div><p className="text-sm">{[address.addressLine1, address.addressLine2, address.area, address.city, address.state, address.postalCode].filter(Boolean).join(', ')}</p>{address.instructions ? <p className="text-xs text-muted-foreground">{address.instructions}</p> : null}</div></div>) : <p className="text-sm text-muted-foreground">No address has been saved.</p>}</CardContent></Card>
+          <Card><CardHeader><CardTitle>Profile preferences</CardTitle></CardHeader><CardContent className="grid gap-3 text-sm sm:grid-cols-2"><div><p className="text-muted-foreground">Contact channel</p><p className="capitalize">{customer.preferredContactChannel}</p></div><div><p className="text-muted-foreground">Locale</p><p>{customer.preferredLocale}</p></div><div><p className="text-muted-foreground">Source</p><p>{customer.source || 'Unknown'}</p></div><div><p className="text-muted-foreground">Account</p><p>{customer.account?.status || 'Not invited'}</p></div></CardContent></Card>
+        </TabsContent>
 
-            <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-              <div className="bg-muted p-3 rounded-lg text-center">
-                <div className="text-2xl font-bold">{customer.totalBookings}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Orders</div>
-              </div>
-              <div className="bg-muted p-3 rounded-lg text-center">
-                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(customer.totalSpent)}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Spent</div>
-              </div>
-            </div>
-          </div>
+        <TabsContent value="bookings"><Card><CardHeader><CardTitle>Rental history</CardTitle><CardDescription>Bookings retain their own frozen delivery and pricing snapshots.</CardDescription></CardHeader><CardContent className="flex flex-col gap-3">{customer.bookings.length ? customer.bookings.map((booking) => <Link key={booking.id} href={`/dashboard/bookings/${booking.id}`} className="flex flex-col gap-3 rounded-md border p-4 hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><CalendarDays className="size-4 text-muted-foreground" /><div><p className="font-medium">{booking.bookingNumber}</p><p className="text-xs text-muted-foreground">{booking.items.map((item) => item.productName).join(', ') || 'No items'}</p></div></div><div className="flex items-center gap-3"><Badge variant="outline">{booking.status}</Badge><span className="font-medium">{money(booking.grandTotal)}</span></div></Link>) : <p className="text-sm text-muted-foreground">No bookings yet.</p>}</CardContent></Card></TabsContent>
 
-          {/* S4: Fixed - use theme tokens for notes section */}
-          <div className="p-6 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-xl shadow-sm">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold text-amber-900 dark:text-amber-200">Internal Notes</h3>
-              {!isEditingNotes && (
-                <Button variant="ghost" size="sm" onClick={startEditingNotes} className="h-8 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:text-amber-900 dark:hover:text-amber-100">
-                  Edit
-                </Button>
-              )}
-            </div>
-            
-            {isEditingNotes ? (
-              <div className="space-y-3">
-                <Textarea 
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="min-h-[120px] bg-card text-sm"
-                  placeholder="Add notes about preferences, sizes, etc."
-                />
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setIsEditingNotes(false)}>Cancel</Button>
-                  <Button size="sm" onClick={handleNotesSave} disabled={updateCustomer.isPending}>
-                    {updateCustomer.isPending ? 'Saving...' : 'Save Notes'}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-amber-800 dark:text-amber-200/80 whitespace-pre-wrap">
-                {customer.notes || <span className="text-amber-600/60 dark:text-amber-400/40 italic">No internal notes for this customer.</span>}
-              </p>
-            )}
-          </div>
-        </div>
+        <TabsContent value="notes"><Card><CardHeader className="flex-row items-start justify-between"><div><CardTitle>Internal notes</CardTitle><CardDescription>Append-only staff context; new notes do not rewrite history.</CardDescription></div><Button size="sm" onClick={() => setDialog('note')}><Plus data-icon="inline-start" />Add note</Button></CardHeader><CardContent className="flex flex-col gap-3">{customer.notes.map((note) => <div key={note.id} className="rounded-md border p-4"><div className="mb-2 flex items-center justify-between gap-3">{note.isPinned ? <Badge>Important</Badge> : <span />}<span className="text-xs text-muted-foreground">{format(new Date(note.createdAt), 'dd MMM yyyy, p')}</span></div><p className="whitespace-pre-wrap text-sm">{note.body}</p></div>)}</CardContent></Card></TabsContent>
 
-        {/* Right Column: History */}
-        <div className="col-span-1 md:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-bold">Booking History</h3>
-            {/* S10: Show count */}
-            {(customer.totalBookingCount ?? customer.bookings?.length) > 0 && (
-              <span className="text-sm text-muted-foreground">
-                {customer.bookings?.length === (customer.totalBookingCount ?? customer.bookings?.length)
-                  ? `${customer.bookings.length} booking${customer.bookings.length !== 1 ? 's' : ''}`
-                  : `Showing ${customer.bookings?.length} of ${customer.totalBookingCount} bookings`
-                }
-              </span>
-            )}
-          </div>
-          
-          {/* S4: Fixed - use bg-card instead of bg-white */}
-          <div className="bg-card border text-sm rounded-xl overflow-hidden shadow-sm">
-            {customer.bookings?.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">
-                No bookings found for this customer.
-              </div>
-            ) : (
-              <>
-                <div className="divide-y">
-                  {visibleBookings?.map((booking: any) => (
-                    <div key={booking.id} className="p-4 hover:bg-muted/30 transition-colors flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-primary">{booking.bookingNumber}</span>
-                          <Badge variant="outline" className={`
-                            capitalize 
-                            ${booking.status === 'pending' ? 'border-amber-200 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30' : ''}
-                            ${booking.status === 'confirmed' ? 'border-blue-200 text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30' : ''}
-                            ${booking.status === 'confirmed' ? 'border-blue-200 text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30' : ''}
-                            ${booking.status === 'delivered' ? 'border-sky-200 text-sky-700 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/30' : ''}
-                            ${booking.status === 'returned' ? 'border-slate-200 text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/30' : ''}
-                            ${booking.status === 'completed' ? 'border-emerald-200 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : ''}
-                            ${booking.status === 'cancelled' ? 'border-rose-200 text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30' : ''}
-                          `}>
-                            {booking.status}
-                          </Badge>
-                        </div>
-                        <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                          <Clock size={12} />
-                          {format(new Date(booking.createdAt), 'MMM d, yyyy h:mm a')}
-                        </div>
-                        {/* S4: Fixed - use text-muted-foreground instead of text-gray-700 */}
-                        <div className="mt-2 text-xs font-medium text-muted-foreground">
-                          {booking.items.map((item: any, i: number) => (
-                            <span key={i}>
-                              {item.productName} {item.colorName ? `(${item.colorName})` : ''}
-                              {i < booking.items.length - 1 ? ', ' : ''}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-base">{formatCurrency(booking.grandTotal)}</div>
-                        <Button variant="ghost" size="sm" className="mt-2 h-7 px-2 text-xs" onClick={() => router.push(`/dashboard/bookings/${booking.id}`)}>
-                          View Order
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+        <TabsContent value="timeline"><Card><CardHeader><CardTitle>Operational timeline</CardTitle><CardDescription>Customer changes and commercial events in reverse chronological order.</CardDescription></CardHeader><CardContent className="flex flex-col gap-0">{customer.events.map((event, index) => <div key={event.id} className="flex gap-4"><div className="flex flex-col items-center"><span className="mt-1 size-2 rounded-full bg-primary" />{index < customer.events.length - 1 ? <span className="h-full w-px bg-border" /> : null}</div><div className="pb-5"><p className="font-medium">{event.summary}</p><p className="text-xs text-muted-foreground">{format(new Date(event.occurredAt), 'dd MMM yyyy, p')} · {event.type.replaceAll('_', ' ')}</p></div></div>)}</CardContent></Card></TabsContent>
 
-                {/* S10: Show more / Show less toggle for booking history */}
-                {customer.bookings && customer.bookings.length > 10 && (
-                  <div className="border-t p-3 text-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowAllBookings(!showAllBookings)}
-                      className="text-muted-foreground"
-                    >
-                      <ChevronDown className={`h-4 w-4 mr-1 transition-transform ${showAllBookings ? 'rotate-180' : ''}`} />
-                      {showAllBookings ? 'Show Less' : `Show All ${customer.bookings.length} Bookings`}
-                    </Button>
-                    {customer.totalBookingCount > customer.bookings.length && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {customer.totalBookingCount - customer.bookings.length} older bookings not shown
-                      </p>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+        <TabsContent value="privacy" className="grid gap-4 lg:grid-cols-2"><Card><CardHeader className="flex-row items-start justify-between"><div><CardTitle>Consent ledger</CardTitle><CardDescription>Every grant or revocation is retained with source and time.</CardDescription></div><Button size="sm" variant="outline" onClick={() => setDialog('consent')}>Record</Button></CardHeader><CardContent className="flex flex-col gap-3">{customer.consents.map((consent) => <div key={consent.id} className="flex items-center justify-between gap-3 rounded-md border p-3"><div><p className="font-medium">{consent.purpose}</p><p className="text-xs text-muted-foreground">{consent.channel || 'all channels'} · {consent.source} · {format(new Date(consent.recordedAt), 'dd MMM yyyy')}</p></div><Badge variant={consent.granted ? 'secondary' : 'outline'}>{consent.granted ? 'Granted' : 'Revoked'}</Badge></div>)}</CardContent></Card><Card><CardHeader><CardTitle>Privacy actions</CardTitle><CardDescription>Archiving stops normal use; anonymization is available through the protected privacy API when retention rules permit.</CardDescription></CardHeader><CardContent className="flex flex-col gap-4"><Alert><UserRound /><AlertTitle>Booking records are retained</AlertTitle><AlertDescription>Customer profile changes never rewrite the historical contact and delivery snapshots stored on bookings.</AlertDescription></Alert><Separator /><Button variant="destructive" onClick={() => setArchiveOpen(true)} disabled={customer.status === 'archived'}>Archive customer</Button></CardContent></Card></TabsContent>
+      </Tabs>
 
-      {/* S2: Delete confirmation dialog */}
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Customer</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete <strong>{customer.fullName}</strong>? 
-              This action cannot be undone. Customers with active bookings cannot be deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteCustomer.isPending}
-            >
-              {deleteCustomer.isPending ? 'Deleting...' : 'Delete Customer'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Dialog open={dialog === 'profile'} onOpenChange={(open) => setDialog(open ? 'profile' : null)}><DialogContent><DialogHeader><DialogTitle>Edit customer profile</DialogTitle><DialogDescription>Contact identities and addresses are managed separately to preserve identity history.</DialogDescription></DialogHeader><form onSubmit={submitProfile} className="flex flex-col gap-4"><div className="flex flex-col gap-2"><Label htmlFor="profile-name">Full name</Label><Input id="profile-name" name="fullName" defaultValue={customer.fullName} required /></div><div className="grid gap-4 sm:grid-cols-2"><div className="flex flex-col gap-2"><Label>Status</Label><Select name="status" defaultValue={customer.status}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="active">Active</SelectItem><SelectItem value="blocked">Blocked</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectGroup></SelectContent></Select></div><div className="flex flex-col gap-2"><Label>Preferred channel</Label><Select name="channel" defaultValue={customer.preferredContactChannel}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{['phone','sms','whatsapp','email'].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectGroup></SelectContent></Select></div><div className="flex flex-col gap-2"><Label htmlFor="profile-locale">Locale</Label><Input id="profile-locale" name="locale" defaultValue={customer.preferredLocale} /></div><div className="flex flex-col gap-2"><Label htmlFor="profile-source">Source</Label><Input id="profile-source" name="source" defaultValue={customer.source ?? ''} /></div></div><DialogFooter><Button type="submit" disabled={update.isPending}>Save profile</Button></DialogFooter></form></DialogContent></Dialog>
 
-      {/* S8: Edit customer dialog */}
-      {/* S7: Key forces remount on reopen so defaultValues refresh */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen} key={editOpen ? 'open' : 'closed'}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Edit Customer</DialogTitle>
-            <DialogDescription>
-              Update customer information. Phone number cannot be changed.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleEditSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-fullName">Full Name</Label>
-                <Input id="edit-fullName" name="fullName" defaultValue={customer.fullName} minLength={2} maxLength={200} />
-              </div>
-              <div className="space-y-2">
-                <Label>Phone</Label>
-                <Input value={customer.phone} disabled className="bg-muted" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-email">Email</Label>
-                <Input id="edit-email" name="email" type="email" defaultValue={customer.email || ''} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-altPhone">Alt Phone</Label>
-                <Input id="edit-altPhone" name="altPhone" defaultValue={customer.altPhone || ''} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-addressLine1">Address Line 1</Label>
-              <Input id="edit-addressLine1" name="addressLine1" defaultValue={customer.addressLine1 || ''} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-addressLine2">Address Line 2</Label>
-              <Input id="edit-addressLine2" name="addressLine2" defaultValue={customer.addressLine2 || ''} />
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-city">City</Label>
-                <Input id="edit-city" name="city" defaultValue={customer.city || ''} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-state">State</Label>
-                <Input id="edit-state" name="state" defaultValue={customer.state || ''} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-postalCode">Postal Code</Label>
-                <Input id="edit-postalCode" name="postalCode" defaultValue={customer.postalCode || ''} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-country">Country</Label>
-              <Input id="edit-country" name="country" defaultValue={customer.country || ''} />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={updateCustomer.isPending}>
-                {updateCustomer.isPending ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <Dialog open={dialog === 'identity'} onOpenChange={(open) => setDialog(open ? 'identity' : null)}><DialogContent><DialogHeader><DialogTitle>Add contact identity</DialogTitle><DialogDescription>The normalized value must be unique within this business.</DialogDescription></DialogHeader><form onSubmit={submitIdentity} className="flex flex-col gap-4"><div className="flex flex-col gap-2"><Label>Type</Label><Select name="kind" defaultValue="phone"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="phone">Phone</SelectItem><SelectItem value="email">Email</SelectItem></SelectGroup></SelectContent></Select></div><div className="flex flex-col gap-2"><Label htmlFor="identity-value">Phone or email</Label><Input id="identity-value" name="value" required /></div><DialogFooter><Button type="submit" disabled={addIdentity.isPending}>Add contact</Button></DialogFooter></form></DialogContent></Dialog>
+
+      <Dialog open={dialog === 'address'} onOpenChange={(open) => setDialog(open ? 'address' : null)}><DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>Add saved address</DialogTitle><DialogDescription>Booking checkout can reuse this address without changing earlier booking snapshots.</DialogDescription></DialogHeader><form onSubmit={submitAddress} className="flex flex-col gap-4"><div className="grid gap-4 sm:grid-cols-2"><div className="flex flex-col gap-2"><Label>Type</Label><Select name="kind" defaultValue="delivery"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="delivery">Delivery</SelectItem><SelectItem value="billing">Billing</SelectItem><SelectItem value="other">Other</SelectItem></SelectGroup></SelectContent></Select></div><div className="flex flex-col gap-2"><Label htmlFor="address-label">Label</Label><Input id="address-label" name="label" placeholder="Home, office…" /></div><div className="flex flex-col gap-2"><Label htmlFor="address-recipient">Recipient</Label><Input id="address-recipient" name="recipientName" defaultValue={customer.fullName} /></div><div className="flex flex-col gap-2"><Label htmlFor="address-phone">Delivery phone</Label><Input id="address-phone" name="phone" defaultValue={customer.primaryPhone ?? ''} /></div><div className="flex flex-col gap-2 sm:col-span-2"><Label htmlFor="address-line">Address</Label><Input id="address-line" name="addressLine1" required /></div>{['area','city','state','postalCode'].map((field) => <div key={field} className="flex flex-col gap-2"><Label htmlFor={`address-${field}`}>{field === 'postalCode' ? 'Postal code' : field[0].toUpperCase() + field.slice(1)}</Label><Input id={`address-${field}`} name={field} /></div>)}</div><label className="flex items-center gap-2 text-sm"><Switch name="isDefault" />Use as default address</label><DialogFooter><Button type="submit" disabled={addAddress.isPending}>Save address</Button></DialogFooter></form></DialogContent></Dialog>
+
+      <Dialog open={dialog === 'note'} onOpenChange={(open) => setDialog(open ? 'note' : null)}><DialogContent><DialogHeader><DialogTitle>Add internal note</DialogTitle><DialogDescription>Notes are appended to history and visible only to authorized staff.</DialogDescription></DialogHeader><form onSubmit={submitNote} className="flex flex-col gap-4"><div className="flex flex-col gap-2"><Label htmlFor="note-body">Note</Label><Textarea id="note-body" name="body" required maxLength={2000} /></div><label className="flex items-center gap-2 text-sm"><Switch name="isPinned" />Mark important</label><DialogFooter><Button type="submit" disabled={addNote.isPending}>Add note</Button></DialogFooter></form></DialogContent></Dialog>
+
+      <Dialog open={dialog === 'tag'} onOpenChange={(open) => setDialog(open ? 'tag' : null)}><DialogContent><DialogHeader><DialogTitle>Assign customer tag</DialogTitle><DialogDescription>Use a tenant-wide tag for consistent segmentation, or create one.</DialogDescription></DialogHeader><form onSubmit={submitTag} className="flex flex-col gap-4"><div className="flex flex-col gap-2"><Label>Existing tag</Label><Select name="tagId"><SelectTrigger><SelectValue placeholder="Choose a tag" /></SelectTrigger><SelectContent><SelectGroup>{tags.filter((tag) => !customer.tags.some((assigned) => assigned.id === tag.id)).map((tag) => <SelectItem key={tag.id} value={tag.id}>{tag.name}</SelectItem>)}</SelectGroup></SelectContent></Select></div><div className="flex flex-col gap-2"><Label htmlFor="new-tag">Or create a tag</Label><Input id="new-tag" name="newTag" /></div><DialogFooter><Button type="submit">Assign tag</Button></DialogFooter></form></DialogContent></Dialog>
+
+      <Dialog open={dialog === 'consent'} onOpenChange={(open) => setDialog(open ? 'consent' : null)}><DialogContent><DialogHeader><DialogTitle>Record consent decision</DialogTitle><DialogDescription>This creates a new ledger entry; it does not erase previous decisions.</DialogDescription></DialogHeader><form onSubmit={submitConsent} className="flex flex-col gap-4"><div className="flex flex-col gap-2"><Label htmlFor="consent-purpose">Purpose</Label><Input id="consent-purpose" name="purpose" placeholder="marketing_updates" required /></div><div className="grid gap-4 sm:grid-cols-2"><div className="flex flex-col gap-2"><Label>Channel</Label><Select name="channel" defaultValue="sms"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{['phone','sms','whatsapp','email'].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectGroup></SelectContent></Select></div><div className="flex flex-col gap-2"><Label>Decision</Label><Select name="granted" defaultValue="true"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="true">Granted</SelectItem><SelectItem value="false">Revoked</SelectItem></SelectGroup></SelectContent></Select></div></div><div className="flex flex-col gap-2"><Label htmlFor="consent-source">Source</Label><Input id="consent-source" name="source" defaultValue="owner_dashboard" required /></div><DialogFooter><Button type="submit" disabled={recordConsent.isPending}>Record decision</Button></DialogFooter></form></DialogContent></Dialog>
+
+      <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Archive {customer.fullName}?</AlertDialogTitle><AlertDialogDescription>Archiving is rejected while any booking remains operational. Historical bookings and financial evidence are retained.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => archive.mutate(id, { onSuccess: () => router.push('/dashboard/customers') })}>Archive customer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    </main>
   );
 }

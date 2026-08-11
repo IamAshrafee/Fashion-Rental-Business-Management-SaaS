@@ -1,162 +1,43 @@
 'use client';
 
-import { Customer } from '@closetrent/types';
 import { useRouter } from 'next/navigation';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { ArrowUpDown, User } from 'lucide-react';
 import { format } from 'date-fns';
+import { ArrowUpDown, UserRound } from 'lucide-react';
+import { Customer, PaginationMeta } from '@closetrent/types';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useStoreSettings } from '../../settings/hooks/use-settings';
 
-interface CustomerDataTableProps {
-  data: Customer[];
-  isLoading: boolean;
-  meta: any;
-  onPageChange: (page: number) => void;
-  sort: string;
-  onSortChange: (sort: string) => void;
-}
+interface Props { data: Customer[]; isLoading: boolean; meta?: PaginationMeta; onPageChange: (page: number) => void; sort: string; onSortChange: (sort: string) => void }
 
-export function CustomerDataTable({ 
-    data, 
-    isLoading, 
-    meta, 
-    onPageChange, 
-    sort, 
-    onSortChange 
-}: CustomerDataTableProps) {
+export function CustomerDataTable({ data, isLoading, meta, onPageChange, sort, onSortChange }: Props) {
   const router = useRouter();
   const { data: settingsResponse } = useStoreSettings();
-  const settings = settingsResponse?.data;
+  const currency = settingsResponse?.data.currencyCode || 'BDT';
+  const money = (amount: number) => new Intl.NumberFormat('en-BD', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount / 100);
+  const sortBy = (key: string) => onSortChange(sort === `${key}_asc` ? `${key}_desc` : `${key}_asc`);
 
-  // #14: Use currency from store settings, fallback to BDT
-  const currencyCode = settings?.currencyCode || 'BDT';
-
-  const handleSort = (key: string) => {
-    if (sort === `${key}_asc`) {
-      onSortChange(`${key}_desc`);
-    } else {
-      onSortChange(`${key}_asc`);
-    }
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  if (isLoading) {
-    return <div className="p-8 text-center text-muted-foreground animate-pulse">Loading customers...</div>;
-  }
-
-  if (data.length === 0) {
-    return <div className="p-8 text-center text-muted-foreground border-t">No customers found.</div>;
-  }
+  if (isLoading) return <div className="flex flex-col gap-3">{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>;
+  if (!data.length) return <Empty><EmptyHeader><EmptyMedia variant="icon"><UserRound /></EmptyMedia><EmptyTitle>No customer profiles</EmptyTitle><EmptyDescription>Adjust the filters or create the first operational customer profile.</EmptyDescription></EmptyHeader></Empty>;
 
   return (
-    <div className="w-full">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[50px]"></TableHead>
-            <TableHead>
-              <Button variant="ghost" onClick={() => handleSort('name')} className="px-0 py-1 hover:bg-transparent -ml-2">
-                Customer <ArrowUpDown className="ml-2 h-4 w-4" />
-              </Button>
-            </TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead className="text-right">
-              <Button variant="ghost" onClick={() => handleSort('total_bookings')} className="px-0 py-1 hover:bg-transparent">
-                Orders <ArrowUpDown className="ml-2 h-4 w-4" />
-              </Button>
-            </TableHead>
-            <TableHead className="text-right">
-              <Button variant="ghost" onClick={() => handleSort('total_spent')} className="px-0 py-1 hover:bg-transparent">
-                Spent <ArrowUpDown className="ml-2 h-4 w-4" />
-              </Button>
-            </TableHead>
-            <TableHead className="text-right">
-              <Button variant="ghost" onClick={() => handleSort('last_booking_at')} className="px-0 py-1 hover:bg-transparent pr-4">
-                Last Order <ArrowUpDown className="ml-2 h-4 w-4" />
-              </Button>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.map((customer) => (
-            <TableRow 
-              key={customer.id}
-              className="cursor-pointer hover:bg-muted/50 transition-colors"
-              onClick={() => router.push(`/dashboard/customers/${customer.id}`)}
-            >
-              <TableCell>
-                <div className="bg-primary/10 w-8 h-8 rounded-full flex items-center justify-center text-primary">
-                  <User size={16} />
-                </div>
-              </TableCell>
-              {/* S4: Fixed - use text-foreground instead of text-gray-900 */}
-              <TableCell>
-                <div className="font-medium text-foreground">{customer.fullName}</div>
-                <div className="flex gap-1 mt-1 flex-wrap">
-                  {customer.tags?.map(tag => (
-                    <Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0 h-4 leading-none">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </TableCell>
-              <TableCell className="text-muted-foreground">{customer.phone}</TableCell>
-              <TableCell className="text-right font-medium">{customer.totalBookings}</TableCell>
-              <TableCell className="text-right font-medium text-emerald-600">
-                {formatCurrency(customer.totalSpent)}
-              </TableCell>
-              <TableCell className="text-right text-muted-foreground pr-4">
-                {customer.lastBookingAt 
-                  ? format(new Date(customer.lastBookingAt), 'MMM d, yyyy') 
-                  : 'N/A'}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      
-      {meta && (
-        <div className="flex items-center justify-between px-4 py-4 border-t text-sm text-muted-foreground">
-          <div>
-            Showing {(meta.page - 1) * meta.limit + 1} to {Math.min(meta.page * meta.limit, meta.total)} of {meta.total} entries
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(meta.page - 1)}
-              disabled={meta.page <= 1}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(meta.page + 1)}
-              disabled={meta.page >= meta.totalPages}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+    <div className="flex flex-col gap-4">
+      <div className="overflow-x-auto rounded-md border">
+        <Table>
+          <TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Contact</TableHead><TableHead>Location</TableHead><TableHead><Button variant="ghost" size="sm" onClick={() => sortBy('total_bookings')}>Bookings<ArrowUpDown data-icon="inline-end" /></Button></TableHead><TableHead><Button variant="ghost" size="sm" onClick={() => sortBy('total_spent')}>Lifetime paid<ArrowUpDown data-icon="inline-end" /></Button></TableHead><TableHead>Last booking</TableHead></TableRow></TableHeader>
+          <TableBody>{data.map((customer) => <TableRow key={customer.id} className="cursor-pointer" tabIndex={0} onClick={() => router.push(`/dashboard/customers/${customer.id}`)} onKeyDown={(event) => { if (event.key === 'Enter') router.push(`/dashboard/customers/${customer.id}`); }}>
+            <TableCell><div className="flex items-center gap-3"><Avatar><AvatarFallback>{customer.fullName.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</AvatarFallback></Avatar><div className="flex flex-col gap-1"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{customer.fullName}</span><Badge variant={customer.status === 'active' ? 'secondary' : 'outline'}>{customer.status}</Badge>{customer.account ? <Badge variant="outline">Account {customer.account.status}</Badge> : null}</div><div className="flex flex-wrap gap-1">{customer.tags.map((tag) => <Badge key={tag.id} variant="outline">{tag.name}</Badge>)}</div></div></div></TableCell>
+            <TableCell><div className="flex flex-col gap-1"><span>{customer.primaryPhone ?? 'No phone'}</span><span className="text-xs text-muted-foreground">{customer.primaryEmail ?? 'No email'}</span></div></TableCell>
+            <TableCell>{customer.defaultAddress ? <div className="flex flex-col"><span>{customer.defaultAddress.area || customer.defaultAddress.city || 'Address saved'}</span><span className="text-xs text-muted-foreground">{customer.defaultAddress.state || customer.defaultAddress.country}</span></div> : <span className="text-muted-foreground">Not saved</span>}</TableCell>
+            <TableCell>{customer.totalBookings}</TableCell><TableCell className="font-medium">{money(customer.totalSpent)}</TableCell><TableCell className="text-muted-foreground">{customer.lastBookingAt ? format(new Date(customer.lastBookingAt), 'dd MMM yyyy') : 'Never'}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+      </div>
+      {meta ? <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><span>{meta.total ? `${(meta.page - 1) * meta.limit + 1}–${Math.min(meta.page * meta.limit, meta.total)} of ${meta.total}` : '0 results'}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={meta.page <= 1} onClick={() => onPageChange(meta.page - 1)}>Previous</Button><Button variant="outline" size="sm" disabled={meta.page >= meta.totalPages} onClick={() => onPageChange(meta.page + 1)}>Next</Button></div></div> : null}
     </div>
   );
 }
