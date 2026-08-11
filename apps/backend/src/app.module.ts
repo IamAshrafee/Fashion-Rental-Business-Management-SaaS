@@ -1,8 +1,12 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
+import { SubscriptionGuard } from './common/guards/subscription.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import configuration from './config/configuration';
+import { validateEnvironment } from './config/environment.validation';
 import { PrismaModule } from './prisma/prisma.module';
 
 // Middleware
@@ -32,6 +36,7 @@ import { SizeInstanceModule } from './modules/size-instance/size-instance.module
 import { ProductTypeModule } from './modules/product-type/product-type.module';
 import { PricingEngineModule } from './modules/pricing-engine/pricing-engine.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -39,6 +44,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
+      validate: validateEnvironment,
       envFilePath: ['.env', '../../.env'],
     }),
 
@@ -71,8 +77,13 @@ import { InventoryModule } from './modules/inventory/inventory.module';
     SizeInstanceModule,
     ProductTypeModule,
     PricingEngineModule,
+    HealthModule,
   ],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
     // Global metering interceptor — captures per-tenant API metrics on every request.
     // Runs AFTER response (tap operator) — zero latency impact.
     {
@@ -85,12 +96,18 @@ import { InventoryModule } from './modules/inventory/inventory.module';
       provide: APP_GUARD,
       useClass: TenantRateLimitGuard,
     },
+    {
+      provide: APP_GUARD,
+      useClass: SubscriptionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(TenantMiddleware)
-      .forRoutes('*');
+    consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }

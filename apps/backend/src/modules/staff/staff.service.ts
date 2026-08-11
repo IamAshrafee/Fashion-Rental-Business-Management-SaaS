@@ -11,6 +11,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SubscriptionService } from '../tenant/subscription.service';
 import { InviteStaffDto, UpdateStaffDto, StaffQueryDto } from './dto/staff.dto';
 import { Prisma } from '@prisma/client';
+import { createHash, randomBytes } from 'crypto';
+import { AcceptStaffInvitationDto } from './dto/staff.dto';
 
 @Injectable()
 export class StaffService {
@@ -31,97 +33,155 @@ export class StaffService {
    * Invite a staff member.
    * Creates a new user account (or links existing) and creates TenantUser junction.
    */
-  async inviteStaff(tenantId: string, dto: InviteStaffDto) {
-    // Enforce staff plan limit
-    await this.subscriptionService.enforcePlanLimit(tenantId, 'staff');
-
-    // Check if user already exists (by phone or email)
-    const existingUser = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { phone: dto.phone },
-          ...(dto.email ? [{ email: dto.email }] : []),
-        ],
-      },
-      select: { id: true, fullName: true, phone: true, email: true },
+  async inviteStaff(tenantId: string, invitedByUserId: string, dto: InviteStaffDto) {
+    const phone = dto.phone?.trim() || null;
+    const email = dto.email?.trim().toLowerCase() || null;
+    if (!phone && !email)
+      throw new BadRequestException('Phone or email is required for an invitation');
+    const matchingUsers = await this.prisma.user.findMany({
+      where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
+      select: { id: true },
+      take: 2,
     });
-
-    // Check if this user is already a member of this tenant
+    if (matchingUsers.length > 1) {
+      throw new BadRequestException('The phone and email belong to different existing accounts');
+    }
+    const existingUser = matchingUsers[0];
     if (existingUser) {
       const existingMembership = await this.prisma.tenantUser.findUnique({
-        where: {
-          tenantId_userId: {
-            tenantId,
-            userId: existingUser.id,
-          },
-        },
+        where: { tenantId_userId: { tenantId, userId: existingUser.id } },
       });
-
-      if (existingMembership) {
-        if (existingMembership.isActive) {
-          throw new ConflictException(
-            'This person is already a member of your store',
-          );
-        }
-        // Re-activate existing membership
-        const reactivated = await this.prisma.tenantUser.update({
-          where: { id: existingMembership.id },
-          data: {
-            role: dto.role,
-            isActive: true,
-          },
-          include: {
-            user: {
-              select: {
-                id: true,
-                fullName: true,
-                phone: true,
-                email: true,
-                lastLoginAt: true,
-              },
-            },
-          },
-        });
-
-        this.eventEmitter.emit('staff.invited', {
-          tenantId,
-          userId: existingUser.id,
-          role: dto.role,
-          reactivated: true,
-        });
-
-        return this.formatStaffResponse(reactivated);
-      }
+      if (existingMembership?.isActive)
+        throw new ConflictException('This person is already a member of your store');
     }
+    const pendingWhere = {
+      tenantId,
+      acceptedAt: null,
+      revokedAt: null,
+      OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])],
+    };
+    const replacesPendingInvitation = Boolean(await this.prisma.staffInvitation.findFirst({ where: pendingWhere, select: { id: true } }));
+    if (!replacesPendingInvitation) await this.subscriptionService.enforcePlanLimit(tenantId, 'staff');
+    await this.prisma.staffInvitation.updateMany({
+      where: pendingWhere,
+      data: { revokedAt: new Date() },
+    });
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const invitation = await this.prisma.staffInvitation.create({
+      data: {
+        tenantId,
+        fullName: dto.fullName.trim(),
+        phone,
+        email,
+        role: dto.role,
+        permissions: dto.permissions ?? [],
+        tokenHash: createHash('sha256').update(token).digest('hex'),
+        invitedByUserId,
+        expiresAt,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        email: true,
+        role: true,
+        permissions: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+    this.eventEmitter.emit('staff.invited', {
+      tenantId,
+      invitationId: invitation.id,
+      role: dto.role,
+    });
+    return { ...invitation, token };
+  }
 
-    // Create new user or use existing
-    const result = await this.prisma.$transaction(async (tx) => {
-      let userId: string;
+  async listInvitations(tenantId: string) {
+    return this.prisma.staffInvitation.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        email: true,
+        role: true,
+        permissions: true,
+        expiresAt: true,
+        acceptedAt: true,
+        revokedAt: true,
+        createdAt: true,
+      },
+    });
+  }
 
-      if (existingUser) {
-        userId = existingUser.id;
-      } else {
-        // Create new user account
-        const passwordHash = await bcrypt.hash(dto.password, this.bcryptSaltRounds);
+  async revokeInvitation(tenantId: string, invitationId: string) {
+    const invitation = await this.prisma.staffInvitation.findFirst({
+      where: { id: invitationId, tenantId },
+    });
+    if (!invitation) throw new NotFoundException('Staff invitation not found');
+    if (invitation.acceptedAt)
+      throw new ConflictException('Accepted invitations cannot be revoked');
+    return this.prisma.staffInvitation.update({
+      where: { id: invitationId },
+      data: { revokedAt: new Date() },
+    });
+  }
 
-        const newUser = await tx.user.create({
+  async acceptInvitation(dto: AcceptStaffInvitationDto) {
+    const tokenHash = createHash('sha256').update(dto.token).digest('hex');
+    const invitation = await this.prisma.staffInvitation.findUnique({ where: { tokenHash } });
+    if (
+      !invitation ||
+      invitation.revokedAt ||
+      invitation.acceptedAt ||
+      invitation.expiresAt <= new Date()
+    ) {
+      throw new BadRequestException('This staff invitation is invalid or expired');
+    }
+    const passwordHash = await bcrypt.hash(dto.password, this.bcryptSaltRounds);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM staff_invitations WHERE id = ${invitation.id} FOR UPDATE`,
+      );
+      const current = await tx.staffInvitation.findUniqueOrThrow({ where: { id: invitation.id } });
+      if (current.revokedAt || current.acceptedAt || current.expiresAt <= new Date())
+        throw new ConflictException('This invitation is no longer available');
+      const matchingUsers = await tx.user.findMany({
+        where: {
+          OR: [
+            ...(current.phone ? [{ phone: current.phone }] : []),
+            ...(current.email ? [{ email: current.email }] : []),
+          ],
+        },
+        take: 2,
+      });
+      if (matchingUsers.length > 1) throw new ConflictException('Invitation identities no longer resolve to one account');
+      let user = matchingUsers[0];
+      if (!user) {
+        user = await tx.user.create({
           data: {
-            fullName: dto.fullName,
-            phone: dto.phone,
-            email: dto.email || null,
+            fullName: current.fullName,
+            phone: current.phone,
+            email: current.email,
             passwordHash,
-            role: dto.role,
+            role: current.role,
           },
         });
-        userId = newUser.id;
+      } else if (!(await bcrypt.compare(dto.password, user.passwordHash))) {
+        throw new BadRequestException('This contact already has an account; enter its current password to join this store');
       }
-
-      // Create TenantUser junction
-      const tenantUser = await tx.tenantUser.create({
-        data: {
-          tenantId,
-          userId,
-          role: dto.role,
+      const membership = await tx.tenantUser.upsert({
+        where: { tenantId_userId: { tenantId: current.tenantId, userId: user.id } },
+        update: { role: current.role, permissions: current.permissions, isActive: true },
+        create: {
+          tenantId: current.tenantId,
+          userId: user.id,
+          role: current.role,
+          permissions: current.permissions,
           isActive: true,
         },
         include: {
@@ -132,22 +192,17 @@ export class StaffService {
               phone: true,
               email: true,
               lastLoginAt: true,
+              isActive: true,
             },
           },
         },
       });
-
-      return tenantUser;
+      await tx.staffInvitation.update({
+        where: { id: current.id },
+        data: { acceptedAt: new Date() },
+      });
+      return this.formatStaffResponse(membership);
     });
-
-    this.eventEmitter.emit('staff.invited', {
-      tenantId,
-      userId: result.userId,
-      role: dto.role,
-      reactivated: false,
-    });
-
-    return this.formatStaffResponse(result);
   }
 
   // =========================================================================
@@ -269,6 +324,7 @@ export class StaffService {
       data: {
         ...(dto.role !== undefined && { role: dto.role }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        ...(dto.permissions !== undefined && { permissions: dto.permissions }),
       },
       include: {
         user: {
@@ -364,6 +420,7 @@ export class StaffService {
     id: string;
     role: string;
     isActive: boolean;
+    permissions: string[];
     createdAt: Date;
     user: {
       id: string;
@@ -382,6 +439,7 @@ export class StaffService {
       email: tenantUser.user.email,
       role: tenantUser.role,
       isActive: tenantUser.isActive,
+      permissions: tenantUser.permissions,
       lastLoginAt: tenantUser.user.lastLoginAt ?? null,
       joinedAt: tenantUser.createdAt,
     };

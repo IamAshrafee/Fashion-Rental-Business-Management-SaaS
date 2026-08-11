@@ -18,6 +18,7 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { SubscriptionExempt } from '../../common/decorators/subscription-exempt.decorator';
 import { AuthUser, TenantContext } from '@closetrent/types';
 import {
   UpdateStoreSettingsDto,
@@ -46,10 +47,7 @@ export class TenantController {
    */
   @Get()
   @Roles('owner', 'manager', 'staff')
-  async getCurrentTenant(
-    @CurrentTenant() tenant: TenantContext,
-    @CurrentUser() _user: AuthUser,
-  ) {
+  async getCurrentTenant(@CurrentTenant() tenant: TenantContext, @CurrentUser() _user: AuthUser) {
     return this.tenantService.findById(tenant.id);
   }
 
@@ -154,10 +152,7 @@ export class TenantController {
   @Post('custom-domain')
   @Roles('owner')
   @HttpCode(HttpStatus.OK)
-  async setCustomDomain(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: SetCustomDomainDto,
-  ) {
+  async setCustomDomain(@CurrentTenant() tenant: TenantContext, @Body() dto: SetCustomDomainDto) {
     return this.tenantService.setCustomDomain(tenant.id, dto.domain);
   }
 
@@ -193,6 +188,7 @@ export class TenantController {
    */
   @Get('subscription')
   @Roles('owner')
+  @SubscriptionExempt()
   async getSubscription(@CurrentTenant() tenant: TenantContext) {
     return this.subscriptionService.getCurrentSubscription(tenant.id);
   }
@@ -203,6 +199,7 @@ export class TenantController {
    */
   @Get('resource-usage')
   @Roles('owner')
+  @SubscriptionExempt()
   async getResourceUsage(@CurrentTenant() tenant: TenantContext) {
     const [products, staff, orders] = await Promise.all([
       this.subscriptionService.checkPlanLimit(tenant.id, 'products'),
@@ -218,6 +215,7 @@ export class TenantController {
    */
   @Get('billing-history')
   @Roles('owner')
+  @SubscriptionExempt()
   async getBillingHistory(@CurrentTenant() tenant: TenantContext) {
     return this.subscriptionService.getBillingHistory(tenant.id);
   }

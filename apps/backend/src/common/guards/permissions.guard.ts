@@ -1,13 +1,9 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY, Permission } from '../decorators/permissions.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { AuthUser } from '@closetrent/types';
+import { PrismaService } from '../../prisma/prisma.service';
 
 /**
  * Permission matrix from the staff-access spec.
@@ -15,10 +11,13 @@ import { AuthUser } from '@closetrent/types';
  */
 const PERMISSION_MATRIX: Record<Permission, string[]> = {
   manage_products: ['owner', 'manager', 'staff'],
+  manage_inventory: ['owner', 'manager', 'staff'],
   manage_bookings: ['owner', 'manager', 'staff'],
+  manage_fulfillment: ['owner', 'manager', 'staff'],
   view_customers: ['owner', 'manager', 'staff'],
   manage_customers: ['owner', 'manager'],
   view_analytics: ['owner', 'manager'],
+  manage_finance: ['owner', 'manager'],
   manage_settings: ['owner'],
   manage_staff: ['owner'],
   manage_billing: ['owner'],
@@ -37,9 +36,12 @@ const PERMISSION_MATRIX: Record<Permission, string[]> = {
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly prisma: PrismaService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     // Skip for @Public() endpoints
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -47,10 +49,10 @@ export class PermissionsGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
-    const requiredPermissions = this.reflector.getAllAndOverride<Permission[]>(
-      PERMISSIONS_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const requiredPermissions = this.reflector.getAllAndOverride<Permission[]>(PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     // No permissions required — any authenticated user can access
     if (!requiredPermissions || requiredPermissions.length === 0) {
@@ -69,16 +71,26 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    // Check if user's role has ALL required permissions
-    const hasPermission = requiredPermissions.every((permission) => {
-      const allowedRoles = PERMISSION_MATRIX[permission];
-      return allowedRoles && allowedRoles.includes(user.role);
-    });
+    const tenant = request.tenant as { id?: string } | undefined;
+    const membership = tenant?.id
+      ? await this.prisma.tenantUser.findUnique({
+          where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+          select: { permissions: true, isActive: true },
+        })
+      : null;
+    if (membership && !membership.isActive) {
+      throw new ForbiddenException('Your store access is inactive');
+    }
+
+    // Explicit scopes are restrictive. Older empty profiles use the role defaults.
+    const hasPermission = membership?.permissions.length
+      ? requiredPermissions.every((permission) => membership.permissions.includes(permission))
+      : requiredPermissions.every((permission) =>
+          PERMISSION_MATRIX[permission]?.includes(user.role),
+        );
 
     if (!hasPermission) {
-      throw new ForbiddenException(
-        'You do not have permission to perform this action',
-      );
+      throw new ForbiddenException('You do not have permission to perform this action');
     }
 
     return true;

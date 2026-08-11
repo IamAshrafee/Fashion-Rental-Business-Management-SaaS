@@ -91,7 +91,7 @@ export interface SetCustomDomainDto {
 export interface StoreSettings {
   id: string;
   tenantId: string;
-  
+
   // General & Contact
   businessName?: string;
   tagline?: string;
@@ -100,19 +100,19 @@ export interface StoreSettings {
   whatsapp?: string;
   email?: string;
   address?: string;
-  
+
   // Branding
   primaryColor: string;
   secondaryColor: string;
   logoUrl?: string;
   faviconUrl?: string;
-  
+
   // Social
   facebookUrl?: string;
   instagramUrl?: string;
   tiktokUrl?: string;
   youtubeUrl?: string;
-  
+
   // Locale
   defaultLanguage: string;
   timezone: string;
@@ -124,14 +124,14 @@ export interface StoreSettings {
   dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD';
   timeFormat: '12h' | '24h';
   weekStart: 'saturday' | 'sunday' | 'monday';
-  
+
   // Payment
   bkashNumber?: string;
   nagadNumber?: string;
   sslcommerzStoreId?: string;
   sslcommerzStorePass?: string;
   sslcommerzSandbox: boolean;
-  
+
   // Delivery operations
   pickupAddress?: string;
   pickupCity?: string;
@@ -139,12 +139,12 @@ export interface StoreSettings {
   // Pickup scheduling
   pickupLeadDays?: number;
   pickupLeadDaysConfig?: { districtLeadDays: Record<string, number>; defaultLeadDays: number };
-  
+
   // Operational
   maxConcurrentSessions: number;
   bufferDays: number;
   smsEnabled: boolean;
-  
+
   createdAt: string;
   updatedAt: string;
 }
@@ -165,14 +165,25 @@ export interface InviteStaffDto {
   fullName: string;
   email?: string;
   phone?: string;
-  role: UserRole;
-  password?: string;
+  role: 'manager' | 'staff';
+  permissions?: StaffPermission[];
 }
 
 export interface UpdateStaffDto {
-  role?: UserRole;
+  role?: 'manager' | 'staff';
   isActive?: boolean;
+  permissions?: StaffPermission[];
 }
+
+export type StaffPermission =
+  | 'manage_products'
+  | 'manage_inventory'
+  | 'manage_bookings'
+  | 'manage_fulfillment'
+  | 'view_customers'
+  | 'manage_customers'
+  | 'view_analytics'
+  | 'manage_finance';
 
 export interface Staff {
   id: string;
@@ -181,8 +192,26 @@ export interface Staff {
   phone?: string;
   role: UserRole;
   isActive: boolean;
+  permissions: StaffPermission[];
   lastLoginAt?: string;
+  joinedAt: string;
+}
+
+export interface StaffInvitation {
+  id: string;
+  fullName: string;
+  email?: string | null;
+  phone?: string | null;
+  role: 'manager' | 'staff';
+  permissions: StaffPermission[];
+  expiresAt: string;
+  acceptedAt?: string | null;
+  revokedAt?: string | null;
   createdAt: string;
+}
+
+export interface CreatedStaffInvitation extends StaffInvitation {
+  token: string;
 }
 
 // =========================================================================

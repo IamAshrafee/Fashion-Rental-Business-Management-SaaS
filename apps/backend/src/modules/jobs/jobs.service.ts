@@ -1,4 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Queue, Worker, Job } from 'bullmq';
@@ -8,6 +15,7 @@ import { SmsService } from '../notification/sms/sms.service';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
 import { MeteringService } from '../metering/metering.service';
 import { BookingService } from '../booking/booking.service';
+import { Prisma } from '@prisma/client';
 
 export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_SCHEDULER = 'scheduler';
@@ -125,10 +133,16 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     );
 
     // ── Failure handlers ────────────────────────────────────────────────────
-    [this.fulfillmentWorker, this.notificationsWorker, this.schedulerWorker, this.cleanupWorker].forEach((worker) => {
+    [
+      this.fulfillmentWorker,
+      this.notificationsWorker,
+      this.schedulerWorker,
+      this.cleanupWorker,
+    ].forEach((worker) => {
       worker.on('failed', (job, err) => this.onJobFailed(job, err));
     });
 
+    void this.recoverSmsDeliveries();
     this.logger.log('BullMQ queues and workers initialized');
   }
 
@@ -155,12 +169,27 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
     switch (job.name) {
       case 'sms.send': {
-        const { to, template, data } = job.data as {
-          to: string;
-          template: string;
-          data: Record<string, unknown>;
-        };
-        await this.smsService.send(to, template as never, data as never);
+        const { deliveryId } = job.data as { deliveryId: string };
+        const delivery = await this.prisma.notificationDelivery.findUnique({
+          where: { id: deliveryId },
+        });
+        if (!delivery || delivery.status === 'sent' || delivery.attempts >= 5) break;
+        const processing = await this.notificationService.beginSmsDelivery(delivery.id);
+        try {
+          await this.smsService.send(
+            processing.recipient,
+            processing.template as never,
+            processing.payload as never,
+          );
+          await this.notificationService.completeSmsDelivery(processing.id);
+        } catch (error) {
+          await this.notificationService.failSmsDelivery(
+            processing.id,
+            (error as Error).message,
+            processing.attempts,
+          );
+          throw error;
+        }
         break;
       }
 
@@ -172,6 +201,47 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
       default:
         this.logger.warn(`Unknown notification job: ${job.name}`);
+    }
+  }
+
+  @OnEvent('sms.delivery.queued')
+  async onSmsDeliveryQueued(payload: { deliveryId: string }): Promise<void> {
+    const jobId = `sms:${payload.deliveryId}`;
+    const existing = await this.notificationsQueue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === 'failed' || state === 'completed') await existing.remove();
+      else return;
+    }
+    await this.notificationsQueue.add('sms.send', payload, { jobId });
+  }
+
+  async queueSms(input: {
+    tenantId: string;
+    to: string;
+    template: string;
+    data: Record<string, unknown>;
+    dedupeKey?: string;
+  }) {
+    const delivery = await this.notificationService.createSmsDelivery({
+      tenantId: input.tenantId,
+      recipient: input.to,
+      template: input.template,
+      payload: input.data as Prisma.InputJsonObject,
+      dedupeKey: input.dedupeKey,
+    });
+    if (delivery.status !== 'sent') await this.onSmsDeliveryQueued({ deliveryId: delivery.id });
+    return delivery;
+  }
+
+  private async recoverSmsDeliveries(): Promise<void> {
+    try {
+      const deliveries = await this.notificationService.recoverableSmsDeliveries();
+      await Promise.all(deliveries.map(({ id }) => this.onSmsDeliveryQueued({ deliveryId: id })));
+      if (deliveries.length)
+        this.logger.log(`Recovered ${deliveries.length} pending SMS deliveries`);
+    } catch (error) {
+      this.logger.error(`SMS delivery recovery failed: ${(error as Error).message}`);
     }
   }
 
@@ -284,6 +354,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         await this.checkSubscriptions();
         break;
 
+      case 'notification.recoverDeliveries':
+        await this.recoverSmsDeliveries();
+        break;
+
       case 'product.recalculatePopularity':
         await this.recalculatePopularityScores();
         break;
@@ -375,7 +449,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         try {
           await this.bookingService.updateStatus(tenant.id, booking.id, 'overdue');
         } catch (error) {
-          this.logger.warn(`Skipped overdue transition for ${booking.bookingNumber}: ${(error as Error).message}`);
+          this.logger.warn(
+            `Skipped overdue transition for ${booking.bookingNumber}: ${(error as Error).message}`,
+          );
           continue;
         }
         const lateFees = await this.bookingService.calculateLateFees(tenant.id, booking.id);
@@ -385,7 +461,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           type: 'booking_overdue',
           title: `OVERDUE: ${booking.bookingNumber} not returned`,
           message: `${lateDays} day(s) late. Please follow up immediately.`,
-          data: { bookingId: booking.id, bookingNumber: booking.bookingNumber, lateDays, lateFeeAdded: lateFees.feeDelta },
+          data: {
+            bookingId: booking.id,
+            bookingNumber: booking.bookingNumber,
+            lateDays,
+            lateFeeAdded: lateFees.feeDelta,
+          },
         });
 
         tenantUpdated += 1;
@@ -459,10 +540,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       for (const booking of tomorrowReminders) {
         const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'tomorrow';
 
-        await this.notificationsQueue.add('sms.send', {
+        await this.queueSms({
+          tenantId: tenant.id,
           to: booking.deliveryPhone,
           template: 'return_reminder',
           data: { returnDate, storeName },
+          dedupeKey: `return-reminder:${booking.id}:${tomorrowStart.toISOString().slice(0, 10)}`,
         });
 
         this.logger.log(`Return reminder queued for booking ${booking.bookingNumber}`);
@@ -489,17 +572,18 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       for (const booking of todayReminders) {
         const returnDate = booking.items[0]?.endDate?.toLocaleDateString('en-BD') ?? 'today';
 
-        await this.notificationsQueue.add('sms.send', {
+        await this.queueSms({
+          tenantId: tenant.id,
           to: booking.deliveryPhone,
           template: 'return_due_today',
           data: { returnDate, storeName },
+          dedupeKey: `return-due:${booking.id}:${todayStart.toISOString().slice(0, 10)}`,
         });
 
         this.logger.log(`Due-today reminder queued for booking ${booking.bookingNumber}`);
       }
     }
   }
-
 
   /**
    * Check subscription expiry — notify tenants approaching expiry.
@@ -605,7 +689,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 90);
     const tenants = await this.getActiveTenants();
-    let totalProducts = 0, totalBookings = 0, totalCustomers = 0;
+    let totalProducts = 0,
+      totalBookings = 0,
+      totalCustomers = 0;
 
     for (const tenant of tenants) {
       const [products, bookings, customers] = await Promise.all([
@@ -649,9 +735,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const maxAttempts = (job.opts.attempts as number) ?? 1;
     if (job.attemptsMade >= maxAttempts) {
       try {
-        // Using type cast because FailedJob model is new and requires migration + client regeneration
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (this.prisma as any).failedJob.create({
+        await this.prisma.failedJob.create({
           data: {
             queue: job.queueName,
             jobName: job.name,
@@ -758,7 +842,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         // Skip tenants with zero activity (don't pollute DB with empty rows)
         if (metrics.apiRequestCount === 0) continue;
 
-        await (this.prisma as any).tenantUsageSnapshot.upsert({
+        await this.prisma.tenantUsageSnapshot.upsert({
           where: {
             tenantId_snapshotDate: {
               tenantId: tenant.id,
@@ -791,7 +875,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    this.logger.log(`Metering snapshot: ${upserted}/${tenants.length} tenants in ${Date.now() - start}ms`);
+    this.logger.log(
+      `Metering snapshot: ${upserted}/${tenants.length} tenants in ${Date.now() - start}ms`,
+    );
   }
 
   /**
@@ -826,7 +912,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
                   where: { tenantId: tenant.id, deletedAt: null },
                 }),
                 this.prisma.customer.count({
-                  where: { tenantId: tenant.id, status: { notIn: ['merged', 'anonymized', 'archived'] } },
+                  where: {
+                    tenantId: tenant.id,
+                    status: { notIn: ['merged', 'anonymized', 'archived'] },
+                  },
                 }),
                 this.prisma.tenantUser.count({
                   where: { tenantId: tenant.id, isActive: true },
@@ -838,11 +927,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
                 }),
               ]);
 
-            const storageMb = Math.round(
-              ((storageResult._sum.fileSize ?? 0) / (1024 * 1024)),
-            );
+            const storageMb = Math.round((storageResult._sum.fileSize ?? 0) / (1024 * 1024));
 
-            await (this.prisma as any).tenantUsageSnapshot.upsert({
+            await this.prisma.tenantUsageSnapshot.upsert({
               where: {
                 tenantId_snapshotDate: {
                   tenantId: tenant.id,
@@ -875,7 +962,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    this.logger.log(`Resource usage computed for ${tenants.length} tenants in ${Date.now() - start}ms`);
+    this.logger.log(
+      `Resource usage computed for ${tenants.length} tenants in ${Date.now() - start}ms`,
+    );
   }
 
   /**
@@ -887,7 +976,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     cutoff.setDate(cutoff.getDate() - 90);
     cutoff.setUTCHours(0, 0, 0, 0);
 
-    const result = await (this.prisma as any).tenantUsageSnapshot.deleteMany({
+    const result = await this.prisma.tenantUsageSnapshot.deleteMany({
       where: { snapshotDate: { lt: cutoff } },
     });
 

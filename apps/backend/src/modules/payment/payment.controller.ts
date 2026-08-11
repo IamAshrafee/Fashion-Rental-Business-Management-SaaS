@@ -27,6 +27,7 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
 
@@ -52,10 +53,7 @@ export class PaymentGuestController {
   @Public()
   @Post('initiate')
   @HttpCode(HttpStatus.OK)
-  async initiatePayment(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: InitiatePaymentDto,
-  ) {
+  async initiatePayment(@CurrentTenant() tenant: TenantContext, @Body() dto: InitiatePaymentDto) {
     const result = await this.paymentService.initiateSslcommerz(
       tenant.id,
       dto.bookingId,
@@ -90,14 +88,8 @@ export class PaymentGuestController {
    */
   @Public()
   @Get('sslcommerz/success')
-  async handleSuccess(
-    @Query('tran_id') transactionId: string,
-    @Res() res: Response,
-  ) {
-    const frontendUrl = this.configService.get<string>(
-      'app.frontendUrl',
-      'http://localhost:3000',
-    );
+  async handleSuccess(@Query('tran_id') transactionId: string, @Res() res: Response) {
+    const frontendUrl = this.configService.get<string>('app.frontendUrl', 'http://localhost:3000');
 
     // Extract booking ID from tran_id format: BOOKING-{id}-{timestamp}
     const bookingId = transactionId?.split('-').slice(1, -1).join('-') ?? '';
@@ -124,14 +116,8 @@ export class PaymentGuestController {
    */
   @Public()
   @Get('sslcommerz/fail')
-  handleFail(
-    @Query('tran_id') transactionId: string,
-    @Res() res: Response,
-  ) {
-    const frontendUrl = this.configService.get<string>(
-      'app.frontendUrl',
-      'http://localhost:3000',
-    );
+  handleFail(@Query('tran_id') transactionId: string, @Res() res: Response) {
+    const frontendUrl = this.configService.get<string>('app.frontendUrl', 'http://localhost:3000');
     return res.redirect(
       `${frontendUrl}/checkout?payment=failed&tran_id=${encodeURIComponent(transactionId || '')}`,
     );
@@ -144,10 +130,7 @@ export class PaymentGuestController {
   @Public()
   @Get('sslcommerz/cancel')
   handleCancel(@Res() res: Response) {
-    const frontendUrl = this.configService.get<string>(
-      'app.frontendUrl',
-      'http://localhost:3000',
-    );
+    const frontendUrl = this.configService.get<string>('app.frontendUrl', 'http://localhost:3000');
     return res.redirect(`${frontendUrl}/cart?payment=cancelled`);
   }
 }
@@ -162,6 +145,7 @@ export class PaymentGuestController {
  */
 @Controller('owner/bookings')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_finance')
 export class PaymentOwnerController {
   constructor(private readonly paymentService: PaymentService) {}
 
@@ -196,14 +180,8 @@ export class PaymentOwnerController {
    */
   @Get(':id/payments')
   @Roles('owner', 'manager', 'staff')
-  async listPayments(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') bookingId: string,
-  ) {
-    const result = await this.paymentService.getPaymentsForBooking(
-      tenant.id,
-      bookingId,
-    );
+  async listPayments(@CurrentTenant() tenant: TenantContext, @Param('id') bookingId: string) {
+    const result = await this.paymentService.getPaymentsForBooking(tenant.id, bookingId);
     return { success: true, ...result };
   }
 
@@ -236,6 +214,7 @@ export class PaymentOwnerController {
  */
 @Controller('owner/booking-items')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_finance')
 export class DepositController {
   constructor(private readonly paymentService: PaymentService) {}
 

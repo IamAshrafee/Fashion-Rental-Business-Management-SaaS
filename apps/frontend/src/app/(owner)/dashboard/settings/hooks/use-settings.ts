@@ -2,10 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/lib/api/settings';
 import { staffApi } from '@/lib/api/staff';
 import { sessionApi } from '@/lib/api/sessions';
-import { 
-  UpdateStoreSettingsDto, 
-  UpdateLocaleSettingsDto, 
-  UpdatePaymentSettingsDto, 
+import {
+  UpdateStoreSettingsDto,
+  UpdateLocaleSettingsDto,
+  UpdatePaymentSettingsDto,
   UpdateDeliverySettingsDto,
   UpsertCourierConnectionDto,
   CourierProviderName,
@@ -13,7 +13,7 @@ import {
   StaffQueryDto,
   InviteStaffDto,
   UpdateStaffDto,
-  SetCustomDomainDto
+  SetCustomDomainDto,
 } from '@closetrent/types';
 import { toast } from 'sonner';
 
@@ -88,15 +88,22 @@ export const useUpdateDeliverySettings = () => {
   });
 };
 
-export const useCourierConnections = () => useQuery({
-  queryKey: ['settings', 'courier-connections'],
-  queryFn: settingsApi.getCourierConnections,
-});
+export const useCourierConnections = () =>
+  useQuery({
+    queryKey: ['settings', 'courier-connections'],
+    queryFn: settingsApi.getCourierConnections,
+  });
 
 export const useUpsertCourierConnection = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ provider, payload }: { provider: CourierProviderName; payload: UpsertCourierConnectionDto }) => settingsApi.upsertCourierConnection(provider, payload),
+    mutationFn: ({
+      provider,
+      payload,
+    }: {
+      provider: CourierProviderName;
+      payload: UpsertCourierConnectionDto;
+    }) => settingsApi.upsertCourierConnection(provider, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'courier-connections'] });
       toast.success('Courier connection saved');
@@ -108,7 +115,8 @@ export const useTestCourierConnection = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (provider: CourierProviderName) => settingsApi.testCourierConnection(provider),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'courier-connections'] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['settings', 'courier-connections'] }),
   });
 };
 
@@ -129,7 +137,7 @@ export const useUpdateOperationalSettings = () => {
 
 export const useManageCustomDomain = () => {
   const queryClient = useQueryClient();
-  
+
   const setDomain = useMutation({
     mutationFn: (dto: SetCustomDomainDto) => settingsApi.setCustomDomain(dto),
     onSuccess: () => {
@@ -150,7 +158,10 @@ export const useManageCustomDomain = () => {
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'DNS verification failed. Please check your records and try again later.');
+      toast.error(
+        err.response?.data?.message ||
+          'DNS verification failed. Please check your records and try again later.',
+      );
     },
   });
 
@@ -234,6 +245,28 @@ export const useInviteStaff = () => {
   });
 };
 
+export const useStaffInvitations = () => {
+  return useQuery({
+    queryKey: ['staff', 'invitations'],
+    queryFn: () => staffApi.listInvitations(),
+  });
+};
+
+export const useRevokeStaffInvitation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => staffApi.revokeInvitation(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+      toast.success('Invitation revoked');
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || 'Failed to revoke invitation');
+    },
+  });
+};
+
 export const useUpdateStaff = (id: string) => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -285,7 +318,7 @@ export const useListTenantSessions = () => {
 export const useRevokeSession = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, isStaff }: { id: string; isStaff?: boolean }) => 
+    mutationFn: ({ id, isStaff }: { id: string; isStaff?: boolean }) =>
       isStaff ? sessionApi.revokeStaffSession(id) : sessionApi.revokeMySession(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });

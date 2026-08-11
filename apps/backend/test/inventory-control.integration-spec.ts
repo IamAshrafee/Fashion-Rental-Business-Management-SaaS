@@ -37,7 +37,12 @@ describe('inventory control PostgreSQL contracts', () => {
   const dashboard = new InventoryDashboardService(prisma as never, availability);
   const serviceOrders = new InventoryServiceOrderService(prisma as never, lifecycle, locations);
   const reservations = new InventoryReservationService(availability);
-  const fulfillment = new FulfillmentService(prisma as never, availability, reservations, lifecycle);
+  const fulfillment = new FulfillmentService(
+    prisma as never,
+    availability,
+    reservations,
+    lifecycle,
+  );
   const pricing = new PricingEngineService(prisma as never);
   const customers = new CustomerService(prisma as never);
   const bookings = new BookingService(
@@ -63,24 +68,65 @@ describe('inventory control PostgreSQL contracts', () => {
   beforeAll(async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const owner = await prisma.user.create({
-      data: { fullName: 'Inventory Control Owner', email: `inventory-control-${suffix}@example.test`, passwordHash: 'integration-only' },
+      data: {
+        fullName: 'Inventory Control Owner',
+        email: `inventory-control-${suffix}@example.test`,
+        passwordHash: 'integration-only',
+      },
     });
     ownerId = owner.id;
     const tenant = await prisma.tenant.create({
-      data: { businessName: 'Inventory Control Store', subdomain: `inventory-control-${suffix}`, ownerUserId: owner.id },
+      data: {
+        businessName: 'Inventory Control Store',
+        subdomain: `inventory-control-${suffix}`,
+        ownerUserId: owner.id,
+      },
     });
     tenantId = tenant.id;
+    const entitlementPlan = await prisma.subscriptionPlan.create({
+      data: {
+        name: `Inventory Integration ${suffix}`,
+        slug: `inventory-integration-${suffix}`,
+        maxProducts: null,
+        maxOrders: null,
+        maxStaff: 20,
+      },
+    });
+    await prisma.subscription.create({
+      data: {
+        tenantId,
+        planId: entitlementPlan.id,
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    });
     const [category, color, sizeSchema] = await Promise.all([
-      prisma.category.create({ data: { tenantId, name: 'Control Apparel', slug: `control-apparel-${suffix}` } }),
-      prisma.color.create({ data: { tenantId, name: `Control Red ${suffix}`, hexCode: '#AA0000' } }),
-      prisma.sizeSchema.create({ data: { tenantId, code: `CONTROL-${suffix}`, name: 'Control sizing', status: 'active' } }),
+      prisma.category.create({
+        data: { tenantId, name: 'Control Apparel', slug: `control-apparel-${suffix}` },
+      }),
+      prisma.color.create({
+        data: { tenantId, name: `Control Red ${suffix}`, hexCode: '#AA0000' },
+      }),
+      prisma.sizeSchema.create({
+        data: { tenantId, code: `CONTROL-${suffix}`, name: 'Control sizing', status: 'active' },
+      }),
     ]);
     const [serializedSize, pooledSize] = await Promise.all([
-      prisma.sizeInstance.create({ data: { sizeSchemaId: sizeSchema.id, normalizedKey: 'M', displayLabel: 'M' } }),
-      prisma.sizeInstance.create({ data: { sizeSchemaId: sizeSchema.id, normalizedKey: 'FREE', displayLabel: 'Free size' } }),
+      prisma.sizeInstance.create({
+        data: { sizeSchemaId: sizeSchema.id, normalizedKey: 'M', displayLabel: 'M' },
+      }),
+      prisma.sizeInstance.create({
+        data: { sizeSchemaId: sizeSchema.id, normalizedKey: 'FREE', displayLabel: 'Free size' },
+      }),
     ]);
     const product = await prisma.product.create({
-      data: { tenantId, categoryId: category.id, name: 'Control Dress', slug: `control-dress-${suffix}`, status: 'published' },
+      data: {
+        tenantId,
+        categoryId: category.id,
+        name: 'Control Dress',
+        slug: `control-dress-${suffix}`,
+        status: 'published',
+      },
     });
     productId = product.id;
     const variant = await prisma.productVariant.create({
@@ -88,14 +134,40 @@ describe('inventory control PostgreSQL contracts', () => {
     });
     variantId = variant.id;
     const [serializedSku, pooledSku, location] = await Promise.all([
-      prisma.variantSize.create({ data: { tenantId, variantId: variant.id, sizeInstanceId: serializedSize.id, trackingMode: InventoryTrackingMode.SERIALIZED } }),
-      prisma.variantSize.create({ data: { tenantId, variantId: variant.id, sizeInstanceId: pooledSize.id, trackingMode: InventoryTrackingMode.POOLED } }),
-      prisma.inventoryLocation.create({ data: { tenantId, code: 'MAIN', name: 'Main workroom', locationType: InventoryLocationType.WAREHOUSE, isDefault: true, canClean: true, canRepair: true } }),
+      prisma.variantSize.create({
+        data: {
+          tenantId,
+          variantId: variant.id,
+          sizeInstanceId: serializedSize.id,
+          trackingMode: InventoryTrackingMode.SERIALIZED,
+        },
+      }),
+      prisma.variantSize.create({
+        data: {
+          tenantId,
+          variantId: variant.id,
+          sizeInstanceId: pooledSize.id,
+          trackingMode: InventoryTrackingMode.POOLED,
+        },
+      }),
+      prisma.inventoryLocation.create({
+        data: {
+          tenantId,
+          code: 'MAIN',
+          name: 'Main workroom',
+          locationType: InventoryLocationType.WAREHOUSE,
+          isDefault: true,
+          canClean: true,
+          canRepair: true,
+        },
+      }),
     ]);
     serializedSkuId = serializedSku.id;
     pooledSkuId = pooledSku.id;
     locationId = location.id;
-    await prisma.inventoryPool.create({ data: { tenantId, variantSizeId: pooledSkuId, locationId, onHandQuantity: 10 } });
+    await prisma.inventoryPool.create({
+      data: { tenantId, variantSizeId: pooledSkuId, locationId, onHandQuantity: 10 },
+    });
     const profile = await prisma.pricingProfile.create({
       data: { tenantId, productId, currency: 'BDT' },
     });
@@ -127,75 +199,166 @@ describe('inventory control PostgreSQL contracts', () => {
 
   it('serializes optimistic pooled adjustments and records count corrections', async () => {
     const competing = await Promise.allSettled([
-      pools.adjust(tenantId, pooledSkuId, { locationId, adjustmentType: 'ADD', quantity: 2, expectedVersion: 0, reason: 'First receipt' }, ownerId),
-      pools.adjust(tenantId, pooledSkuId, { locationId, adjustmentType: 'ADD', quantity: 3, expectedVersion: 0, reason: 'Competing receipt' }, ownerId),
+      pools.adjust(
+        tenantId,
+        pooledSkuId,
+        {
+          locationId,
+          adjustmentType: 'ADD',
+          quantity: 2,
+          expectedVersion: 0,
+          reason: 'First receipt',
+        },
+        ownerId,
+      ),
+      pools.adjust(
+        tenantId,
+        pooledSkuId,
+        {
+          locationId,
+          adjustmentType: 'ADD',
+          quantity: 3,
+          expectedVersion: 0,
+          reason: 'Competing receipt',
+        },
+        ownerId,
+      ),
     ]);
     expect(competing.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
-    const current = await prisma.inventoryPool.findUniqueOrThrow({ where: { variantSizeId_locationId: { variantSizeId: pooledSkuId, locationId } } });
+    const current = await prisma.inventoryPool.findUniqueOrThrow({
+      where: { variantSizeId_locationId: { variantSizeId: pooledSkuId, locationId } },
+    });
     expect([12, 13]).toContain(current.onHandQuantity);
-    const counted = await pools.count(tenantId, pooledSkuId, { locationId, observedQuantity: 11, expectedVersion: current.version, reason: 'Physical cycle count' }, ownerId);
+    const counted = await pools.count(
+      tenantId,
+      pooledSkuId,
+      {
+        locationId,
+        observedQuantity: 11,
+        expectedVersion: current.version,
+        reason: 'Physical cycle count',
+      },
+      ownerId,
+    );
     expect(counted.pool.onHandQuantity).toBe(11);
-    await expect(prisma.inventoryMovement.count({ where: { tenantId, inventoryPoolId: current.id, movementType: 'COUNT_CORRECTION' } })).resolves.toBe(1);
+    await expect(
+      prisma.inventoryMovement.count({
+        where: { tenantId, inventoryPoolId: current.id, movementType: 'COUNT_CORRECTION' },
+      }),
+    ).resolves.toBe(1);
   });
 
   it('registers a physical-item batch atomically and replays the same request safely', async () => {
     const idempotencyKey = randomUUID();
     const request = {
       locationId,
-      rows: [{ assetCode: `CTL-${idempotencyKey.slice(0, 8)}-001` }, { assetCode: `CTL-${idempotencyKey.slice(0, 8)}-002` }],
+      rows: [
+        { assetCode: `CTL-${idempotencyKey.slice(0, 8)}-001` },
+        { assetCode: `CTL-${idempotencyKey.slice(0, 8)}-002` },
+      ],
       idempotencyKey,
     };
-    const first = await management.createStockUnitBatch(tenantId, serializedSkuId, request, ownerId);
-    const replay = await management.createStockUnitBatch(tenantId, serializedSkuId, request, ownerId);
+    const first = await management.createStockUnitBatch(
+      tenantId,
+      serializedSkuId,
+      request,
+      ownerId,
+    );
+    const replay = await management.createStockUnitBatch(
+      tenantId,
+      serializedSkuId,
+      request,
+      ownerId,
+    );
     expect(first.replayed).toBe(false);
     expect(replay.replayed).toBe(true);
     expect(replay.units.map((unit) => unit.id)).toEqual(first.units.map((unit) => unit.id));
 
     const duplicateCode = `DUP-${idempotencyKey.slice(0, 8)}`;
-    await expect(management.createStockUnitBatch(tenantId, serializedSkuId, {
-      locationId,
-      rows: [{ assetCode: duplicateCode }, { assetCode: duplicateCode }],
-      idempotencyKey: randomUUID(),
-    }, ownerId)).rejects.toBeDefined();
-    await expect(prisma.stockUnit.count({ where: { tenantId, assetCode: duplicateCode } })).resolves.toBe(0);
+    await expect(
+      management.createStockUnitBatch(
+        tenantId,
+        serializedSkuId,
+        {
+          locationId,
+          rows: [{ assetCode: duplicateCode }, { assetCode: duplicateCode }],
+          idempotencyKey: randomUUID(),
+        },
+        ownerId,
+      ),
+    ).rejects.toBeDefined();
+    await expect(
+      prisma.stockUnit.count({ where: { tenantId, assetCode: duplicateCode } }),
+    ).resolves.toBe(0);
   });
 
   it('enforces manual and service-owned blocks in authoritative availability', async () => {
-    const registered = await management.createStockUnitBatch(tenantId, serializedSkuId, {
-      locationId,
-      rows: [{ assetCode: `BLOCK-${randomUUID().slice(0, 8)}` }],
-      idempotencyKey: randomUUID(),
-    }, ownerId);
+    const registered = await management.createStockUnitBatch(
+      tenantId,
+      serializedSkuId,
+      {
+        locationId,
+        rows: [{ assetCode: `BLOCK-${randomUUID().slice(0, 8)}` }],
+        idempotencyKey: randomUUID(),
+      },
+      ownerId,
+    );
     const unit = registered.units[0];
-    await blocks.create(tenantId, {
-      stockUnitId: unit.id,
+    await blocks.create(
+      tenantId,
+      {
+        stockUnitId: unit.id,
+        startDate: '2026-09-10',
+        endDate: '2026-09-12',
+        blockType: InventoryBlockType.MANUAL,
+        reason: 'Reserved for editorial use',
+      },
+      ownerId,
+    );
+    const manuallyBlocked = await availability.check({
+      tenantId,
+      productId,
+      variantSizeId: serializedSkuId,
+      sourceLocationId: locationId,
       startDate: '2026-09-10',
       endDate: '2026-09-12',
-      blockType: InventoryBlockType.MANUAL,
-      reason: 'Reserved for editorial use',
-    }, ownerId);
-    const manuallyBlocked = await availability.check({
-      tenantId, productId, variantSizeId: serializedSkuId, sourceLocationId: locationId,
-      startDate: '2026-09-10', endDate: '2026-09-12', quantity: 3,
+      quantity: 3,
     });
     expect(manuallyBlocked.available).toBe(false);
 
-    const serviceUnit = (await management.createStockUnitBatch(tenantId, serializedSkuId, {
-      locationId,
-      rows: [{ assetCode: `SERVICE-${randomUUID().slice(0, 8)}` }],
-      idempotencyKey: randomUUID(),
-    }, ownerId)).units[0];
-    const service = await serviceOrders.create(tenantId, serviceUnit.id, {
-      serviceType: InventoryServiceOrderType.CLEANING,
-      serviceLocationId: locationId,
-      expectedCompletionAt: '2026-10-20T00:00:00.000Z',
-      notes: 'Deep cleaning before next rental',
-      isAvailabilityBlocking: true,
-      idempotencyKey: randomUUID(),
-    }, ownerId);
+    const serviceUnit = (
+      await management.createStockUnitBatch(
+        tenantId,
+        serializedSkuId,
+        {
+          locationId,
+          rows: [{ assetCode: `SERVICE-${randomUUID().slice(0, 8)}` }],
+          idempotencyKey: randomUUID(),
+        },
+        ownerId,
+      )
+    ).units[0];
+    const service = await serviceOrders.create(
+      tenantId,
+      serviceUnit.id,
+      {
+        serviceType: InventoryServiceOrderType.CLEANING,
+        serviceLocationId: locationId,
+        expectedCompletionAt: '2026-10-20T00:00:00.000Z',
+        notes: 'Deep cleaning before next rental',
+        isAvailabilityBlocking: true,
+        idempotencyKey: randomUUID(),
+      },
+      ownerId,
+    );
     const duringService = await availability.check({
-      tenantId, productId, variantSizeId: serializedSkuId, sourceLocationId: locationId,
-      startDate: '2026-10-10', endDate: '2026-10-12', quantity: 4,
+      tenantId,
+      productId,
+      variantSizeId: serializedSkuId,
+      sourceLocationId: locationId,
+      startDate: '2026-10-10',
+      endDate: '2026-10-12',
+      quantity: 4,
     });
     expect(service.inventoryBlockId).toBeTruthy();
     expect(duringService.available).toBe(false);
@@ -212,22 +375,33 @@ describe('inventory control PostgreSQL contracts', () => {
   });
 
   it('binds storefront booking creation to one expiring server quote and a private tracking token', async () => {
-    const items = [{
-      productId,
-      variantId,
-      variantSizeId: pooledSkuId,
-      quantity: 1,
-      startDate: '2026-12-05',
-      endDate: '2026-12-07',
-    }];
-    const cartResult = await storefrontCarts.replace(tenantId, undefined, [{
-      ...items[0],
-      lineKey: randomUUID(),
-    }]);
+    const items = [
+      {
+        productId,
+        variantId,
+        variantSizeId: pooledSkuId,
+        quantity: 1,
+        startDate: '2026-12-05',
+        endDate: '2026-12-07',
+      },
+    ];
+    const cartResult = await storefrontCarts.replace(tenantId, undefined, [
+      {
+        ...items[0],
+        lineKey: randomUUID(),
+      },
+    ]);
     const cartToken = cartResult.issuedToken;
     expect(cartToken).toBeTruthy();
-    const quote = await bookings.validateCart(tenantId, { items, issueCheckoutQuote: true }, cartToken);
-    expect(quote).toMatchObject({ valid: true, checkoutQuote: { id: expect.any(String), quoteHash: expect.any(String) } });
+    const quote = await bookings.validateCart(
+      tenantId,
+      { items, issueCheckoutQuote: true },
+      cartToken,
+    );
+    expect(quote).toMatchObject({
+      valid: true,
+      checkoutQuote: { id: expect.any(String), quoteHash: expect.any(String) },
+    });
     if (!('checkoutQuote' in quote)) throw new Error('Expected a checkout quote');
     const request = {
       checkoutQuoteId: quote.checkoutQuote!.id,
@@ -237,22 +411,38 @@ describe('inventory control PostgreSQL contracts', () => {
       items,
       paymentMethod: 'cod' as const,
     };
-    await expect(bookings.createGuestBooking(tenantId, request)).rejects.toThrow('Idempotency-Key is required');
-    await expect(bookings.createGuestBooking(tenantId, {
-      ...request,
-      items: [{ ...items[0], endDate: '2026-12-08' }],
-    }, randomUUID(), cartToken)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CART_CHANGED' }) });
+    await expect(bookings.createGuestBooking(tenantId, request)).rejects.toThrow(
+      'Idempotency-Key is required',
+    );
+    await expect(
+      bookings.createGuestBooking(
+        tenantId,
+        {
+          ...request,
+          items: [{ ...items[0], endDate: '2026-12-08' }],
+        },
+        randomUUID(),
+        cartToken,
+      ),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CART_CHANGED' }) });
 
     const key = randomUUID();
     const created = await bookings.createGuestBooking(tenantId, request, key, cartToken);
     const replay = await bookings.createGuestBooking(tenantId, request, key, cartToken);
-    expect(replay).toMatchObject({ bookingId: created.bookingId, trackingToken: created.trackingToken });
+    expect(replay).toMatchObject({
+      bookingId: created.bookingId,
+      trackingToken: created.trackingToken,
+    });
     expect(created.trackingToken).toMatch(/^[0-9a-f-]{36}$/);
-    await expect(bookings.getBookingByTrackingToken(tenantId, created.trackingToken)).resolves.toMatchObject({
+    await expect(
+      bookings.getBookingByTrackingToken(tenantId, created.trackingToken),
+    ).resolves.toMatchObject({
       bookingNumber: created.bookingNumber,
       rentalPeriod: { totalDays: 3 },
     });
-    await expect(bookings.createGuestBooking(tenantId, request, randomUUID(), cartToken)).rejects.toMatchObject({
+    await expect(
+      bookings.createGuestBooking(tenantId, request, randomUUID(), cartToken),
+    ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'CART_EXPIRED' }),
     });
   });
@@ -266,61 +456,94 @@ describe('inventory control PostgreSQL contracts', () => {
       returnMethod: 'BUSINESS_PICKUP' as const,
       allowTransferPlan: false,
     };
-    const items = [{
-      productId,
-      variantId,
-      variantSizeId: pooledSkuId,
-      quantity: 2,
-      startDate: plan.startDate,
-      endDate: plan.endDate,
-      priceOverride: 60_000,
-      priceOverrideReason: 'Approved package rate',
-    }];
-    const staleQuote = await bookings.createManualQuote(tenantId, {
-      plan,
-      items,
-      discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
-    }, ownerId);
-    expect(staleQuote).toMatchObject({ valid: true, quoteId: expect.any(String), quoteHash: expect.any(String) });
+    const items = [
+      {
+        productId,
+        variantId,
+        variantSizeId: pooledSkuId,
+        quantity: 2,
+        startDate: plan.startDate,
+        endDate: plan.endDate,
+        priceOverride: 60_000,
+        priceOverrideReason: 'Approved package rate',
+      },
+    ];
+    const staleQuote = await bookings.createManualQuote(
+      tenantId,
+      {
+        plan,
+        items,
+        discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
+      },
+      ownerId,
+    );
+    expect(staleQuote).toMatchObject({
+      valid: true,
+      quoteId: expect.any(String),
+      quoteHash: expect.any(String),
+    });
 
     await prisma.ratePlan.update({
       where: { id: ratePlanId },
       data: { config: { unitPriceMinor: 30_000, minDays: 1 } },
     });
-    await expect(bookings.createManualBooking(tenantId, {
-      quoteId: staleQuote.quoteId!,
-      quoteHash: staleQuote.quoteHash!,
-      plan,
-      customer: { fullName: 'Stale Quote Customer', phone: `018${Date.now().toString().slice(-8)}` },
-      delivery: { address: 'Dhanmondi 27', city: 'Dhaka', country: 'BD' },
-      items,
-      paymentMethod: 'cod',
-      discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
-    }, randomUUID())).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PRICING_CHANGED' }) });
+    await expect(
+      bookings.createManualBooking(
+        tenantId,
+        {
+          quoteId: staleQuote.quoteId!,
+          quoteHash: staleQuote.quoteHash!,
+          plan,
+          customer: {
+            fullName: 'Stale Quote Customer',
+            phone: `018${Date.now().toString().slice(-8)}`,
+          },
+          delivery: { address: 'Dhanmondi 27', city: 'Dhaka', country: 'BD' },
+          items,
+          paymentMethod: 'cod',
+          discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
+        },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PRICING_CHANGED' }) });
 
-    const quote = await bookings.createManualQuote(tenantId, {
-      plan,
-      items,
-      discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
-    }, ownerId);
+    const quote = await bookings.createManualQuote(
+      tenantId,
+      {
+        plan,
+        items,
+        discount: { type: 'flat', value: 5_000, reason: 'Repeat customer' },
+      },
+      ownerId,
+    );
     expect(quote.valid).toBe(true);
 
     const request = {
       quoteId: quote.quoteId!,
       quoteHash: quote.quoteHash!,
       plan,
-      customer: { fullName: 'Manual Quote Customer', phone: `017${Date.now().toString().slice(-8)}` },
+      customer: {
+        fullName: 'Manual Quote Customer',
+        phone: `017${Date.now().toString().slice(-8)}`,
+      },
       delivery: { address: 'Dhanmondi 27', city: 'Dhaka', country: 'BD' },
       items,
       paymentMethod: 'cod' as const,
       discount: { type: 'flat' as const, value: 5_000, reason: 'Repeat customer' },
-      initialPayment: { amount: 20_000, depositAmount: 10_000, method: 'bkash' as const, transactionId: randomUUID() },
+      initialPayment: {
+        amount: 20_000,
+        depositAmount: 10_000,
+        method: 'bkash' as const,
+        transactionId: randomUUID(),
+      },
     };
     const creationKey = randomUUID();
     const created = await bookings.createManualBooking(tenantId, request, creationKey);
     const replay = await bookings.createManualBooking(tenantId, request, creationKey);
     expect(replay.bookingId).toBe(created.bookingId);
-    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+    await expect(
+      prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } }),
+    ).resolves.toMatchObject({
       quoteId: quote.quoteId,
       channel: 'OWNER_MANUAL',
       sourceLocationId: locationId,
@@ -330,24 +553,45 @@ describe('inventory control PostgreSQL contracts', () => {
 
     const remaining = quote.totals.grandTotal - 20_000;
     const competingKeys = [randomUUID(), randomUUID()];
-    const competingPayments = await Promise.allSettled(competingKeys.map((key) =>
-      payments.recordPayment(tenantId, created.bookingId, {
+    const competingPayments = await Promise.allSettled(
+      competingKeys.map((key) =>
+        payments.recordPayment(
+          tenantId,
+          created.bookingId,
+          {
+            amount: remaining,
+            depositAmount: 10_000,
+            method: 'cod',
+            notes: 'Final counter payment',
+          },
+          ownerId,
+          key,
+        ),
+      ),
+    );
+    expect(competingPayments.map((result) => result.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const winningIndex = competingPayments.findIndex((result) => result.status === 'fulfilled');
+    const replayedPayment = await payments.recordPayment(
+      tenantId,
+      created.bookingId,
+      {
         amount: remaining,
         depositAmount: 10_000,
         method: 'cod',
         notes: 'Final counter payment',
-      }, ownerId, key),
-    ));
-    expect(competingPayments.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
-    const winningIndex = competingPayments.findIndex((result) => result.status === 'fulfilled');
-    const replayedPayment = await payments.recordPayment(tenantId, created.bookingId, {
-      amount: remaining,
-      depositAmount: 10_000,
-      method: 'cod',
-      notes: 'Final counter payment',
-    }, ownerId, competingKeys[winningIndex]);
-    expect(replayedPayment.id).toBe((competingPayments[winningIndex] as PromiseFulfilledResult<{ id: string }>).value.id);
-    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+      },
+      ownerId,
+      competingKeys[winningIndex],
+    );
+    expect(replayedPayment.id).toBe(
+      (competingPayments[winningIndex] as PromiseFulfilledResult<{ id: string }>).value.id,
+    );
+    await expect(
+      prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } }),
+    ).resolves.toMatchObject({
       totalPaid: quote.totals.grandTotal,
       paymentStatus: 'paid',
     });
@@ -361,15 +605,25 @@ describe('inventory control PostgreSQL contracts', () => {
       depositAmount: quote.totals.totalDeposit,
     });
 
-    const bookingItem = await prisma.bookingItem.findFirstOrThrow({ where: { bookingId: created.bookingId } });
+    const bookingItem = await prisma.bookingItem.findFirstOrThrow({
+      where: { bookingId: created.bookingId },
+    });
     expect(bookingItem.depositStatus).toBe('held');
-    await expect(payments.settleDeposit(tenantId, bookingItem.id, {
-      forfeit: false,
-      refundAmount: bookingItem.depositAmount,
-      deductionAmount: 0,
-      refundMethod: 'bkash',
-      reason: 'Attempted before return',
-    }, ownerId, randomUUID())).rejects.toMatchObject({
+    await expect(
+      payments.settleDeposit(
+        tenantId,
+        bookingItem.id,
+        {
+          forfeit: false,
+          refundAmount: bookingItem.depositAmount,
+          deductionAmount: 0,
+          refundMethod: 'bkash',
+          reason: 'Attempted before return',
+        },
+        ownerId,
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'RETURN_INSPECTION_REQUIRED' }),
     });
 
@@ -385,11 +639,25 @@ describe('inventory control PostgreSQL contracts', () => {
       reason: 'Customer requested one additional rental day',
       idempotencyKey: extensionKey,
     };
-    const extended = await fulfillment.extendBookingRequirements(tenantId, created.bookingId, extensionRequest, ownerId);
-    const extensionReplay = await fulfillment.extendBookingRequirements(tenantId, created.bookingId, extensionRequest, ownerId);
+    const extended = await fulfillment.extendBookingRequirements(
+      tenantId,
+      created.bookingId,
+      extensionRequest,
+      ownerId,
+    );
+    const extensionReplay = await fulfillment.extendBookingRequirements(
+      tenantId,
+      created.bookingId,
+      extensionRequest,
+      ownerId,
+    );
     expect(extensionReplay[0].rentalEndDate).toEqual(extended[0].rentalEndDate);
-    await expect(prisma.fulfillmentExtension.count({ where: { bookingId: created.bookingId } })).resolves.toBe(1);
-    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+    await expect(
+      prisma.fulfillmentExtension.count({ where: { bookingId: created.bookingId } }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } }),
+    ).resolves.toMatchObject({
       rentalEndDate: new Date('2026-11-13'),
       grandTotal: quote.totals.grandTotal + 1_500,
       paymentStatus: 'partial',
@@ -421,41 +689,76 @@ describe('inventory control PostgreSQL contracts', () => {
       approvalStatus: FulfillmentApprovalStatus.NOT_REQUIRED,
       priceImpact: 1_000,
     };
-    const requirement = await fulfillment.substitute(tenantId, originalRequirement.id, substitutionRequest, ownerId);
-    const substitutionReplay = await fulfillment.substitute(tenantId, originalRequirement.id, substitutionRequest, ownerId);
+    const requirement = await fulfillment.substitute(
+      tenantId,
+      originalRequirement.id,
+      substitutionRequest,
+      ownerId,
+    );
+    const substitutionReplay = await fulfillment.substitute(
+      tenantId,
+      originalRequirement.id,
+      substitutionRequest,
+      ownerId,
+    );
     expect(substitutionReplay.id).toBe(requirement.id);
-    await expect(prisma.fulfillmentSubstitution.count({
-      where: { requirementId: requirement.id },
-    })).resolves.toBe(1);
-    await expect(prisma.bookingItem.findUniqueOrThrow({ where: { id: bookingItem.id } })).resolves.toMatchObject({
+    await expect(
+      prisma.fulfillmentSubstitution.count({
+        where: { requirementId: requirement.id },
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.bookingItem.findUniqueOrThrow({ where: { id: bookingItem.id } }),
+    ).resolves.toMatchObject({
       fulfillmentAdjustment: 1_000,
       itemTotal: bookingItem.itemTotal + 2_500,
     });
-    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+    await expect(
+      prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } }),
+    ).resolves.toMatchObject({
       subtotal: quote.totals.subtotal + 2_500,
       grandTotal: quote.totals.grandTotal + 2_500,
       paymentStatus: 'partial',
     });
 
-    await fulfillment.prepareRequirement(tenantId, requirement.id, {
-      preparationStatus: 'IN_PROGRESS',
-      reason: 'Cleaning and packing started',
-      idempotencyKey: randomUUID(),
-    }, ownerId);
+    await fulfillment.prepareRequirement(
+      tenantId,
+      requirement.id,
+      {
+        preparationStatus: 'IN_PROGRESS',
+        reason: 'Cleaning and packing started',
+        idempotencyKey: randomUUID(),
+      },
+      ownerId,
+    );
     const readinessKey = randomUUID();
-    const ready = await fulfillment.prepareRequirement(tenantId, requirement.id, {
-      preparationStatus: 'READY',
-      reason: 'Quantity checked and package sealed',
-      idempotencyKey: readinessKey,
-    }, ownerId);
-    const readyReplay = await fulfillment.prepareRequirement(tenantId, requirement.id, {
-      preparationStatus: 'READY',
-      reason: 'Quantity checked and package sealed',
-      idempotencyKey: readinessKey,
-    }, ownerId);
+    const ready = await fulfillment.prepareRequirement(
+      tenantId,
+      requirement.id,
+      {
+        preparationStatus: 'READY',
+        reason: 'Quantity checked and package sealed',
+        idempotencyKey: readinessKey,
+      },
+      ownerId,
+    );
+    const readyReplay = await fulfillment.prepareRequirement(
+      tenantId,
+      requirement.id,
+      {
+        preparationStatus: 'READY',
+        reason: 'Quantity checked and package sealed',
+        idempotencyKey: readinessKey,
+      },
+      ownerId,
+    );
     expect(ready.preparationStatus).toBe('READY');
     expect(readyReplay.id).toBe(ready.id);
-    const handoffQueue = await bookings.getBookingList(tenantId, { queue: 'HANDOFF', page: 1, limit: 20 });
+    const handoffQueue = await bookings.getBookingList(tenantId, {
+      queue: 'HANDOFF',
+      page: 1,
+      limit: 20,
+    });
     expect(handoffQueue.data.map((booking) => booking.id)).toContain(created.bookingId);
 
     const handoutKey = randomUUID();
@@ -465,32 +768,60 @@ describe('inventory control PostgreSQL contracts', () => {
       reason: 'Delivered to customer',
       idempotencyKey: handoutKey,
     };
-    const handedOut = await fulfillment.recordEvent(tenantId, requirement.id, handoutRequest, ownerId);
-    const handedOutReplay = await fulfillment.recordEvent(tenantId, requirement.id, handoutRequest, ownerId);
+    const handedOut = await fulfillment.recordEvent(
+      tenantId,
+      requirement.id,
+      handoutRequest,
+      ownerId,
+    );
+    const handedOutReplay = await fulfillment.recordEvent(
+      tenantId,
+      requirement.id,
+      handoutRequest,
+      ownerId,
+    );
     expect(handedOutReplay.handedOutQuantity).toBe(handedOut.handedOutQuantity);
-    await expect(fulfillment.recordEvent(tenantId, requirement.id, {
-      ...handoutRequest,
-      reason: 'Changed handout claim',
-    }, ownerId)).rejects.toMatchObject({
+    await expect(
+      fulfillment.recordEvent(
+        tenantId,
+        requirement.id,
+        {
+          ...handoutRequest,
+          reason: 'Changed handout claim',
+        },
+        ownerId,
+      ),
+    ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'FULFILLMENT_IDEMPOTENCY_REUSED' }),
     });
     await bookings.updateStatus(tenantId, created.bookingId, 'delivered');
-    await fulfillment.recordEvent(tenantId, requirement.id, {
-      eventType: FulfillmentEventType.RETURNED,
-      quantity: 2,
-      reason: 'All pooled pieces received',
-      idempotencyKey: randomUUID(),
-    }, ownerId);
+    await fulfillment.recordEvent(
+      tenantId,
+      requirement.id,
+      {
+        eventType: FulfillmentEventType.RETURNED,
+        quantity: 2,
+        reason: 'All pooled pieces received',
+        idempotencyKey: randomUUID(),
+      },
+      ownerId,
+    );
     await bookings.updateStatus(tenantId, created.bookingId, 'returned');
     await bookings.updateStatus(tenantId, created.bookingId, 'inspected');
-    const damageReport = await bookings.reportDamage(tenantId, created.bookingId, bookingItem.id, {
-      damageLevel: 'minor' as const,
-      description: 'Minor stitching repair documented during pooled return review',
-      estimatedRepairCost: 7_000,
-      deductionAmount: 5_000,
-      additionalCharge: 2_000,
-      photos: [],
-    }, ownerId);
+    const damageReport = await bookings.reportDamage(
+      tenantId,
+      created.bookingId,
+      bookingItem.id,
+      {
+        damageLevel: 'minor' as const,
+        description: 'Minor stitching repair documented during pooled return review',
+        estimatedRepairCost: 7_000,
+        deductionAmount: 5_000,
+        additionalCharge: 2_000,
+        photos: [],
+      },
+      ownerId,
+    );
 
     const settlementRequest = {
       forfeit: false,
@@ -502,11 +833,18 @@ describe('inventory control PostgreSQL contracts', () => {
       damageReportId: damageReport.id,
     };
     const settlementKeys = [randomUUID(), randomUUID()];
-    const competingSettlements = await Promise.allSettled(settlementKeys.map((key) =>
-      payments.settleDeposit(tenantId, bookingItem.id, settlementRequest, ownerId, key),
-    ));
-    expect(competingSettlements.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
-    const settlementWinner = competingSettlements.findIndex((result) => result.status === 'fulfilled');
+    const competingSettlements = await Promise.allSettled(
+      settlementKeys.map((key) =>
+        payments.settleDeposit(tenantId, bookingItem.id, settlementRequest, ownerId, key),
+      ),
+    );
+    expect(competingSettlements.map((result) => result.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const settlementWinner = competingSettlements.findIndex(
+      (result) => result.status === 'fulfilled',
+    );
     const replayedSettlement = await payments.settleDeposit(
       tenantId,
       bookingItem.id,
@@ -514,30 +852,48 @@ describe('inventory control PostgreSQL contracts', () => {
       ownerId,
       settlementKeys[settlementWinner],
     );
-    expect(replayedSettlement.id).toBe((competingSettlements[settlementWinner] as PromiseFulfilledResult<{ id: string }>).value.id);
-    await expect(prisma.depositSettlement.count({ where: { bookingItemId: bookingItem.id } })).resolves.toBe(1);
-    await expect(prisma.bookingItem.findUniqueOrThrow({ where: { id: bookingItem.id } })).resolves.toMatchObject({
+    expect(replayedSettlement.id).toBe(
+      (competingSettlements[settlementWinner] as PromiseFulfilledResult<{ id: string }>).value.id,
+    );
+    await expect(
+      prisma.depositSettlement.count({ where: { bookingItemId: bookingItem.id } }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.bookingItem.findUniqueOrThrow({ where: { id: bookingItem.id } }),
+    ).resolves.toMatchObject({
       depositStatus: 'partially_refunded',
       depositRefundAmount: bookingItem.depositAmount - 5_000,
     });
-    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+    await expect(
+      prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } }),
+    ).resolves.toMatchObject({
       grandTotal: quote.totals.grandTotal + 4_500,
       paymentStatus: 'partial',
     });
-    await payments.recordPayment(tenantId, created.bookingId, {
-      amount: 4_500,
-      depositAmount: 0,
-      method: 'cod',
-      notes: 'Approved post-return additional charge',
-    }, ownerId, randomUUID());
+    await payments.recordPayment(
+      tenantId,
+      created.bookingId,
+      {
+        amount: 4_500,
+        depositAmount: 0,
+        method: 'cod',
+        notes: 'Approved post-return additional charge',
+      },
+      ownerId,
+      randomUUID(),
+    );
     await bookings.updateStatus(tenantId, created.bookingId, 'completed');
-    await expect(prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).resolves.toMatchObject({
+    await expect(
+      prisma.booking.findUniqueOrThrow({ where: { id: created.bookingId } }),
+    ).resolves.toMatchObject({
       status: 'completed',
       paymentStatus: 'paid',
     });
-    await expect(prisma.inventoryReservation.findFirstOrThrow({
-      where: { bookingId: created.bookingId },
-    })).resolves.toMatchObject({ status: 'RELEASED' });
+    await expect(
+      prisma.inventoryReservation.findFirstOrThrow({
+        where: { bookingId: created.bookingId },
+      }),
+    ).resolves.toMatchObject({ status: 'RELEASED' });
     const operationalStats = await bookings.getBookingStats(tenantId);
     expect(operationalStats.queueCounts).toMatchObject({
       ALL: expect.any(Number),
@@ -548,16 +904,20 @@ describe('inventory control PostgreSQL contracts', () => {
     });
     expect(operationalStats.queueCounts.ALL).toBeGreaterThanOrEqual(1);
     const calendar = await bookings.getBookingCalendar(tenantId, '2026-11-01', '2026-11-30');
-    expect(calendar).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: created.bookingId,
-        bookingNumber: created.bookingNumber,
-        items: expect.arrayContaining([
-          expect.objectContaining({ endDate: new Date('2026-11-13') }),
-        ]),
-      }),
-    ]));
-    await expect(bookings.getBookingCalendar(tenantId, '2026-01-01', '2026-06-01')).rejects.toMatchObject({
+    expect(calendar).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: created.bookingId,
+          bookingNumber: created.bookingNumber,
+          items: expect.arrayContaining([
+            expect.objectContaining({ endDate: new Date('2026-11-13') }),
+          ]),
+        }),
+      ]),
+    );
+    await expect(
+      bookings.getBookingCalendar(tenantId, '2026-01-01', '2026-06-01'),
+    ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'CALENDAR_RANGE_TOO_LARGE' }),
     });
   });

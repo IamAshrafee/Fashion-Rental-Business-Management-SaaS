@@ -27,8 +27,8 @@ export class SmsService {
     try {
       await this.provider.send(to, message);
     } catch (err) {
-      // Log the failure but never let SMS errors crash the main flow
       this.logger.error(`Failed to send SMS to ${to}: ${(err as Error).message}`);
+      throw err;
     }
   }
 

@@ -11,6 +11,8 @@ import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import cookieParser from 'cookie-parser';
+import type { NextFunction, Request, Response } from 'express';
+import { timingSafeEqual } from 'crypto';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -88,6 +90,7 @@ async function bootstrap(): Promise<void> {
 
     createBullBoard({
       queues: [
+        new BullMQAdapter(jobsService.fulfillmentQueue),
         new BullMQAdapter(jobsService.notificationsQueue),
         new BullMQAdapter(jobsService.schedulerQueue),
         new BullMQAdapter(jobsService.cleanupQueue),
@@ -95,6 +98,27 @@ async function bootstrap(): Promise<void> {
       serverAdapter,
     });
 
+    if (configService.get('nodeEnv') === 'production') {
+      const expectedUser = configService.getOrThrow<string>('operations.queueUsername');
+      const expectedPassword = configService.getOrThrow<string>('operations.queuePassword');
+      app.use('/admin/queues', (request: Request, response: Response, next: NextFunction) => {
+        const [scheme, encoded] = (request.headers.authorization || '').split(' ');
+        const [username, password] = scheme === 'Basic' && encoded
+          ? Buffer.from(encoded, 'base64').toString('utf8').split(':', 2)
+          : ['', ''];
+        const matches = (left: string, right: string) => {
+          const leftBuffer = Buffer.from(left);
+          const rightBuffer = Buffer.from(right);
+          return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+        };
+        if (!matches(username, expectedUser) || !matches(password, expectedPassword)) {
+          response.setHeader('WWW-Authenticate', 'Basic realm="ClosetRent operations"');
+          response.status(401).send('Authentication required');
+          return;
+        }
+        next();
+      });
+    }
     app.use('/admin/queues', serverAdapter.getRouter());
     logger.log('📊 Bull Board mounted at /admin/queues');
   } catch (err) {

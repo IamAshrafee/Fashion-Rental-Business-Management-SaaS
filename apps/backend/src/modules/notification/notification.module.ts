@@ -8,6 +8,8 @@ import { AuditLogListener } from './audit-log.listener';
 import { SmsService } from './sms/sms.service';
 import { DevSmsService } from './sms/dev-sms.service';
 import { SMS_PROVIDER_TOKEN } from './sms/sms.interface';
+import { HttpSmsService } from './sms/http-sms.service';
+import { ConfigService } from '@nestjs/config';
 
 @Module({
   controllers: [NotificationController, AuditLogController],
@@ -17,10 +19,13 @@ import { SMS_PROVIDER_TOKEN } from './sms/sms.interface';
     AuditLogService,
     AuditLogListener,
     SmsService,
-    // Provide the SMS adapter — swap DevSmsService for a real provider in production
+    DevSmsService,
+    HttpSmsService,
     {
       provide: SMS_PROVIDER_TOKEN,
-      useClass: DevSmsService,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        config.get('nodeEnv') === 'production' ? new HttpSmsService(config) : new DevSmsService(),
     },
   ],
   exports: [NotificationService, AuditLogService, SmsService],

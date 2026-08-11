@@ -10,6 +10,8 @@ import {
   IsInt,
   Min,
   Max,
+  IsArray,
+  ArrayUnique,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
@@ -23,10 +25,10 @@ export class InviteStaffDto {
   @MaxLength(200)
   fullName!: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(20)
-  phone!: string;
+  phone?: string;
 
   @IsOptional()
   @Transform(({ value }) => value || undefined)
@@ -37,8 +39,33 @@ export class InviteStaffDto {
   @IsIn(['manager', 'staff'])
   role!: 'manager' | 'staff';
 
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(
+    [
+      'manage_products',
+      'manage_inventory',
+      'manage_bookings',
+      'manage_fulfillment',
+      'view_customers',
+      'manage_customers',
+      'view_analytics',
+      'manage_finance',
+    ],
+    { each: true },
+  )
+  permissions?: string[];
+}
+
+export class AcceptStaffInvitationDto {
   @IsString()
-  @MinLength(6)
+  @MinLength(32)
+  @MaxLength(200)
+  token!: string;
+
+  @IsString()
+  @MinLength(10)
   @MaxLength(128)
   password!: string;
 }
@@ -55,6 +82,24 @@ export class UpdateStaffDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(
+    [
+      'manage_products',
+      'manage_inventory',
+      'manage_bookings',
+      'manage_fulfillment',
+      'view_customers',
+      'manage_customers',
+      'view_analytics',
+      'manage_finance',
+    ],
+    { each: true },
+  )
+  permissions?: string[];
 }
 
 // =========================================================================

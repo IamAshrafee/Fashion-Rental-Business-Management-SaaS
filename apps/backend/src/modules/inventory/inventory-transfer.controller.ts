@@ -14,6 +14,7 @@ import { Request } from 'express';
 import { TenantContext } from '@closetrent/types';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -31,24 +32,19 @@ interface AuthenticatedRequest extends Request {
 
 @Controller('owner/inventory/transfers')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_inventory')
 export class InventoryTransferController {
   constructor(private readonly transfers: InventoryTransferService) {}
 
   @Get()
   @Roles('owner', 'manager', 'staff')
-  list(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: ListInventoryTransfersQueryDto,
-  ) {
+  list(@CurrentTenant() tenant: TenantContext, @Query() query: ListInventoryTransfersQueryDto) {
     return this.transfers.list(tenant.id, query.status);
   }
 
   @Get(':transferId')
   @Roles('owner', 'manager', 'staff')
-  get(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('transferId') transferId: string,
-  ) {
+  get(@CurrentTenant() tenant: TenantContext, @Param('transferId') transferId: string) {
     return this.transfers.get(tenant.id, transferId);
   }
 

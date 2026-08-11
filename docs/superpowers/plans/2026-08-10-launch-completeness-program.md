@@ -6,6 +6,8 @@
 
 **Execution:** Continuous, checkpointed implementation. The user has pre-approved design decisions and requested no approval pauses. Browser and visual verification are excluded.
 
+**Status (2026-08-11):** Checkpoints A–E implemented. Checkpoint F verification and release evidence completed in `docs/launch-readiness.md`; final command results are recorded in the completing task/commit.
+
 ## Rules
 
 - Do not add compatibility shims or preserve obsolete models merely for legacy behavior.
@@ -67,7 +69,7 @@
 ## Checkpoint E — Launch-critical areas
 
 1. Subscription entitlements and usage enforcement.
-2. Permission-level staff RBAC and invitations/location scope.
+2. Permission-level staff RBAC and secure invitation lifecycle. Location authorization is intentionally not represented as a staff permission until every location query and mutation can enforce it end-to-end.
 3. Notification templates, preferences, transactional outbox, retries, and delivery evidence.
 4. Finance/reconciliation across booking payment, refund, deposit, damage, courier COD, invoice, and adjustment.
 5. Operational/commercial/customer/inventory/courier analytics and bounded exports.
@@ -83,4 +85,3 @@
 4. Review indexes/query shapes, tenant isolation, state transitions, idempotency, concurrency, accessibility-by-code, and mobile behavior-by-code.
 5. Add environment contract, migration/deployment checklist, monitoring/backup/restore/support runbooks, and known external-provider prerequisites.
 6. Commit final release closure only when no scoped incomplete row remains.
-

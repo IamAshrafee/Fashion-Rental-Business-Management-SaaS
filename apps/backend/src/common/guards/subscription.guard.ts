@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { SubscriptionService } from '../../modules/tenant/subscription.service';
+import { SUBSCRIPTION_EXEMPT_KEY } from '../decorators/subscription-exempt.decorator';
 
 /**
  * Subscription Guard.
@@ -38,6 +39,12 @@ export class SubscriptionGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
+    const isExempt = this.reflector.getAllAndOverride<boolean>(SUBSCRIPTION_EXEMPT_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isExempt) return true;
+
     const request = context.switchToHttp().getRequest();
     const tenant = request.tenant;
 
@@ -60,9 +67,7 @@ export class SubscriptionGuard implements CanActivate {
     if (status.isInGracePeriod) {
       const response = context.switchToHttp().getResponse();
       response.setHeader('X-Subscription-Warning', 'grace_period');
-      this.logger.warn(
-        `Tenant ${tenant.id} is in subscription grace period`,
-      );
+      this.logger.warn(`Tenant ${tenant.id} is in subscription grace period`);
     }
 
     return true;

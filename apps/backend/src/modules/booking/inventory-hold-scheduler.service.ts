@@ -14,9 +14,16 @@ export class InventoryHoldSchedulerService {
 
   @Cron(CronExpression.EVERY_10_MINUTES)
   async expirePendingInventoryHolds() {
-    const processed = await this.prisma.$transaction((tx) =>
-      this.inventoryReservations.expirePending(tx),
-    );
+    const tenants = await this.prisma.tenant.findMany({
+      where: { status: 'active' },
+      select: { id: true },
+    });
+    let processed = 0;
+    for (const tenant of tenants) {
+      processed += await this.prisma.$transaction((tx) =>
+        this.inventoryReservations.expirePending(tx, tenant.id),
+      );
+    }
     if (processed > 0) {
       this.logger.log(`Expired ${processed} abandoned inventory hold(s).`);
     }

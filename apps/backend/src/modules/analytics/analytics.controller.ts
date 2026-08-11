@@ -1,7 +1,12 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
 
 import { AnalyticsService } from './analytics.service';
-import { AnalyticsQueryDto, RevenueChartQueryDto, TopProductsQueryDto } from './dto/analytics.dto';
+import {
+  AnalyticsExportParamDto,
+  AnalyticsQueryDto,
+  RevenueChartQueryDto,
+  TopProductsQueryDto,
+} from './dto/analytics.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -12,8 +17,9 @@ import { Public } from '../../common/decorators/public.decorator';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bullmq';
 import { Post, Body, HttpCode, HttpStatus, Req } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { StorefrontEventDto } from './dto/storefront-event.dto';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 
 @Controller('analytics')
 export class AnalyticsGuestController {
@@ -49,14 +55,12 @@ export class AnalyticsGuestController {
 @Controller('owner/analytics')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @Roles('owner', 'manager')
+@RequirePermission('view_analytics')
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   @Get('summary')
-  async getSummary(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: AnalyticsQueryDto,
-  ) {
+  async getSummary(@CurrentTenant() tenant: TenantContext, @Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getSummary(tenant.id, query);
   }
 
@@ -69,9 +73,7 @@ export class AnalyticsController {
   }
 
   @Get('revenue-by-category')
-  async getRevenueByCategory(
-    @CurrentTenant() tenant: TenantContext,
-  ) {
+  async getRevenueByCategory(@CurrentTenant() tenant: TenantContext) {
     return this.analyticsService.getRevenueByCategory(tenant.id);
   }
 
@@ -84,16 +86,22 @@ export class AnalyticsController {
   }
 
   @Get('target-recovery')
-  async getTargetRecovery(
-    @CurrentTenant() tenant: TenantContext,
-  ) {
+  async getTargetRecovery(@CurrentTenant() tenant: TenantContext) {
     return this.analyticsService.getTargetRecovery(tenant.id);
   }
 
   @Get('export/:type')
-  async exportCsv() {
-    // Basic stub for exporting CSV in v1
-    return 'CSV stub';
+  async exportCsv(
+    @CurrentTenant() tenant: TenantContext,
+    @Param() params: AnalyticsExportParamDto,
+    @Query() query: AnalyticsQueryDto,
+    @Res() response: Response,
+  ) {
+    const result = await this.analyticsService.exportCsv(tenant.id, params.type, query);
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.send(`\uFEFF${result.csv}`);
   }
 
   // ---------------------------------------------------------

@@ -18,12 +18,43 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
-import { InviteStaffDto, UpdateStaffDto, StaffQueryDto } from './dto/staff.dto';
+import { AuthUser } from '@closetrent/types';
+import {
+  InviteStaffDto,
+  UpdateStaffDto,
+  StaffQueryDto,
+  AcceptStaffInvitationDto,
+} from './dto/staff.dto';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 
 @Controller('staff')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_staff')
 export class StaffController {
   constructor(private readonly staffService: StaffService) {}
+
+  @Post('invitations/accept')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  async acceptInvitation(@Body() dto: AcceptStaffInvitationDto) {
+    return this.staffService.acceptInvitation(dto);
+  }
+
+  @Get('invitations')
+  @Roles('owner')
+  @RequirePermission('manage_staff')
+  async listInvitations(@CurrentTenant() tenant: TenantContext) {
+    return this.staffService.listInvitations(tenant.id);
+  }
+
+  @Delete('invitations/:id')
+  @Roles('owner')
+  @RequirePermission('manage_staff')
+  async revokeInvitation(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
+    return this.staffService.revokeInvitation(tenant.id, id);
+  }
 
   /**
    * GET /api/v1/staff
@@ -32,10 +63,7 @@ export class StaffController {
    */
   @Get()
   @Roles('owner')
-  async listStaff(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: StaffQueryDto,
-  ) {
+  async listStaff(@CurrentTenant() tenant: TenantContext, @Query() query: StaffQueryDto) {
     return this.staffService.listStaff(tenant.id, query);
   }
 
@@ -46,12 +74,14 @@ export class StaffController {
    */
   @Post()
   @Roles('owner')
+  @RequirePermission('manage_staff')
   @HttpCode(HttpStatus.CREATED)
   async inviteStaff(
     @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthUser,
     @Body() dto: InviteStaffDto,
   ) {
-    return this.staffService.inviteStaff(tenant.id, dto);
+    return this.staffService.inviteStaff(tenant.id, user.id, dto);
   }
 
   /**
@@ -61,10 +91,7 @@ export class StaffController {
    */
   @Get(':id')
   @Roles('owner')
-  async getStaff(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async getStaff(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.staffService.getStaffById(tenant.id, id);
   }
 
@@ -91,10 +118,7 @@ export class StaffController {
   @Delete(':id')
   @Roles('owner')
   @HttpCode(HttpStatus.OK)
-  async removeStaff(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async removeStaff(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.staffService.removeStaff(tenant.id, id);
   }
 }

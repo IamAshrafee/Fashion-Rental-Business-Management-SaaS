@@ -16,6 +16,7 @@ import { Request } from 'express';
 import { TenantContext } from '@closetrent/types';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -46,6 +47,7 @@ interface AuthenticatedRequest extends Request {
 
 @Controller('owner/inventory')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_inventory')
 export class InventoryOperationsController {
   constructor(
     private readonly lifecycle: StockUnitLifecycleService,
@@ -154,12 +156,7 @@ export class InventoryOperationsController {
     @Body() dto: ReplaceStockUnitReferenceMediaDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.inspections.replaceReferenceMedia(
-      tenant.id,
-      stockUnitId,
-      dto,
-      request.user.id,
-    );
+    return this.inspections.replaceReferenceMedia(tenant.id, stockUnitId, dto, request.user.id);
   }
 
   @Post('issues/:issueId/resolve')
@@ -257,12 +254,6 @@ export class InventoryOperationsController {
     @Body() dto: UpdateStockUnitComponentStateDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.sets.updateUnitState(
-      tenant.id,
-      stockUnitId,
-      definitionId,
-      dto,
-      request.user.id,
-    );
+    return this.sets.updateUnitState(tenant.id, stockUnitId, definitionId, dto, request.user.id);
   }
 }

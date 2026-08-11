@@ -54,6 +54,78 @@ export class NotificationService {
     return notification;
   }
 
+  async createSmsDelivery(input: {
+    tenantId: string;
+    recipient: string;
+    template: string;
+    payload: Prisma.InputJsonObject;
+    dedupeKey?: string;
+  }) {
+    if (input.dedupeKey) {
+      const existing = await this.prisma.notificationDelivery.findUnique({
+        where: { tenantId_dedupeKey: { tenantId: input.tenantId, dedupeKey: input.dedupeKey } },
+      });
+      if (existing) return existing;
+    }
+    try {
+      return await this.prisma.notificationDelivery.create({
+        data: { ...input, channel: 'sms' },
+      });
+    } catch (error) {
+      if (input.dedupeKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return this.prisma.notificationDelivery.findUniqueOrThrow({
+          where: { tenantId_dedupeKey: { tenantId: input.tenantId, dedupeKey: input.dedupeKey } },
+        });
+      }
+      throw error;
+    }
+  }
+
+  async beginSmsDelivery(id: string) {
+    return this.prisma.notificationDelivery.update({
+      where: { id },
+      data: {
+        status: 'processing',
+        attempts: { increment: 1 },
+        lastError: null,
+        nextAttemptAt: null,
+      },
+    });
+  }
+
+  async completeSmsDelivery(id: string) {
+    await this.prisma.notificationDelivery.update({
+      where: { id },
+      data: { status: 'sent', sentAt: new Date(), lastError: null, nextAttemptAt: null },
+    });
+  }
+
+  async failSmsDelivery(id: string, error: string, attempts: number) {
+    const delayMinutes = Math.min(60, 2 ** Math.max(0, attempts - 1));
+    await this.prisma.notificationDelivery.update({
+      where: { id },
+      data: {
+        status: 'failed',
+        lastError: error.slice(0, 2000),
+        nextAttemptAt: new Date(Date.now() + delayMinutes * 60_000),
+      },
+    });
+  }
+
+  async recoverableSmsDeliveries(limit = 500) {
+    return this.prisma.notificationDelivery.findMany({
+      where: {
+        channel: 'sms',
+        status: { in: ['pending', 'failed'] },
+        attempts: { lt: 5 },
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+      },
+      select: { id: true },
+      take: limit,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   /**
    * List notifications for a tenant (paginated, unread first).
    */
@@ -148,22 +220,20 @@ export class NotificationService {
   /**
    * Clean notifications older than 30 days for a specific tenant.
    * Called by cleanup CRON job per-tenant for proper data isolation.
-   * If no tenantId is provided, cleans across all tenants (legacy fallback).
    */
-  async cleanOldNotifications(tenantId?: string): Promise<number> {
+  async cleanOldNotifications(tenantId: string): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 30);
 
     const where: Prisma.NotificationWhereInput = {
       createdAt: { lt: cutoff },
-      ...(tenantId ? { tenantId } : {}),
+      tenantId,
     };
 
     const result = await this.prisma.notification.deleteMany({ where });
 
     this.logger.log(
-      `Cleaned ${result.count} notifications older than 30 days` +
-        (tenantId ? ` for tenant ${tenantId}` : ' (all tenants)'),
+      `Cleaned ${result.count} notifications older than 30 days for tenant ${tenantId}`,
     );
     return result.count;
   }

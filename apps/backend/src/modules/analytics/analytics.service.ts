@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AnalyticsQueryDto, RevenueChartQueryDto, TopProductsQueryDto } from './dto/analytics.dto';
+import {
+  AnalyticsExportType,
+  AnalyticsQueryDto,
+  RevenueChartQueryDto,
+  TopProductsQueryDto,
+} from './dto/analytics.dto';
 import {
   AnalyticsSummary,
   RevenueSeries,
@@ -12,7 +17,7 @@ import {
   StorefrontTrafficSummary,
   TrafficFunnel,
   TopViewedProduct,
-  AttributionSource
+  AttributionSource,
 } from '@closetrent/types';
 
 @Injectable()
@@ -30,7 +35,9 @@ export class AnalyticsService {
       to.setUTCHours(23, 59, 59, 999);
     }
 
-    const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const from = query.from
+      ? new Date(query.from)
+      : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
     // Best practice to align 'from' to start of day if it was provided as a string
     if (query.from && query.from.length <= 10) {
       from.setUTCHours(0, 0, 0, 0);
@@ -52,6 +59,233 @@ export class AnalyticsService {
   private calculateGrowth(current: number, previous: number): number {
     if (previous === 0) return current > 0 ? 100 : 0;
     return Number((((current - previous) / previous) * 100).toFixed(1));
+  }
+
+  private async calculateUtilization(
+    tenantId: string,
+    from: Date,
+    to: Date,
+    productId?: string,
+  ): Promise<number> {
+    const productFilter = productId ? { variantSize: { variant: { productId } } } : {};
+    const [serializedCapacity, pooledCapacity, reservations] = await Promise.all([
+      this.prisma.stockUnit.count({
+        where: { tenantId, deletedAt: null, disposition: 'ACTIVE', ...productFilter },
+      }),
+      this.prisma.inventoryPool.aggregate({
+        where: { tenantId, ...(productId ? { variantSize: { variant: { productId } } } : {}) },
+        _sum: { onHandQuantity: true },
+      }),
+      this.prisma.inventoryReservation.findMany({
+        where: {
+          tenantId,
+          ...(productId ? { productId } : {}),
+          status: { notIn: ['CANCELLED', 'EXPIRED'] },
+          blockedStartDate: { lte: to },
+          blockedEndDate: { gte: from },
+        },
+        select: { blockedStartDate: true, blockedEndDate: true, quantity: true },
+      }),
+    ]);
+    const capacity = serializedCapacity + (pooledCapacity._sum.onHandQuantity ?? 0);
+    if (!capacity) return 0;
+    const dayMs = 86_400_000;
+    const periodDays = Math.max(1, Math.floor((to.getTime() - from.getTime()) / dayMs) + 1);
+    const occupiedUnitDays = reservations.reduce((sum, reservation) => {
+      const start = new Date(Math.max(from.getTime(), reservation.blockedStartDate.getTime()));
+      const end = new Date(Math.min(to.getTime(), reservation.blockedEndDate.getTime()));
+      const overlapDays = Math.max(0, Math.floor((end.getTime() - start.getTime()) / dayMs) + 1);
+      return sum + overlapDays * reservation.quantity;
+    }, 0);
+    return Number((Math.min(1, occupiedUnitDays / (capacity * periodDays)) * 100).toFixed(1));
+  }
+
+  async exportCsv(tenantId: string, type: AnalyticsExportType, query: AnalyticsQueryDto) {
+    const { from, to } = this.getDateRange(query);
+    let rows: Array<Record<string, unknown>>;
+
+    if (type === 'bookings') {
+      const records = await this.prisma.booking.findMany({
+        where: { tenantId, deletedAt: null, createdAt: { gte: from, lte: to } },
+        orderBy: { createdAt: 'desc' },
+        take: 10_000,
+        select: {
+          bookingNumber: true,
+          channel: true,
+          status: true,
+          paymentStatus: true,
+          paymentMethod: true,
+          rentalStartDate: true,
+          rentalEndDate: true,
+          deliveryName: true,
+          deliveryPhone: true,
+          subtotal: true,
+          totalFees: true,
+          shippingFee: true,
+          totalDeposit: true,
+          discountAmount: true,
+          grandTotal: true,
+          totalPaid: true,
+          createdAt: true,
+        },
+      });
+      rows = records.map((record) => ({
+        booking_number: record.bookingNumber,
+        channel: record.channel,
+        status: record.status,
+        payment_status: record.paymentStatus,
+        payment_method: record.paymentMethod,
+        customer: record.deliveryName,
+        phone: record.deliveryPhone,
+        rental_start: record.rentalStartDate,
+        rental_end: record.rentalEndDate,
+        subtotal: record.subtotal,
+        fees: record.totalFees,
+        shipping: record.shippingFee,
+        deposit: record.totalDeposit,
+        discount: record.discountAmount,
+        grand_total: record.grandTotal,
+        paid: record.totalPaid,
+        balance_due: Math.max(0, record.grandTotal - record.totalPaid),
+        created_at: record.createdAt,
+      }));
+    } else if (type === 'customers') {
+      const records = await this.prisma.customer.findMany({
+        where: { tenantId, createdAt: { gte: from, lte: to } },
+        orderBy: { createdAt: 'desc' },
+        take: 10_000,
+        select: {
+          fullName: true,
+          status: true,
+          preferredContactChannel: true,
+          source: true,
+          totalBookings: true,
+          totalSpent: true,
+          lastBookingAt: true,
+          createdAt: true,
+          identities: { where: { isPrimary: true }, select: { kind: true, value: true } },
+        },
+      });
+      rows = records.map((record) => ({
+        customer: record.fullName,
+        status: record.status,
+        primary_identity: record.identities[0]?.kind ?? '',
+        contact: record.identities[0]?.value ?? '',
+        preferred_channel: record.preferredContactChannel,
+        source: record.source ?? '',
+        total_bookings: record.totalBookings,
+        total_spent: record.totalSpent,
+        last_booking_at: record.lastBookingAt,
+        created_at: record.createdAt,
+      }));
+    } else if (type === 'inventory') {
+      const records = await this.prisma.stockUnit.findMany({
+        where: { tenantId, deletedAt: null, createdAt: { lte: to } },
+        orderBy: { assetCode: 'asc' },
+        take: 10_000,
+        select: {
+          assetCode: true,
+          barcode: true,
+          disposition: true,
+          operationalState: true,
+          condition: true,
+          storefrontVisible: true,
+          purchaseDate: true,
+          purchasePrice: true,
+          estimatedCurrentValue: true,
+          createdAt: true,
+          location: { select: { code: true, name: true } },
+          variantSize: {
+            select: {
+              sizeInstance: { select: { displayLabel: true } },
+              variant: { select: { variantName: true, product: { select: { name: true } } } },
+            },
+          },
+        },
+      });
+      rows = records.map((record) => ({
+        asset_code: record.assetCode,
+        barcode: record.barcode ?? '',
+        product: record.variantSize.variant.product.name,
+        variant: record.variantSize.variant.variantName ?? '',
+        size: record.variantSize.sizeInstance.displayLabel,
+        location_code: record.location.code,
+        location: record.location.name,
+        disposition: record.disposition,
+        operational_state: record.operationalState,
+        condition: record.condition,
+        storefront_visible: record.storefrontVisible,
+        purchase_date: record.purchaseDate,
+        purchase_price: record.purchasePrice,
+        estimated_value: record.estimatedCurrentValue,
+        registered_at: record.createdAt,
+      }));
+    } else if (type === 'payments') {
+      const records = await this.prisma.payment.findMany({
+        where: { tenantId, createdAt: { gte: from, lte: to } },
+        orderBy: { createdAt: 'desc' },
+        take: 10_000,
+        select: {
+          amount: true,
+          rentalAmount: true,
+          depositAmount: true,
+          method: true,
+          status: true,
+          transactionId: true,
+          verifiedAt: true,
+          refundAmount: true,
+          refundedAt: true,
+          notes: true,
+          createdAt: true,
+          booking: { select: { bookingNumber: true, deliveryName: true, deliveryPhone: true } },
+          recorder: { select: { fullName: true } },
+        },
+      });
+      rows = records.map((record) => ({
+        booking_number: record.booking.bookingNumber,
+        customer: record.booking.deliveryName,
+        phone: record.booking.deliveryPhone,
+        amount: record.amount,
+        rental_amount: record.rentalAmount,
+        deposit_amount: record.depositAmount,
+        method: record.method,
+        status: record.status,
+        transaction_id: record.transactionId ?? '',
+        verified_at: record.verifiedAt,
+        refund_amount: record.refundAmount ?? 0,
+        refunded_at: record.refundedAt,
+        recorded_by: record.recorder?.fullName ?? 'System',
+        notes: record.notes ?? '',
+        created_at: record.createdAt,
+      }));
+    } else {
+      const recovery = await this.getTargetRecovery(tenantId);
+      rows = recovery.products.map((record) => ({
+        product: record.name,
+        purchase_price: record.purchasePrice,
+        recovered: record.recovered,
+        recovery_percentage: record.recoveryPercentage,
+        status: record.status,
+      }));
+    }
+
+    const date = new Date().toISOString().slice(0, 10);
+    return { filename: `${type}-${date}.csv`, csv: this.toCsv(rows) };
+  }
+
+  private toCsv(rows: Array<Record<string, unknown>>): string {
+    if (!rows.length) return 'no_records\n';
+    const headers = Object.keys(rows[0]);
+    const escape = (value: unknown) => {
+      let normalized =
+        value instanceof Date ? value.toISOString() : value == null ? '' : String(value);
+      if (/^[=+\-@]/.test(normalized)) normalized = `'${normalized}`;
+      return /[",\r\n]/.test(normalized) ? `"${normalized.replace(/"/g, '""')}"` : normalized;
+    };
+    return [
+      headers.join(','),
+      ...rows.map((row) => headers.map((header) => escape(row[header])).join(',')),
+    ].join('\r\n');
   }
 
   async getSummary(tenantId: string, query: AnalyticsQueryDto): Promise<AnalyticsSummary> {
@@ -79,7 +313,9 @@ export class AnalyticsService {
     });
 
     // Calculate Revenues (excluding deposits)
-    const calculateRevenue = (bookings: { grandTotal: number; totalDeposit: number; status: string }[]) =>
+    const calculateRevenue = (
+      bookings: { grandTotal: number; totalDeposit: number; status: string }[],
+    ) =>
       bookings
         .filter((b) => !['cancelled', 'pending'].includes(b.status)) // basic heuristic
         .reduce((sum, b) => sum + (b.grandTotal - b.totalDeposit), 0);
@@ -93,21 +329,31 @@ export class AnalyticsService {
     const activeStatuses = ['confirmed', 'delivered', 'overdue'];
 
     const totalBookingsCount = currentBookings.length;
-    const completedCount = currentBookings.filter((b) => completedStatuses.includes(b.status)).length;
+    const completedCount = currentBookings.filter((b) =>
+      completedStatuses.includes(b.status),
+    ).length;
     const activeCount = currentBookings.filter((b) => activeStatuses.includes(b.status)).length;
     const cancelledCount = currentBookings.filter((b) => b.status === 'cancelled').length;
-    const cancellationRate = totalBookingsCount === 0 ? 0 : Number(((cancelledCount / totalBookingsCount) * 100).toFixed(1));
+    const cancellationRate =
+      totalBookingsCount === 0
+        ? 0
+        : Number(((cancelledCount / totalBookingsCount) * 100).toFixed(1));
     const averageOrderValue = completedCount === 0 ? 0 : Math.round(totalRevenue / completedCount);
 
     // Better way to do active customers in range:
     // We can count how many of these active customers were created in this period
     const allStoreCustomers = await this.prisma.customer.findMany({
-        where: { tenantId, status: { notIn: ['merged', 'anonymized', 'archived'] } }
+      where: { tenantId, status: { notIn: ['merged', 'anonymized', 'archived'] } },
     });
-    const newCount = allStoreCustomers.filter(c => c.createdAt >= from && c.createdAt <= to).length;
-    const returningUsersCount = allStoreCustomers.filter(c => c.totalBookings > 1).length;
+    const newCount = allStoreCustomers.filter(
+      (c) => c.createdAt >= from && c.createdAt <= to,
+    ).length;
+    const returningUsersCount = allStoreCustomers.filter((c) => c.totalBookings > 1).length;
     const totalStoreCustomers = allStoreCustomers.length;
-    const retentionRate = totalStoreCustomers === 0 ? 0 : Number(((returningUsersCount / totalStoreCustomers) * 100).toFixed(1));
+    const retentionRate =
+      totalStoreCustomers === 0
+        ? 0
+        : Number(((returningUsersCount / totalStoreCustomers) * 100).toFixed(1));
 
     // Products
     const products = await this.prisma.product.findMany({
@@ -116,8 +362,10 @@ export class AnalyticsService {
     });
 
     const totalActiveProducts = products.filter((p) => p.status === 'published').length;
-    const idleProducts = products.filter((p) => p.totalBookings === 0 && p.status === 'published').length;
-    const averageUtilization = 0; // Requires complex date blocking calculations, stub for v1
+    const idleProducts = products.filter(
+      (p) => p.totalBookings === 0 && p.status === 'published',
+    ).length;
+    const averageUtilization = await this.calculateUtilization(tenantId, from, to);
 
     return {
       revenue: {
@@ -168,7 +416,7 @@ export class AnalyticsService {
     for (const b of bookings) {
       const rev = b.grandTotal - b.totalDeposit;
       let dateKey = '';
-      
+
       const d = b.createdAt;
       if (groupBy === 'day') {
         dateKey = d.toISOString().split('T')[0]; // YYYY-MM-DD
@@ -239,21 +487,30 @@ export class AnalyticsService {
       },
     });
 
-    return products.map((p) => {
-      let thumb = null;
-      if (p.variants.length > 0 && p.variants[0].images.length > 0) {
-        thumb = p.variants[0].images[0].thumbnailUrl;
-      }
+    const utilizationFrom = new Date(Date.now() - 30 * 86_400_000);
+    const utilizationTo = new Date();
+    return Promise.all(
+      products.map(async (p) => {
+        let thumb = null;
+        if (p.variants.length > 0 && p.variants[0].images.length > 0) {
+          thumb = p.variants[0].images[0].thumbnailUrl;
+        }
 
-      return {
-        productId: p.id,
-        name: p.name,
-        totalBookings: p.totalBookings,
-        totalRevenue: p.totalRevenue,
-        utilizationRate: 0, // stub
-        thumbnailUrl: thumb,
-      };
-    });
+        return {
+          productId: p.id,
+          name: p.name,
+          totalBookings: p.totalBookings,
+          totalRevenue: p.totalRevenue,
+          utilizationRate: await this.calculateUtilization(
+            tenantId,
+            utilizationFrom,
+            utilizationTo,
+            p.id,
+          ),
+          thumbnailUrl: thumb,
+        };
+      }),
+    );
   }
 
   async getTargetRecovery(tenantId: string): Promise<TargetRecoverySummary> {
@@ -276,7 +533,7 @@ export class AnalyticsService {
       const purchasePrice = p.purchasePrice || 0;
       const recovered = p.totalRevenue;
       const perc = purchasePrice > 0 ? (recovered / purchasePrice) * 100 : 100;
-      
+
       totalInvestment += purchasePrice;
       totalRecovered += recovered;
 
@@ -300,7 +557,8 @@ export class AnalyticsService {
 
     items.sort((a, b) => b.recoveryPercentage - a.recoveryPercentage);
 
-    const overallRecoveryPercentage = totalInvestment > 0 ? Number(((totalRecovered / totalInvestment) * 100).toFixed(1)) : 0;
+    const overallRecoveryPercentage =
+      totalInvestment > 0 ? Number(((totalRecovered / totalInvestment) * 100).toFixed(1)) : 0;
 
     return {
       totalInvestment,
@@ -316,70 +574,93 @@ export class AnalyticsService {
   // Storefront Traffic Funnel Analytics
   // ---------------------------------------------------------
 
-  async getStorefrontSummary(tenantId: string, query: AnalyticsQueryDto): Promise<StorefrontTrafficSummary> {
+  async getStorefrontSummary(
+    tenantId: string,
+    query: AnalyticsQueryDto,
+  ): Promise<StorefrontTrafficSummary> {
     const { from, to } = this.getDateRange(query);
     const { prevFrom, prevTo } = this.getPreviousDateRange(from, to);
 
     const [currentEvents, previousEvents] = await Promise.all([
       this.prisma.storefrontEvent.findMany({
         where: { tenantId, productId: query.productId, createdAt: { gte: from, lte: to } },
-        select: { sessionId: true, eventType: true }
+        select: { sessionId: true, eventType: true },
       }),
       this.prisma.storefrontEvent.findMany({
         where: { tenantId, productId: query.productId, createdAt: { gte: prevFrom, lte: prevTo } },
-        select: { sessionId: true }
-      })
+        select: { sessionId: true },
+      }),
     ]);
 
-    const uniqueVisitors = new Set(currentEvents.map(e => e.sessionId)).size;
-    const previousVisitors = new Set(previousEvents.map(e => e.sessionId)).size;
-    const totalViews = currentEvents.filter(e => e.eventType === 'product_view').length;
-    const cartAdds = currentEvents.filter(e => e.eventType === 'add_to_cart').length;
-    
-    const cartConversionRate = uniqueVisitors > 0 ? Number(((cartAdds / uniqueVisitors) * 100).toFixed(1)) : 0;
+    const uniqueVisitors = new Set(currentEvents.map((e) => e.sessionId)).size;
+    const previousVisitors = new Set(previousEvents.map((e) => e.sessionId)).size;
+    const totalViews = currentEvents.filter((e) => e.eventType === 'product_view').length;
+    const cartAdds = currentEvents.filter((e) => e.eventType === 'add_to_cart').length;
+
+    const cartConversionRate =
+      uniqueVisitors > 0 ? Number(((cartAdds / uniqueVisitors) * 100).toFixed(1)) : 0;
     const growthPercentage = this.calculateGrowth(uniqueVisitors, previousVisitors);
 
-    return { uniqueVisitors, totalViews, cartAdds, cartConversionRate, previousVisitors, growthPercentage };
+    return {
+      uniqueVisitors,
+      totalViews,
+      cartAdds,
+      cartConversionRate,
+      previousVisitors,
+      growthPercentage,
+    };
   }
 
   async getFunnelMetrics(tenantId: string, query: AnalyticsQueryDto): Promise<TrafficFunnel> {
     const { from, to } = this.getDateRange(query);
     const events = await this.prisma.storefrontEvent.findMany({
-      where: { 
-        tenantId, 
+      where: {
+        tenantId,
         productId: query.productId,
-        createdAt: { gte: from, lte: to }, 
-        eventType: { in: ['product_view', 'add_to_cart', 'checkout_started'] } 
+        createdAt: { gte: from, lte: to },
+        eventType: { in: ['product_view', 'add_to_cart', 'checkout_started'] },
       },
-      select: { eventType: true }
+      select: { eventType: true },
     });
 
-    const views = events.filter(e => e.eventType === 'product_view').length;
-    const carts = events.filter(e => e.eventType === 'add_to_cart').length;
-    const checkouts = events.filter(e => e.eventType === 'checkout_started').length;
+    const views = events.filter((e) => e.eventType === 'product_view').length;
+    const carts = events.filter((e) => e.eventType === 'add_to_cart').length;
+    const checkouts = events.filter((e) => e.eventType === 'checkout_started').length;
 
     return {
       nodes: [
         { step: 'Product Views', count: views, dropOffRate: 0 },
-        { step: 'Added to Cart', count: carts, dropOffRate: views > 0 ? Number(((1 - (carts / views)) * 100).toFixed(1)) : 0 },
-        { step: 'Checkout Started', count: checkouts, dropOffRate: carts > 0 ? Number(((1 - (checkouts / carts)) * 100).toFixed(1)) : 0 }
-      ]
+        {
+          step: 'Added to Cart',
+          count: carts,
+          dropOffRate: views > 0 ? Number(((1 - carts / views) * 100).toFixed(1)) : 0,
+        },
+        {
+          step: 'Checkout Started',
+          count: checkouts,
+          dropOffRate: carts > 0 ? Number(((1 - checkouts / carts) * 100).toFixed(1)) : 0,
+        },
+      ],
     };
   }
 
-  async getTopViewedProducts(tenantId: string, query: AnalyticsQueryDto): Promise<TopViewedProduct[]> {
+  async getTopViewedProducts(
+    tenantId: string,
+    query: AnalyticsQueryDto,
+  ): Promise<TopViewedProduct[]> {
     const { from, to } = this.getDateRange(query);
-    
+
     const events = await this.prisma.storefrontEvent.findMany({
       where: { tenantId, productId: { not: null }, createdAt: { gte: from, lte: to } },
-      select: { productId: true, eventType: true }
+      select: { productId: true, eventType: true },
     });
 
-    const productStats = new Map<string, { views: number, carts: number, checkouts: number }>();
-    
+    const productStats = new Map<string, { views: number; carts: number; checkouts: number }>();
+
     for (const e of events) {
       if (!e.productId) continue;
-      if (!productStats.has(e.productId)) productStats.set(e.productId, { views: 0, carts: 0, checkouts: 0 });
+      if (!productStats.has(e.productId))
+        productStats.set(e.productId, { views: 0, carts: 0, checkouts: 0 });
       const stats = productStats.get(e.productId)!;
       if (e.eventType === 'product_view') stats.views++;
       else if (e.eventType === 'add_to_cart') stats.carts++;
@@ -389,64 +670,79 @@ export class AnalyticsService {
     const topIds = Array.from(productStats.entries())
       .sort((a, b) => b[1].views - a[1].views)
       .slice(0, 15)
-      .map(entry => entry[0]);
+      .map((entry) => entry[0]);
 
-    if(topIds.length === 0) return [];
+    if (topIds.length === 0) return [];
 
     const productsInfo = await this.prisma.product.findMany({
       where: { id: { in: topIds } },
-      select: { id: true, name: true, variants: { include: { images: { where: { isFeatured: true }, take: 1 } }, take: 1 } }
+      select: {
+        id: true,
+        name: true,
+        variants: { include: { images: { where: { isFeatured: true }, take: 1 } }, take: 1 },
+      },
     });
 
-    return topIds.map(id => {
-      const p = productsInfo.find(x => x.id === id);
+    return topIds.map((id) => {
+      const p = productsInfo.find((x) => x.id === id);
       const stats = productStats.get(id)!;
       let thumb = null;
       if (p?.variants?.[0]?.images?.[0]) thumb = p.variants[0].images[0].thumbnailUrl;
-      
+
       return {
         productId: id,
         name: p?.name || 'Unknown',
         views: stats.views,
         cartAdds: stats.carts,
         checkoutStarts: stats.checkouts,
-        viewToCartRate: stats.views > 0 ? Number(((stats.carts / stats.views) * 100).toFixed(1)) : 0,
-        cartToCheckoutRate: stats.carts > 0 ? Number(((stats.checkouts / stats.carts) * 100).toFixed(1)) : 0,
-        thumbnailUrl: thumb
+        viewToCartRate:
+          stats.views > 0 ? Number(((stats.carts / stats.views) * 100).toFixed(1)) : 0,
+        cartToCheckoutRate:
+          stats.carts > 0 ? Number(((stats.checkouts / stats.carts) * 100).toFixed(1)) : 0,
+        thumbnailUrl: thumb,
       };
     });
   }
 
-  async getMarketingAttribution(tenantId: string, query: AnalyticsQueryDto): Promise<AttributionSource[]> {
-     const { from, to } = this.getDateRange(query);
-     const events = await this.prisma.storefrontEvent.findMany({
-       where: { tenantId, createdAt: { gte: from, lte: to } },
-       select: { metadata: true, eventType: true }
-     });
+  async getMarketingAttribution(
+    tenantId: string,
+    query: AnalyticsQueryDto,
+  ): Promise<AttributionSource[]> {
+    const { from, to } = this.getDateRange(query);
+    const events = await this.prisma.storefrontEvent.findMany({
+      where: { tenantId, createdAt: { gte: from, lte: to } },
+      select: { metadata: true, eventType: true },
+    });
 
-     const attrMap = new Map<string, { views: number, carts: number, checkouts: number }>();
-     
-     for (const e of events) {
-       const meta = e.metadata as any;
-       // We need to parse metadata safely if it's stored as plain stringified JSON, but Prisma handles JSONB object directly.
-       const source = meta?.utm_source || 'Direct / Organic';
-       const campaign = meta?.utm_campaign || 'N/A';
-       const key = `${source}|${campaign}`;
-       
-       if (!attrMap.has(key)) attrMap.set(key, { views: 0, carts: 0, checkouts: 0 });
-       const stats = attrMap.get(key)!;
-       
-       if (e.eventType === 'product_view') stats.views++;
-       else if (e.eventType === 'add_to_cart') stats.carts++;
-       else if (e.eventType === 'checkout_started') stats.checkouts++;
-     }
+    const attrMap = new Map<string, { views: number; carts: number; checkouts: number }>();
 
-     return Array.from(attrMap.entries())
-       .map(([key, stats]) => {
-         const [source, campaign] = key.split('|');
-         return { source, campaign, views: stats.views, cartAdds: stats.carts, checkouts: stats.checkouts };
-       })
-       .sort((a, b) => b.views - a.views)
-       .slice(0, 50); // limit to top 50 sources to prevent huge payloads
+    for (const e of events) {
+      const meta = e.metadata as any;
+      // We need to parse metadata safely if it's stored as plain stringified JSON, but Prisma handles JSONB object directly.
+      const source = meta?.utm_source || 'Direct / Organic';
+      const campaign = meta?.utm_campaign || 'N/A';
+      const key = `${source}|${campaign}`;
+
+      if (!attrMap.has(key)) attrMap.set(key, { views: 0, carts: 0, checkouts: 0 });
+      const stats = attrMap.get(key)!;
+
+      if (e.eventType === 'product_view') stats.views++;
+      else if (e.eventType === 'add_to_cart') stats.carts++;
+      else if (e.eventType === 'checkout_started') stats.checkouts++;
+    }
+
+    return Array.from(attrMap.entries())
+      .map(([key, stats]) => {
+        const [source, campaign] = key.split('|');
+        return {
+          source,
+          campaign,
+          views: stats.views,
+          cartAdds: stats.carts,
+          checkouts: stats.checkouts,
+        };
+      })
+      .sort((a, b) => b.views - a.views)
+      .slice(0, 50); // limit to top 50 sources to prevent huge payloads
   }
 }

@@ -381,10 +381,30 @@ CREATE TABLE "tenant_users" (
     "user_id" TEXT NOT NULL,
     "role" "TenantRole" NOT NULL,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "permissions" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "tenant_users_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "staff_invitations" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "full_name" TEXT NOT NULL,
+    "phone" TEXT,
+    "email" TEXT,
+    "role" "TenantRole" NOT NULL,
+    "permissions" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "token_hash" TEXT NOT NULL,
+    "invited_by_user_id" TEXT NOT NULL,
+    "expires_at" TIMESTAMPTZ NOT NULL,
+    "accepted_at" TIMESTAMP(3),
+    "revoked_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "staff_invitations_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -2051,6 +2071,26 @@ CREATE TABLE "notifications" (
 );
 
 -- CreateTable
+CREATE TABLE "notification_deliveries" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "channel" TEXT NOT NULL,
+    "recipient" TEXT NOT NULL,
+    "template" TEXT NOT NULL,
+    "payload" JSONB NOT NULL,
+    "dedupe_key" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "last_error" TEXT,
+    "next_attempt_at" TIMESTAMP(3),
+    "sent_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "notification_deliveries_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "audit_logs" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
@@ -2212,6 +2252,15 @@ CREATE INDEX "tenant_users_user_id_idx" ON "tenant_users"("user_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "tenant_users_tenant_id_user_id_key" ON "tenant_users"("tenant_id", "user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "staff_invitations_token_hash_key" ON "staff_invitations"("token_hash");
+
+-- CreateIndex
+CREATE INDEX "staff_invitations_tenant_id_created_at_idx" ON "staff_invitations"("tenant_id", "created_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "staff_invitations_tenant_id_expires_at_idx" ON "staff_invitations"("tenant_id", "expires_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "subscriptions_tenant_id_key" ON "subscriptions"("tenant_id");
@@ -3067,6 +3116,15 @@ CREATE INDEX "notifications_tenant_id_is_read_idx" ON "notifications"("tenant_id
 CREATE INDEX "notifications_tenant_id_created_at_idx" ON "notifications"("tenant_id", "created_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "notification_deliveries_tenant_id_dedupe_key_key" ON "notification_deliveries"("tenant_id", "dedupe_key");
+
+-- CreateIndex
+CREATE INDEX "notification_deliveries_status_next_attempt_at_idx" ON "notification_deliveries"("status", "next_attempt_at");
+
+-- CreateIndex
+CREATE INDEX "notification_deliveries_tenant_id_created_at_idx" ON "notification_deliveries"("tenant_id", "created_at" DESC);
+
+-- CreateIndex
 CREATE INDEX "audit_logs_tenant_id_idx" ON "audit_logs"("tenant_id");
 
 -- CreateIndex
@@ -3146,6 +3204,12 @@ ALTER TABLE "tenant_users" ADD CONSTRAINT "tenant_users_tenant_id_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "tenant_users" ADD CONSTRAINT "tenant_users_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "staff_invitations" ADD CONSTRAINT "staff_invitations_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "staff_invitations" ADD CONSTRAINT "staff_invitations_invited_by_user_id_fkey" FOREIGN KEY ("invited_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -3898,6 +3962,9 @@ ALTER TABLE "reviews" ADD CONSTRAINT "reviews_booking_id_fkey" FOREIGN KEY ("boo
 
 -- AddForeignKey
 ALTER TABLE "notifications" ADD CONSTRAINT "notifications_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

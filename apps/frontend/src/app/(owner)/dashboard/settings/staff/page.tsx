@@ -1,17 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
+import { format } from 'date-fns';
+import { Copy, Edit2, Link2, Trash2, UserPlus, X } from 'lucide-react';
+import type { Staff, StaffPermission } from '@closetrent/types';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -20,43 +18,137 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { useStaffList, useInviteStaff, useRemoveStaff, useUpdateStaff } from '../hooks/use-settings';
-import { UserPlus, Trash2, Edit2 } from 'lucide-react';
-import { format } from 'date-fns';
-import { Badge } from '@/components/ui/badge';
-import { useTenant } from '@/hooks/use-tenant';
-import type { Staff } from '@closetrent/types';
+import { toast } from 'sonner';
+import {
+  useInviteStaff,
+  useRemoveStaff,
+  useRevokeStaffInvitation,
+  useStaffInvitations,
+  useStaffList,
+  useUpdateStaff,
+} from '../hooks/use-settings';
 
-const inviteSchema = z.object({
-  fullName: z.string().min(2, 'Name is required'),
-  email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().optional(),
-  role: z.enum(['manager', 'staff']),
-  password: z.string().min(6, 'Must be at least 6 characters').optional(),
-});
+const permissionOptions: Array<{ value: StaffPermission; label: string }> = [
+  { value: 'manage_products', label: 'Products' },
+  { value: 'manage_inventory', label: 'Inventory' },
+  { value: 'manage_bookings', label: 'Bookings' },
+  { value: 'manage_fulfillment', label: 'Fulfillment' },
+  { value: 'view_customers', label: 'View customers' },
+  { value: 'manage_customers', label: 'Edit customers' },
+  { value: 'view_analytics', label: 'Analytics' },
+  { value: 'manage_finance', label: 'Payments & COD' },
+];
 
-type InviteValues = z.infer<typeof inviteSchema>;
+const managerPermissions = permissionOptions.map(({ value }) => value);
+const staffPermissions: StaffPermission[] = [
+  'manage_products',
+  'manage_inventory',
+  'manage_bookings',
+  'manage_fulfillment',
+  'view_customers',
+];
+
+const inviteSchema = z
+  .object({
+    fullName: z.string().trim().min(2, 'Name is required'),
+    email: z.string().email('Enter a valid email').optional().or(z.literal('')),
+    phone: z.string().optional(),
+    role: z.enum(['manager', 'staff']),
+    permissions: z.array(
+      z.enum([
+        'manage_products',
+        'manage_inventory',
+        'manage_bookings',
+        'manage_fulfillment',
+        'view_customers',
+        'manage_customers',
+        'view_analytics',
+        'manage_finance',
+      ]),
+    ),
+  })
+  .refine((value) => Boolean(value.email?.trim() || value.phone?.trim()), {
+    message: 'Phone or email is required',
+    path: ['phone'],
+  });
 
 const editSchema = z.object({
   role: z.enum(['manager', 'staff']),
   isActive: z.boolean(),
+  permissions: z.array(
+    z.enum([
+      'manage_products',
+      'manage_inventory',
+      'manage_bookings',
+      'manage_fulfillment',
+      'view_customers',
+      'manage_customers',
+      'view_analytics',
+      'manage_finance',
+    ]),
+  ),
 });
 
+type InviteValues = z.infer<typeof inviteSchema>;
 type EditValues = z.infer<typeof editSchema>;
 
+function PermissionFields({
+  selected,
+  onChange,
+}: {
+  selected: StaffPermission[];
+  onChange: (permissions: StaffPermission[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <FormLabel>Access</FormLabel>
+      <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
+        {permissionOptions.map((permission) => (
+          <label key={permission.value} className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={selected.includes(permission.value)}
+              onCheckedChange={(checked) => {
+                const next = checked
+                  ? [...selected, permission.value]
+                  : selected.filter((value) => value !== permission.value);
+                onChange(next);
+              }}
+            />
+            {permission.label}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function StaffSettingsPage() {
-  useTenant(); // used for future tenant-scoped branding
   const { data: response, isLoading } = useStaffList({ limit: 50 });
+  const { data: invitationResponse } = useStaffInvitations();
   const inviteStaff = useInviteStaff();
   const removeStaff = useRemoveStaff();
-  
+  const revokeInvitation = useRevokeStaffInvitation();
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Staff | null>(null);
+  const [invitationLink, setInvitationLink] = useState<string | null>(null);
 
   const form = useForm<InviteValues>({
     resolver: zodResolver(inviteSchema),
@@ -65,38 +157,26 @@ export default function StaffSettingsPage() {
       email: '',
       phone: '',
       role: 'staff',
-      password: '',
+      permissions: staffPermissions,
     },
   });
-
   const editForm = useForm<EditValues>({
     resolver: zodResolver(editSchema),
-    defaultValues: {
-      role: 'staff',
-      isActive: true,
-    },
+    defaultValues: { role: 'staff', isActive: true, permissions: staffPermissions },
   });
-
-  // We call the hook at component level with the editing member's ID
   const updateStaff = useUpdateStaff(editingMember?.id || '');
 
-  const onSubmit = (data: InviteValues) => {
-    inviteStaff.mutate(data, {
-      onSuccess: () => {
-        setIsInviteOpen(false);
-        form.reset();
-      }
-    });
-  };
-
-  const onEditSubmit = (data: EditValues) => {
-    if (!editingMember) return;
-    updateStaff.mutate(data, {
-      onSuccess: () => {
-        setEditingMember(null);
-        editForm.reset();
+  const onSubmit = (values: InviteValues) => {
+    inviteStaff.mutate(
+      { ...values, email: values.email || undefined, phone: values.phone || undefined },
+      {
+        onSuccess: (result) => {
+          const link = `${window.location.origin}/staff/accept?token=${encodeURIComponent(result.data.token)}`;
+          setInvitationLink(link);
+          form.reset();
+        },
       },
-    });
+    );
   };
 
   const openEditDialog = (member: Staff) => {
@@ -104,257 +184,333 @@ export default function StaffSettingsPage() {
     editForm.reset({
       role: member.role as 'manager' | 'staff',
       isActive: member.isActive,
+      permissions: member.permissions,
     });
   };
 
-  const generatePassword = () => {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    const array = new Uint32Array(10);
-    crypto.getRandomValues(array);
-    const pass = Array.from(array, (n) => chars.charAt(n % chars.length)).join('');
-    form.setValue('password', pass);
-  };
-
-  if (isLoading) {
-    return <div className="animate-pulse h-64 bg-muted rounded-md" />;
-  }
-
+  if (isLoading) return <div className="h-64 animate-pulse rounded-md bg-muted" />;
   const staff = response?.data || [];
+  const pendingInvitations = (invitationResponse?.data || []).filter(
+    (item) => !item.acceptedAt && !item.revokedAt && new Date(item.expiresAt) > new Date(),
+  );
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-start">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-medium flex items-center gap-2">Staff Members</h3>
-          <p className="text-sm text-muted-foreground">Manage who has access to your store and their permissions.</p>
+          <h3 className="text-lg font-medium">Team access</h3>
+          <p className="text-sm text-muted-foreground">
+            Invite staff without sharing passwords and give each person only the access they need.
+          </p>
         </div>
-        
-        <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+        <Dialog
+          open={isInviteOpen}
+          onOpenChange={(open) => {
+            setIsInviteOpen(open);
+            if (!open) setInvitationLink(null);
+          }}
+        >
           <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
-              <UserPlus className="w-4 h-4"/>
-              Add Staff
+            <Button>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Invite staff
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-xl">
             <DialogHeader>
-              <DialogTitle>Add Staff Member</DialogTitle>
+              <DialogTitle>
+                {invitationLink ? 'Invitation ready' : 'Invite a team member'}
+              </DialogTitle>
               <DialogDescription>
-                They will be able to log in to this store based on the role assigned.
+                {invitationLink
+                  ? 'Copy this single-use link. It expires in seven days.'
+                  : 'The team member chooses their own password when accepting.'}
               </DialogDescription>
             </DialogHeader>
-            
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
-                <FormField
-                  control={form.control}
-                  name="fullName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Full Name *</FormLabel>
-                      <FormControl><Input placeholder="E.g. Rashida" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Phone Number</FormLabel>
-                        <FormControl><Input placeholder="+8801..." {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email Address</FormLabel>
-                        <FormControl><Input placeholder="staff@store.com" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="role"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Role Profile *</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger><SelectValue placeholder="Select a role"/></SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="manager">Manager (Full operational access)</SelectItem>
-                          <SelectItem value="staff">Staff (Orders & viewing products only)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Initial Password (Optional)</FormLabel>
-                      <div className="flex gap-2">
-                        <FormControl><Input placeholder="User must change it" {...field} /></FormControl>
-                        <Button type="button" variant="outline" onClick={generatePassword}>Generate</Button>
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="flex justify-end pt-4">
-                  <Button type="submit" disabled={inviteStaff.isPending}>
-                    {inviteStaff.isPending ? 'Sending Invite...' : 'Create Account'}
+            {invitationLink ? (
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <Input readOnly value={invitationLink} />
+                  <Button
+                    type="button"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(invitationLink);
+                      toast.success('Invitation link copied');
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
                   </Button>
                 </div>
-              </form>
-            </Form>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => {
+                    setIsInviteOpen(false);
+                    setInvitationLink(null);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            ) : (
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="fullName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Full name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Rashida Akter" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="phone"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Phone</FormLabel>
+                          <FormControl>
+                            <Input placeholder="+8801..." {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <Input placeholder="staff@store.com" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="role"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Role profile</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={(value: 'manager' | 'staff') => {
+                            field.onChange(value);
+                            form.setValue(
+                              'permissions',
+                              value === 'manager' ? managerPermissions : staffPermissions,
+                            );
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="manager">Manager</SelectItem>
+                            <SelectItem value="staff">Staff</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+                  <PermissionFields
+                    selected={form.watch('permissions')}
+                    onChange={(permissions) =>
+                      form.setValue('permissions', permissions, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
+                  />
+                  <Button className="w-full" type="submit" disabled={inviteStaff.isPending}>
+                    {inviteStaff.isPending ? 'Creating invitation…' : 'Create invitation link'}
+                  </Button>
+                </form>
+              </Form>
+            )}
           </DialogContent>
         </Dialog>
       </div>
+
+      {pendingInvitations.length > 0 && (
+        <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
+          <h4 className="text-sm font-medium">Pending invitations</h4>
+          {pendingInvitations.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 text-sm">
+              <div>
+                <span className="font-medium">{item.fullName}</span>
+                <span className="ml-2 text-muted-foreground">
+                  expires {format(new Date(item.expiresAt), 'MMM d')}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => revokeInvitation.mutate(item.id)}
+                disabled={revokeInvitation.isPending}
+              >
+                <X className="mr-1 h-4 w-4" />
+                Revoke
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
       <Separator />
 
-      {/* ── Edit Staff Dialog ── */}
-      <Dialog open={!!editingMember} onOpenChange={(open) => { if (!open) setEditingMember(null); }}>
+      <Dialog
+        open={Boolean(editingMember)}
+        onOpenChange={(open) => {
+          if (!open) setEditingMember(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Staff Member</DialogTitle>
+            <DialogTitle>Edit access</DialogTitle>
             <DialogDescription>
-              Update {editingMember?.fullName}&apos;s role and access status.
+              Update {editingMember?.fullName}&apos;s operational access.
             </DialogDescription>
           </DialogHeader>
-
           <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-6 pt-4">
+            <form
+              onSubmit={editForm.handleSubmit((values) =>
+                updateStaff.mutate(values, { onSuccess: () => setEditingMember(null) }),
+              )}
+              className="space-y-5"
+            >
               <FormField
                 control={editForm.control}
                 name="role"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Role</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <FormLabel>Role profile</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value: 'manager' | 'staff') => {
+                        field.onChange(value);
+                        editForm.setValue(
+                          'permissions',
+                          value === 'manager' ? managerPermissions : staffPermissions,
+                        );
+                      }}
+                    >
                       <FormControl>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="manager">Manager (Full operational access)</SelectItem>
-                        <SelectItem value="staff">Staff (Orders & viewing products only)</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="staff">Staff</SelectItem>
                       </SelectContent>
                     </Select>
-                    <FormMessage />
                   </FormItem>
                 )}
               />
-
+              <PermissionFields
+                selected={editForm.watch('permissions')}
+                onChange={(permissions) =>
+                  editForm.setValue('permissions', permissions, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+              />
               <FormField
                 control={editForm.control}
                 name="isActive"
                 render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-sm font-medium">Active Status</FormLabel>
+                    <div>
+                      <FormLabel>Active access</FormLabel>
                       <p className="text-xs text-muted-foreground">
-                        Inactive members cannot log in or access the store.
+                        Turning this off immediately revokes store sessions.
                       </p>
                     </div>
                     <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
                     </FormControl>
                   </FormItem>
                 )}
               />
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="outline" onClick={() => setEditingMember(null)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={updateStaff.isPending}>
-                  {updateStaff.isPending ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
+              <Button className="w-full" type="submit" disabled={updateStaff.isPending}>
+                Save access
+              </Button>
             </form>
           </Form>
         </DialogContent>
       </Dialog>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {staff.map((member) => (
-          <div key={member.id} className="p-4 border rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0">
+          <div
+            key={member.id}
+            className="flex flex-col justify-between gap-4 rounded-lg border p-4 md:flex-row md:items-center"
+          >
+            <div className="flex gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
                 {member.fullName.charAt(0).toUpperCase()}
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h4 className="font-medium">{member.fullName}</h4>
-                  {member.role === 'owner' && <Badge variant="default" className="bg-amber-500 hover:bg-amber-600">Owner</Badge>}
-                  {member.role === 'manager' && <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">Manager</Badge>}
-                  {member.role === 'staff' && <Badge variant="secondary">Staff</Badge>}
+                  <Badge variant={member.role === 'owner' ? 'default' : 'secondary'}>
+                    {member.role}
+                  </Badge>
                   {!member.isActive && <Badge variant="destructive">Inactive</Badge>}
                 </div>
-                <div className="text-sm text-muted-foreground mt-0.5 space-x-2">
-                  {member.email && <span>{member.email}</span>}
-                  {member.phone && <span>{member.phone}</span>}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                  {member.lastLoginAt ? 
-                    <>Last active: {format(new Date(member.lastLoginAt), 'MMM d, yyyy h:mm a')}</> : 
-                    <>Never logged in</>
-                  }
-                </div>
+                <p className="text-sm text-muted-foreground">{member.email || member.phone}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {member.lastLoginAt
+                    ? `Last active ${format(new Date(member.lastLoginAt), 'MMM d, yyyy h:mm a')}`
+                    : 'Never logged in'}{' '}
+                  ·{' '}
+                  {member.permissions.length || (member.role === 'owner' ? 'All' : 'Role default')}{' '}
+                  scopes
+                </p>
               </div>
             </div>
-
-            <div className="flex border rounded-md shadow-sm overflow-hidden">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="rounded-none border-r" 
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={member.role === 'owner'}
                 onClick={() => openEditDialog(member)}
               >
-                <Edit2 className="w-4 h-4 mr-2"/> Edit
+                <Edit2 className="mr-2 h-4 w-4" />
+                Edit
               </Button>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="rounded-none text-destructive hover:bg-destructive hover:text-destructive-foreground focus:bg-destructive" 
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive"
                 disabled={member.role === 'owner' || removeStaff.isPending}
                 onClick={() => {
-                  if (confirm(`Remove ${member.fullName} from your staff?`)) {
+                  if (confirm(`Remove ${member.fullName} from your team?`))
                     removeStaff.mutate(member.id);
-                  }
                 }}
               >
-                <Trash2 className="w-4 h-4"/>
+                <Trash2 className="h-4 w-4" />
               </Button>
             </div>
           </div>
         ))}
-        
         {staff.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground bg-muted/20 border border-dashed rounded-lg">
-            No staff members. Add one above.
+          <div className="rounded-lg border border-dashed py-10 text-center text-muted-foreground">
+            <Link2 className="mx-auto mb-2 h-5 w-5" />
+            No team members yet.
           </div>
         )}
       </div>

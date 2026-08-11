@@ -3,8 +3,7 @@ import { ISmsProvider } from './sms.interface';
 
 /**
  * Development SMS provider — logs to console instead of sending real SMS.
- * Swap for a real provider (SSL Wireless, BulkSMSBD, etc.) in production
- * by providing a different ISmsProvider implementation.
+ * Production automatically uses the configured HTTP gateway provider.
  */
 @Injectable()
 export class DevSmsService implements ISmsProvider {

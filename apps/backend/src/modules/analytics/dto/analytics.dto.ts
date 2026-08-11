@@ -30,3 +30,17 @@ export class TopProductsQueryDto {
   @IsOptional()
   limit?: number;
 }
+
+export const ANALYTICS_EXPORT_TYPES = [
+  'bookings',
+  'customers',
+  'inventory',
+  'payments',
+  'recovery',
+] as const;
+export type AnalyticsExportType = (typeof ANALYTICS_EXPORT_TYPES)[number];
+
+export class AnalyticsExportParamDto {
+  @IsIn(ANALYTICS_EXPORT_TYPES)
+  type!: AnalyticsExportType;
+}

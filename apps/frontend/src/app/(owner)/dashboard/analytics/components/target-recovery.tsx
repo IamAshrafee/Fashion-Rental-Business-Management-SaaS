@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Progress } from '@/components/ui/progress';
 import { ShieldCheck, DownloadIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { analyticsApi } from '@/lib/api/analytics';
+import { toast } from 'sonner';
 
 export function TargetRecovery() {
   const { data: response, isLoading } = useTargetRecovery();
@@ -17,8 +19,18 @@ export function TargetRecovery() {
     }).format(amount);
   };
 
-  const handleExport = () => {
-    window.location.href = `/api/v1/owner/analytics/export/recovery`;
+  const handleExport = async () => {
+    try {
+      const result = await analyticsApi.downloadExport('recovery');
+      const url = URL.createObjectURL(result.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Export failed');
+    }
   };
 
   if (isLoading) {
@@ -53,7 +65,7 @@ export function TargetRecovery() {
           <DownloadIcon className="mr-2 h-4 w-4" /> Export Report
         </Button>
       </CardHeader>
-      
+
       <CardContent>
         <div className="flex flex-col md:flex-row gap-8 items-center justify-between mb-6">
           <div className="w-full">
@@ -71,7 +83,7 @@ export function TargetRecovery() {
                 </div>
               </div>
             </div>
-            
+
             <div className="relative pt-1">
               <div className="flex mb-2 items-center justify-between">
                 <div>
@@ -80,24 +92,32 @@ export function TargetRecovery() {
                   </span>
                 </div>
               </div>
-              <Progress 
-                value={Math.min(data.overallRecoveryPercentage, 100)} 
-                className={`h-3 bg-muted ${data.overallRecoveryPercentage >= 100 ? '[&>div]:bg-emerald-500' : '[&>div]:bg-indigo-600'}`} 
+              <Progress
+                value={Math.min(data.overallRecoveryPercentage, 100)}
+                className={`h-3 bg-muted ${data.overallRecoveryPercentage >= 100 ? '[&>div]:bg-emerald-500' : '[&>div]:bg-indigo-600'}`}
               />
             </div>
           </div>
-          
+
           <div className="flex gap-4 md:border-l pl-0 md:pl-8 w-full md:w-auto shrink-0 justify-around">
             <div className="text-center">
-              <div className="text-2xl font-bold text-emerald-600 mb-1">{data.productsAtTarget}</div>
+              <div className="text-2xl font-bold text-emerald-600 mb-1">
+                {data.productsAtTarget}
+              </div>
               <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-2">
-                At<br/>Target
+                At
+                <br />
+                Target
               </div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-amber-500 mb-1">{data.productsBelowTarget}</div>
+              <div className="text-2xl font-bold text-amber-500 mb-1">
+                {data.productsBelowTarget}
+              </div>
               <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-2">
-                Still<br/>Recovering
+                Still
+                <br />
+                Recovering
               </div>
             </div>
           </div>

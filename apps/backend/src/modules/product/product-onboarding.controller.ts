@@ -14,6 +14,7 @@ import type { AuthUser, TenantContext } from '@closetrent/types';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -30,6 +31,7 @@ import { ProductOnboardingService } from './product-onboarding.service';
 
 @Controller('owner/product-onboardings')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_products')
 export class ProductOnboardingController {
   constructor(private readonly onboarding: ProductOnboardingService) {}
 
@@ -47,10 +49,7 @@ export class ProductOnboardingController {
 
   @Get(':productId')
   @Roles('owner', 'manager', 'staff')
-  get(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-  ) {
+  get(@CurrentTenant() tenant: TenantContext, @Param('productId') productId: string) {
     return this.onboarding.get(tenant.id, productId);
   }
 
@@ -111,13 +110,7 @@ export class ProductOnboardingController {
     @Body() dto: SaveOpeningInventoryDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.onboarding.saveOpeningInventory(
-      tenant.id,
-      productId,
-      user.id,
-      dto,
-      idempotencyKey,
-    );
+    return this.onboarding.saveOpeningInventory(tenant.id, productId, user.id, dto, idempotencyKey);
   }
 
   @Post(':productId/publish')

@@ -62,6 +62,16 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
+    // Every 5 minutes: requeue due durable notification deliveries.
+    await schedulerQueue.add(
+      'notification.recoverDeliveries',
+      {},
+      {
+        repeat: { pattern: '*/5 * * * *' },
+        jobId: 'cron:notification.recoverDeliveries',
+      },
+    );
+
     // Daily midnight UTC: check subscription expiry
     await schedulerQueue.add(
       'tenant.checkSubscriptions',
@@ -159,6 +169,6 @@ export class JobsScheduler implements OnModuleInit {
       },
     );
 
-    this.logger.log('Registered 12 CRON jobs: 7 scheduler, 2 fulfillment, 3 cleanup');
+    this.logger.log('Registered 13 CRON jobs: 8 scheduler, 2 fulfillment, 3 cleanup');
   }
 }

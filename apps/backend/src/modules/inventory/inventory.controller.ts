@@ -17,6 +17,7 @@ import { TenantContext } from '@closetrent/types';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -70,6 +71,7 @@ export class InventoryGuestController {
 
 @Controller('owner')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_inventory')
 export class InventoryOwnerController {
   constructor(private readonly inventory: InventoryManagementService) {}
 
@@ -100,12 +102,7 @@ export class InventoryOwnerController {
     @Body() dto: ConfigureVariantSizeInventoryDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.inventory.configureVariantSize(
-      tenant.id,
-      variantSizeId,
-      dto,
-      request.user?.id,
-    );
+    return this.inventory.configureVariantSize(tenant.id, variantSizeId, dto, request.user?.id);
   }
 
   @Get('variant-sizes/:variantSizeId/stock-units')
@@ -138,12 +135,7 @@ export class InventoryOwnerController {
     @Body() dto: RegisterStockUnitBatchDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.inventory.createStockUnitBatch(
-      tenant.id,
-      variantSizeId,
-      dto,
-      request.user?.id,
-    );
+    return this.inventory.createStockUnitBatch(tenant.id, variantSizeId, dto, request.user?.id);
   }
 
   @Patch('stock-units/:stockUnitId')
@@ -233,5 +225,4 @@ export class InventoryOwnerController {
   ) {
     return this.inventory.listMovements(tenant.id, variantSizeId);
   }
-
 }

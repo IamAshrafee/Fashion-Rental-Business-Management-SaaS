@@ -24,8 +24,7 @@ export class FailedJobsController {
    */
   @Get()
   async list() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const jobs = await (this.prisma as any).failedJob.findMany({
+    const jobs = await this.prisma.failedJob.findMany({
       orderBy: { failedAt: 'desc' },
       take: 100,
     });
@@ -39,8 +38,7 @@ export class FailedJobsController {
    */
   @Post(':id/retry')
   async retry(@Param('id') id: string) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const failedJob = await (this.prisma as any).failedJob.findUnique({ where: { id } });
+    const failedJob = await this.prisma.failedJob.findUnique({ where: { id } });
 
     if (!failedJob) {
       return { success: false, error: { code: 'NOT_FOUND', message: 'Failed job not found' } };
@@ -55,8 +53,7 @@ export class FailedJobsController {
 
     await queue.add(failedJob.jobName, failedJob.payload);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (this.prisma as any).failedJob.update({
+    await this.prisma.failedJob.update({
       where: { id },
       data: { retriedAt: new Date() },
     });

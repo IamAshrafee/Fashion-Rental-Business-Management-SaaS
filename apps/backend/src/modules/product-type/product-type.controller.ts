@@ -15,12 +15,14 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import type { TenantContext } from '@closetrent/types';
 
 @Controller('owner/product-types')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @Roles('owner', 'manager')
+@RequirePermission('manage_products')
 export class ProductTypeController {
   constructor(private readonly service: ProductTypeService) {}
 

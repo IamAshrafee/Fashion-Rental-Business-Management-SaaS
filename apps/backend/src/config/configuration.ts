@@ -40,6 +40,15 @@ export default () => ({
   security: {
     courierCredentialsKey: process.env.COURIER_CREDENTIALS_ENCRYPTION_KEY,
   },
+  sms: {
+    providerUrl: process.env.SMS_PROVIDER_URL,
+    apiKey: process.env.SMS_PROVIDER_API_KEY,
+    senderId: process.env.SMS_SENDER_ID,
+  },
+  operations: {
+    queueUsername: process.env.BULL_BOARD_USERNAME,
+    queuePassword: process.env.BULL_BOARD_PASSWORD,
+  },
   bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
 
   // Domain

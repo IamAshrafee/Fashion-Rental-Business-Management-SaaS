@@ -1,9 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import {
-  BookingStatus,
-  InventoryReservationStatus,
-  Prisma,
-} from '@prisma/client';
+import { BookingStatus, InventoryReservationStatus, Prisma } from '@prisma/client';
 import { InventoryAvailabilityService } from './inventory-availability.service';
 
 interface CreateReservationInput {
@@ -51,10 +47,7 @@ export class InventoryReservationService {
     }
   }
 
-  async create(
-    tx: Prisma.TransactionClient,
-    input: CreateReservationInput,
-  ) {
+  async create(tx: Prisma.TransactionClient, input: CreateReservationInput) {
     const availability = await this.availability.check(
       {
         tenantId: input.tenantId,
@@ -175,9 +168,13 @@ export class InventoryReservationService {
     }
   }
 
-  async expirePending(tx: Prisma.TransactionClient, now = new Date()): Promise<number> {
+  async expirePending(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    now = new Date(),
+  ): Promise<number> {
     const expired = await tx.inventoryReservation.findMany({
-      where: { status: 'PENDING', expiresAt: { not: null, lte: now } },
+      where: { tenantId, status: 'PENDING', expiresAt: { not: null, lte: now } },
       select: {
         id: true,
         tenantId: true,
@@ -188,34 +185,49 @@ export class InventoryReservationService {
     if (expired.length === 0) return 0;
 
     await tx.inventoryReservation.updateMany({
-      where: { id: { in: expired.map((item) => item.id) }, status: 'PENDING' },
+      where: { tenantId, id: { in: expired.map((item) => item.id) }, status: 'PENDING' },
       data: { status: 'EXPIRED', releasedAt: now, releaseReason: 'Pending hold expired' },
     });
-    const requirementIds = expired.flatMap((item) => item.fulfillmentRequirementId ? [item.fulfillmentRequirementId] : []);
+    const requirementIds = expired.flatMap((item) =>
+      item.fulfillmentRequirementId ? [item.fulfillmentRequirementId] : [],
+    );
     if (requirementIds.length) {
       await tx.fulfillmentRequirement.updateMany({
-        where: { id: { in: requirementIds } },
+        where: { tenantId, id: { in: requirementIds } },
         data: { status: 'CANCELLED' },
       });
       await tx.fulfillmentRequirementEvent.createMany({
-        data: expired.flatMap((item) => item.fulfillmentRequirementId ? [{
-          tenantId: item.tenantId,
-          requirementId: item.fulfillmentRequirementId,
-          eventType: 'CANCELLED' as const,
-          quantity: item.fulfillmentRequirement.quantity,
-          fromStatus: item.fulfillmentRequirement.status,
-          toStatus: 'CANCELLED' as const,
-          reason: 'Pending inventory hold expired',
-        }] : []),
+        data: expired.flatMap((item) =>
+          item.fulfillmentRequirementId
+            ? [
+                {
+                  tenantId: item.tenantId,
+                  requirementId: item.fulfillmentRequirementId,
+                  eventType: 'CANCELLED' as const,
+                  quantity: item.fulfillmentRequirement.quantity,
+                  fromStatus: item.fulfillmentRequirement.status,
+                  toStatus: 'CANCELLED' as const,
+                  reason: 'Pending inventory hold expired',
+                },
+              ]
+            : [],
+        ),
       });
     }
-    const expiredBookingIds = [...new Set((await tx.inventoryReservation.findMany({
-      where: { id: { in: expired.map((item) => item.id) } },
-      select: { bookingId: true },
-    })).map((item) => item.bookingId))];
+    const expiredBookingIds = [
+      ...new Set(
+        (
+          await tx.inventoryReservation.findMany({
+            where: { tenantId, id: { in: expired.map((item) => item.id) } },
+            select: { bookingId: true },
+          })
+        ).map((item) => item.bookingId),
+      ),
+    ];
     if (expiredBookingIds.length) {
       await tx.booking.updateMany({
         where: {
+          tenantId,
           id: { in: expiredBookingIds },
           status: 'pending',
           inventoryReservations: { none: { status: { in: ['PENDING', 'CONFIRMED'] } } },

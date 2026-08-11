@@ -18,10 +18,13 @@ export const PERMISSIONS_KEY = 'permissions';
  */
 export type Permission =
   | 'manage_products'
+  | 'manage_inventory'
   | 'manage_bookings'
+  | 'manage_fulfillment'
   | 'view_customers'
   | 'manage_customers'
   | 'view_analytics'
+  | 'manage_finance'
   | 'manage_settings'
   | 'manage_staff'
   | 'manage_billing';

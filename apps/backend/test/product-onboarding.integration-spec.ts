@@ -6,7 +6,10 @@ import { ProductService } from '../src/modules/product/product.service';
 
 describe('product onboarding database workflow', () => {
   const prisma = new PrismaClient();
-  const products = new ProductService(prisma as never, { emit: jest.fn() } as unknown as EventEmitter2);
+  const products = new ProductService(
+    prisma as never,
+    { emit: jest.fn() } as unknown as EventEmitter2,
+  );
   const pricing = new PricingAdminService(prisma as never);
   const onboarding = new ProductOnboardingService(prisma as never, products, pricing);
 
@@ -28,6 +31,23 @@ describe('product onboarding database workflow', () => {
         businessName: 'Onboarding Integration Store',
         subdomain: `onboarding-${suffix}`,
         ownerUserId: owner.id,
+      },
+    });
+    const entitlementPlan = await prisma.subscriptionPlan.create({
+      data: {
+        name: `Onboarding Integration ${suffix}`,
+        slug: `onboarding-integration-${suffix}`,
+        maxProducts: null,
+        maxOrders: null,
+        maxStaff: 20,
+      },
+    });
+    await prisma.subscription.create({
+      data: {
+        tenantId: tenant.id,
+        planId: entitlementPlan.id,
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       },
     });
     const category = await prisma.category.create({
@@ -89,29 +109,33 @@ describe('product onboarding database workflow', () => {
       owner.id,
       {
         expectedRevision: 1,
-        variants: [{
-          clientKey: 'ruby',
-          variantName: 'Ruby',
-          mainColorId: color.id,
-          identicalColorIds: [color.id],
-          sizes: [
-            { sizeInstanceId: medium.id, trackingMode: 'POOLED' },
-            { sizeInstanceId: large.id, trackingMode: 'SERIALIZED' },
-          ],
-        }],
+        variants: [
+          {
+            clientKey: 'ruby',
+            variantName: 'Ruby',
+            mainColorId: color.id,
+            identicalColorIds: [color.id],
+            sizes: [
+              { sizeInstanceId: medium.id, trackingMode: 'POOLED' },
+              { sizeInstanceId: large.id, trackingMode: 'SERIALIZED' },
+            ],
+          },
+        ],
       },
       `skus-${suffix}`,
     );
     expect(withSkus.revision).toBe(2);
     expect(withSkus.product.variants[0].onboardingKey).toBe('ruby');
 
-    await expect(onboarding.saveBasics(
-      tenant.id,
-      started.productId,
-      owner.id,
-      { ...startInput, expectedRevision: 1 },
-      `stale-${suffix}`,
-    )).rejects.toMatchObject({
+    await expect(
+      onboarding.saveBasics(
+        tenant.id,
+        started.productId,
+        owner.id,
+        { ...startInput, expectedRevision: 1 },
+        `stale-${suffix}`,
+      ),
+    ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'STALE_PRODUCT_ONBOARDING' }),
     });
 
@@ -132,10 +156,12 @@ describe('product onboarding database workflow', () => {
       {
         expectedRevision: 2,
         description: 'A complete rental-ready wedding dress.',
-        details: [{
-          headerName: 'Materials',
-          entries: [{ key: 'Fabric', value: 'Silk blend' }],
-        }],
+        details: [
+          {
+            headerName: 'Materials',
+            entries: [{ key: 'Fabric', value: 'Silk blend' }],
+          },
+        ],
         faqs: [{ question: 'Is alteration available?', answer: 'Yes, by appointment.' }],
       },
       `content-${suffix}`,
@@ -197,15 +223,26 @@ describe('product onboarding database workflow', () => {
       `publish-${suffix}`,
     );
     expect(published.product.status).toBe('published');
-    expect(published.completedSections).toEqual(expect.arrayContaining([
-      'BASICS', 'SKUS', 'CONTENT', 'PRICING', 'OPENING_INVENTORY', 'REVIEW',
-    ]));
+    expect(published.completedSections).toEqual(
+      expect.arrayContaining([
+        'BASICS',
+        'SKUS',
+        'CONTENT',
+        'PRICING',
+        'OPENING_INVENTORY',
+        'REVIEW',
+      ]),
+    );
 
     const [pool, unit, movements, commands] = await Promise.all([
       prisma.inventoryPool.findUnique({
-        where: { variantSizeId_locationId: { variantSizeId: pooledSku.id, locationId: location.id } },
+        where: {
+          variantSizeId_locationId: { variantSizeId: pooledSku.id, locationId: location.id },
+        },
       }),
-      prisma.stockUnit.findFirst({ where: { tenantId: tenant.id, variantSizeId: serializedSku.id } }),
+      prisma.stockUnit.findFirst({
+        where: { tenantId: tenant.id, variantSizeId: serializedSku.id },
+      }),
       prisma.inventoryMovement.findMany({ where: { tenantId: tenant.id } }),
       prisma.productOnboardingCommand.count({ where: { tenantId: tenant.id } }),
     ]);

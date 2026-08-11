@@ -4,6 +4,7 @@ import { GetQuoteDto } from './dto/pricing-engine.dto';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import type { TenantContext } from '@closetrent/types';
+import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('pricing')
 @UseGuards(TenantGuard)
@@ -17,6 +18,7 @@ export class PricingEngineController {
    * returns an itemized, deterministic pricing breakdown.
    */
   @Post('quote')
+  @Public()
   async getQuote(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: GetQuoteDto,

@@ -13,6 +13,7 @@ import { SavePricingDto, SimulatePricingDto } from './dto/pricing-engine.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -20,6 +21,7 @@ import type { AuthUser, TenantContext } from '@closetrent/types';
 
 @Controller('products/:productId/pricing')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_products')
 export class PricingAdminController {
   constructor(
     private readonly adminService: PricingAdminService,

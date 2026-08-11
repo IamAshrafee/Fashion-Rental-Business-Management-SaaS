@@ -1,5 +1,14 @@
 import apiClient from '@/lib/api-client';
-import { Staff, InviteStaffDto, UpdateStaffDto, StaffQueryDto, ApiResponse, PaginatedResponse } from '@closetrent/types';
+import {
+  Staff,
+  StaffInvitation,
+  CreatedStaffInvitation,
+  InviteStaffDto,
+  UpdateStaffDto,
+  StaffQueryDto,
+  ApiResponse,
+  PaginatedResponse,
+} from '@closetrent/types';
 
 export const staffApi = {
   listStaff: async (params?: StaffQueryDto) => {
@@ -13,7 +22,24 @@ export const staffApi = {
   },
 
   inviteStaff: async (payload: InviteStaffDto) => {
-    const { data } = await apiClient.post<ApiResponse<Staff>>('/staff', payload);
+    const { data } = await apiClient.post<ApiResponse<CreatedStaffInvitation>>('/staff', payload);
+    return data;
+  },
+
+  listInvitations: async () => {
+    const { data } = await apiClient.get<ApiResponse<StaffInvitation[]>>('/staff/invitations');
+    return data;
+  },
+
+  revokeInvitation: async (id: string) => {
+    const { data } = await apiClient.delete<ApiResponse<StaffInvitation>>(
+      `/staff/invitations/${id}`,
+    );
+    return data;
+  },
+
+  acceptInvitation: async (payload: { token: string; password: string }) => {
+    const { data } = await apiClient.post<ApiResponse<Staff>>('/staff/invitations/accept', payload);
     return data;
   },
 

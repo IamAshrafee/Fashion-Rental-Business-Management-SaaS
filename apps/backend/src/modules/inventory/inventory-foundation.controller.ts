@@ -18,6 +18,7 @@ import { Request } from 'express';
 import { TenantContext } from '@closetrent/types';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -47,6 +48,7 @@ interface AuthenticatedRequest extends Request {
 
 @Controller('owner/inventory')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_inventory')
 export class InventoryFoundationController {
   constructor(
     private readonly locations: InventoryLocationService,
@@ -65,19 +67,13 @@ export class InventoryFoundationController {
 
   @Get('items')
   @Roles('owner', 'manager', 'staff')
-  listItems(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: InventoryItemsQueryDto,
-  ) {
+  listItems(@CurrentTenant() tenant: TenantContext, @Query() query: InventoryItemsQueryDto) {
     return this.dashboard.listItems(tenant.id, query);
   }
 
   @Get('skus')
   @Roles('owner', 'manager', 'staff')
-  listSkus(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: InventorySkusQueryDto,
-  ) {
+  listSkus(@CurrentTenant() tenant: TenantContext, @Query() query: InventorySkusQueryDto) {
     return this.dashboard.listSkus(tenant.id, query);
   }
 
@@ -92,10 +88,7 @@ export class InventoryFoundationController {
 
   @Get('counts')
   @Roles('owner', 'manager', 'staff')
-  listCounts(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: InventoryMovementsQueryDto,
-  ) {
+  listCounts(@CurrentTenant() tenant: TenantContext, @Query() query: InventoryMovementsQueryDto) {
     return this.ledger.listCounts(tenant.id, query);
   }
 
@@ -140,10 +133,7 @@ export class InventoryFoundationController {
 
   @Get('variant-sizes/:variantSizeId/pools')
   @Roles('owner', 'manager', 'staff')
-  listPools(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('variantSizeId') variantSizeId: string,
-  ) {
+  listPools(@CurrentTenant() tenant: TenantContext, @Param('variantSizeId') variantSizeId: string) {
     return this.pools.listForSku(tenant.id, variantSizeId);
   }
 
@@ -186,10 +176,7 @@ export class InventoryFoundationController {
 
   @Put('availability-policies')
   @Roles('owner', 'manager')
-  upsertPolicy(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: UpsertAvailabilityPolicyDto,
-  ) {
+  upsertPolicy(@CurrentTenant() tenant: TenantContext, @Body() dto: UpsertAvailabilityPolicyDto) {
     return this.policies.upsert(tenant.id, dto);
   }
 
@@ -206,19 +193,13 @@ export class InventoryFoundationController {
 
   @Get('blocks')
   @Roles('owner', 'manager', 'staff')
-  listBlocks(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: InventoryBlocksQueryDto,
-  ) {
+  listBlocks(@CurrentTenant() tenant: TenantContext, @Query() query: InventoryBlocksQueryDto) {
     return this.blocks.list(tenant.id, query);
   }
 
   @Post('blocks/preview')
   @Roles('owner', 'manager')
-  previewBlock(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: CreateInventoryBlockDto,
-  ) {
+  previewBlock(@CurrentTenant() tenant: TenantContext, @Body() dto: CreateInventoryBlockDto) {
     return this.blocks.preview(tenant.id, dto);
   }
 

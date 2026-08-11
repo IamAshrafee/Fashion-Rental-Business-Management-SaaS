@@ -34,6 +34,7 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantContext, AuthUser } from '@closetrent/types';
@@ -62,10 +63,7 @@ export class ProductGuestController {
 
   @Public()
   @Get('search/suggest')
-  async suggest(
-    @CurrentTenant() tenant: TenantContext,
-    @Query('q') q: string,
-  ) {
+  async suggest(@CurrentTenant() tenant: TenantContext, @Query('q') q: string) {
     return this.searchService.suggest(tenant.id, q || '');
   }
 
@@ -127,19 +125,13 @@ export class ProductGuestController {
 
   @Public()
   @Get()
-  async listProducts(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: ProductQueryDto,
-  ) {
+  async listProducts(@CurrentTenant() tenant: TenantContext, @Query() query: ProductQueryDto) {
     return this.productService.listGuest(tenant.id, query);
   }
 
   @Public()
   @Get(':slug')
-  async getProduct(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('slug') slug: string,
-  ) {
+  async getProduct(@CurrentTenant() tenant: TenantContext, @Param('slug') slug: string) {
     return this.productService.getBySlug(tenant.id, slug);
   }
 }
@@ -150,6 +142,7 @@ export class ProductGuestController {
 
 @Controller('owner/products')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_products')
 export class ProductOwnerController {
   constructor(
     private readonly productService: ProductService,
@@ -160,38 +153,26 @@ export class ProductOwnerController {
 
   @Get()
   @Roles('owner', 'manager')
-  async listProducts(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: OwnerProductQueryDto,
-  ) {
+  async listProducts(@CurrentTenant() tenant: TenantContext, @Query() query: OwnerProductQueryDto) {
     return this.productService.listOwner(tenant.id, query);
   }
 
   // ⚠️ IMPORTANT: 'trash' must be BEFORE ':id' — otherwise NestJS treats 'trash' as an id param
   @Get('trash')
   @Roles('owner', 'manager')
-  async listTrash(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: OwnerProductQueryDto,
-  ) {
+  async listTrash(@CurrentTenant() tenant: TenantContext, @Query() query: OwnerProductQueryDto) {
     return this.productService.listOwner(tenant.id, { ...query, status: 'trash' });
   }
 
   @Get(':id')
   @Roles('owner', 'manager', 'staff')
-  async getProduct(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async getProduct(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.productService.getById(tenant.id, id);
   }
 
   @Get(':id/readiness')
   @Roles('owner', 'manager', 'staff')
-  async getReadiness(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async getReadiness(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.productService.getReadiness(tenant.id, id);
   }
 
@@ -228,20 +209,14 @@ export class ProductOwnerController {
 
   @Post(':id/restore')
   @Roles('owner')
-  async restoreProduct(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async restoreProduct(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.productService.restore(tenant.id, id);
   }
 
   @Delete(':id/permanent')
   @Roles('owner')
   @HttpCode(HttpStatus.OK)
-  async permanentDeleteProduct(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async permanentDeleteProduct(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.productService.permanentDelete(tenant.id, id);
   }
 

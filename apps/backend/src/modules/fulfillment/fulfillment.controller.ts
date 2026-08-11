@@ -29,18 +29,29 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { FulfillmentService } from './fulfillment.service';
-import { ShipOrderDto, CalculateRateDto, UpdateDeliveryStageDto, CourierProviderEnum, UpsertCourierConnectionDto, CancelShipmentDto, CreateReturnShipmentDto, ReconcileCodDto } from './dto/fulfillment.dto';
+import {
+  ShipOrderDto,
+  CalculateRateDto,
+  UpdateDeliveryStageDto,
+  CourierProviderEnum,
+  UpsertCourierConnectionDto,
+  CancelShipmentDto,
+  CreateReturnShipmentDto,
+  ReconcileCodDto,
+} from './dto/fulfillment.dto';
 import { CourierConnectionService } from './courier-connection.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
 import type { DeliveryStageGroup } from './providers/courier-provider.interface';
 
 @Controller('owner/fulfillment')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_fulfillment')
 export class FulfillmentController {
   constructor(
     private readonly fulfillmentService: FulfillmentService,
@@ -118,10 +129,7 @@ export class FulfillmentController {
 
   @Get('cod-reconciliations')
   @Roles('owner', 'manager')
-  listCodReconciliations(
-    @CurrentTenant() tenant: TenantContext,
-    @Query('status') status?: string,
-  ) {
+  listCodReconciliations(@CurrentTenant() tenant: TenantContext, @Query('status') status?: string) {
     return this.fulfillmentService.listCodReconciliations(tenant.id, status);
   }
 
@@ -166,10 +174,7 @@ export class FulfillmentController {
    */
   @Get(':bookingId/track')
   @Roles('owner', 'manager', 'staff')
-  async trackOrder(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('bookingId') bookingId: string,
-  ) {
+  async trackOrder(@CurrentTenant() tenant: TenantContext, @Param('bookingId') bookingId: string) {
     return this.fulfillmentService.trackOrder(tenant.id, bookingId);
   }
 
@@ -182,10 +187,7 @@ export class FulfillmentController {
   @Post('rate')
   @Roles('owner', 'manager', 'staff')
   @HttpCode(HttpStatus.OK)
-  async calculateRate(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: CalculateRateDto,
-  ) {
+  async calculateRate(@CurrentTenant() tenant: TenantContext, @Body() dto: CalculateRateDto) {
     const rate = await this.fulfillmentService.calculateShippingRate(tenant.id, dto);
     if (!rate) {
       return {

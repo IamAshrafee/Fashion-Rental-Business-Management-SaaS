@@ -24,6 +24,7 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
 
@@ -59,6 +60,7 @@ export class EventGuestController {
 
 @Controller('owner/categories')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_products')
 export class CategoryOwnerController {
   constructor(private readonly categoryService: CategoryService) {}
 
@@ -114,6 +116,7 @@ export class CategoryOwnerController {
 
 @Controller('owner/subcategories')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_products')
 export class SubcategoryOwnerController {
   constructor(private readonly categoryService: CategoryService) {}
 
@@ -140,6 +143,7 @@ export class SubcategoryOwnerController {
 
 @Controller('owner/events')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_products')
 export class EventOwnerController {
   constructor(private readonly categoryService: CategoryService) {}
 

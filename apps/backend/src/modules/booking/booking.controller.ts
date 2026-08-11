@@ -35,6 +35,7 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
 import { BookingStatus } from '@prisma/client';
@@ -57,10 +58,7 @@ export class BookingGuestController {
 
   @Public()
   @Get('storefront/cart')
-  async getCart(
-    @CurrentTenant() tenant: TenantContext,
-    @Req() req: Request,
-  ) {
+  async getCart(@CurrentTenant() tenant: TenantContext, @Req() req: Request) {
     return this.storefrontCartService.get(
       tenant.id,
       req.cookies?.[StorefrontCartService.cookieName],
@@ -161,10 +159,7 @@ export class BookingGuestController {
    */
   @Public()
   @Get('bookings/track/:token')
-  async getOrderStatus(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('token') token: string,
-  ) {
+  async getOrderStatus(@CurrentTenant() tenant: TenantContext, @Param('token') token: string) {
     return this.bookingService.getBookingByTrackingToken(tenant.id, token);
   }
 }
@@ -179,6 +174,7 @@ export class BookingGuestController {
  */
 @Controller('owner/bookings')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@RequirePermission('manage_bookings')
 export class BookingOwnerController {
   constructor(private readonly bookingService: BookingService) {}
 
@@ -230,10 +226,7 @@ export class BookingOwnerController {
    */
   @Get()
   @Roles('owner', 'manager', 'staff')
-  async listBookings(
-    @CurrentTenant() tenant: TenantContext,
-    @Query() query: BookingQueryDto,
-  ) {
+  async listBookings(@CurrentTenant() tenant: TenantContext, @Query() query: BookingQueryDto) {
     return this.bookingService.getBookingList(tenant.id, query);
   }
 
@@ -243,10 +236,7 @@ export class BookingOwnerController {
    */
   @Get(':id')
   @Roles('owner', 'manager', 'staff')
-  async getBooking(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async getBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.getBookingById(tenant.id, id);
   }
 
@@ -261,11 +251,7 @@ export class BookingOwnerController {
     @Param('id') id: string,
     @Body() dto: UpdateBookingStatusDto,
   ) {
-    return this.bookingService.updateStatus(
-      tenant.id,
-      id,
-      dto.status as BookingStatus,
-    );
+    return this.bookingService.updateStatus(tenant.id, id, dto.status as BookingStatus);
   }
 
   /**
@@ -274,10 +260,7 @@ export class BookingOwnerController {
    */
   @Patch(':id/confirm')
   @Roles('owner', 'manager')
-  async confirmBooking(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async confirmBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.updateStatus(tenant.id, id, 'confirmed');
   }
 
@@ -287,10 +270,7 @@ export class BookingOwnerController {
    */
   @Patch(':id/deliver')
   @Roles('owner', 'manager', 'staff')
-  async deliverBooking(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async deliverBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.updateStatus(tenant.id, id, 'delivered');
   }
 
@@ -300,10 +280,7 @@ export class BookingOwnerController {
    */
   @Patch(':id/return')
   @Roles('owner', 'manager', 'staff')
-  async returnBooking(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async returnBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.updateStatus(tenant.id, id, 'returned');
   }
 
@@ -313,10 +290,7 @@ export class BookingOwnerController {
    */
   @Patch(':id/inspect')
   @Roles('owner', 'manager')
-  async inspectBooking(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async inspectBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.updateStatus(tenant.id, id, 'inspected');
   }
 
@@ -326,10 +300,7 @@ export class BookingOwnerController {
    */
   @Patch(':id/complete')
   @Roles('owner', 'manager')
-  async completeBooking(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async completeBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.updateStatus(tenant.id, id, 'completed');
   }
 
@@ -339,10 +310,7 @@ export class BookingOwnerController {
    */
   @Patch(':id/overdue')
   @Roles('owner', 'manager')
-  async markOverdue(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async markOverdue(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.updateStatus(tenant.id, id, 'overdue');
   }
 
@@ -390,13 +358,7 @@ export class BookingOwnerController {
     @Req() req: Request & { user?: { id: string } },
   ) {
     const reportedBy = req.user?.id ?? 'unknown';
-    return this.bookingService.reportDamage(
-      tenant.id,
-      bookingId,
-      itemId,
-      dto,
-      reportedBy,
-    );
+    return this.bookingService.reportDamage(tenant.id, bookingId, itemId, dto, reportedBy);
   }
 
   /**
@@ -406,10 +368,7 @@ export class BookingOwnerController {
   @Post(':id/late-fees')
   @Roles('owner', 'manager', 'staff')
   @HttpCode(HttpStatus.OK)
-  async calculateLateFees(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-  ) {
+  async calculateLateFees(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.calculateLateFees(tenant.id, id);
   }
 }

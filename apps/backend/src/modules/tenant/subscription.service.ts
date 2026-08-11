@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
@@ -97,8 +92,7 @@ export class SubscriptionService {
     });
 
     if (!subscription) {
-      // No subscription — allow (free tier fallback)
-      return { allowed: true, current: 0, limit: null };
+      throw new ForbiddenException('This store has no subscription entitlement configured');
     }
 
     let current: number;
@@ -113,9 +107,20 @@ export class SubscriptionService {
         break;
       }
       case 'staff': {
-        current = await this.prisma.tenantUser.count({
-          where: { tenantId, role: { not: 'owner' } },
-        });
+        const [activeStaff, pendingInvitations] = await Promise.all([
+          this.prisma.tenantUser.count({
+            where: { tenantId, role: { not: 'owner' }, isActive: true },
+          }),
+          this.prisma.staffInvitation.count({
+            where: {
+              tenantId,
+              acceptedAt: null,
+              revokedAt: null,
+              expiresAt: { gt: new Date() },
+            },
+          }),
+        ]);
+        current = activeStaff + pendingInvitations;
         limit = subscription.plan.maxStaff;
         break;
       }
@@ -124,7 +129,7 @@ export class SubscriptionService {
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
-        
+
         current = await this.prisma.booking.count({
           where: { tenantId, createdAt: { gte: startOfMonth } },
         });
@@ -154,10 +159,15 @@ export class SubscriptionService {
     const result = await this.checkPlanLimit(tenantId, resource);
 
     if (!result.allowed) {
-      const resourceLabel = resource === 'products' ? 'products' : 'staff members';
+      const resourceLabel =
+        resource === 'products'
+          ? 'products'
+          : resource === 'orders'
+            ? 'monthly bookings'
+            : 'staff members';
       throw new ForbiddenException(
         `Plan limit reached: your plan allows ${result.limit} ${resourceLabel} ` +
-        `(currently have ${result.current}). Please upgrade your plan.`,
+          `(currently have ${result.current}). Please upgrade your plan.`,
       );
     }
   }
@@ -172,12 +182,12 @@ export class SubscriptionService {
 
     if (!subscription) {
       return {
-        isActive: true, // Default to active if no subscription (free tier)
+        isActive: false,
         isInTrial: false,
         isInGracePeriod: false,
-        isExpired: false,
-        daysRemaining: -1,
-        status: 'free_tier',
+        isExpired: true,
+        daysRemaining: 0,
+        status: 'unconfigured',
       };
     }
 

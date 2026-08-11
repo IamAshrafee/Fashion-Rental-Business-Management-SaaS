@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from './notification.service';
-import { SmsService } from './sms/sms.service';
+import type { SmsTemplate, SmsTemplateData } from './sms/sms.interface';
 import type {
   BookingCreatedEvent,
   BookingStatusEvent,
@@ -27,7 +27,7 @@ export class NotificationListener {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
-    private readonly smsService: SmsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // --------------------------------------------------------------------------
@@ -58,19 +58,31 @@ export class NotificationListener {
 
       // SMS to owner (if enabled and phone is configured)
       if (store.smsEnabled && store.phone) {
-        await this.smsService.send(store.phone, 'new_booking_owner', {
-          bookingNumber: event.bookingNumber,
-          customerName: booking.customer.fullName,
-          totalAmount: event.grandTotal,
-        });
+        await this.queueSms(
+          event.tenantId,
+          store.phone,
+          'new_booking_owner',
+          {
+            bookingNumber: event.bookingNumber,
+            customerName: booking.customer.fullName,
+            totalAmount: event.grandTotal,
+          },
+          `booking-owner:${event.bookingId}`,
+        );
       }
 
       // SMS to customer — booking placement confirmation (#9)
       if (store.smsEnabled && booking.deliveryPhone) {
-        await this.smsService.send(booking.deliveryPhone, 'booking_placed', {
-          bookingNumber: event.bookingNumber,
-          storeName: store.storeName,
-        });
+        await this.queueSms(
+          event.tenantId,
+          booking.deliveryPhone,
+          'booking_placed',
+          {
+            bookingNumber: event.bookingNumber,
+            storeName: store.storeName,
+          },
+          `booking-placed:${event.bookingId}`,
+        );
       }
     } catch (err) {
       this.logger.error(`handleBookingCreated failed: ${(err as Error).message}`);
@@ -93,11 +105,17 @@ export class NotificationListener {
 
       if (store.smsEnabled && booking.deliveryPhone) {
         const deliveryDate = booking.items[0]?.startDate?.toLocaleDateString('en-BD') ?? 'soon';
-        await this.smsService.send(booking.deliveryPhone, 'booking_confirmed', {
-          bookingNumber: event.bookingNumber,
-          deliveryDate,
-          storeName: store.storeName,
-        });
+        await this.queueSms(
+          event.tenantId,
+          booking.deliveryPhone,
+          'booking_confirmed',
+          {
+            bookingNumber: event.bookingNumber,
+            deliveryDate,
+            storeName: store.storeName,
+          },
+          `booking-confirmed:${event.bookingId}`,
+        );
       }
     } catch (err) {
       this.logger.error(`handleBookingConfirmed failed: ${(err as Error).message}`);
@@ -119,11 +137,17 @@ export class NotificationListener {
       });
 
       if (store.smsEnabled && booking.deliveryPhone) {
-        await this.smsService.send(booking.deliveryPhone, 'booking_cancelled', {
-          bookingNumber: event.bookingNumber,
-          phone: store.phone ?? '',
-          storeName: store.storeName,
-        });
+        await this.queueSms(
+          event.tenantId,
+          booking.deliveryPhone,
+          'booking_cancelled',
+          {
+            bookingNumber: event.bookingNumber,
+            phone: store.phone ?? '',
+            storeName: store.storeName,
+          },
+          `booking-cancelled:${event.bookingId}`,
+        );
       }
     } catch (err) {
       this.logger.error(`handleBookingCancelled failed: ${(err as Error).message}`);
@@ -151,11 +175,17 @@ export class NotificationListener {
       });
 
       if (store.smsEnabled && booking.deliveryPhone) {
-        await this.smsService.send(booking.deliveryPhone, 'pickup_requested', {
-          bookingNumber: event.bookingNumber,
-          trackingLink: event.trackingNumber ?? undefined,
-          storeName: store.storeName,
-        });
+        await this.queueSms(
+          event.tenantId,
+          booking.deliveryPhone,
+          'pickup_requested',
+          {
+            bookingNumber: event.bookingNumber,
+            trackingLink: event.trackingNumber ?? undefined,
+            storeName: store.storeName,
+          },
+          `pickup-requested:${event.bookingId}:${event.trackingNumber ?? 'pending'}`,
+        );
       }
     } catch (err) {
       this.logger.error(`handlePickupRequested failed: ${(err as Error).message}`);
@@ -182,10 +212,16 @@ export class NotificationListener {
 
       // SMS to customer only on day 1
       if (event.lateDays <= 1 && store.smsEnabled && booking.deliveryPhone) {
-        await this.smsService.send(booking.deliveryPhone, 'booking_overdue', {
-          bookingNumber: event.bookingNumber,
-          storeName: store.storeName,
-        });
+        await this.queueSms(
+          event.tenantId,
+          booking.deliveryPhone,
+          'booking_overdue',
+          {
+            bookingNumber: event.bookingNumber,
+            storeName: store.storeName,
+          },
+          `booking-overdue:${event.bookingId}:day-${event.lateDays}`,
+        );
       }
     } catch (err) {
       this.logger.error(`handleBookingOverdue failed: ${(err as Error).message}`);
@@ -211,10 +247,16 @@ export class NotificationListener {
           (sum, item) => sum + (item.depositAmount ?? 0),
           0,
         );
-        await this.smsService.send(booking.deliveryPhone, 'booking_completed', {
-          depositAmount: depositTotal,
-          storeName: store.storeName,
-        });
+        await this.queueSms(
+          event.tenantId,
+          booking.deliveryPhone,
+          'booking_completed',
+          {
+            depositAmount: depositTotal,
+            storeName: store.storeName,
+          },
+          `booking-completed:${event.bookingId}`,
+        );
       }
     } catch (err) {
       this.logger.error(`handleBookingCompleted failed: ${(err as Error).message}`);
@@ -277,7 +319,12 @@ export class NotificationListener {
   }
 
   @OnEvent('booking.damage_reported')
-  async handleDamageReported(event: { tenantId: string; bookingId: string; itemId: string; damageLevel: string }) {
+  async handleDamageReported(event: {
+    tenantId: string;
+    bookingId: string;
+    itemId: string;
+    damageLevel: string;
+  }) {
     try {
       const booking = await this.prisma.booking.findUnique({
         where: { id: event.bookingId },
@@ -309,7 +356,11 @@ export class NotificationListener {
         type: 'payment_received',
         title: `Payment of ৳${event.amount} received`,
         message: `For booking ${event.bookingNumber} via ${event.method}`,
-        data: { bookingId: event.bookingId, bookingNumber: event.bookingNumber, amount: event.amount },
+        data: {
+          bookingId: event.bookingId,
+          bookingNumber: event.bookingNumber,
+          amount: event.amount,
+        },
       });
     } catch (err) {
       this.logger.error(`handlePaymentReceived failed: ${(err as Error).message}`);
@@ -329,9 +380,12 @@ export class NotificationListener {
       });
       if (!booking) return;
 
-      const outcome = event.forfeitedAmount > 0
-        ? 'forfeited'
-        : event.deductionAmount > 0 ? 'partially refunded' : 'refunded';
+      const outcome =
+        event.forfeitedAmount > 0
+          ? 'forfeited'
+          : event.deductionAmount > 0
+            ? 'partially refunded'
+            : 'refunded';
       await this.notificationService.create({
         tenantId: event.tenantId,
         type: 'deposit_settled',
@@ -385,10 +439,16 @@ export class NotificationListener {
       });
 
       if (store?.smsEnabled && store.phone) {
-        await this.smsService.send(store.phone, 'subscription_expiring', {
-          daysLeft: event.daysLeft,
-          storeName: store.storeName,
-        });
+        await this.queueSms(
+          event.tenantId,
+          store.phone,
+          'subscription_expiring',
+          {
+            daysLeft: event.daysLeft,
+            storeName: store.storeName,
+          },
+          `subscription-expiring:${event.daysLeft}`,
+        );
       }
     } catch (err) {
       this.logger.error(`handleSubscriptionExpiring failed: ${(err as Error).message}`);
@@ -398,6 +458,23 @@ export class NotificationListener {
   // --------------------------------------------------------------------------
   // Private helpers
   // --------------------------------------------------------------------------
+
+  private async queueSms<T extends SmsTemplate>(
+    tenantId: string,
+    to: string,
+    template: T,
+    data: SmsTemplateData[T],
+    dedupeKey: string,
+  ): Promise<void> {
+    const delivery = await this.notificationService.createSmsDelivery({
+      tenantId,
+      recipient: to,
+      template,
+      payload: data,
+      dedupeKey,
+    });
+    await this.eventEmitter.emitAsync('sms.delivery.queued', { deliveryId: delivery.id });
+  }
 
   private async getStoreInfo(tenantId: string): Promise<StoreInfo | null> {
     const [settings, tenant] = await Promise.all([
