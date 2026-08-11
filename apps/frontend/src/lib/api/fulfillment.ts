@@ -10,7 +10,9 @@ export type DeliveryStage = 'prepare_parcel' | 'awaiting_pickup' | 'in_transit' 
 
 export interface DeliveryItem {
   id: string;
+  shipmentId: string;
   bookingNumber: string;
+  direction: 'OUTBOUND' | 'RETURN';
   status: string;
   deliveryStage: DeliveryStage | null;
   courierProvider: string | null;
@@ -42,6 +44,26 @@ export interface DeliveryQuery {
   courierStatus?: string;
   page?: number;
   limit?: number;
+  direction?: 'OUTBOUND' | 'RETURN';
+}
+
+export interface CodRemittance {
+  id: string;
+  expectedAmount: number;
+  remittedAmount: number;
+  feeDeducted: number;
+  status: 'PENDING' | 'PARTIAL' | 'RECONCILED' | 'DISPUTED' | 'NOT_APPLICABLE';
+  providerReference: string | null;
+  remittedAt: string | null;
+  reconciledAt: string | null;
+  notes: string | null;
+  shipment: {
+    trackingNumber: string | null;
+    provider: string;
+    deliveredAt: string | null;
+    booking: { id: string; bookingNumber: string; deliveryName: string };
+  };
+  reconciledBy: { id: string; fullName: string } | null;
 }
 
 export interface CompositionAlternativeInput {
@@ -169,11 +191,24 @@ export const fulfillmentApi = {
     return data;
   },
   sendPickup: async (bookingId: string): Promise<void> => {
-    await apiClient.post(`/owner/fulfillment/${bookingId}/send-pickup`);
+    await apiClient.post(`/owner/fulfillment/${bookingId}/send-pickup`, {}, {
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    });
   },
   updateStage: async (bookingId: string, payload: { stage: DeliveryStage; reason?: string }): Promise<void> => {
     await apiClient.patch(`/owner/fulfillment/${bookingId}/stage`, payload);
   },
+  createReturnShipment: async (bookingId: string, payload: { courierProvider: 'pathao' | 'steadfast' | 'manual'; trackingNumber?: string; specialInstruction?: string }): Promise<DeliveryItem> =>
+    unwrap(await apiClient.post<ApiResponse<DeliveryItem>>(`/owner/fulfillment/${bookingId}/return-shipment`, payload, {
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    })),
+  cancelShipment: async (shipmentId: string, payload: { reason: string; providerCancellationReference?: string }): Promise<void> => {
+    await apiClient.patch(`/owner/fulfillment/shipments/${shipmentId}/cancel`, payload);
+  },
+  listCodReconciliations: async (status?: CodRemittance['status']): Promise<CodRemittance[]> =>
+    unwrap(await apiClient.get<ApiResponse<CodRemittance[]>>('/owner/fulfillment/cod-reconciliations', { params: { status } })),
+  reconcileCod: async (id: string, payload: { remittedAmount: number; feeDeducted?: number; providerReference?: string; remittedAt?: string; disputed?: boolean; notes?: string }): Promise<CodRemittance> =>
+    unwrap(await apiClient.patch<ApiResponse<CodRemittance>>(`/owner/fulfillment/cod-reconciliations/${id}`, payload)),
   listComposition: async (productId: string): Promise<CompositionRule[]> =>
     unwrap(await apiClient.get<ApiResponse<CompositionRule[]>>(`/owner/products/${productId}/composition`)),
   listGuestComposition: async (productId: string): Promise<CompositionRule[]> =>

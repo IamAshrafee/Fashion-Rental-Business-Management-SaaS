@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { BookingStatus } from '../../types';
 import {
@@ -22,12 +24,15 @@ import { fulfillmentApi } from '@/lib/api/fulfillment';
 interface OrderActionsProps {
   bookingId: string;
   status: BookingStatus;
+  returnMethod?: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN' | null;
 }
 
-export function OrderActions({ bookingId, status }: OrderActionsProps) {
+export function OrderActions({ bookingId, status, returnMethod }: OrderActionsProps) {
   const queryClient = useQueryClient();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [showReturnShipment, setShowReturnShipment] = useState(false);
+  const [returnShipment, setReturnShipment] = useState({ provider: 'manual' as 'manual' | 'pathao' | 'steadfast', trackingNumber: '', instruction: '' });
   const fulfillment = useQuery({
     queryKey: ['booking-fulfillment', bookingId],
     queryFn: () => fulfillmentApi.listBookingRequirements(bookingId),
@@ -75,6 +80,20 @@ export function OrderActions({ bookingId, status }: OrderActionsProps) {
     onError: (err: Error) => toast.error(err.message || 'Failed to mark returned'),
   });
 
+  const returnShipmentMutation = useMutation({
+    mutationFn: () => fulfillmentApi.createReturnShipment(bookingId, {
+      courierProvider: returnShipment.provider,
+      trackingNumber: returnShipment.trackingNumber.trim() || undefined,
+      specialInstruction: returnShipment.instruction.trim() || undefined,
+    }),
+    onSuccess: () => {
+      toast.success('Return pickup added to logistics');
+      setShowReturnShipment(false);
+      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to create return pickup'),
+  });
+
   const inspectMutation = useMutation({
     mutationFn: () => bookingApi.inspect(bookingId),
     onSuccess: () => { toast.success('Inspection completed'); invalidate(); },
@@ -115,7 +134,7 @@ export function OrderActions({ bookingId, status }: OrderActionsProps) {
 
   const isAnyPending = confirmMutation.isPending || deliverMutation.isPending
     || returnMutation.isPending || inspectMutation.isPending || lateFeeMutation.isPending
-    || completeMutation.isPending || cancelMutation.isPending;
+    || completeMutation.isPending || cancelMutation.isPending || returnShipmentMutation.isPending;
 
   const ActionButton = ({ onClick, isPending, icon: Icon, label, className, allowed = true }: {
     onClick: () => void;
@@ -186,6 +205,11 @@ export function OrderActions({ bookingId, status }: OrderActionsProps) {
 
         {(status === 'delivered' || status === 'overdue') && (
           <>
+            {returnMethod === 'BUSINESS_PICKUP' && (
+              <Button variant="outline" disabled={isAnyPending} onClick={() => setShowReturnShipment(true)}>
+                <Truck className="mr-2 h-4 w-4" />Arrange Return Pickup
+              </Button>
+            )}
             <ActionButton
               onClick={() => returnMutation.mutate()}
               isPending={returnMutation.isPending}
@@ -291,6 +315,38 @@ export function OrderActions({ bookingId, status }: OrderActionsProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showReturnShipment} onOpenChange={setShowReturnShipment}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Arrange rental return pickup</DialogTitle>
+            <DialogDescription>Create a reverse-logistics shipment from the customer back to your configured returns address.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="return-provider">Return provider</Label>
+              <select id="return-provider" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={returnShipment.provider} onChange={(event) => setReturnShipment((value) => ({ ...value, provider: event.target.value as typeof value.provider, trackingNumber: '' }))}>
+                <option value="manual">Own rider / manual</option>
+                <option value="pathao">Pathao reverse shipment</option>
+                <option value="steadfast">Steadfast reverse shipment</option>
+              </select>
+            </div>
+            {returnShipment.provider !== 'manual' && (
+              <div className="space-y-2">
+                <Label htmlFor="return-tracking">Courier tracking number</Label>
+                <Input id="return-tracking" value={returnShipment.trackingNumber} onChange={(event) => setReturnShipment((value) => ({ ...value, trackingNumber: event.target.value }))} placeholder="Create the reverse shipment with the courier, then paste its tracking number" />
+              </div>
+            )}
+            <div className="space-y-2"><Label htmlFor="return-instruction">Pickup instruction</Label><Textarea id="return-instruction" value={returnShipment.instruction} onChange={(event) => setReturnShipment((value) => ({ ...value, instruction: event.target.value }))} placeholder="Customer availability, landmark, packaging note…" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReturnShipment(false)}>Cancel</Button>
+            <Button onClick={() => returnShipmentMutation.mutate()} disabled={returnShipmentMutation.isPending || (returnShipment.provider !== 'manual' && !returnShipment.trackingNumber.trim())}>
+              {returnShipmentMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Return Pickup
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </>
   );

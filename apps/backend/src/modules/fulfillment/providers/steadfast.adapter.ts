@@ -97,7 +97,8 @@ export class SteadfastAdapter implements CourierProvider {
             recipient_name: params.recipientName,
             recipient_phone: params.recipientPhone,
             recipient_address: params.recipientAddress,
-            cod_amount: params.codAmount,
+            // Domain money is stored in minor BDT units; Steadfast expects taka.
+            cod_amount: Number((params.codAmount / 100).toFixed(2)),
             note: params.specialInstruction ?? '',
           },
           { headers: this.buildHeaders(config) },

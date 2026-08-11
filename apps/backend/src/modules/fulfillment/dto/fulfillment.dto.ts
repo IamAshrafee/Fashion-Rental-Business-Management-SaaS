@@ -9,6 +9,7 @@ import {
   IsNumber,
   Max,
   MaxLength,
+  IsDateString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -115,6 +116,64 @@ export class ShipOrderDto {
   @IsOptional()
   @IsString()
   specialInstruction?: string;
+}
+
+export class CancelShipmentDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  providerCancellationReference?: string;
+}
+
+export class CreateReturnShipmentDto {
+  @IsEnum(CourierProviderEnum)
+  courierProvider!: CourierProviderEnum;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  trackingNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  specialInstruction?: string;
+}
+
+export class ReconcileCodDto {
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  remittedAmount!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  feeDeducted?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  providerReference?: string;
+
+  @IsOptional()
+  @IsDateString()
+  remittedAt?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  disputed?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
 }
 
 // ---------------------------------------------------------------------------

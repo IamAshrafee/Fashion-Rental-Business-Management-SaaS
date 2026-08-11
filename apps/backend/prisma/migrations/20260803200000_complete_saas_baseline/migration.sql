@@ -197,6 +197,12 @@ CREATE TYPE "ShipmentProvider" AS ENUM ('pathao', 'steadfast', 'manual');
 CREATE TYPE "ShipmentStatus" AS ENUM ('prepare_parcel', 'pickup_pending', 'pickup_assigned', 'pickup_failed', 'picked_up', 'at_hub', 'in_transit', 'at_destination', 'out_for_delivery', 'delivered', 'partial_delivered', 'returned_to_sender', 'cancelled', 'on_hold', 'error', 'unknown');
 
 -- CreateEnum
+CREATE TYPE "ShipmentDispatchAttemptStatus" AS ENUM ('STARTED', 'SUCCEEDED', 'FAILED');
+
+-- CreateEnum
+CREATE TYPE "CodReconciliationStatus" AS ENUM ('PENDING', 'PARTIAL', 'RECONCILED', 'DISPUTED', 'NOT_APPLICABLE');
+
+-- CreateEnum
 CREATE TYPE "SubscriptionStatus" AS ENUM ('active', 'past_due', 'cancelled', 'trial', 'free_tier', 'grace_period', 'suspended');
 
 -- CreateEnum
@@ -1192,6 +1198,11 @@ CREATE TABLE "shipments" (
     "request_hash" TEXT NOT NULL,
     "provider_reference" TEXT,
     "tracking_number" TEXT,
+    "sender_name" TEXT,
+    "sender_phone" TEXT,
+    "sender_address" TEXT,
+    "sender_city" TEXT,
+    "sender_zone" TEXT,
     "recipient_name" TEXT NOT NULL,
     "recipient_phone" TEXT NOT NULL,
     "recipient_address" TEXT NOT NULL,
@@ -1212,6 +1223,42 @@ CREATE TABLE "shipments" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "shipments_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "shipment_dispatch_attempts" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "provider" "ShipmentProvider" NOT NULL,
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "status" "ShipmentDispatchAttemptStatus" NOT NULL DEFAULT 'STARTED',
+    "provider_reference" TEXT,
+    "tracking_number" TEXT,
+    "response_snapshot" JSONB,
+    "error_reason" TEXT,
+    "started_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completed_at" TIMESTAMP(3),
+    CONSTRAINT "shipment_dispatch_attempts_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "cod_remittances" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "payment_id" TEXT,
+    "expected_amount" INTEGER NOT NULL,
+    "remitted_amount" INTEGER NOT NULL DEFAULT 0,
+    "fee_deducted" INTEGER NOT NULL DEFAULT 0,
+    "status" "CodReconciliationStatus" NOT NULL DEFAULT 'PENDING',
+    "provider_reference" TEXT,
+    "remitted_at" TIMESTAMP(3),
+    "reconciled_at" TIMESTAMP(3),
+    "reconciled_by_id" TEXT,
+    "notes" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "cod_remittances_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "shipment_items" (
@@ -2516,6 +2563,13 @@ CREATE UNIQUE INDEX "shipments_provider_provider_reference_key" ON "shipments"("
 CREATE UNIQUE INDEX "shipments_provider_tracking_number_key" ON "shipments"("provider", "tracking_number");
 CREATE INDEX "shipments_tenant_id_status_scheduled_pickup_at_idx" ON "shipments"("tenant_id", "status", "scheduled_pickup_at");
 CREATE INDEX "shipments_booking_id_direction_created_at_idx" ON "shipments"("booking_id", "direction", "created_at" DESC);
+CREATE UNIQUE INDEX "shipment_dispatch_attempts_tenant_id_idempotency_key_key" ON "shipment_dispatch_attempts"("tenant_id", "idempotency_key");
+CREATE INDEX "shipment_dispatch_attempts_shipment_id_started_at_idx" ON "shipment_dispatch_attempts"("shipment_id", "started_at" DESC);
+CREATE INDEX "shipment_dispatch_attempts_tenant_id_status_started_at_idx" ON "shipment_dispatch_attempts"("tenant_id", "status", "started_at");
+CREATE UNIQUE INDEX "cod_remittances_shipment_id_key" ON "cod_remittances"("shipment_id");
+CREATE UNIQUE INDEX "cod_remittances_payment_id_key" ON "cod_remittances"("payment_id");
+CREATE INDEX "cod_remittances_tenant_id_status_created_at_idx" ON "cod_remittances"("tenant_id", "status", "created_at" DESC);
+CREATE INDEX "cod_remittances_reconciled_by_id_idx" ON "cod_remittances"("reconciled_by_id");
 CREATE UNIQUE INDEX "shipment_items_shipment_id_booking_item_id_key" ON "shipment_items"("shipment_id", "booking_item_id");
 CREATE INDEX "shipment_items_booking_item_id_idx" ON "shipment_items"("booking_item_id");
 CREATE UNIQUE INDEX "shipment_events_shipment_id_dedupe_key_key" ON "shipment_events"("shipment_id", "dedupe_key");
@@ -3355,6 +3409,12 @@ ALTER TABLE "courier_connections" ADD CONSTRAINT "courier_connections_tenant_id_
 
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "shipment_dispatch_attempts" ADD CONSTRAINT "shipment_dispatch_attempts_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "shipment_dispatch_attempts" ADD CONSTRAINT "shipment_dispatch_attempts_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_payment_id_fkey" FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_reconciled_by_id_fkey" FOREIGN KEY ("reconciled_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "shipment_items" ADD CONSTRAINT "shipment_items_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "shipment_items" ADD CONSTRAINT "shipment_items_booking_item_id_fkey" FOREIGN KEY ("booking_item_id") REFERENCES "booking_items"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "shipment_events" ADD CONSTRAINT "shipment_events_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -564,6 +564,20 @@ enum ShipmentStatus {
   unknown
 }
 
+enum ShipmentDispatchAttemptStatus {
+  STARTED
+  SUCCEEDED
+  FAILED
+}
+
+enum CodReconciliationStatus {
+  PENDING
+  PARTIAL
+  RECONCILED
+  DISPUTED
+  NOT_APPLICABLE
+}
+
 enum SubscriptionStatus {
   active
   past_due
@@ -646,6 +660,7 @@ model User {
   dispatchedInventoryTransfers InventoryTransfer[]             @relation("InventoryTransferDispatcher")
   receivedInventoryTransfers   InventoryTransfer[]             @relation("InventoryTransferReceiver")
   inventoryTransferEvents      InventoryTransferEvent[]        @relation("InventoryTransferEventActor")
+  reconciledCodRemittances     CodRemittance[]                 @relation("CodRemittanceReconciler")
 
   @@index([phone])
   @@map("users")
@@ -802,6 +817,8 @@ model Tenant {
   courierWebhookReceipts         CourierWebhookReceipt[]
   courierConnections             CourierConnection[]
   storefrontCarts                StorefrontCart[]
+  shipmentDispatchAttempts       ShipmentDispatchAttempt[]
+  codRemittances                 CodRemittance[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -1979,6 +1996,11 @@ model Shipment {
   requestHash        String            @map("request_hash")
   providerReference  String?           @map("provider_reference")
   trackingNumber     String?           @map("tracking_number")
+  senderName         String?           @map("sender_name")
+  senderPhone        String?           @map("sender_phone")
+  senderAddress      String?           @map("sender_address")
+  senderCity         String?           @map("sender_city")
+  senderZone         String?           @map("sender_zone")
   recipientName      String            @map("recipient_name")
   recipientPhone     String            @map("recipient_phone")
   recipientAddress   String            @map("recipient_address")
@@ -1999,11 +2021,13 @@ model Shipment {
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 
-  tenant          Tenant                  @relation(fields: [tenantId], references: [id])
-  booking         Booking                 @relation(fields: [bookingId], references: [id], onDelete: Restrict)
-  items           ShipmentItem[]
-  events          ShipmentEvent[]
-  webhookReceipts CourierWebhookReceipt[]
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id])
+  booking          Booking                   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  items            ShipmentItem[]
+  events           ShipmentEvent[]
+  webhookReceipts  CourierWebhookReceipt[]
+  dispatchAttempts ShipmentDispatchAttempt[]
+  codRemittance    CodRemittance?
 
   @@unique([tenantId, idempotencyKey])
   @@unique([provider, providerReference])
@@ -2011,6 +2035,57 @@ model Shipment {
   @@index([tenantId, status, scheduledPickupAt])
   @@index([bookingId, direction, createdAt(sort: Desc)])
   @@map("shipments")
+}
+
+model ShipmentDispatchAttempt {
+  id                String                        @id @default(uuid())
+  tenantId          String                        @map("tenant_id")
+  shipmentId        String                        @map("shipment_id")
+  provider          ShipmentProvider
+  idempotencyKey    String                        @map("idempotency_key")
+  requestHash       String                        @map("request_hash")
+  status            ShipmentDispatchAttemptStatus @default(STARTED)
+  providerReference String?                       @map("provider_reference")
+  trackingNumber    String?                       @map("tracking_number")
+  responseSnapshot  Json?                         @map("response_snapshot") @db.JsonB
+  errorReason       String?                       @map("error_reason")
+  startedAt         DateTime                      @default(now()) @map("started_at")
+  completedAt       DateTime?                     @map("completed_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([shipmentId, startedAt(sort: Desc)])
+  @@index([tenantId, status, startedAt])
+  @@map("shipment_dispatch_attempts")
+}
+
+model CodRemittance {
+  id                String                  @id @default(uuid())
+  tenantId          String                  @map("tenant_id")
+  shipmentId        String                  @unique @map("shipment_id")
+  paymentId         String?                 @unique @map("payment_id")
+  expectedAmount    Int                     @map("expected_amount")
+  remittedAmount    Int                     @default(0) @map("remitted_amount")
+  feeDeducted       Int                     @default(0) @map("fee_deducted")
+  status            CodReconciliationStatus @default(PENDING)
+  providerReference String?                 @map("provider_reference")
+  remittedAt        DateTime?               @map("remitted_at")
+  reconciledAt      DateTime?               @map("reconciled_at")
+  reconciledById    String?                 @map("reconciled_by_id")
+  notes             String?
+  createdAt         DateTime                @default(now()) @map("created_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shipment     Shipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  payment      Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  reconciledBy User?    @relation("CodRemittanceReconciler", fields: [reconciledById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([reconciledById])
+  @@map("cod_remittances")
 }
 
 model ShipmentItem {
@@ -3209,8 +3284,9 @@ model Payment {
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  booking  Booking @relation(fields: [bookingId], references: [id])
-  recorder User?   @relation("BookingPaymentRecorder", fields: [recordedBy], references: [id], onDelete: SetNull)
+  booking       Booking        @relation(fields: [bookingId], references: [id])
+  recorder      User?          @relation("BookingPaymentRecorder", fields: [recordedBy], references: [id], onDelete: SetNull)
+  codRemittance CodRemittance?
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, transactionId])

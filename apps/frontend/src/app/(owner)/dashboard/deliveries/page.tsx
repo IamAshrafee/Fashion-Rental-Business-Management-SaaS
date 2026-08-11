@@ -27,6 +27,7 @@ import {
   RotateCcw,
   ExternalLink,
   Send,
+  Banknote,
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { fulfillmentApi, type DeliveryItem, type DeliveryQuery, type DeliveryStage } from '@/lib/api/fulfillment';
@@ -166,7 +167,7 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-1.5">
           {/* ── Prepare Parcel actions ── */}
-          {activeStage === 'prepare_parcel' && (
+          {delivery.direction === 'OUTBOUND' && activeStage === 'prepare_parcel' && (
             <>
               <Button size="sm" disabled={isBusy} onClick={() => sendPickupMutation.mutate(delivery.id)}>
                 {sendPickupMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
@@ -184,7 +185,7 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
           )}
 
           {/* ── Awaiting Pickup actions ── */}
-          {activeStage === 'awaiting_pickup' && (
+          {delivery.direction === 'OUTBOUND' && activeStage === 'awaiting_pickup' && (
             <>
               <Button size="sm" variant="outline" disabled={isBusy}
                 onClick={() => updateStageMutation.mutate({ stage: 'in_transit' })}
@@ -203,7 +204,7 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
           )}
 
           {/* ── In Transit actions ── */}
-          {activeStage === 'in_transit' && (
+          {delivery.direction === 'OUTBOUND' && activeStage === 'in_transit' && (
             <>
               <Button size="sm" disabled={isBusy}
                 onClick={() => updateStageMutation.mutate({ stage: 'delivered' })}
@@ -222,7 +223,7 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
           )}
 
           {/* ── Error / Issues actions ── */}
-          {activeStage === 'error' && (
+          {delivery.direction === 'OUTBOUND' && activeStage === 'error' && (
             <>
               <Button size="sm" variant="outline" disabled={isBusy}
                 onClick={() => updateStageMutation.mutate({ stage: 'prepare_parcel' })}
@@ -252,7 +253,7 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DeliveriesPage() {
-  const [query, setQuery] = useState<DeliveryQuery>({ stage: 'prepare_parcel', page: 1, limit: 20 });
+  const [query, setQuery] = useState<DeliveryQuery>({ stage: 'prepare_parcel', direction: 'OUTBOUND', page: 1, limit: 20 });
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['deliveries', query],
@@ -291,19 +292,24 @@ export default function DeliveriesPage() {
           title="Deliveries"
           description="Manage fulfillment lifecycle across your bookings."
         />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-        >
-          {isFetching ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <RotateCcw className="h-4 w-4 mr-2" />
-          )}
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dashboard/deliveries/cod"><Banknote className="mr-2 h-4 w-4" />COD reconciliation</Link>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            {isFetching ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RotateCcw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Error */}
@@ -314,6 +320,25 @@ export default function DeliveriesPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      <div className="inline-flex rounded-lg border bg-muted/30 p-1" aria-label="Shipment direction">
+        {(['OUTBOUND', 'RETURN'] as const).map((direction) => (
+          <Button
+            key={direction}
+            type="button"
+            size="sm"
+            variant={query.direction === direction ? 'default' : 'ghost'}
+            onClick={() => setQuery((current) => ({
+              ...current,
+              direction,
+              stage: 'prepare_parcel',
+              page: 1,
+            }))}
+          >
+            {direction === 'OUTBOUND' ? 'Customer deliveries' : 'Rental returns'}
+          </Button>
+        ))}
+      </div>
 
       {/* Loading */}
       {isLoading && !data ? (
@@ -378,7 +403,7 @@ export default function DeliveriesPage() {
                   </TableRow>
                 ) : (
                   deliveries.map((delivery) => (
-                    <DeliveryRow key={delivery.id} delivery={delivery} activeStage={query.stage as DeliveryStage} />
+                    <DeliveryRow key={delivery.shipmentId} delivery={delivery} activeStage={query.stage as DeliveryStage} />
                   ))
                 )}
               </TableBody>

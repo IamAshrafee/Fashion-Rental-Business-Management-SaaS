@@ -24,9 +24,12 @@ import {
   HttpCode,
   HttpStatus,
   ParseEnumPipe,
+  Headers,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { FulfillmentService } from './fulfillment.service';
-import { ShipOrderDto, CalculateRateDto, UpdateDeliveryStageDto, CourierProviderEnum, UpsertCourierConnectionDto } from './dto/fulfillment.dto';
+import { ShipOrderDto, CalculateRateDto, UpdateDeliveryStageDto, CourierProviderEnum, UpsertCourierConnectionDto, CancelShipmentDto, CreateReturnShipmentDto, ReconcileCodDto } from './dto/fulfillment.dto';
 import { CourierConnectionService } from './courier-connection.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -87,8 +90,50 @@ export class FulfillmentController {
     @CurrentTenant() tenant: TenantContext,
     @Param('bookingId') bookingId: string,
     @Body() dto: ShipOrderDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.fulfillmentService.sendPickupNow(tenant.id, bookingId, dto);
+    return this.fulfillmentService.sendPickupNow(tenant.id, bookingId, dto, idempotencyKey);
+  }
+
+  @Post(':bookingId/return-shipment')
+  @Roles('owner', 'manager', 'staff')
+  createReturnShipment(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('bookingId') bookingId: string,
+    @Body() dto: CreateReturnShipmentDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.fulfillmentService.createReturnShipment(tenant.id, bookingId, dto, idempotencyKey);
+  }
+
+  @Patch('shipments/:shipmentId/cancel')
+  @Roles('owner', 'manager')
+  cancelShipment(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('shipmentId') shipmentId: string,
+    @Body() dto: CancelShipmentDto,
+  ) {
+    return this.fulfillmentService.cancelShipment(tenant.id, shipmentId, dto);
+  }
+
+  @Get('cod-reconciliations')
+  @Roles('owner', 'manager')
+  listCodReconciliations(
+    @CurrentTenant() tenant: TenantContext,
+    @Query('status') status?: string,
+  ) {
+    return this.fulfillmentService.listCodReconciliations(tenant.id, status);
+  }
+
+  @Patch('cod-reconciliations/:id')
+  @Roles('owner', 'manager')
+  reconcileCod(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+    @Body() dto: ReconcileCodDto,
+    @Req() req: Request & { user?: { id: string } },
+  ) {
+    return this.fulfillmentService.reconcileCod(tenant.id, id, dto, req.user?.id);
   }
 
   /**
@@ -170,12 +215,14 @@ export class FulfillmentController {
     @CurrentTenant() tenant: TenantContext,
     @Query('stage') stage?: string,
     @Query('courierStatus') courierStatus?: string,
+    @Query('direction') direction?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.fulfillmentService.getDeliveryDashboard(tenant.id, {
       stage: stage as DeliveryStageGroup | undefined,
       courierStatus: courierStatus?.split(',').filter(Boolean),
+      direction: direction === 'RETURN' ? 'RETURN' : 'OUTBOUND',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });

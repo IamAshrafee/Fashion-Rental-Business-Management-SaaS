@@ -288,7 +288,7 @@ export default function BookingDetailPage() {
         </Alert>
       )}
 
-      <OrderActions bookingId={booking.id} status={booking.status as BookingStatus} />
+      <OrderActions bookingId={booking.id} status={booking.status as BookingStatus} returnMethod={booking.returnMethod} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         

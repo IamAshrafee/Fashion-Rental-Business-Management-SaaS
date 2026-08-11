@@ -58,20 +58,6 @@ interface PathaoOrderInfoResponse {
   };
 }
 
-interface PathaoPriceResponse {
-  code: number;
-  message: string;
-  data?: {
-    price: number;
-    discount: number;
-    promo_discount: number;
-    plan_id: number;
-    cod_percentage: number;
-    additional_charge: number;
-    final_price: number;
-  };
-}
-
 const PATHAO_PROD_URL = 'https://api-hermes.pathao.com/aladdin/api/v1';
 const PATHAO_SANDBOX_URL = 'https://courier-api-sandbox.pathao.com/aladdin/api/v1';
 
@@ -308,7 +294,8 @@ export class PathaoAdapter implements CourierProvider {
 
     try {
       const qty = Math.max(1, Math.min(1000, Number(params.itemQuantity) || 1));
-      const cod = Math.max(0, Math.min(900000, Number(params.codAmount) || 0));
+      // Domain money is stored in minor BDT units; Pathao expects taka.
+      const cod = Math.max(0, Math.min(900000, (Number(params.codAmount) || 0) / 100));
       const wt = Math.max(0.001, Math.min(200, Number(params.weightKg) || 1));
 
       // Build payload — omit recipient_city/zone/area to use Pathao's
@@ -350,7 +337,7 @@ export class PathaoAdapter implements CourierProvider {
       return {
         trackingId: data.consignment_id,
         status: data.order_status,
-        deliveryFee: data.delivery_fee ?? 0,
+        deliveryFee: Math.round((data.delivery_fee ?? 0) * 100),
         raw: response.data,
       };
     } catch (error) {
@@ -437,39 +424,11 @@ export class PathaoAdapter implements CourierProvider {
     throw new NotImplementedException('Pathao does not support parcel cancellation via API. Cancel manually in the Pathao merchant portal.');
   }
 
-  async calculateShipping(params: ShippingRateParams, config?: PathaoConfig): Promise<ShippingRate | null> {
-    if (!config) return null;
-
-    const token = await this.fetchToken(config);
-    const baseUrl = this.getBaseUrl(config);
-
-    try {
-      const response = await firstValueFrom(
-        this.httpService.post<PathaoPriceResponse>(
-          `${baseUrl}/merchant/price-plan`,
-          {
-            store_id: config.defaultStoreId,
-            item_type: 2,           // Parcel
-            delivery_type: 48,      // Normal delivery
-            item_weight: params.weightKg ?? 0.5,
-            recipient_city: 1,      // Will need city_id mapping
-            recipient_zone: 1,      // Will need zone_id mapping
-          },
-          { headers: { Authorization: `Bearer ${token}` } },
-        ),
-      );
-
-      const data = response.data.data;
-      if (!data) return null;
-
-      return {
-        cost: data.final_price,
-        currency: 'BDT',
-        note: `Delivery fee: ৳${data.price}, Discount: ৳${data.discount}`,
-      };
-    } catch (error) {
-      this.logger.warn(`Pathao calculateShipping failed: ${(error as AxiosError).message}`);
-      return null;
-    }
+  async calculateShipping(_params: ShippingRateParams, _config?: PathaoConfig): Promise<ShippingRate | null> {
+    // Pathao's price-plan endpoint requires provider city and zone IDs. Quoting
+    // with guessed IDs is unsafe, while order creation now supports official
+    // address auto-resolution. Return null until an authoritative location-ID
+    // sync is configured; the owner workflow requests a manual fee instead.
+    return null;
   }
 }
