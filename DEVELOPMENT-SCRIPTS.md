@@ -25,6 +25,8 @@ This is the fast, normal launcher. It:
 
 It does **not** install packages, migrate the database, seed records, initialize storage, or delete anything.
 
+If an older ClosetRent backend or frontend was left running after a Terminal window closed unexpectedly, the launcher verifies that the process belongs to this repository, stops it safely, and starts a clean managed copy. A process from another project is never stopped merely because it uses the configured port.
+
 Keep its Terminal window open while you work. Press Control+C when you only want to stop the backend and frontend. Your Docker services and data remain ready for the next start.
 
 ## First setup or project upgrade
@@ -58,7 +60,7 @@ Reset refuses to run against production, a remote PostgreSQL server, or any data
 
 Double-click `stop-dev.command`.
 
-It stops a launcher-managed backend and frontend, then stops this project's Docker services. Database, Redis, and MinIO volumes are preserved, so your products, customers, bookings, and other local development data remain available.
+It stops a launcher-managed backend and frontend, including a verified orphaned ClosetRent process, then stops this project's Docker services. Database, Redis, and MinIO volumes are preserved, so your products, customers, bookings, and other local development data remain available.
 
 The result stays visible until you press Enter.
 

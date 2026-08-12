@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   isSupervisorIdentityValid,
+  isVerifiedRepositoryApplicationGroup,
   parseDotEnv,
   processMatchesSupervisor,
   runCommand,
@@ -176,6 +177,61 @@ test('supervisor validation requires this repository and orchestrator identity',
       command: 'node unrelated.mjs',
       workingDirectory: repositoryRoot,
     }),
+    false,
+  );
+});
+
+test('stale application cleanup accepts only the expected repository process group', () => {
+  const repositoryRoot = '/workspace/closetrent';
+  const frontendListener = {
+    pid: 104,
+    parentPid: 103,
+    processGroupId: 101,
+    command: 'next-server (v14.2.35)',
+    workingDirectory: `${repositoryRoot}/apps/frontend`,
+  };
+  const frontendLeader = {
+    pid: 101,
+    parentPid: 1,
+    processGroupId: 101,
+    command: 'npm run dev:frontend',
+    workingDirectory: repositoryRoot,
+  };
+
+  assert.equal(
+    isVerifiedRepositoryApplicationGroup(
+      frontendListener,
+      frontendLeader,
+      'frontend',
+      repositoryRoot,
+    ),
+    true,
+  );
+  assert.equal(
+    isVerifiedRepositoryApplicationGroup(
+      { ...frontendListener, workingDirectory: '/unrelated/project' },
+      frontendLeader,
+      'frontend',
+      repositoryRoot,
+    ),
+    false,
+  );
+  assert.equal(
+    isVerifiedRepositoryApplicationGroup(
+      frontendListener,
+      { ...frontendLeader, command: 'python unrelated-server.py' },
+      'frontend',
+      repositoryRoot,
+    ),
+    false,
+  );
+  assert.equal(
+    isVerifiedRepositoryApplicationGroup(
+      frontendListener,
+      frontendLeader,
+      'backend',
+      repositoryRoot,
+    ),
     false,
   );
 });

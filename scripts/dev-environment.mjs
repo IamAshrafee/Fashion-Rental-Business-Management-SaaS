@@ -387,10 +387,9 @@ async function readSupervisorRecord() {
   }
 }
 
-async function inspectProcess(pid) {
-  if (process.platform === 'win32') return null;
-  const command = await new Promise((resolve) => {
-    const child = spawn('ps', ['-p', String(pid), '-o', 'command='], {
+function captureProcessOutput(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
       cwd: REPOSITORY_ROOT,
       stdio: ['ignore', 'pipe', 'ignore'],
       shell: false,
@@ -402,27 +401,35 @@ async function inspectProcess(pid) {
     child.once('error', () => resolve(null));
     child.once('exit', (code) => resolve(code === 0 ? output.trim() : null));
   });
-  if (!command) return null;
+}
 
-  const workingDirectory = await new Promise((resolve) => {
-    const child = spawn('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], {
-      cwd: REPOSITORY_ROOT,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      shell: false,
-    });
-    let output = '';
-    child.stdout.on('data', (chunk) => {
-      output += chunk;
-    });
-    child.once('error', () => resolve(null));
-    child.once('exit', (code) => {
-      if (code !== 0) return resolve(null);
-      const directoryLine = output.split(/\r?\n/).find((line) => line.startsWith('n'));
-      resolve(directoryLine ? directoryLine.slice(1) : null);
-    });
-  });
+async function inspectProcess(pid) {
+  if (process.platform === 'win32') return null;
+  const [processLine, directoryOutput] = await Promise.all([
+    captureProcessOutput('ps', [
+      '-p',
+      String(pid),
+      '-o',
+      'ppid=',
+      '-o',
+      'pgid=',
+      '-o',
+      'command=',
+    ]),
+    captureProcessOutput('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']),
+  ]);
+  if (!processLine) return null;
+  const processMatch = processLine.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/s);
+  if (!processMatch) return null;
+  const directoryLine = directoryOutput?.split(/\r?\n/).find((line) => line.startsWith('n'));
 
-  return { command, workingDirectory };
+  return {
+    pid,
+    parentPid: Number(processMatch[1]),
+    processGroupId: Number(processMatch[2]),
+    command: processMatch[3].trim(),
+    workingDirectory: directoryLine ? directoryLine.slice(1) : null,
+  };
 }
 
 export function processMatchesSupervisor(identity, processDetails) {
@@ -431,6 +438,67 @@ export function processMatchesSupervisor(identity, processDetails) {
       processDetails?.workingDirectory === identity.repositoryRoot &&
       processDetails.command.includes('scripts/dev-environment.mjs'),
   );
+}
+
+export function isVerifiedRepositoryApplicationGroup(
+  listener,
+  groupLeader,
+  role,
+  repositoryRoot = REPOSITORY_ROOT,
+) {
+  if (!['backend', 'frontend'].includes(role)) return false;
+  if (!listener || !groupLeader) return false;
+  if (!Number.isInteger(listener.processGroupId) || listener.processGroupId <= 0) return false;
+  if (listener.processGroupId !== groupLeader.pid) return false;
+  if (groupLeader.processGroupId !== groupLeader.pid) return false;
+  if (groupLeader.workingDirectory !== repositoryRoot) return false;
+  if (groupLeader.command.trim() !== `npm run dev:${role}`) return false;
+  return listener.workingDirectory === path.join(repositoryRoot, 'apps', role);
+}
+
+async function listeningProcessIds(port) {
+  if (process.platform === 'win32') return [];
+  const output = await captureProcessOutput('/usr/sbin/lsof', [
+    `-tiTCP:${port}`,
+    '-sTCP:LISTEN',
+  ]);
+  if (!output) return [];
+  return [...new Set(output.split(/\s+/).map(Number).filter(Number.isInteger))];
+}
+
+async function stopStaleRepositoryApplication(port, role) {
+  const listenerIds = await listeningProcessIds(port);
+  if (!listenerIds.length) return false;
+
+  const verifiedGroups = new Set();
+  for (const listenerId of listenerIds) {
+    const listener = await inspectProcess(listenerId);
+    if (!listener) return false;
+    const groupLeader = await inspectProcess(listener.processGroupId);
+    if (!isVerifiedRepositoryApplicationGroup(listener, groupLeader, role)) return false;
+    verifiedGroups.add(listener.processGroupId);
+  }
+  if (!verifiedGroups.size) return false;
+
+  console.log(`Stopping a stale ClosetRent ${role} process...`);
+  for (const processGroupId of verifiedGroups) {
+    try {
+      process.kill(-processGroupId, 'SIGTERM');
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error;
+    }
+  }
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (!(await isPortOpen(port))) return true;
+    await sleep(100);
+  }
+  throw new Error(`The stale ClosetRent ${role} process did not stop within five seconds`);
+}
+
+async function stopStaleRepositoryApplications(environment) {
+  const { appPort, frontendPort } = validateConfiguration(environment);
+  await stopStaleRepositoryApplication(appPort, 'backend');
+  await stopStaleRepositoryApplication(frontendPort, 'frontend');
 }
 
 async function stopRecordedSupervisor() {
@@ -472,8 +540,9 @@ async function stopRecordedSupervisor() {
 }
 
 async function startApplications(environment) {
-  await assertApplicationPortsAvailable(environment);
   await stopRecordedSupervisor();
+  await stopStaleRepositoryApplications(environment);
+  await assertApplicationPortsAvailable(environment);
   await writeSupervisorRecord();
   console.log(`\nStorefront and dashboard: ${environment.APP_URL}`);
   console.log(`API: ${environment.NEXT_PUBLIC_API_URL}`);
@@ -581,12 +650,16 @@ async function status(environment) {
 }
 
 async function stop(environment) {
-  validateConfiguration(environment);
+  const { appPort, frontendPort } = validateConfiguration(environment);
   const supervisorStopped = await stopRecordedSupervisor();
+  const staleBackendStopped = await stopStaleRepositoryApplication(appPort, 'backend');
+  const staleFrontendStopped = await stopStaleRepositoryApplication(frontendPort, 'frontend');
+  const applicationsStopped =
+    supervisorStopped || staleBackendStopped || staleFrontendStopped;
   await ensurePrerequisites(environment);
   await compose(environment, ['down', '--remove-orphans']);
   console.log(
-    `${supervisorStopped ? 'Application servers and development infrastructure' : 'Development infrastructure'} stopped; named data volumes were preserved.`,
+    `${applicationsStopped ? 'Application servers and development infrastructure' : 'Development infrastructure'} stopped; named data volumes were preserved.`,
   );
 }
 
