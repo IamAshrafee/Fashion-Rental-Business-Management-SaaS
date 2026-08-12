@@ -1,18 +1,16 @@
-version: '3.8'
-
 # Development overrides — exposes ports for local access
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 services:
   postgres:
     ports:
-      - '5432:5432'
+      - '${DATABASE_PORT:-5433}:5432'
 
   redis:
     ports:
-      - '6379:6379'
+      - '${REDIS_PORT:-6379}:6379'
 
   minio:
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '${STORAGE_PORT:-9000}:9000'
+      - '${STORAGE_CONSOLE_PORT:-9001}:9001'

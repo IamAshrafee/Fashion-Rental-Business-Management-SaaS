@@ -15,7 +15,11 @@ services:
     mem_limit: 1536m
     mem_reservation: 512m
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${DATABASE_USER:-closetrent} -d ${DATABASE_NAME:-closetrent_dev}']
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${DATABASE_USER:-closetrent} -d ${DATABASE_NAME:-closetrent_dev}',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -59,6 +63,25 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  minio-init:
+    image: minio/mc:latest
+    profiles: ['tools']
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-minioadmin}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-minioadmin}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-closetrent-dev}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        mc alias set local http://minio:9000 "$${STORAGE_ACCESS_KEY}" "$${STORAGE_SECRET_KEY}"
+        mc mb --ignore-existing "local/$${STORAGE_BUCKET}"
+        mc anonymous set download "local/$${STORAGE_BUCKET}"
+    networks:
+      - closetrent-network
 
 volumes:
   pgdata:

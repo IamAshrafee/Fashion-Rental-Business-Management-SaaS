@@ -20,6 +20,98 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtPayload, DeviceType } from '@closetrent/types';
 import { ParsedUserAgent } from '../../common/utils/user-agent';
 
+type StarterCategory = { name: string; subcategories: string[] };
+type StarterTemplateData = {
+  categories: StarterCategory[];
+  events: string[];
+  storeSettings: {
+    timezone?: string;
+    country?: string;
+    currencyCode?: string;
+    currencySymbol?: string;
+    dateFormat?: string;
+    weekStart?: string;
+    bufferDays?: number;
+  };
+};
+
+function starterSlug(value: string): string {
+  return value
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function starterTemplateData(value: unknown): StarterTemplateData {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('The active starter template must contain an object');
+  }
+  const source = value as Record<string, unknown>;
+  if (!Array.isArray(source.categories) || !Array.isArray(source.events)) {
+    throw new Error('The active starter template requires categories and events arrays');
+  }
+  const categories = source.categories.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Every starter category must be an object');
+    }
+    const category = entry as Record<string, unknown>;
+    if (typeof category.name !== 'string' || !category.name.trim()) {
+      throw new Error('Every starter category requires a name');
+    }
+    if (
+      !Array.isArray(category.subcategories) ||
+      category.subcategories.some((item) => typeof item !== 'string')
+    ) {
+      throw new Error(`Starter category ${category.name} has invalid subcategories`);
+    }
+    return {
+      name: category.name.trim(),
+      subcategories: category.subcategories.map((item) => String(item).trim()).filter(Boolean),
+    };
+  });
+  const events = source.events.map((entry) => {
+    if (typeof entry !== 'string' || !entry.trim())
+      throw new Error('Every starter event requires a name');
+    return entry.trim();
+  });
+  const settingsSource = source.storeSettings;
+  if (
+    settingsSource !== undefined &&
+    (!settingsSource || typeof settingsSource !== 'object' || Array.isArray(settingsSource))
+  ) {
+    throw new Error('Starter storeSettings must be an object');
+  }
+  const settings = (settingsSource || {}) as Record<string, unknown>;
+  const storeSettings: StarterTemplateData['storeSettings'] = {};
+  for (const key of [
+    'timezone',
+    'country',
+    'currencyCode',
+    'currencySymbol',
+    'dateFormat',
+    'weekStart',
+  ] as const) {
+    if (settings[key] !== undefined) {
+      if (typeof settings[key] !== 'string' || !settings[key].trim()) {
+        throw new Error(`Starter storeSettings.${key} must be a non-empty string`);
+      }
+      storeSettings[key] = settings[key].trim();
+    }
+  }
+  if (settings.bufferDays !== undefined) {
+    if (!Number.isInteger(settings.bufferDays) || Number(settings.bufferDays) < 0) {
+      throw new Error('Starter storeSettings.bufferDays must be a non-negative integer');
+    }
+    storeSettings.bufferDays = Number(settings.bufferDays);
+  }
+  return {
+    categories,
+    events,
+    storeSettings,
+  };
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -88,7 +180,9 @@ export class AuthService {
       if (dto.promoCode) {
         const promo = await tx.promoCode.findUnique({
           where: { code: dto.promoCode.toUpperCase() },
-          include: { linkedPlan: { select: { id: true, slug: true, trialDays: true, isActive: true } } },
+          include: {
+            linkedPlan: { select: { id: true, slug: true, trialDays: true, isActive: true } },
+          },
         });
 
         if (promo && promo.isActive) {
@@ -198,7 +292,7 @@ export class AuthService {
           data: {
             tenantId: tenant.id,
             planId: targetPlan.id,
-            status: isFree ? 'free_tier' : (targetPlan.trialDays > 0 ? 'trial' : 'active'),
+            status: isFree ? 'free_tier' : targetPlan.trialDays > 0 ? 'trial' : 'active',
             billingCycle: 'monthly',
             currentPeriodStart: now,
             currentPeriodEnd: periodEnd,
@@ -252,10 +346,7 @@ export class AuthService {
     // Find user by email or phone
     const user = await this.prisma.user.findFirst({
       where: {
-        OR: [
-          { email: dto.identifier },
-          { phone: dto.identifier },
-        ],
+        OR: [{ email: dto.identifier }, { phone: dto.identifier }],
       },
       include: {
         tenantUsers: {
@@ -315,9 +406,7 @@ export class AuthService {
     // Use the first ACTIVE tenant for session — suspended/cancelled tenants excluded.
     // If user belongs to tenants but none are active, they get a tenant-less session
     // and the frontend will show a "store suspended" state.
-    const activeTenantUsers = user.tenantUsers.filter(
-      (tu) => tu.tenant.status === 'active',
-    );
+    const activeTenantUsers = user.tenantUsers.filter((tu) => tu.tenant.status === 'active');
     const primaryTenantUser = activeTenantUsers[0] || null;
     const tenantId = primaryTenantUser?.tenantId || null;
     const role = primaryTenantUser?.role || user.role;
@@ -438,9 +527,7 @@ export class AuthService {
       if (activeTenantUser) {
         resolvedTenantId = activeTenantUser.tenant.id;
         resolvedRole = activeTenantUser.role as JwtPayload['role'];
-        this.logger.log(
-          `Tenant re-resolved for user ${payload.sub}: ${resolvedTenantId}`,
-        );
+        this.logger.log(`Tenant re-resolved for user ${payload.sub}: ${resolvedTenantId}`);
       }
     }
 
@@ -505,10 +592,7 @@ export class AuthService {
     // Find user
     const user = await this.prisma.user.findFirst({
       where: {
-        OR: [
-          { email: dto.identifier },
-          { phone: dto.identifier },
-        ],
+        OR: [{ email: dto.identifier }, { phone: dto.identifier }],
       },
       select: { id: true },
     });
@@ -551,10 +635,7 @@ export class AuthService {
     // Find user by identifier
     const user = await this.prisma.user.findFirst({
       where: {
-        OR: [
-          { email: dto.identifier },
-          { phone: dto.identifier },
-        ],
+        OR: [{ email: dto.identifier }, { phone: dto.identifier }],
       },
       select: { id: true },
     });
@@ -790,46 +871,53 @@ export class AuthService {
   /**
    * Seed starter template data for a new tenant.
    */
-  private async seedStarterData(tx: Parameters<Parameters<typeof this.prisma.$transaction>[0]>[0], tenantId: string): Promise<void> {
-    // Seed default categories for BD market
-    const defaultCategories = [
-      { name: 'Lehenga', slug: 'lehenga', displayOrder: 1 },
-      { name: 'Saree', slug: 'saree', displayOrder: 2 },
-      { name: 'Gown', slug: 'gown', displayOrder: 3 },
-      { name: 'Sherwani', slug: 'sherwani', displayOrder: 4 },
-      { name: 'Bridal Wear', slug: 'bridal-wear', displayOrder: 5 },
-      { name: 'Party Wear', slug: 'party-wear', displayOrder: 6 },
-      { name: 'Jewellery', slug: 'jewellery', displayOrder: 7 },
-      { name: 'Accessories', slug: 'accessories', displayOrder: 8 },
-    ];
+  private async seedStarterData(
+    tx: Parameters<Parameters<typeof this.prisma.$transaction>[0]>[0],
+    tenantId: string,
+  ): Promise<void> {
+    const template = await tx.starterTemplate.findFirst({
+      where: { isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { templateName: true, data: true },
+    });
+    if (!template) throw new Error('No active starter template is configured');
+    const data = starterTemplateData(template.data);
 
-    for (const cat of defaultCategories) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (tx as any).category.create({
-        data: { ...cat, tenantId },
+    for (const [categoryIndex, categoryDefinition] of data.categories.entries()) {
+      const category = await tx.category.create({
+        data: {
+          tenantId,
+          name: categoryDefinition.name,
+          slug: starterSlug(categoryDefinition.name),
+          displayOrder: categoryIndex + 1,
+        },
       });
+      if (categoryDefinition.subcategories.length) {
+        await tx.subcategory.createMany({
+          data: categoryDefinition.subcategories.map((name, subcategoryIndex) => ({
+            tenantId,
+            categoryId: category.id,
+            name,
+            slug: starterSlug(name),
+            displayOrder: subcategoryIndex + 1,
+          })),
+        });
+      }
     }
 
-    // Seed default events
-    const defaultEvents = [
-      { name: 'Wedding', slug: 'wedding', displayOrder: 1 },
-      { name: 'Engagement', slug: 'engagement', displayOrder: 2 },
-      { name: 'Holud/Gaye Holud', slug: 'holud', displayOrder: 3 },
-      { name: 'Reception', slug: 'reception', displayOrder: 4 },
-      { name: 'Walima', slug: 'walima', displayOrder: 5 },
-      { name: 'Mehendi', slug: 'mehendi', displayOrder: 6 },
-      { name: 'Birthday', slug: 'birthday', displayOrder: 7 },
-      { name: 'Party/Formal', slug: 'party-formal', displayOrder: 8 },
-      { name: 'Photoshoot', slug: 'photoshoot', displayOrder: 9 },
-      { name: 'Eid', slug: 'eid', displayOrder: 10 },
-    ];
+    await tx.event.createMany({
+      data: data.events.map((name, index) => ({
+        tenantId,
+        name,
+        slug: starterSlug(name),
+        displayOrder: index + 1,
+      })),
+    });
 
-    for (const event of defaultEvents) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (tx as any).event.create({
-        data: { ...event, tenantId },
-      });
-    }
+    await tx.storeSettings.update({
+      where: { tenantId },
+      data: data.storeSettings,
+    });
   }
 
   private async seedRentalFoundation(

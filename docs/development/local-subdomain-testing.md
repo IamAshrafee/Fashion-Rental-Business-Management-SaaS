@@ -11,14 +11,11 @@ This guide explains how to test the full multi-tenant subdomain system locally o
 ### 1. Start the development servers
 
 ```bash
-# Option A: Using the launcher
-.\start-dev.bat  # Select option 1
-
-# Option B: Manually
-docker compose up -d
-npm run dev:backend    # Port 4000
-npm run dev:frontend   # Port 3000
+npm run dev
 ```
+
+The Windows `start-dev.bat`, macOS `start-dev.command`, and macOS/Linux
+`start-dev.sh` launchers run this same validated workflow.
 
 ### 2. Create a test tenant
 
@@ -39,14 +36,14 @@ curl -X POST http://localhost:4000/api/v1/auth/register \
 
 ### 3. Test the subdomain routing
 
-| URL | What You'll See |
-|---|---|
-| `http://localhost:3000` | SaaS landing page (marketing) |
-| `http://rentiva.localhost:3000` | Tenant storefront for "rentiva" |
-| `http://rentiva.localhost:3000/products` | Product catalog for "rentiva" |
-| `http://rentiva.localhost:3000/dashboard` | Owner portal for "rentiva" (requires login) |
-| `http://admin.localhost:3000` | SaaS admin portal (requires admin login) |
-| `http://nonexistent.localhost:3000` | "Store not found" (no tenant with that subdomain) |
+| URL                                       | What You'll See                                   |
+| ----------------------------------------- | ------------------------------------------------- |
+| `http://localhost:3000`                   | SaaS landing page (marketing)                     |
+| `http://rentiva.localhost:3000`           | Tenant storefront for "rentiva"                   |
+| `http://rentiva.localhost:3000/products`  | Product catalog for "rentiva"                     |
+| `http://rentiva.localhost:3000/dashboard` | Owner portal for "rentiva" (requires login)       |
+| `http://admin.localhost:3000`             | SaaS admin portal (requires admin login)          |
+| `http://nonexistent.localhost:3000`       | "Store not found" (no tenant with that subdomain) |
 
 ---
 
@@ -80,11 +77,13 @@ For testing custom domains locally (e.g., `rentbysara.com` → your tenant store
 ### Step 1: Edit the hosts file
 
 Open Notepad **as Administrator** and open:
+
 ```
 C:\Windows\System32\drivers\etc\hosts
 ```
 
 Add entries for your test custom domains:
+
 ```
 # ClosetRent — Custom Domain Testing
 127.0.0.1    rentbysara.local
@@ -104,14 +103,15 @@ WHERE subdomain = 'rentiva';
 ```
 
 Or via the owner portal (Settings → Custom Domain):
+
 - Enter `rentbysara.local` as the custom domain
 
 ### Step 3: Test it
 
-| URL | What You'll See |
-|---|---|
-| `http://rentbysara.local:3000` | Tenant storefront (same store as rentiva.localhost:3000) |
-| `http://rentbysara.local:3000/dashboard` | Owner portal for the same tenant |
+| URL                                      | What You'll See                                          |
+| ---------------------------------------- | -------------------------------------------------------- |
+| `http://rentbysara.local:3000`           | Tenant storefront (same store as rentiva.localhost:3000) |
+| `http://rentbysara.local:3000/dashboard` | Owner portal for the same tenant                         |
 
 ### How custom domain resolution works
 
@@ -145,6 +145,7 @@ Create multiple tenants to verify complete data isolation:
 ```
 
 Each tenant should show:
+
 - ✅ Different business name and branding
 - ✅ Different product catalog
 - ✅ Different booking history
@@ -156,29 +157,38 @@ Each tenant should show:
 ## Troubleshooting
 
 ### "Store not found" error
+
 The subdomain doesn't match any tenant in the database. Check:
+
 ```sql
 SELECT subdomain, custom_domain, status FROM tenants;
 ```
 
 ### CORS errors in browser console
+
 The backend should allow `*.localhost` origins automatically. If you see CORS errors:
+
 1. Check that the backend is running on port 4000
 2. Check the browser console for the exact origin being blocked
 3. Verify the CORS configuration in `apps/backend/src/main.ts`
 
 ### API calls going to wrong URL
+
 Check the browser's Network tab. API requests should go to:
+
 - `http://rentiva.localhost:4000/api/v1/...` (not `localhost:4000`)
 
-### Safari doesn't resolve *.localhost
+### Safari doesn't resolve \*.localhost
+
 Safari does NOT auto-resolve `*.localhost`. Add to hosts file:
+
 ```
 127.0.0.1    rentiva.localhost
 127.0.0.1    fashionhouse.localhost
 ```
 
 ### Custom domain not resolving
+
 1. Verify the hosts file entry: `127.0.0.1    yourdomain.local`
 2. Flush DNS cache: `ipconfig /flushdns`
 3. Verify the tenant's `custom_domain` column matches exactly
@@ -189,22 +199,22 @@ Safari does NOT auto-resolve `*.localhost`. Add to hosts file:
 
 These variables control subdomain/domain behavior:
 
-| Variable | Default | Description |
-|---|---|---|
-| `BASE_DOMAIN` | `localhost:3000` | Platform base domain (used for subdomain extraction) |
-| `ADMIN_SUBDOMAIN` | `admin` | Reserved subdomain for admin portal |
-| `CORS_ORIGINS` | `http://localhost:3000` | Allowed origins (*.localhost auto-allowed in dev) |
-| `NEXT_PUBLIC_BASE_DOMAIN` | `closetrent.com` | Frontend-side platform domain for subdomain detection |
+| Variable                  | Default                 | Description                                           |
+| ------------------------- | ----------------------- | ----------------------------------------------------- |
+| `BASE_DOMAIN`             | `localhost:3000`        | Platform base domain (used for subdomain extraction)  |
+| `ADMIN_SUBDOMAIN`         | `admin`                 | Reserved subdomain for admin portal                   |
+| `CORS_ORIGINS`            | `http://localhost:3000` | Allowed origins (\*.localhost auto-allowed in dev)    |
+| `NEXT_PUBLIC_BASE_DOMAIN` | `localhost`             | Frontend-side platform domain for subdomain detection |
 
 ---
 
 ## Production vs Development Comparison
 
-| Concern | Development | Production |
-|---|---|---|
-| Subdomain routing | `rentiva.localhost:3000` | `rentiva.closetrent.com` |
-| Custom domain | `rentbysara.local:3000` (hosts file) | `rentbysara.com` (real DNS) |
-| SSL | HTTP only | HTTPS via Cloudflare/Let's Encrypt |
-| Proxy | Direct (separate ports 3000/4000) | Nginx (unified port 443) |
-| DNS | Automatic (*.localhost) or hosts file | Wildcard DNS + Cloudflare |
-| API routing | `rentiva.localhost:4000/api/v1` | `rentiva.closetrent.com/api/v1` (via Nginx) |
+| Concern           | Development                            | Production                                  |
+| ----------------- | -------------------------------------- | ------------------------------------------- |
+| Subdomain routing | `rentiva.localhost:3000`               | `rentiva.closetrent.com`                    |
+| Custom domain     | `rentbysara.local:3000` (hosts file)   | `rentbysara.com` (real DNS)                 |
+| SSL               | HTTP only                              | HTTPS via Cloudflare/Let's Encrypt          |
+| Proxy             | Direct (separate ports 3000/4000)      | Nginx (unified port 443)                    |
+| DNS               | Automatic (\*.localhost) or hosts file | Wildcard DNS + Cloudflare                   |
+| API routing       | `rentiva.localhost:4000/api/v1`        | `rentiva.closetrent.com/api/v1` (via Nginx) |

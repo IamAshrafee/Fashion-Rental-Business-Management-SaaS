@@ -1,0 +1,80 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { parseDotEnv, validateConfiguration, validateResetTarget } from './dev-environment.mjs';
+
+const validEnvironment = () => ({
+  NODE_ENV: 'development',
+  APP_PORT: '4000',
+  FRONTEND_PORT: '3000',
+  APP_URL: 'http://localhost:3000',
+  API_URL: 'http://localhost:4000/api/v1',
+  CORS_ORIGINS: 'http://localhost:3000',
+  NEXT_PUBLIC_API_URL: 'http://localhost:4000/api/v1',
+  NEXT_PUBLIC_BASE_DOMAIN: 'localhost',
+  DATABASE_URL: 'postgresql://closetrent:dev_password@localhost:5433/closetrent_dev',
+  DATABASE_HOST: 'localhost',
+  DATABASE_PORT: '5433',
+  DATABASE_NAME: 'closetrent_dev',
+  DATABASE_USER: 'closetrent',
+  DATABASE_PASSWORD: 'dev_password',
+  REDIS_URL: 'redis://localhost:6379',
+  REDIS_HOST: 'localhost',
+  REDIS_PORT: '6379',
+  REDIS_DB: '0',
+  STORAGE_ENDPOINT: 'http://localhost:9000',
+  STORAGE_PORT: '9000',
+  STORAGE_CONSOLE_PORT: '9001',
+  STORAGE_ACCESS_KEY: 'minioadmin',
+  STORAGE_SECRET_KEY: 'minioadmin',
+  STORAGE_BUCKET: 'closetrent-dev',
+  STORAGE_PUBLIC_URL: 'http://localhost:9000/closetrent-dev',
+  JWT_SECRET: 'development-jwt-secret-at-least-32-characters',
+  JWT_REFRESH_SECRET: 'development-refresh-secret-at-least-32-characters',
+  COURIER_CREDENTIALS_ENCRYPTION_KEY: 'development-courier-key-at-least-32-characters',
+  SEED_ADMIN_EMAIL: 'admin@closetrent.local',
+  SEED_ADMIN_PASSWORD: 'ClosetRent-Local-Admin-2026',
+});
+
+test('parseDotEnv supports comments, empty values, quotes, and export syntax', () => {
+  assert.deepEqual(
+    parseDotEnv('A=one\nB="two words"\nC=three # note\nD=\nexport E=\'five\'\n# ignored'),
+    { A: 'one', B: 'two words', C: 'three', D: '', E: 'five' },
+  );
+});
+
+test('validateConfiguration accepts the canonical local contract', () => {
+  const result = validateConfiguration(validEnvironment());
+  assert.equal(result.appPort, 4000);
+  assert.equal(result.database.port, '5433');
+});
+
+test('validateConfiguration rejects drift between DATABASE_URL and scalar settings', () => {
+  const environment = validEnvironment();
+  environment.DATABASE_PORT = '5432';
+  assert.throws(() => validateConfiguration(environment), /DATABASE_PORT must match/);
+});
+
+test('validateConfiguration rejects the obsolete API prefix', () => {
+  const environment = validEnvironment();
+  environment.API_URL = 'http://localhost:4000/api';
+  assert.throws(() => validateConfiguration(environment), /must target the \/api\/v1 prefix/);
+});
+
+test('validateResetTarget accepts only the dedicated local development database', () => {
+  assert.equal(validateResetTarget(validEnvironment()), true);
+
+  const production = validEnvironment();
+  production.NODE_ENV = 'production';
+  assert.throws(() => validateResetTarget(production), /disabled.*production/);
+
+  const remote = validEnvironment();
+  remote.DATABASE_URL = 'postgresql://closetrent:dev_password@db.example.com:5433/closetrent_dev';
+  remote.DATABASE_HOST = 'db.example.com';
+  assert.throws(() => validateResetTarget(remote), /local PostgreSQL host/);
+
+  const wrongDatabase = validEnvironment();
+  wrongDatabase.DATABASE_URL = 'postgresql://closetrent:dev_password@localhost:5433/production';
+  wrongDatabase.DATABASE_NAME = 'production';
+  assert.throws(() => validateResetTarget(wrongDatabase), /closetrent_dev database/);
+});

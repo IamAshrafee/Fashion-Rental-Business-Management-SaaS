@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
 cd "$(dirname "$0")"
-exec ./reset-dev.sh
+exec node scripts/dev-environment.mjs reset "$@"
