@@ -34,6 +34,11 @@ async function bootstrap(): Promise<void> {
         return callback(null, true);
       }
 
+      // Development: allow 127.0.0.1
+      if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
       // Development: allow hosts-file custom domains (e.g., rentbysara.local)
       if (/^https?:\/\/[\w-]+\.local(:\d+)?$/.test(origin)) {
         return callback(null, true);
