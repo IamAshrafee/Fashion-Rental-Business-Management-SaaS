@@ -2,4 +2,4 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-exec node scripts/dev-environment.mjs start "$@"
+exec node scripts/dev-environment.mjs prepare-start "$@"

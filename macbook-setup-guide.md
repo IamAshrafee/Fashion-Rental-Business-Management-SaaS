@@ -2,72 +2,35 @@
 
 ## Prerequisites
 
-Install Docker Desktop, Node.js 18 or newer, npm 9 or newer, and Git. Confirm them from a terminal:
-
-```bash
-docker --version
-docker compose version
-node --version
-npm --version
-```
+Install Docker Desktop, Node.js 18 or newer, npm 9 or newer, and Git.
 
 Docker Desktop must be running before the project workflow starts.
 
 ## First setup
 
-From the repository root:
-
-```bash
-cp .env.example .env
-npm install
-npm run env:check
-npm run dev:prepare
-npm run dev
-```
+Open the repository in Finder and double-click `prepare-dev.command`.
 
 The checked-in template already uses PostgreSQL host port `5433`; no manual port correction is required. The application database inside Docker still listens on its normal container port `5432`.
 
-The explicit preparation command starts PostgreSQL, Redis, and MinIO, waits for all three services, creates the public and private storage buckets, generates Prisma Client, deploys committed migrations, and applies the platform seed. Run it on first setup and after dependency or schema changes.
+The preparation launcher creates `.env` from `.env.example` when it is missing, installs dependencies, starts PostgreSQL, Redis, and MinIO, waits for all three services, creates the public and private storage buckets, generates Prisma Client, deploys committed migrations, applies the platform seed, and starts both applications.
 
-The normal `npm run dev` command validates the environment, starts infrastructure when necessary, waits for health, and launches NestJS and Next.js. It deliberately skips installation, generation, migrations, bucket initialization, and seeding.
+For normal work, double-click `start-dev.command`. It validates the environment, starts infrastructure when necessary, waits for health, and launches NestJS and Next.js. It deliberately skips installation, generation, migrations, bucket initialization, and seeding.
 
 Use `Control+C` to stop both application development servers. Docker infrastructure stays running for fast subsequent starts.
 
 ## Clickable launchers
 
-You may double-click `start-dev.command` in Finder instead of running `npm run dev`. If macOS blocks it after cloning, restore executable permissions once:
+The five purpose-specific launchers are `start-dev.command`, `prepare-dev.command`, `reset-dev.command`, `stop-dev.command`, and `status-dev.command`. See [the plain-language launcher guide](DEVELOPMENT-SCRIPTS.md) for exactly when to use each one.
 
-```bash
-chmod +x start-dev.command reset-dev.command start-dev.sh reset-dev.sh scripts/dev-environment.mjs
-```
-
-All command, shell, and Windows launchers call the same Node orchestrator; there are no platform-specific workflow differences.
-
-## Daily commands
-
-```bash
-npm run dev
-npm run dev:status
-npm run dev:stop
-```
-
-You can also double-click `start-dev.command` for the same fast daily workflow. If daily start reports that dependencies are missing or out of date, run `npm run dev:prepare` once and retry.
-
-`dev:stop` removes containers and the project network but preserves PostgreSQL, Redis, and MinIO volumes.
+If macOS Gatekeeper blocks a launcher after cloning, Control-click it in Finder, select **Open**, and confirm once.
 
 ## Deliberate reset
 
-```bash
-npm run dev:reset
-```
+Double-click `reset-dev.command`.
 
 Reset requires typing `RESET`. It refuses to run in production, against a remote database host, or against any database other than `closetrent_dev`. After validation it deletes only this Compose project's local data volumes, recreates infrastructure, deploys migrations, and seeds the platform.
 
-For non-interactive local automation only:
-
-```bash
-npm run dev:reset -- --yes
-```
+When reset completes, it automatically starts the backend and frontend.
 
 ## Local subdomains
 
@@ -75,12 +38,6 @@ Tenant storefronts can be tested at URLs such as `http://demo.localhost:3000`; m
 
 ## Troubleshooting
 
-Run these in order:
+First double-click `status-dev.command`. If daily start reports missing or outdated dependencies, double-click `prepare-dev.command` once and retry.
 
-```bash
-npm run env:check
-npm run dev:status
-docker compose logs --tail=100 postgres redis minio
-```
-
-The launcher does not terminate unrelated processes. If ports 3000 or 4000 are already occupied, stop the process you intentionally started there and run `npm run dev` again.
+The launcher does not terminate unrelated processes. If ports 3000 or 4000 are already occupied by something outside the launcher, stop the process you intentionally started there and double-click `start-dev.command` again.

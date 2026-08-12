@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { access, readFile, stat } from 'node:fs/promises';
+import { access, copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
@@ -11,7 +11,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 const ENV_FILE = path.join(REPOSITORY_ROOT, '.env');
+const ENV_EXAMPLE_FILE = path.join(REPOSITORY_ROOT, '.env.example');
 const COMPOSE_FILE = path.join(REPOSITORY_ROOT, 'docker-compose.yml');
+const RUNTIME_DIRECTORY = path.join(REPOSITORY_ROOT, '.artifacts', 'dev');
+const SUPERVISOR_FILE = path.join(RUNTIME_DIRECTORY, 'supervisor.json');
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 const REQUIRED_KEYS = [
@@ -152,7 +155,18 @@ export function validateResetTarget(environment) {
   return true;
 }
 
-async function loadEnvironment() {
+async function ensureLocalEnvironmentFile() {
+  try {
+    await access(ENV_FILE);
+    return;
+  } catch {
+    await copyFile(ENV_EXAMPLE_FILE, ENV_FILE);
+    console.log('Created .env from .env.example for local development.');
+  }
+}
+
+async function loadEnvironment({ createIfMissing = false } = {}) {
+  if (createIfMissing) await ensureLocalEnvironmentFile();
   let contents;
   try {
     contents = await readFile(ENV_FILE, 'utf8');
@@ -328,8 +342,139 @@ function terminateChild(child, signal = 'SIGTERM') {
   }
 }
 
+export function isSupervisorIdentityValid(identity, repositoryRoot = REPOSITORY_ROOT) {
+  if (!identity || !Number.isInteger(identity.pid) || identity.pid <= 0) return false;
+  if (identity.repositoryRoot !== repositoryRoot) return false;
+  if (identity.command !== 'scripts/dev-environment.mjs') return false;
+  return true;
+}
+
+async function writeSupervisorRecord() {
+  await mkdir(RUNTIME_DIRECTORY, { recursive: true });
+  await writeFile(
+    SUPERVISOR_FILE,
+    `${JSON.stringify(
+      {
+        pid: process.pid,
+        repositoryRoot: REPOSITORY_ROOT,
+        command: 'scripts/dev-environment.mjs',
+        startedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+}
+
+async function removeSupervisorRecord(expectedPid) {
+  try {
+    const identity = JSON.parse(await readFile(SUPERVISOR_FILE, 'utf8'));
+    if (expectedPid && identity.pid !== expectedPid) return;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+  }
+  await rm(SUPERVISOR_FILE, { force: true });
+}
+
+async function readSupervisorRecord() {
+  try {
+    return JSON.parse(await readFile(SUPERVISOR_FILE, 'utf8'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    await rm(SUPERVISOR_FILE, { force: true });
+    return null;
+  }
+}
+
+async function inspectProcess(pid) {
+  if (process.platform === 'win32') return null;
+  const command = await new Promise((resolve) => {
+    const child = spawn('ps', ['-p', String(pid), '-o', 'command='], {
+      cwd: REPOSITORY_ROOT,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      shell: false,
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
+    child.once('error', () => resolve(null));
+    child.once('exit', (code) => resolve(code === 0 ? output.trim() : null));
+  });
+  if (!command) return null;
+
+  const workingDirectory = await new Promise((resolve) => {
+    const child = spawn('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], {
+      cwd: REPOSITORY_ROOT,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      shell: false,
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
+    child.once('error', () => resolve(null));
+    child.once('exit', (code) => {
+      if (code !== 0) return resolve(null);
+      const directoryLine = output.split(/\r?\n/).find((line) => line.startsWith('n'));
+      resolve(directoryLine ? directoryLine.slice(1) : null);
+    });
+  });
+
+  return { command, workingDirectory };
+}
+
+export function processMatchesSupervisor(identity, processDetails) {
+  return Boolean(
+    isSupervisorIdentityValid(identity, identity?.repositoryRoot) &&
+      processDetails?.workingDirectory === identity.repositoryRoot &&
+      processDetails.command.includes('scripts/dev-environment.mjs'),
+  );
+}
+
+async function stopRecordedSupervisor() {
+  const identity = await readSupervisorRecord();
+  if (!identity) return false;
+  if (!isSupervisorIdentityValid(identity)) {
+    await removeSupervisorRecord();
+    return false;
+  }
+
+  const processDetails = await inspectProcess(identity.pid);
+  if (!processDetails) {
+    await removeSupervisorRecord(identity.pid);
+    return false;
+  }
+  if (!processMatchesSupervisor(identity, processDetails)) {
+    await removeSupervisorRecord(identity.pid);
+    return false;
+  }
+
+  try {
+    process.kill(identity.pid, 'SIGTERM');
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+    await removeSupervisorRecord(identity.pid);
+    return false;
+  }
+  let stopped = false;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (!(await inspectProcess(identity.pid))) {
+      stopped = true;
+      break;
+    }
+    await sleep(100);
+  }
+  if (!stopped) throw new Error('The application supervisor did not stop within five seconds');
+  await removeSupervisorRecord(identity.pid);
+  return true;
+}
+
 async function startApplications(environment) {
   await assertApplicationPortsAvailable(environment);
+  await stopRecordedSupervisor();
+  await writeSupervisorRecord();
   console.log(`\nStorefront and dashboard: ${environment.APP_URL}`);
   console.log(`API: ${environment.NEXT_PUBLIC_API_URL}`);
   console.log(
@@ -371,10 +516,15 @@ async function startApplications(environment) {
     process.once(signal, handler);
   }
 
-  const result = await Promise.race([...exits, interrupted]);
-  for (const child of children) terminateChild(child, result.signal || 'SIGTERM');
-  await Promise.allSettled(exits);
-  for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
+  let result;
+  try {
+    result = await Promise.race([...exits, interrupted]);
+  } finally {
+    for (const child of children) terminateChild(child, result?.signal || 'SIGTERM');
+    await Promise.allSettled(exits);
+    for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
+    await removeSupervisorRecord(process.pid);
+  }
   if (!result.signal && result.code !== 0)
     throw new Error(`A development application exited with code ${result.code}`);
 }
@@ -395,7 +545,7 @@ async function reset(environment) {
   validateResetTarget(environment);
   if (!(await confirmReset())) {
     console.log('Reset cancelled.');
-    return;
+    return false;
   }
   await ensurePrerequisites(environment);
   const configured = await compose(environment, ['config', '--services'], {
@@ -409,6 +559,7 @@ async function reset(environment) {
   console.log(
     '\nReset complete: database migrated and seeded, Redis empty, and storage bucket recreated.',
   );
+  return true;
 }
 
 async function status(environment) {
@@ -431,9 +582,12 @@ async function status(environment) {
 
 async function stop(environment) {
   validateConfiguration(environment);
+  const supervisorStopped = await stopRecordedSupervisor();
   await ensurePrerequisites(environment);
   await compose(environment, ['down', '--remove-orphans']);
-  console.log('Development infrastructure stopped; named data volumes were preserved.');
+  console.log(
+    `${supervisorStopped ? 'Application servers and development infrastructure' : 'Development infrastructure'} stopped; named data volumes were preserved.`,
+  );
 }
 
 function printConfigurationSummary(environment) {
@@ -464,6 +618,10 @@ export async function runCommand(command, environment, operations = WORKFLOW_OPE
     case 'prepare':
       await operations.prepare(environment);
       break;
+    case 'prepare-start':
+      await operations.prepare(environment);
+      await operations.startApplications(environment);
+      break;
     case 'start':
       await operations.startDaily(environment);
       await operations.startApplications(environment);
@@ -477,16 +635,21 @@ export async function runCommand(command, environment, operations = WORKFLOW_OPE
     case 'reset':
       await operations.reset(environment);
       break;
+    case 'reset-start':
+      if (await operations.reset(environment)) await operations.startApplications(environment);
+      break;
     default:
       throw new Error(
-        `Unknown command "${command}". Use start, prepare, status, stop, reset, or check.`,
+        `Unknown command "${command}". Use start, prepare, prepare-start, status, stop, reset, reset-start, or check.`,
       );
   }
 }
 
 async function main() {
   const command = process.argv[2] || 'start';
-  const environment = await loadEnvironment();
+  const environment = await loadEnvironment({
+    createIfMissing: command === 'prepare' || command === 'prepare-start',
+  });
   await runCommand(command, environment);
 }
 

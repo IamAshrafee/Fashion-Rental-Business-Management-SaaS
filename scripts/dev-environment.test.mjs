@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  isSupervisorIdentityValid,
   parseDotEnv,
+  processMatchesSupervisor,
   runCommand,
   validateConfiguration,
   validateResetTarget,
@@ -92,6 +94,7 @@ function workflowRecorder() {
         name,
         async () => {
           calls.push(name);
+          return name === 'reset';
         },
       ],
     ),
@@ -114,6 +117,67 @@ test('prepare remains an explicit standalone workflow', async () => {
   await runCommand('prepare', validEnvironment(), operations);
 
   assert.deepEqual(calls, ['prepare']);
+});
+
+test('prepare-start prepares before starting applications', async () => {
+  const { calls, operations } = workflowRecorder();
+
+  await runCommand('prepare-start', validEnvironment(), operations);
+
+  assert.deepEqual(calls, ['prepare', 'startApplications']);
+});
+
+test('reset-start starts applications only after a completed reset', async () => {
+  const { calls, operations } = workflowRecorder();
+
+  await runCommand('reset-start', validEnvironment(), operations);
+
+  assert.deepEqual(calls, ['reset', 'startApplications']);
+
+  calls.length = 0;
+  operations.reset = async () => {
+    calls.push('reset');
+    return false;
+  };
+
+  await runCommand('reset-start', validEnvironment(), operations);
+
+  assert.deepEqual(calls, ['reset']);
+});
+
+test('stop and status remain isolated workflows', async () => {
+  for (const command of ['stop', 'status']) {
+    const { calls, operations } = workflowRecorder();
+    await runCommand(command, validEnvironment(), operations);
+    assert.deepEqual(calls, [command]);
+  }
+});
+
+test('supervisor validation requires this repository and orchestrator identity', () => {
+  const repositoryRoot = '/workspace/closetrent';
+  const identity = {
+    pid: 123,
+    repositoryRoot,
+    command: 'scripts/dev-environment.mjs',
+  };
+
+  assert.equal(isSupervisorIdentityValid(identity, repositoryRoot), true);
+  assert.equal(isSupervisorIdentityValid({ ...identity, pid: -1 }, repositoryRoot), false);
+  assert.equal(isSupervisorIdentityValid({ ...identity, repositoryRoot: '/other' }, repositoryRoot), false);
+  assert.equal(
+    processMatchesSupervisor(identity, {
+      command: 'node scripts/dev-environment.mjs start',
+      workingDirectory: repositoryRoot,
+    }),
+    true,
+  );
+  assert.equal(
+    processMatchesSupervisor(identity, {
+      command: 'node unrelated.mjs',
+      workingDirectory: repositoryRoot,
+    }),
+    false,
+  );
 });
 
 test('unknown development workflow commands are rejected', async () => {

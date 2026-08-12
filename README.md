@@ -6,16 +6,11 @@ ClosetRent is a multi-tenant fashion-rental business management SaaS with produc
 
 Requirements: Node.js 18+, npm 9+, Docker Desktop, and Docker Compose v2.
 
-```bash
-cp .env.example .env
-npm install
-npm run dev:prepare
-npm run dev
-```
+For a first setup, double-click `prepare-dev.command`. For normal daily work, double-click `start-dev.command`. No terminal commands are required.
 
-`npm run dev:prepare` performs the deliberate first-time or after-change setup: it starts infrastructure, creates the public and private object-storage buckets, generates Prisma Client, deploys committed migrations, and applies the idempotent platform seed.
+`prepare-dev.command` creates the local `.env` when missing, prepares dependencies, infrastructure, storage, Prisma, migrations, and the platform seed, then starts both applications.
 
-For normal daily work, `npm run dev` only validates the local environment, starts and health-checks PostgreSQL, Redis, and MinIO, and launches the NestJS and Next.js development servers. It does not install dependencies, generate code, migrate, seed, or initialize storage.
+`start-dev.command` only validates the local environment, starts and health-checks PostgreSQL, Redis, and MinIO, and launches the NestJS and Next.js development servers. It does not install dependencies, generate code, migrate, seed, initialize storage, or delete data.
 
 The default local endpoints are:
 
@@ -25,14 +20,12 @@ The default local endpoints are:
 - MinIO API: `http://localhost:9000`
 - MinIO console: `http://localhost:9001`
 
-## Development commands
+## Development launchers
 
-```bash
-npm run env:check      # validate configuration without exposing secrets
-npm run dev:prepare    # after setup, dependency changes, or schema changes
-npm run dev:status     # inspect infrastructure and application ports
-npm run dev:stop       # stop infrastructure and preserve data volumes
-npm run dev:reset      # confirmed, local-only destructive reset
-```
+- `start-dev.command` — normal daily start.
+- `prepare-dev.command` — first setup or project upgrade, followed by start.
+- `reset-dev.command` — confirmed fresh local environment, followed by start.
+- `stop-dev.command` — stop applications and infrastructure without deleting data.
+- `status-dev.command` — read-only service status.
 
-The macOS/Linux `.sh`, macOS `.command`, and Windows `.bat` launchers delegate to the same cross-platform workflow. See [the local setup guide](macbook-setup-guide.md) and [environment reference](docs/environment-variables.md).
+See [exactly when to use each development launcher](DEVELOPMENT-SCRIPTS.md), [the local setup guide](macbook-setup-guide.md), and [the environment reference](docs/environment-variables.md).

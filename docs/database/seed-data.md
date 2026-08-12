@@ -39,10 +39,6 @@ This separation keeps platform installation deterministic while ensuring every r
 npm run db:seed
 ```
 
-Normal local startup runs the seed automatically through `npm run dev:prepare`. A full local reset runs migrations and the seed after recreating the verified development resources:
-
-```bash
-npm run dev:reset
-```
+The explicit `prepare-dev.command` launcher runs the seed before starting the applications. The normal `start-dev.command` launcher never seeds. Double-clicking `reset-dev.command` performs a confirmed full local reset, then runs migrations and the seed after recreating the verified development resources.
 
 Running `npm run db:seed` twice must produce the same logical platform records.

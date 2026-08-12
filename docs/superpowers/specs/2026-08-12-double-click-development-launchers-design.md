@@ -16,7 +16,7 @@ It must not install dependencies, generate Prisma Client, deploy migrations, see
 
 ### `prepare-dev.command`
 
-The deliberate setup and upgrade launcher. It installs dependencies when missing or outdated, starts infrastructure, creates the public and private storage buckets, generates Prisma Client, deploys committed migrations, and applies the idempotent platform seed. When preparation succeeds, it automatically starts the backend and frontend so the project is ready to use from this single double-click.
+The deliberate setup and upgrade launcher. On a fresh clone it creates `.env` from `.env.example` only when `.env` is missing. It never overwrites an existing environment file. It installs dependencies when missing or outdated, starts infrastructure, creates the public and private storage buckets, generates Prisma Client, deploys committed migrations, and applies the idempotent platform seed. When preparation succeeds, it automatically starts the backend and frontend so the project is ready to use from this single double-click.
 
 Use it for the first project setup and after dependency, Prisma schema, migration, seed, or storage-configuration changes.
 

@@ -67,3 +67,4 @@ certbot/
 # Misc
 *.tsbuildinfo
 .eslintcache
+.artifacts/
