@@ -20,7 +20,6 @@ import {
 } from 'class-validator';
 import {
   AvailabilityPolicyScope,
-  InventoryTrackingMode,
   InventoryLocationType,
   InventoryMovementType,
   StockConditionGrade,
@@ -46,10 +45,6 @@ export class InventorySkusQueryDto {
   @IsString()
   @MaxLength(100)
   search?: string;
-
-  @IsOptional()
-  @IsEnum(InventoryTrackingMode)
-  trackingMode?: InventoryTrackingMode;
 
   @IsOptional()
   @IsUUID()
@@ -315,58 +310,6 @@ export class UpdateInventoryLocationDto {
   isActive?: boolean;
 }
 
-export class AdjustInventoryPoolDto {
-  @IsUUID()
-  locationId!: string;
-
-  @IsIn(['RECEIVE', 'ADD', 'SUBTRACT', 'WRITE_OFF'])
-  adjustmentType!: 'RECEIVE' | 'ADD' | 'SUBTRACT' | 'WRITE_OFF';
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(1_000_000)
-  quantity!: number;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  expectedVersion!: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(1_000_000)
-  reorderThreshold?: number;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(500)
-  reason!: string;
-}
-
-export class CountInventoryPoolDto {
-  @IsUUID()
-  locationId!: string;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(1_000_000)
-  observedQuantity!: number;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  expectedVersion!: number;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(500)
-  reason!: string;
-}
-
 export class InventoryMovementsQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
   page = 1;
@@ -385,9 +328,6 @@ export class InventoryMovementsQueryDto {
 
   @IsOptional() @IsUUID()
   stockUnitId?: string;
-
-  @IsOptional() @IsUUID()
-  inventoryPoolId?: string;
 
   @IsOptional() @IsUUID()
   locationId?: string;

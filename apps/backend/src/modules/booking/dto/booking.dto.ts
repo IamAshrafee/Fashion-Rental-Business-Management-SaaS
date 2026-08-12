@@ -56,10 +56,6 @@ export class CartItemDto {
   variantSizeId!: string;
 
   @IsOptional()
-  @IsUUID()
-  preferredStockUnitId?: string;
-
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)

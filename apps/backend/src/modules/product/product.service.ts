@@ -19,7 +19,7 @@ import {
   UpdateDetailHeaderDto,
   DetailEntryDto,
 } from './dto/product.dto';
-import { InventoryTrackingMode, Prisma, ProductStatus } from '@prisma/client';
+import { Prisma, ProductStatus } from '@prisma/client';
 
 export const PRODUCT_READINESS_CODES = [
   'CATEGORY',
@@ -29,7 +29,6 @@ export const PRODUCT_READINESS_CODES = [
   'RENTABLE_SKU',
   'VARIANT_MEDIA',
   'ACTIVE_PRICING',
-  'STOREFRONT_ITEM_MODE',
   'COMPOSITION',
 ] as const;
 
@@ -63,7 +62,6 @@ const ownerProductListSelect = () => ({
   onboarding: {
     select: { currentSection: true, completedSections: true, revision: true, updatedAt: true },
   },
-  targetRentals: true,
   totalBookings: true,
   createdAt: true,
   updatedAt: true,
@@ -110,9 +108,7 @@ const ownerProductListSelect = () => ({
       sizes: {
         select: {
           id: true,
-          trackingMode: true,
           sizeInstance: { select: { sizeSchemaId: true } },
-          inventoryPools: { select: { onHandQuantity: true } },
           _count: {
             select: {
               stockUnits: {
@@ -168,12 +164,10 @@ export class ProductService {
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.categoryId !== undefined) data.categoryId = dto.categoryId;
     if (dto.subcategoryId !== undefined) data.subcategoryId = dto.subcategoryId || null;
-    if (dto.purchaseDate !== undefined) data.purchaseDate = dto.purchaseDate ? new Date(dto.purchaseDate) : null;
-    if (dto.purchasePrice !== undefined) data.purchasePrice = dto.purchasePrice;
-    if (dto.purchasePricePublic !== undefined) data.purchasePricePublic = dto.purchasePricePublic;
-    if (dto.itemCountry !== undefined) data.itemCountry = dto.itemCountry;
-    if (dto.itemCountryPublic !== undefined) data.itemCountryPublic = dto.itemCountryPublic;
-    if (dto.targetRentals !== undefined) data.targetRentals = dto.targetRentals;
+    if (dto.countryOfOrigin !== undefined) data.countryOfOrigin = dto.countryOfOrigin.trim() || null;
+    if (dto.countryOfOriginPublic !== undefined) data.countryOfOriginPublic = dto.countryOfOriginPublic;
+    if (dto.referenceRetailValue !== undefined) data.referenceRetailValue = dto.referenceRetailValue;
+    if (dto.referenceRetailValuePublic !== undefined) data.referenceRetailValuePublic = dto.referenceRetailValuePublic;
     if (dto.storefrontItemMode !== undefined) data.storefrontItemMode = dto.storefrontItemMode;
     if (dto.productTypeId !== undefined) data.productTypeId = dto.productTypeId || null;
     if (dto.sizeSchemaOverrideId !== undefined) data.sizeSchemaOverrideId = dto.sizeSchemaOverrideId || null;
@@ -561,7 +555,6 @@ export class ProductService {
         tx.fulfillmentRequirement.count({ where: { tenantId, productId } }),
         tx.inventoryReservation.count({ where: { tenantId, productId } }),
         tx.stockUnit.count({ where: { tenantId, variantSize: { variant: { productId } } } }),
-        tx.inventoryPool.count({ where: { tenantId, variantSize: { variant: { productId } } } }),
         tx.inventoryMovement.count({ where: { tenantId, variantSize: { variant: { productId } } } }),
         tx.inventoryBlock.count({
           where: {
@@ -929,11 +922,6 @@ export class ProductService {
     if (query.productTypeId) {
       where.productTypeId = query.productTypeId;
     }
-    if (query.trackingMode) {
-      where.variants = {
-        some: { sizes: { some: { trackingMode: query.trackingMode } } },
-      };
-    }
     if (query.search) {
       where.OR = [
         { name: { contains: query.search.trim(), mode: 'insensitive' } },
@@ -1021,7 +1009,6 @@ export class ProductService {
             sizes: {
               select: {
                 id: true,
-                trackingMode: true,
                 sizeInstance: { select: { sizeSchemaId: true } },
               },
             },
@@ -1186,7 +1173,6 @@ export class ProductService {
       where: { tenantId, variant: { productId } },
       select: {
         id: true,
-        trackingMode: true,
         sizeInstance: { select: { sizeSchemaId: true } },
       },
     });
@@ -1205,16 +1191,6 @@ export class ProductService {
         code: 'CATALOG_EDIT_CONFLICT',
         field: 'sizeSchemaOverrideId',
         message: 'The selected size schema does not contain the product’s existing SKUs.',
-      });
-    }
-    if (
-      input.storefrontItemMode === 'SPECIFIC_ITEM_SELECTION' &&
-      variantSizes.some((size) => size.trackingMode !== InventoryTrackingMode.SERIALIZED)
-    ) {
-      throw new ConflictException({
-        code: 'CATALOG_EDIT_CONFLICT',
-        field: 'storefrontItemMode',
-        message: 'Customer item selection requires every SKU to use physical-item tracking.',
       });
     }
   }
@@ -1267,16 +1243,6 @@ export class ProductService {
             },
           },
         },
-        {
-          OR: [
-            { storefrontItemMode: { not: 'SPECIFIC_ITEM_SELECTION' } },
-            {
-              variants: {
-                none: { sizes: { some: { trackingMode: { not: InventoryTrackingMode.SERIALIZED } } } },
-              },
-            },
-          ],
-        },
       ],
     };
   }
@@ -1287,14 +1253,9 @@ export class ProductService {
         some: {
           sizes: {
             some: {
-              OR: [
-                { inventoryPools: { some: { onHandQuantity: { gt: 0 } } } },
-                {
-                  stockUnits: {
-                    some: { disposition: 'ACTIVE', deletedAt: null },
-                  },
-                },
-              ],
+              stockUnits: {
+                some: { disposition: 'ACTIVE', deletedAt: null },
+              },
             },
           },
         },
@@ -1318,24 +1279,15 @@ export class ProductService {
   }
 
   private mapOwnerProductListItem(product: OwnerProductListRecord) {
-    let pooledOnHand = 0;
-    let serializedUnits = 0;
+    let physicalItems = 0;
     let skuCount = 0;
     let thumbnailUrl: string | null = null;
-    const trackingModes = new Set<InventoryTrackingMode>();
 
     for (const variant of product.variants) {
       thumbnailUrl ??= variant.images[0]?.thumbnailUrl || variant.images[0]?.url || null;
       for (const size of variant.sizes) {
         skuCount += 1;
-        trackingModes.add(size.trackingMode);
-        if (size.trackingMode === InventoryTrackingMode.POOLED) {
-          for (const pool of size.inventoryPools) {
-            pooledOnHand += pool.onHandQuantity;
-          }
-        } else {
-          serializedUnits += size._count.stockUnits;
-        }
+        physicalItems += size._count.stockUnits;
       }
     }
 
@@ -1349,20 +1301,13 @@ export class ProductService {
       hasActivePricing: Boolean(activeRatePlan),
       compositionRules: product.compositionRules,
     });
-    const trackingMode =
-      trackingModes.size === 0
-        ? 'NONE'
-        : trackingModes.size > 1
-          ? 'MIXED'
-          : (trackingModes.values().next().value ?? 'NONE');
-    const onHand = pooledOnHand + serializedUnits;
+    const onHand = physicalItems;
 
     return {
       id: product.id,
       name: product.name,
       slug: product.slug,
       status: product.status,
-      targetRentals: product.targetRentals,
       totalBookings: product.totalBookings,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
@@ -1376,11 +1321,9 @@ export class ProductService {
       thumbnailUrl,
       variantCount: product.variants.length,
       skuCount,
-      trackingMode,
       inventory: {
         onHand,
-        pooledOnHand,
-        serializedUnits,
+        physicalItems,
         hasStock: onHand > 0,
       },
       readiness,
@@ -1400,7 +1343,6 @@ export class ProductService {
       images: Array<{ id: string }>;
       sizes: Array<{
         id?: string;
-        trackingMode: InventoryTrackingMode;
         sizeInstance?: { sizeSchemaId: string };
       }>;
     }>;
@@ -1451,18 +1393,6 @@ export class ProductService {
         variant.sizes.some((size) => size.sizeInstance && size.sizeInstance.sizeSchemaId !== activeSchema.id)
       ) {
         block('SIZE_SCHEMA', 'sizing', 'A variant uses a size outside the selected size schema.', 'sizeSchemaOverrideId', variant.id);
-      }
-      if (
-        input.storefrontItemMode === 'SPECIFIC_ITEM_SELECTION' &&
-        variant.sizes.some((size) => size.trackingMode !== InventoryTrackingMode.SERIALIZED)
-      ) {
-        block(
-          'STOREFRONT_ITEM_MODE',
-          'variants',
-          'Customer item selection requires every rentable SKU to use physical-item tracking.',
-          'storefrontItemMode',
-          variant.id,
-        );
       }
     }
 
@@ -1648,10 +1578,6 @@ export class ProductService {
           sizes: {
             include: {
               sizeInstance: true,
-              inventoryPools: {
-                where: { location: { isActive: true } },
-                select: { onHandQuantity: true },
-              },
               _count: {
                 select: {
                   stockUnits: {
@@ -1766,14 +1692,7 @@ export class ProductService {
         sizes: v.sizes?.map((s: any) => ({
           variantSizeId: s.id,
           sizeInstance: s.sizeInstance,
-          trackingMode: s.trackingMode,
-          totalCapacity:
-            s.trackingMode === 'SERIALIZED'
-              ? (s._count?.stockUnits ?? 0)
-              : s.inventoryPools?.reduce(
-                  (sum: number, pool: { onHandQuantity: number }) => sum + pool.onHandQuantity,
-                  0,
-                ) ?? 0,
+          totalCapacity: s._count?.stockUnits ?? 0,
         })) || [],
       })),
       details: product.detailHeaders?.map((h: any) => ({

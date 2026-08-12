@@ -18,11 +18,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import {
-  InventoryTrackingMode,
-  StockConditionGrade,
-  StockUnitComponentPresence,
-} from '@prisma/client';
+import { StockConditionGrade, StockUnitComponentPresence } from '@prisma/client';
 
 export class PublicAvailabilityQueryDto {
   @IsUUID()
@@ -54,16 +50,6 @@ export class InventoryCalendarQueryDto {
   variantSizeId?: string;
 }
 
-export class ConfigureVariantSizeInventoryDto {
-  @IsEnum(InventoryTrackingMode)
-  trackingMode!: InventoryTrackingMode;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  reason?: string;
-}
-
 export class CreateStockUnitDto {
   @IsUUID()
   locationId!: string;
@@ -84,14 +70,24 @@ export class CreateStockUnitDto {
 
   @IsOptional()
   @IsDateString()
-  purchaseDate?: string;
+  acquisitionDate?: string;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(1_000_000_000)
-  purchasePrice?: number;
+  acquisitionCost?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionReference?: string;
 
   @IsOptional()
   @IsString()
@@ -131,6 +127,36 @@ export class BatchStockUnitRowDto {
   @IsString()
   @MaxLength(200)
   barcode?: string;
+
+  @IsOptional()
+  @IsEnum(StockConditionGrade)
+  condition?: StockConditionGrade;
+
+  @IsOptional()
+  @IsDateString()
+  acquisitionDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000_000)
+  acquisitionCost?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionReference?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
 }
 
 export class InitialStockUnitComponentDto {
@@ -175,14 +201,24 @@ export class RegisterStockUnitBatchDto {
 
   @IsOptional()
   @IsDateString()
-  purchaseDate?: string;
+  acquisitionDate?: string;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(1_000_000_000)
-  purchasePrice?: number;
+  acquisitionCost?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionReference?: string;
 
   @IsOptional()
   @IsString()
@@ -218,13 +254,23 @@ export class UpdateStockUnitDto {
 
   @IsOptional()
   @IsDateString()
-  purchaseDate?: string;
+  acquisitionDate?: string;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  purchasePrice?: number;
+  acquisitionCost?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  acquisitionReference?: string;
 
   @IsOptional()
   @IsString()

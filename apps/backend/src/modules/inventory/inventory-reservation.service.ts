@@ -15,7 +15,6 @@ interface CreateReservationInput {
   endDate: string | Date;
   status: InventoryReservationStatus;
   expiresAt?: Date | null;
-  preferredStockUnitId?: string;
 }
 
 @Injectable()
@@ -57,7 +56,6 @@ export class InventoryReservationService {
         startDate: input.startDate,
         endDate: input.endDate,
         quantity: input.quantity,
-        preferredStockUnitId: input.preferredStockUnitId,
       },
       tx,
     );
@@ -83,8 +81,6 @@ export class InventoryReservationService {
         productId: input.productId,
         variantSizeId: input.variantSizeId,
         sourceLocationId: input.sourceLocationId,
-        inventoryPoolId: availability.inventoryPoolId,
-        preferredStockUnitId: input.preferredStockUnitId ?? null,
         quantity: input.quantity,
         rentalStartDate: new Date(availability.rentalRange.start),
         rentalEndDate: new Date(availability.rentalRange.end),
@@ -153,6 +149,7 @@ export class InventoryReservationService {
     }
 
     if (bookingStatus === BookingStatus.completed) {
+      await this.allocateCompletedRentalRevenue(tx, tenantId, bookingId);
       await tx.stockUnitAssignment.updateMany({
         where: { tenantId, reservation: { bookingId }, releasedAt: null },
         data: { releasedAt: now, releaseReason: reason ?? 'Booking completed' },
@@ -165,6 +162,56 @@ export class InventoryReservationService {
           releaseReason: reason ?? 'Booking completed',
         },
       });
+    }
+  }
+
+  private async allocateCompletedRentalRevenue(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    bookingId: string,
+  ): Promise<void> {
+    const requirements = await tx.fulfillmentRequirement.findMany({
+      where: { tenantId, bookingId, status: { notIn: ['CANCELLED', 'SUPERSEDED'] } },
+      select: {
+        id: true,
+        bookingItemId: true,
+        revenueAllocation: true,
+        reservation: {
+          select: {
+            assignments: {
+              where: { releasedAt: null },
+              orderBy: [{ assignedAt: 'asc' }, { id: 'asc' }],
+              select: { id: true, stockUnitId: true },
+            },
+          },
+        },
+      },
+    });
+
+    const allocations = requirements.flatMap((requirement) => {
+      const assignments = requirement.reservation?.assignments ?? [];
+      if (assignments.length === 0 || requirement.revenueAllocation === 0) return [];
+      const baseAmount = Math.trunc(requirement.revenueAllocation / assignments.length);
+      let remainder = requirement.revenueAllocation - baseAmount * assignments.length;
+      return assignments.map((assignment) => {
+        const remainderAmount = remainder === 0 ? 0 : remainder > 0 ? 1 : -1;
+        remainder -= remainderAmount;
+        return {
+          tenantId,
+          stockUnitId: assignment.stockUnitId,
+          assignmentId: assignment.id,
+          bookingId,
+          bookingItemId: requirement.bookingItemId,
+          fulfillmentRequirementId: requirement.id,
+          allocationKind: 'RENTAL_REVENUE' as const,
+          amount: baseAmount + remainderAmount,
+          sourceKey: `booking:${bookingId}:requirement:${requirement.id}:assignment:${assignment.id}:rental-revenue`,
+          reason: 'Attributed when the booking completed',
+        };
+      });
+    });
+    if (allocations.length > 0) {
+      await tx.stockUnitRevenueAllocation.createMany({ data: allocations, skipDuplicates: true });
     }
   }
 

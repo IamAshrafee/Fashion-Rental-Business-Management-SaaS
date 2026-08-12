@@ -24,12 +24,9 @@ export class StockUnitSetService {
       return await this.prisma.$transaction(async (tx) => {
         const sku = await tx.variantSize.findFirst({
           where: { id: variantSizeId, tenantId },
-          select: { id: true, trackingMode: true },
+          select: { id: true },
         });
         if (!sku) throw new NotFoundException('Variant-size inventory was not found');
-        if (sku.trackingMode !== 'SERIALIZED') {
-          throw new ConflictException('Set checklists require serialized physical units');
-        }
 
         const definition = await tx.skuSetComponentDefinition.create({
           data: {

@@ -3,7 +3,6 @@ import {
   FulfillmentEventType,
   FulfillmentPreparationStatus,
   FulfillmentRequirementStatus,
-  InventoryTrackingMode,
   Prisma,
   StockConditionGrade,
   StockUnitOperationalState,
@@ -16,9 +15,6 @@ export class InventoryAssignmentService {
 
   async listEligibleUnits(tenantId: string, bookingId: string, bookingItemId: string, requirementId: string) {
     const reservation = await this.getReservation(this.prisma, tenantId, bookingId, bookingItemId, requirementId);
-    if (reservation.variantSize?.trackingMode !== InventoryTrackingMode.SERIALIZED) {
-      return { requirement: reservation.fulfillmentRequirement, reservationId: reservation.id, required: 0, assigned: [], eligible: [] };
-    }
     const eligibility = this.assignmentEligibility(
       reservation.fulfillmentRequirement.availabilityPolicySnapshot,
     );
@@ -32,9 +28,6 @@ export class InventoryAssignmentService {
       this.prisma.stockUnit.findMany({
         where: {
           tenantId,
-          ...(reservation.preferredStockUnitId
-            ? { id: reservation.preferredStockUnitId }
-            : {}),
           variantSizeId: reservation.variantSize.id,
           locationId: reservation.sourceLocationId,
           disposition: 'ACTIVE',
@@ -95,9 +88,6 @@ export class InventoryAssignmentService {
       try {
         return await this.prisma.$transaction(async (tx) => {
         const reservation = await this.getReservation(tx, tenantId, bookingId, bookingItemId, requirementId);
-        if (reservation.variantSize?.trackingMode !== InventoryTrackingMode.SERIALIZED) {
-          throw new ConflictException('Physical units are only assigned to serialized inventory');
-        }
         if (!['PENDING', 'CONFIRMED'].includes(reservation.status)) {
           throw new ConflictException('Inventory reservation is no longer active');
         }
@@ -112,15 +102,6 @@ export class InventoryAssignmentService {
         );
 
         const sortedIds = [...new Set(stockUnitIds)].sort();
-        if (
-          reservation.preferredStockUnitId &&
-          (sortedIds.length !== 1 || sortedIds[0] !== reservation.preferredStockUnitId)
-        ) {
-          throw new ConflictException({
-            code: 'PREFERRED_STOCK_UNIT_REQUIRED',
-            message: 'This booking reserved a specific customer-selected physical item',
-          });
-        }
         await tx.$queryRaw(Prisma.sql`
           SELECT id
           FROM stock_units

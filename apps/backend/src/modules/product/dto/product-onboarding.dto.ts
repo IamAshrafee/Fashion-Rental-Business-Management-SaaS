@@ -5,7 +5,6 @@ import {
   ArrayUnique,
   IsArray,
   IsBoolean,
-  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -17,14 +16,9 @@ import {
   MaxLength,
   Min,
   MinLength,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import {
-  InventoryTrackingMode,
-  StockConditionGrade,
-  StorefrontItemVisibilityMode,
-} from '@prisma/client';
+import { StorefrontItemVisibilityMode } from '@prisma/client';
 import { CreateFaqDto, CreateDetailHeaderDto } from './product.dto';
 import { SavePricingDto } from '../../pricing-engine/dto/pricing-engine.dto';
 
@@ -63,35 +57,24 @@ export class StartProductOnboardingDto {
   eventIds?: string[];
 
   @IsOptional()
-  @IsDateString()
-  purchaseDate?: string;
+  @IsString()
+  @MaxLength(100)
+  countryOfOrigin?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  countryOfOriginPublic?: boolean;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(1_000_000_000)
-  purchasePrice?: number;
+  referenceRetailValue?: number;
 
   @IsOptional()
   @IsBoolean()
-  purchasePricePublic?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  itemCountry?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  itemCountryPublic?: boolean;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100_000)
-  targetRentals?: number;
+  referenceRetailValuePublic?: boolean;
 
   @IsOptional()
   @IsEnum(StorefrontItemVisibilityMode)
@@ -108,9 +91,6 @@ export class SaveProductBasicsDto extends StartProductOnboardingDto {
 export class OnboardingSkuSizeDto {
   @IsUUID()
   sizeInstanceId!: string;
-
-  @IsEnum(InventoryTrackingMode)
-  trackingMode!: InventoryTrackingMode;
 }
 
 export class OnboardingVariantDto {
@@ -181,73 +161,6 @@ export class SaveProductPricingSectionDto extends ProductOnboardingRevisionDto {
   @ValidateNested()
   @Type(() => SavePricingDto)
   pricing!: SavePricingDto;
-}
-
-export class OpeningPhysicalItemDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  assetCode!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  barcode?: string;
-
-  @IsOptional()
-  @IsEnum(StockConditionGrade)
-  condition?: StockConditionGrade;
-
-  @IsOptional()
-  @IsDateString()
-  purchaseDate?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(1_000_000_000)
-  purchasePrice?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  notes?: string;
-}
-
-export class OpeningInventoryLineDto {
-  @IsUUID()
-  variantSizeId!: string;
-
-  @IsUUID()
-  locationId!: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(1_000_000)
-  pooledQuantity?: number;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => OpeningPhysicalItemDto)
-  units?: OpeningPhysicalItemDto[];
-}
-
-export class SaveOpeningInventoryDto extends ProductOnboardingRevisionDto {
-  @IsBoolean()
-  skipInventory = false;
-
-  @ValidateIf((input: SaveOpeningInventoryDto) => !input.skipInventory)
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(500)
-  @ValidateNested({ each: true })
-  @Type(() => OpeningInventoryLineDto)
-  lines?: OpeningInventoryLineDto[];
 }
 
 export class PublishOnboardedProductDto extends ProductOnboardingRevisionDto {}

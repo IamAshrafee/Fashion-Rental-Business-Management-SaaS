@@ -31,7 +31,7 @@ describe('PricingEngineService', () => {
         currency: 'BDT',
         durationMode: 'CALENDAR_DAYS',
         billingRounding: 'CEIL',
-        product: { purchasePrice: 1_000_000 },
+        product: { referenceRetailValue: 1_000_000 },
         policyVersions: [{
           id: 'policy-1',
           ratePlans: [{

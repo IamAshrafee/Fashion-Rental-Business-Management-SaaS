@@ -6,8 +6,6 @@ import {
 } from '@nestjs/common';
 import {
   InventoryMovementType,
-  InventoryTrackingMode,
-  InventoryTransferLineKind,
   InventoryTransferStatus,
   InventoryTransferUnitOutcome,
   Prisma,
@@ -81,10 +79,7 @@ export class InventoryTransferService {
       ]);
 
       const preparedLines = [] as Array<{
-        lineKind: InventoryTransferLineKind;
         variantSizeId: string;
-        inventoryPoolId: string | null;
-        requestedQuantity: number;
         notes: string | null;
         stockUnitIds: string[];
       }>;
@@ -92,38 +87,10 @@ export class InventoryTransferService {
       for (const line of dto.lines) {
         const sku = await tx.variantSize.findFirst({
           where: { id: line.variantSizeId, tenantId },
-          select: { id: true, trackingMode: true },
+          select: { id: true },
         });
         if (!sku) throw new NotFoundException('One or more transfer SKUs were not found');
-        const expectedKind = sku.trackingMode === InventoryTrackingMode.POOLED
-          ? InventoryTransferLineKind.POOLED
-          : InventoryTransferLineKind.SERIALIZED;
-        if (line.lineKind !== expectedKind) {
-          throw new BadRequestException('Transfer line kind must match the SKU tracking mode');
-        }
-
-        if (line.lineKind === InventoryTransferLineKind.POOLED) {
-          const pool = await tx.inventoryPool.findUnique({
-            where: {
-              variantSizeId_locationId: {
-                variantSizeId: line.variantSizeId,
-                locationId: dto.originLocationId,
-              },
-            },
-          });
-          if (!pool) throw new ConflictException('Origin location has no inventory pool for a selected SKU');
-          preparedLines.push({
-            lineKind: line.lineKind,
-            variantSizeId: line.variantSizeId,
-            inventoryPoolId: pool.id,
-            requestedQuantity: line.quantity!,
-            notes: line.notes?.trim() || null,
-            stockUnitIds: [],
-          });
-          continue;
-        }
-
-        const stockUnitIds = line.stockUnitIds!;
+        const stockUnitIds = line.stockUnitIds;
         for (const id of stockUnitIds) {
           if (seenUnits.has(id)) throw new BadRequestException('A physical unit appears more than once');
           seenUnits.add(id);
@@ -144,10 +111,7 @@ export class InventoryTransferService {
           throw new ConflictException('Every serialized unit must be available at the transfer origin');
         }
         preparedLines.push({
-          lineKind: line.lineKind,
           variantSizeId: line.variantSizeId,
-          inventoryPoolId: null,
-          requestedQuantity: stockUnitIds.length,
           notes: line.notes?.trim() || null,
           stockUnitIds,
         });
@@ -171,18 +135,11 @@ export class InventoryTransferService {
           data: {
             tenantId,
             transferId: transfer.id,
-            lineKind: line.lineKind,
             variantSizeId: line.variantSizeId,
-            inventoryPoolId: line.inventoryPoolId,
-            requestedQuantity: line.requestedQuantity,
             notes: line.notes,
-            ...(line.stockUnitIds.length
-              ? {
-                  units: {
-                    create: line.stockUnitIds.map((stockUnitId) => ({ tenantId, stockUnitId })),
-                  },
-                }
-              : {}),
+            units: {
+              create: line.stockUnitIds.map((stockUnitId) => ({ tenantId, stockUnitId })),
+            },
           },
         });
       }
@@ -224,67 +181,6 @@ export class InventoryTransferService {
       }
 
       for (const line of transfer.lines) {
-        if (line.lineKind === InventoryTransferLineKind.POOLED) {
-          if (!line.inventoryPoolId) throw new ConflictException('Pooled transfer line has no origin pool');
-          await this.lockPool(tx, line.inventoryPoolId);
-          const pool = await tx.inventoryPool.findFirst({
-            where: { id: line.inventoryPoolId, tenantId, locationId: transfer.originLocationId },
-          });
-          if (!pool) throw new ConflictException('Origin inventory pool no longer exists');
-          const [reservedForTransfers, peakReserved] = await Promise.all([
-            tx.inventoryBlock.aggregate({
-              where: {
-                tenantId,
-                inventoryPoolId: pool.id,
-                blockType: 'TRANSFER',
-                endDate: { gte: this.today() },
-              },
-              _sum: { quantity: true },
-            }),
-            this.getPeakReservedQuantity(
-              tx,
-              tenantId,
-              line.variantSizeId,
-              transfer.originLocationId,
-            ),
-          ]);
-          const alreadyReserved = reservedForTransfers._sum.quantity ?? 0;
-          if (pool.onHandQuantity - alreadyReserved - line.requestedQuantity < peakReserved) {
-            throw new ConflictException({
-              code: 'TRANSFER_CAPACITY_CONFLICT',
-              message: 'This transfer would consume stock already required by rental reservations',
-            });
-          }
-          await tx.inventoryBlock.create({
-            data: {
-              tenantId,
-              variantSizeId: line.variantSizeId,
-              locationId: transfer.originLocationId,
-              inventoryPoolId: pool.id,
-              transferLineId: line.id,
-              quantity: line.requestedQuantity,
-              startDate: this.today(),
-              endDate: new Date('9999-12-31T00:00:00.000Z'),
-              blockType: 'TRANSFER',
-              reason: `Reserved for transfer ${transfer.transferNumber}`,
-              createdByUserId: actorUserId,
-            },
-          });
-          await this.createMovement(tx, {
-            tenantId,
-            variantSizeId: line.variantSizeId,
-            inventoryPoolId: pool.id,
-            originLocationId: transfer.originLocationId,
-            destinationLocationId: transfer.destinationLocationId,
-            transferId,
-            transferLineId: line.id,
-            movementType: InventoryMovementType.TRANSFER_RESERVED,
-            quantityDelta: 0,
-            reason: dto.reason,
-            actorUserId,
-          });
-          continue;
-        }
         await this.reserveSerializedLine(tx, tenantId, transfer, line, dto.reason, actorUserId);
       }
 
@@ -332,37 +228,6 @@ export class InventoryTransferService {
       }
       const now = new Date();
       for (const line of transfer.lines) {
-        if (line.lineKind === InventoryTransferLineKind.POOLED) {
-          if (!line.inventoryPoolId) throw new ConflictException('Pooled transfer line has no origin pool');
-          await this.lockPool(tx, line.inventoryPoolId);
-          const pool = await tx.inventoryPool.findUniqueOrThrow({ where: { id: line.inventoryPoolId } });
-          if (pool.onHandQuantity < line.requestedQuantity) {
-            throw new ConflictException('Origin pool no longer has the approved transfer quantity');
-          }
-          await tx.inventoryPool.update({
-            where: { id: pool.id },
-            data: { onHandQuantity: { decrement: line.requestedQuantity }, version: { increment: 1 } },
-          });
-          await tx.inventoryBlock.deleteMany({ where: { transferLineId: line.id, tenantId } });
-          await tx.inventoryTransferLine.update({
-            where: { id: line.id },
-            data: { dispatchedQuantity: line.requestedQuantity },
-          });
-          await this.createMovement(tx, {
-            tenantId,
-            variantSizeId: line.variantSizeId,
-            inventoryPoolId: pool.id,
-            originLocationId: transfer.originLocationId,
-            destinationLocationId: transfer.destinationLocationId,
-            transferId,
-            transferLineId: line.id,
-            movementType: InventoryMovementType.TRANSFER_DISPATCHED,
-            quantityDelta: -line.requestedQuantity,
-            reason: dto.reason,
-            actorUserId,
-          });
-          continue;
-        }
         for (const unit of line.units) {
           await tx.inventoryTransferUnit.update({
             where: { id: unit.id },
@@ -377,15 +242,10 @@ export class InventoryTransferService {
             transferId,
             transferLineId: line.id,
             movementType: InventoryMovementType.TRANSFER_DISPATCHED,
-            quantityDelta: 0,
             reason: dto.reason,
             actorUserId,
           });
         }
-        await tx.inventoryTransferLine.update({
-          where: { id: line.id },
-          data: { dispatchedQuantity: line.units.length },
-        });
       }
       await tx.inventoryTransfer.update({
         where: { id: transferId },
@@ -445,21 +305,20 @@ export class InventoryTransferService {
         submittedLineIds.add(input.transferLineId);
         const line = linesById.get(input.transferLineId);
         if (!line) throw new BadRequestException('Receipt contains a line from another transfer');
-        if (line.lineKind === InventoryTransferLineKind.POOLED) {
-          await this.receivePooledLine(tx, tenantId, transfer, line, input, dto.reason, actorUserId);
-        } else {
-          await this.receiveSerializedLine(tx, tenantId, transfer, line, input, dto.reason, actorUserId);
-        }
+        await this.receiveSerializedLine(tx, tenantId, transfer, line, input, dto.reason, actorUserId);
       }
 
-      const refreshedLines = await tx.inventoryTransferLine.findMany({
-        where: { tenantId, transferId },
+      const refreshedUnits = await tx.inventoryTransferUnit.findMany({
+        where: { tenantId, transferLine: { transferId } },
+        select: { outcome: true },
       });
-      const fullyAccounted = refreshedLines.every(
-        (line) => line.receivedQuantity + line.damagedQuantity + line.lostQuantity === line.dispatchedQuantity,
+      const fullyAccounted = refreshedUnits.every(
+        (unit) => unit.outcome !== InventoryTransferUnitOutcome.PENDING,
       );
-      const hasDiscrepancy = refreshedLines.some(
-        (line) => line.damagedQuantity > 0 || line.lostQuantity > 0,
+      const hasDiscrepancy = refreshedUnits.some(
+        (unit) =>
+          unit.outcome === InventoryTransferUnitOutcome.DAMAGED ||
+          unit.outcome === InventoryTransferUnitOutcome.LOST,
       );
       const nextStatus = !fullyAccounted
         ? InventoryTransferStatus.PARTIALLY_RECEIVED
@@ -512,12 +371,7 @@ export class InventoryTransferService {
         throw new ConflictException('A dispatched or completed transfer cannot be cancelled');
       }
       if (transfer.status === InventoryTransferStatus.READY) {
-        await tx.inventoryBlock.deleteMany({
-          where: { tenantId, transferLineId: { in: transfer.lines.map((line) => line.id) } },
-        });
-        for (const line of transfer.lines.filter(
-          (item) => item.lineKind === InventoryTransferLineKind.SERIALIZED,
-        )) {
+        for (const line of transfer.lines) {
           for (const unit of line.units) {
             await this.lifecycle.transitionInTransaction(tx, {
               tenantId,
@@ -538,7 +392,6 @@ export class InventoryTransferService {
               transferId,
               transferLineId: line.id,
               movementType: InventoryMovementType.TRANSFER_CANCELLED,
-              quantityDelta: 0,
               reason: dto.reason,
               actorUserId,
             });
@@ -587,13 +440,14 @@ export class InventoryTransferService {
       if (transfer.status !== InventoryTransferStatus.RECONCILIATION_REQUIRED) {
         throw new ConflictException('Only a fully received transfer with exceptions can be reconciled');
       }
-      const fullyAccounted = transfer.lines.every(
-        (line) =>
-          line.receivedQuantity + line.damagedQuantity + line.lostQuantity ===
-          line.dispatchedQuantity,
+      const outcomes = transfer.lines.flatMap((line) => line.units.map((unit) => unit.outcome));
+      const fullyAccounted = outcomes.every(
+        (outcome) => outcome !== InventoryTransferUnitOutcome.PENDING,
       );
-      const hasException = transfer.lines.some(
-        (line) => line.damagedQuantity > 0 || line.lostQuantity > 0,
+      const hasException = outcomes.some(
+        (outcome) =>
+          outcome === InventoryTransferUnitOutcome.DAMAGED ||
+          outcome === InventoryTransferUnitOutcome.LOST,
       );
       if (!fullyAccounted || !hasException) {
         throw new ConflictException('Transfer quantities are not ready for reconciliation');
@@ -711,86 +565,6 @@ export class InventoryTransferService {
         transferId: transfer.id,
         transferLineId: line.id,
         movementType: InventoryMovementType.TRANSFER_RESERVED,
-        quantityDelta: 0,
-        reason,
-        actorUserId,
-      });
-    }
-  }
-
-  private async receivePooledLine(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    transfer: Awaited<ReturnType<InventoryTransferService['lockTransfer']>>,
-    line: (Awaited<ReturnType<InventoryTransferService['lockTransfer']>>)['lines'][number],
-    input: ReceiveInventoryTransferDto['lines'][number],
-    reason: string,
-    actorUserId: string,
-  ) {
-    if (input.units?.length) throw new BadRequestException('Pooled lines cannot receive unit outcomes');
-    const received = input.receivedQuantity ?? 0;
-    const damaged = input.damagedQuantity ?? 0;
-    const lost = input.lostQuantity ?? 0;
-    if (received + damaged + lost < 1) {
-      throw new BadRequestException('A pooled receipt must account for at least one item');
-    }
-    const alreadyAccounted = line.receivedQuantity + line.damagedQuantity + line.lostQuantity;
-    if (alreadyAccounted + received + damaged + lost > line.dispatchedQuantity) {
-      throw new ConflictException('Receipt quantities exceed the dispatched quantity');
-    }
-    let destinationPoolId: string | null = null;
-    if (received > 0) {
-      const destinationPool = await tx.inventoryPool.upsert({
-        where: {
-          variantSizeId_locationId: {
-            variantSizeId: line.variantSizeId,
-            locationId: transfer.destinationLocationId,
-          },
-        },
-        create: {
-          tenantId,
-          variantSizeId: line.variantSizeId,
-          locationId: transfer.destinationLocationId,
-          onHandQuantity: received,
-          version: 1,
-        },
-        update: { onHandQuantity: { increment: received }, version: { increment: 1 } },
-      });
-      destinationPoolId = destinationPool.id;
-      await this.createMovement(tx, {
-        tenantId,
-        variantSizeId: line.variantSizeId,
-        inventoryPoolId: destinationPool.id,
-        originLocationId: transfer.originLocationId,
-        destinationLocationId: transfer.destinationLocationId,
-        transferId: transfer.id,
-        transferLineId: line.id,
-        movementType: InventoryMovementType.TRANSFER_RECEIVED,
-        quantityDelta: received,
-        reason,
-        actorUserId,
-      });
-    }
-    await tx.inventoryTransferLine.update({
-      where: { id: line.id },
-      data: {
-        receivedQuantity: { increment: received },
-        damagedQuantity: { increment: damaged },
-        lostQuantity: { increment: lost },
-      },
-    });
-    if (damaged || lost) {
-      await this.createMovement(tx, {
-        tenantId,
-        variantSizeId: line.variantSizeId,
-        inventoryPoolId: destinationPoolId,
-        originLocationId: transfer.originLocationId,
-        destinationLocationId: transfer.destinationLocationId,
-        transferId: transfer.id,
-        transferLineId: line.id,
-        movementType: InventoryMovementType.DAMAGE_WRITE_OFF,
-        quantityDelta: 0,
-        beforeState: this.json({ damaged, lost }),
         reason,
         actorUserId,
       });
@@ -806,19 +580,9 @@ export class InventoryTransferService {
     reason: string,
     actorUserId: string,
   ) {
-    if (
-      input.receivedQuantity !== undefined ||
-      input.damagedQuantity !== undefined ||
-      input.lostQuantity !== undefined
-    ) {
-      throw new BadRequestException('Serialized lines must report individual unit outcomes');
-    }
-    if (!input.units?.length) throw new BadRequestException('Serialized receipt requires unit outcomes');
+    if (!input.units.length) throw new BadRequestException('A receipt requires physical-item outcomes');
     const transferUnits = new Map(line.units.map((unit) => [unit.stockUnitId, unit]));
     const seen = new Set<string>();
-    let received = 0;
-    let damaged = 0;
-    let lost = 0;
     for (const result of input.units) {
       if (seen.has(result.stockUnitId)) throw new BadRequestException('A physical unit appears more than once');
       seen.add(result.stockUnitId);
@@ -831,10 +595,6 @@ export class InventoryTransferService {
         throw new BadRequestException('A receipt outcome cannot remain pending');
       }
       const next = this.serializedOutcome(result.outcome);
-      if (result.outcome === InventoryTransferUnitOutcome.RECEIVED) received += 1;
-      if (result.outcome === InventoryTransferUnitOutcome.DAMAGED) damaged += 1;
-      if (result.outcome === InventoryTransferUnitOutcome.LOST) lost += 1;
-
       if (result.outcome !== InventoryTransferUnitOutcome.LOST) {
         await tx.stockUnit.update({
           where: { id: result.stockUnitId },
@@ -864,20 +624,11 @@ export class InventoryTransferService {
         movementType: result.outcome === InventoryTransferUnitOutcome.RECEIVED
           ? InventoryMovementType.TRANSFER_RECEIVED
           : InventoryMovementType.DAMAGE_WRITE_OFF,
-        quantityDelta: 0,
         afterState: this.json({ outcome: result.outcome }),
         reason,
         actorUserId,
       });
     }
-    await tx.inventoryTransferLine.update({
-      where: { id: line.id },
-      data: {
-        receivedQuantity: { increment: received },
-        damagedQuantity: { increment: damaged },
-        lostQuantity: { increment: lost },
-      },
-    });
   }
 
   private serializedOutcome(outcome: InventoryTransferUnitOutcome) {
@@ -907,14 +658,10 @@ export class InventoryTransferService {
     `);
     const transfer = await tx.inventoryTransfer.findFirst({
       where: { id: transferId, tenantId },
-      include: { lines: { include: { units: true, inventoryPool: true } } },
+      include: { lines: { include: { units: true } } },
     });
     if (!transfer) throw new NotFoundException('Inventory transfer not found');
     return transfer;
-  }
-
-  private lockPool(tx: Prisma.TransactionClient, poolId: string) {
-    return tx.$queryRaw(Prisma.sql`SELECT id FROM inventory_pools WHERE id = ${poolId} FOR UPDATE`);
   }
 
   private getInTransaction(tx: Prisma.TransactionClient, tenantId: string, transferId: string) {
@@ -1012,15 +759,11 @@ export class InventoryTransferService {
   private validateDraftLines(dto: CreateInventoryTransferDto) {
     const keys = new Set<string>();
     for (const line of dto.lines) {
-      const key = `${line.variantSizeId}:${line.lineKind}`;
+      const key = line.variantSizeId;
       if (keys.has(key)) throw new BadRequestException('Duplicate transfer line for the same SKU');
       keys.add(key);
-      if (line.lineKind === InventoryTransferLineKind.POOLED) {
-        if (!line.quantity || line.stockUnitIds?.length) {
-          throw new BadRequestException('Pooled lines require quantity and cannot include physical units');
-        }
-      } else if (!line.stockUnitIds?.length || line.quantity !== undefined) {
-        throw new BadRequestException('Serialized lines require physical unit IDs and no quantity');
+      if (!line.stockUnitIds.length) {
+        throw new BadRequestException('Every transfer line requires physical item IDs');
       }
     }
   }

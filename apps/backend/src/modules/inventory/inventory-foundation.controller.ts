@@ -23,9 +23,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
-  AdjustInventoryPoolDto,
   AvailabilityPolicyVersionDto,
-  CountInventoryPoolDto,
   CreateInventoryLocationDto,
   InventoryItemsQueryDto,
   InventoryMovementsQueryDto,
@@ -37,7 +35,6 @@ import {
 import { CreateInventoryBlockDto, InventoryBlocksQueryDto } from './dto/inventory-block.dto';
 import { AvailabilityPolicyService } from './availability-policy.service';
 import { InventoryLocationService } from './inventory-location.service';
-import { InventoryPoolService } from './inventory-pool.service';
 import { InventoryDashboardService } from './inventory-dashboard.service';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { InventoryBlockService } from './inventory-block.service';
@@ -52,7 +49,6 @@ interface AuthenticatedRequest extends Request {
 export class InventoryFoundationController {
   constructor(
     private readonly locations: InventoryLocationService,
-    private readonly pools: InventoryPoolService,
     private readonly policies: AvailabilityPolicyService,
     private readonly dashboard: InventoryDashboardService,
     private readonly ledger: InventoryLedgerService,
@@ -129,34 +125,6 @@ export class InventoryFoundationController {
     @Param('locationId') locationId: string,
   ) {
     return this.locations.setDefault(tenant.id, locationId);
-  }
-
-  @Get('variant-sizes/:variantSizeId/pools')
-  @Roles('owner', 'manager', 'staff')
-  listPools(@CurrentTenant() tenant: TenantContext, @Param('variantSizeId') variantSizeId: string) {
-    return this.pools.listForSku(tenant.id, variantSizeId);
-  }
-
-  @Post('variant-sizes/:variantSizeId/pools/adjust')
-  @Roles('owner', 'manager')
-  adjustPool(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('variantSizeId', ParseUUIDPipe) variantSizeId: string,
-    @Body() dto: AdjustInventoryPoolDto,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.pools.adjust(tenant.id, variantSizeId, dto, request.user.id);
-  }
-
-  @Post('variant-sizes/:variantSizeId/pools/count')
-  @Roles('owner', 'manager')
-  countPool(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('variantSizeId', ParseUUIDPipe) variantSizeId: string,
-    @Body() dto: CountInventoryPoolDto,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.pools.count(tenant.id, variantSizeId, dto, request.user.id);
   }
 
   @Get('availability-policies')

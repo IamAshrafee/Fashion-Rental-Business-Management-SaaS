@@ -174,7 +174,6 @@ describe('BookingService', () => {
           fulfillmentRequirements: [
             {
               status: 'PARTIALLY_ASSIGNED',
-              trackingModeSnapshot: 'SERIALIZED',
               quantity: 2,
               assignedQuantity: 1,
               handedOutQuantity: 0,

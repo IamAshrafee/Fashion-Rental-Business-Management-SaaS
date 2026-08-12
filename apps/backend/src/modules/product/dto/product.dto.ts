@@ -5,7 +5,6 @@ import {
   IsArray,
   IsEnum,
   IsBoolean,
-  IsDateString,
   ValidateNested,
   MinLength,
   MaxLength,
@@ -17,7 +16,7 @@ import {
   IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { InventoryTrackingMode, StorefrontItemVisibilityMode } from '@prisma/client';
+import { StorefrontItemVisibilityMode } from '@prisma/client';
 
 // --- FAQ DTOs ---
 export class CreateFaqDto {
@@ -58,11 +57,6 @@ export class UpdateDetailHeaderDto {
 export class VariantSizeInventoryDto {
   @IsString()
   sizeInstanceId!: string;
-
-  @IsOptional()
-  @IsEnum(InventoryTrackingMode)
-  trackingMode?: InventoryTrackingMode;
-
 }
 
 export class CreateVariantDto {
@@ -149,10 +143,6 @@ export class OwnerProductQueryDto extends ProductQueryDto {
   productTypeId?: string;
 
   @IsOptional()
-  @IsEnum(InventoryTrackingMode)
-  trackingMode?: InventoryTrackingMode;
-
-  @IsOptional()
   @IsIn(['ready', 'needs_attention'])
   readiness?: 'ready' | 'needs_attention';
 
@@ -180,12 +170,10 @@ export class UpdateProductDto {
   @IsString({ each: true })
   eventIds?: string[];
 
-  @IsOptional() @IsDateString() purchaseDate?: string;
-  @IsOptional() @IsInt() purchasePrice?: number;
-  @IsOptional() @IsBoolean() purchasePricePublic?: boolean;
-  @IsOptional() @IsString() itemCountry?: string;
-  @IsOptional() @IsBoolean() itemCountryPublic?: boolean;
-  @IsOptional() @IsInt() targetRentals?: number;
+  @IsOptional() @IsString() @MaxLength(100) countryOfOrigin?: string;
+  @IsOptional() @IsBoolean() countryOfOriginPublic?: boolean;
+  @IsOptional() @IsInt() @Min(0) referenceRetailValue?: number;
+  @IsOptional() @IsBoolean() referenceRetailValuePublic?: boolean;
   @IsOptional() @IsEnum(StorefrontItemVisibilityMode) storefrontItemMode?: StorefrontItemVisibilityMode;
 
   @IsOptional() @IsString() productTypeId?: string;

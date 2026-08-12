@@ -11,7 +11,7 @@ CREATE TYPE "TenantRole" AS ENUM ('owner', 'manager', 'staff');
 CREATE TYPE "ProductStatus" AS ENUM ('draft', 'published', 'archived');
 
 -- CreateEnum
-CREATE TYPE "ProductOnboardingSection" AS ENUM ('BASICS', 'SKUS', 'CONTENT', 'PRICING', 'OPENING_INVENTORY', 'REVIEW');
+CREATE TYPE "ProductOnboardingSection" AS ENUM ('BASICS', 'SKUS', 'CONTENT', 'PRICING', 'REVIEW');
 
 -- CreateEnum
 CREATE TYPE "SizeSchemaStatus" AS ENUM ('draft', 'active', 'deprecated');
@@ -47,9 +47,6 @@ CREATE TYPE "BookingStatus" AS ENUM ('pending', 'confirmed', 'cancelled', 'deliv
 CREATE TYPE "BookingChannel" AS ENUM ('STOREFRONT', 'OWNER_MANUAL');
 
 -- CreateEnum
-CREATE TYPE "StorefrontCartStatus" AS ENUM ('ACTIVE', 'CHECKED_OUT', 'ABANDONED', 'EXPIRED');
-
--- CreateEnum
 CREATE TYPE "CustomerStatus" AS ENUM ('active', 'blocked', 'merged', 'anonymized', 'archived');
 
 -- CreateEnum
@@ -83,9 +80,6 @@ CREATE TYPE "PaymentStatus" AS ENUM ('unpaid', 'partial', 'paid');
 CREATE TYPE "CancelledBy" AS ENUM ('customer', 'owner', 'system');
 
 -- CreateEnum
-CREATE TYPE "InventoryTrackingMode" AS ENUM ('POOLED', 'SERIALIZED');
-
--- CreateEnum
 CREATE TYPE "InventoryLocationType" AS ENUM ('WAREHOUSE', 'SHOWROOM', 'PICKUP_POINT', 'CLEANING_FACILITY', 'REPAIR_FACILITY', 'EXTERNAL');
 
 -- CreateEnum
@@ -95,16 +89,16 @@ CREATE TYPE "AvailabilityPolicyScope" AS ENUM ('TENANT', 'LOCATION', 'PRODUCT', 
 CREATE TYPE "InventoryTransferStatus" AS ENUM ('DRAFT', 'READY', 'DISPATCHED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED', 'RECONCILIATION_REQUIRED', 'RECONCILED');
 
 -- CreateEnum
-CREATE TYPE "InventoryTransferLineKind" AS ENUM ('POOLED', 'SERIALIZED');
-
--- CreateEnum
 CREATE TYPE "InventoryTransferUnitOutcome" AS ENUM ('PENDING', 'RECEIVED', 'DAMAGED', 'LOST');
 
 -- CreateEnum
 CREATE TYPE "StockConditionGrade" AS ENUM ('NEW', 'EXCELLENT', 'GOOD', 'FAIR', 'POOR', 'DAMAGED');
 
 -- CreateEnum
-CREATE TYPE "StorefrontItemVisibilityMode" AS ENUM ('INTERNAL_ONLY', 'CONDITION_SUMMARY', 'SPECIFIC_ITEM_SELECTION');
+CREATE TYPE "StorefrontItemVisibilityMode" AS ENUM ('INTERNAL_ONLY', 'CONDITION_SUMMARY');
+
+-- CreateEnum
+CREATE TYPE "StorefrontCartStatus" AS ENUM ('ACTIVE', 'CHECKED_OUT', 'ABANDONED', 'EXPIRED');
 
 -- CreateEnum
 CREATE TYPE "StockUnitDisposition" AS ENUM ('ACTIVE', 'QUARANTINED', 'LOST', 'RETIRED');
@@ -179,7 +173,10 @@ CREATE TYPE "FulfillmentApprovalStatus" AS ENUM ('NOT_REQUIRED', 'PENDING', 'APP
 CREATE TYPE "FulfillmentEventType" AS ENUM ('RESERVED', 'ASSIGNED', 'ASSIGNMENT_RELEASED', 'PREPARATION_STARTED', 'PREPARATION_COMPLETED', 'HANDED_OUT', 'RETURNED', 'MARKED_LOST', 'OVERDUE', 'OVERDUE_RESOLVED', 'CANCELLED');
 
 -- CreateEnum
-CREATE TYPE "InventoryMovementType" AS ENUM ('INITIAL_STOCK', 'POOLED_ADDITION', 'POOLED_REDUCTION', 'UNIT_REGISTERED', 'CONDITION_CHANGED', 'VALUATION_CHANGED', 'MAINTENANCE_STARTED', 'MAINTENANCE_ENDED', 'UNIT_RETIRED', 'UNIT_LOST', 'UNIT_RECOVERED', 'ADMIN_CORRECTION', 'TRANSFER_RESERVED', 'TRANSFER_DISPATCHED', 'TRANSFER_RECEIVED', 'TRANSFER_CANCELLED', 'COUNT_CORRECTION', 'DAMAGE_WRITE_OFF');
+CREATE TYPE "InventoryMovementType" AS ENUM ('UNIT_REGISTERED', 'CONDITION_CHANGED', 'VALUATION_CHANGED', 'MAINTENANCE_STARTED', 'MAINTENANCE_ENDED', 'UNIT_RETIRED', 'UNIT_LOST', 'UNIT_RECOVERED', 'ADMIN_CORRECTION', 'TRANSFER_RESERVED', 'TRANSFER_DISPATCHED', 'TRANSFER_RECEIVED', 'TRANSFER_CANCELLED', 'COUNT_CORRECTION', 'DAMAGE_WRITE_OFF');
+
+-- CreateEnum
+CREATE TYPE "StockUnitRevenueAllocationKind" AS ENUM ('RENTAL_REVENUE', 'ADJUSTMENT');
 
 -- CreateEnum
 CREATE TYPE "InventoryBlockType" AS ENUM ('MANUAL', 'MAINTENANCE', 'INSPECTION', 'SERVICE', 'TRANSFER', 'LOCATION_BLACKOUT', 'SKU_BLACKOUT');
@@ -192,8 +189,14 @@ CREATE TYPE "DamageLevel" AS ENUM ('none', 'minor', 'moderate', 'severe', 'destr
 
 -- CreateEnum
 CREATE TYPE "TransactionStatus" AS ENUM ('pending', 'verified', 'failed', 'refunded');
+
+-- CreateEnum
 CREATE TYPE "ShipmentDirection" AS ENUM ('OUTBOUND', 'RETURN');
+
+-- CreateEnum
 CREATE TYPE "ShipmentProvider" AS ENUM ('pathao', 'steadfast', 'manual');
+
+-- CreateEnum
 CREATE TYPE "ShipmentStatus" AS ENUM ('prepare_parcel', 'pickup_pending', 'pickup_assigned', 'pickup_failed', 'picked_up', 'at_hub', 'in_transit', 'at_destination', 'out_for_delivery', 'delivered', 'partial_delivered', 'returned_to_sender', 'cancelled', 'on_hold', 'error', 'unknown');
 
 -- CreateEnum
@@ -240,11 +243,7 @@ CREATE TABLE "colors" (
     "tenant_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "colors_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "colors_scope_check" CHECK (
-      ("is_system" = true AND "tenant_id" IS NULL AND "system_key" IS NOT NULL)
-      OR ("is_system" = false AND "tenant_id" IS NOT NULL AND "system_key" IS NULL)
-    )
+    CONSTRAINT "colors_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -375,13 +374,33 @@ CREATE TABLE "store_settings" (
 );
 
 -- CreateTable
+CREATE TABLE "courier_connections" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "provider" "ShipmentProvider" NOT NULL,
+    "is_enabled" BOOLEAN NOT NULL DEFAULT false,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
+    "config" JSONB NOT NULL DEFAULT '{}',
+    "credentials_encrypted" TEXT,
+    "credential_key_version" INTEGER NOT NULL DEFAULT 1,
+    "webhook_token" TEXT NOT NULL,
+    "health_status" TEXT NOT NULL DEFAULT 'not_tested',
+    "last_health_check_at" TIMESTAMP(3),
+    "last_health_error" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "courier_connections_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "tenant_users" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
     "user_id" TEXT NOT NULL,
     "role" "TenantRole" NOT NULL,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
-    "permissions" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "permissions" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
@@ -396,7 +415,7 @@ CREATE TABLE "staff_invitations" (
     "phone" TEXT,
     "email" TEXT,
     "role" "TenantRole" NOT NULL,
-    "permissions" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "permissions" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "token_hash" TEXT NOT NULL,
     "invited_by_user_id" TEXT NOT NULL,
     "expires_at" TIMESTAMPTZ NOT NULL,
@@ -475,12 +494,10 @@ CREATE TABLE "products" (
     "is_available" BOOLEAN NOT NULL DEFAULT true,
     "available_from" DATE,
     "unavailable_reason" TEXT,
-    "purchase_date" DATE,
-    "purchase_price" INTEGER,
-    "purchase_price_public" BOOLEAN NOT NULL DEFAULT false,
-    "item_country" TEXT,
-    "item_country_public" BOOLEAN NOT NULL DEFAULT false,
-    "target_rentals" INTEGER,
+    "country_of_origin" TEXT,
+    "country_of_origin_public" BOOLEAN NOT NULL DEFAULT false,
+    "reference_retail_value" INTEGER,
+    "reference_retail_value_public" BOOLEAN NOT NULL DEFAULT false,
     "storefront_item_mode" "StorefrontItemVisibilityMode" NOT NULL DEFAULT 'INTERNAL_ONLY',
     "total_bookings" INTEGER NOT NULL DEFAULT 0,
     "total_revenue" INTEGER NOT NULL DEFAULT 0,
@@ -500,7 +517,7 @@ CREATE TABLE "product_onboardings" (
     "tenant_id" TEXT NOT NULL,
     "product_id" TEXT NOT NULL,
     "current_section" "ProductOnboardingSection" NOT NULL DEFAULT 'BASICS',
-    "completed_sections" "ProductOnboardingSection"[] NOT NULL DEFAULT ARRAY[]::"ProductOnboardingSection"[],
+    "completed_sections" "ProductOnboardingSection"[] DEFAULT ARRAY[]::"ProductOnboardingSection"[],
     "revision" INTEGER NOT NULL DEFAULT 0,
     "created_by_user_id" TEXT NOT NULL,
     "updated_by_user_id" TEXT NOT NULL,
@@ -548,7 +565,6 @@ CREATE TABLE "variant_sizes" (
     "tenant_id" TEXT NOT NULL,
     "variant_id" TEXT NOT NULL,
     "size_instance_id" TEXT NOT NULL,
-    "tracking_mode" "InventoryTrackingMode" NOT NULL DEFAULT 'POOLED',
     "inventory_version" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "variant_sizes_pkey" PRIMARY KEY ("id")
@@ -792,7 +808,6 @@ CREATE TABLE "storefront_cart_lines" (
     "product_id" TEXT NOT NULL,
     "variant_id" TEXT NOT NULL,
     "variant_size_id" TEXT NOT NULL,
-    "preferred_stock_unit_id" TEXT,
     "quantity" INTEGER NOT NULL DEFAULT 1,
     "start_date" DATE NOT NULL,
     "end_date" DATE NOT NULL,
@@ -1145,6 +1160,129 @@ CREATE TABLE "bookings" (
 );
 
 -- CreateTable
+CREATE TABLE "shipments" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "booking_id" TEXT NOT NULL,
+    "direction" "ShipmentDirection" NOT NULL DEFAULT 'OUTBOUND',
+    "provider" "ShipmentProvider" NOT NULL,
+    "status" "ShipmentStatus" NOT NULL DEFAULT 'prepare_parcel',
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "provider_reference" TEXT,
+    "tracking_number" TEXT,
+    "sender_name" TEXT,
+    "sender_phone" TEXT,
+    "sender_address" TEXT,
+    "sender_city" TEXT,
+    "sender_zone" TEXT,
+    "recipient_name" TEXT NOT NULL,
+    "recipient_phone" TEXT NOT NULL,
+    "recipient_address" TEXT NOT NULL,
+    "recipient_city" TEXT NOT NULL,
+    "recipient_zone" TEXT,
+    "cod_amount" INTEGER NOT NULL DEFAULT 0,
+    "quoted_fee" INTEGER,
+    "charged_fee" INTEGER,
+    "weight_grams" INTEGER NOT NULL DEFAULT 1000,
+    "item_quantity" INTEGER NOT NULL DEFAULT 1,
+    "special_instruction" TEXT,
+    "scheduled_pickup_at" TIMESTAMP(3),
+    "pickup_requested_at" TIMESTAMP(3),
+    "last_synced_at" TIMESTAMP(3),
+    "delivered_at" TIMESTAMP(3),
+    "failed_reason" TEXT,
+    "raw_create_response" JSONB,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "shipments_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "shipment_dispatch_attempts" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "provider" "ShipmentProvider" NOT NULL,
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "status" "ShipmentDispatchAttemptStatus" NOT NULL DEFAULT 'STARTED',
+    "provider_reference" TEXT,
+    "tracking_number" TEXT,
+    "response_snapshot" JSONB,
+    "error_reason" TEXT,
+    "started_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completed_at" TIMESTAMP(3),
+
+    CONSTRAINT "shipment_dispatch_attempts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "cod_remittances" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "payment_id" TEXT,
+    "expected_amount" INTEGER NOT NULL,
+    "remitted_amount" INTEGER NOT NULL DEFAULT 0,
+    "fee_deducted" INTEGER NOT NULL DEFAULT 0,
+    "status" "CodReconciliationStatus" NOT NULL DEFAULT 'PENDING',
+    "provider_reference" TEXT,
+    "remitted_at" TIMESTAMP(3),
+    "reconciled_at" TIMESTAMP(3),
+    "reconciled_by_id" TEXT,
+    "notes" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "cod_remittances_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "shipment_items" (
+    "id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "booking_item_id" TEXT NOT NULL,
+    "quantity" INTEGER NOT NULL,
+
+    CONSTRAINT "shipment_items_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "shipment_events" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT NOT NULL,
+    "status" "ShipmentStatus" NOT NULL,
+    "label" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "provider_event_id" TEXT,
+    "dedupe_key" TEXT NOT NULL,
+    "raw_payload" JSONB,
+    "occurred_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "shipment_events_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "courier_webhook_receipts" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "shipment_id" TEXT,
+    "provider" "ShipmentProvider" NOT NULL,
+    "external_event_id" TEXT,
+    "payload_hash" TEXT NOT NULL,
+    "payload" JSONB NOT NULL,
+    "processed_at" TIMESTAMP(3),
+    "error_reason" TEXT,
+    "received_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "courier_webhook_receipts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "booking_items" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
@@ -1188,137 +1326,6 @@ CREATE TABLE "booking_items" (
 );
 
 -- CreateTable
-CREATE TABLE "courier_connections" (
-    "id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-    "provider" "ShipmentProvider" NOT NULL,
-    "is_enabled" BOOLEAN NOT NULL DEFAULT false,
-    "is_default" BOOLEAN NOT NULL DEFAULT false,
-    "config" JSONB NOT NULL DEFAULT '{}',
-    "credentials_encrypted" TEXT,
-    "credential_key_version" INTEGER NOT NULL DEFAULT 1,
-    "webhook_token" TEXT NOT NULL,
-    "health_status" TEXT NOT NULL DEFAULT 'not_tested',
-    "last_health_check_at" TIMESTAMP(3),
-    "last_health_error" TEXT,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-    CONSTRAINT "courier_connections_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "shipments" (
-    "id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-    "booking_id" TEXT NOT NULL,
-    "direction" "ShipmentDirection" NOT NULL DEFAULT 'OUTBOUND',
-    "provider" "ShipmentProvider" NOT NULL,
-    "status" "ShipmentStatus" NOT NULL DEFAULT 'prepare_parcel',
-    "idempotency_key" TEXT NOT NULL,
-    "request_hash" TEXT NOT NULL,
-    "provider_reference" TEXT,
-    "tracking_number" TEXT,
-    "sender_name" TEXT,
-    "sender_phone" TEXT,
-    "sender_address" TEXT,
-    "sender_city" TEXT,
-    "sender_zone" TEXT,
-    "recipient_name" TEXT NOT NULL,
-    "recipient_phone" TEXT NOT NULL,
-    "recipient_address" TEXT NOT NULL,
-    "recipient_city" TEXT NOT NULL,
-    "recipient_zone" TEXT,
-    "cod_amount" INTEGER NOT NULL DEFAULT 0,
-    "quoted_fee" INTEGER,
-    "charged_fee" INTEGER,
-    "weight_grams" INTEGER NOT NULL DEFAULT 1000,
-    "item_quantity" INTEGER NOT NULL DEFAULT 1,
-    "special_instruction" TEXT,
-    "scheduled_pickup_at" TIMESTAMP(3),
-    "pickup_requested_at" TIMESTAMP(3),
-    "last_synced_at" TIMESTAMP(3),
-    "delivered_at" TIMESTAMP(3),
-    "failed_reason" TEXT,
-    "raw_create_response" JSONB,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-    CONSTRAINT "shipments_pkey" PRIMARY KEY ("id")
-);
-
-CREATE TABLE "shipment_dispatch_attempts" (
-    "id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-    "shipment_id" TEXT NOT NULL,
-    "provider" "ShipmentProvider" NOT NULL,
-    "idempotency_key" TEXT NOT NULL,
-    "request_hash" TEXT NOT NULL,
-    "status" "ShipmentDispatchAttemptStatus" NOT NULL DEFAULT 'STARTED',
-    "provider_reference" TEXT,
-    "tracking_number" TEXT,
-    "response_snapshot" JSONB,
-    "error_reason" TEXT,
-    "started_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "completed_at" TIMESTAMP(3),
-    CONSTRAINT "shipment_dispatch_attempts_pkey" PRIMARY KEY ("id")
-);
-
-CREATE TABLE "cod_remittances" (
-    "id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-    "shipment_id" TEXT NOT NULL,
-    "payment_id" TEXT,
-    "expected_amount" INTEGER NOT NULL,
-    "remitted_amount" INTEGER NOT NULL DEFAULT 0,
-    "fee_deducted" INTEGER NOT NULL DEFAULT 0,
-    "status" "CodReconciliationStatus" NOT NULL DEFAULT 'PENDING',
-    "provider_reference" TEXT,
-    "remitted_at" TIMESTAMP(3),
-    "reconciled_at" TIMESTAMP(3),
-    "reconciled_by_id" TEXT,
-    "notes" TEXT,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-    CONSTRAINT "cod_remittances_pkey" PRIMARY KEY ("id")
-);
-
-CREATE TABLE "shipment_items" (
-    "id" TEXT NOT NULL,
-    "shipment_id" TEXT NOT NULL,
-    "booking_item_id" TEXT NOT NULL,
-    "quantity" INTEGER NOT NULL,
-    CONSTRAINT "shipment_items_pkey" PRIMARY KEY ("id")
-);
-
-CREATE TABLE "shipment_events" (
-    "id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-    "shipment_id" TEXT NOT NULL,
-    "status" "ShipmentStatus" NOT NULL,
-    "label" TEXT NOT NULL,
-    "source" TEXT NOT NULL,
-    "provider_event_id" TEXT,
-    "dedupe_key" TEXT NOT NULL,
-    "raw_payload" JSONB,
-    "occurred_at" TIMESTAMP(3) NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "shipment_events_pkey" PRIMARY KEY ("id")
-);
-
-CREATE TABLE "courier_webhook_receipts" (
-    "id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-    "shipment_id" TEXT,
-    "provider" "ShipmentProvider" NOT NULL,
-    "external_event_id" TEXT,
-    "payload_hash" TEXT NOT NULL,
-    "payload" JSONB NOT NULL,
-    "processed_at" TIMESTAMP(3),
-    "error_reason" TEXT,
-    "received_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "courier_webhook_receipts_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "damage_reports" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
@@ -1356,9 +1363,7 @@ CREATE TABLE "deposit_settlements" (
     "actor_user_id" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "deposit_settlements_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "deposit_settlements_nonnegative_check" CHECK ("refund_amount" >= 0 AND "deduction_amount" >= 0 AND "forfeited_amount" >= 0 AND "additional_charge" >= 0),
-    CONSTRAINT "deposit_settlements_effect_check" CHECK (("refund_amount" + "deduction_amount" + "forfeited_amount" + "additional_charge") > 0)
+    CONSTRAINT "deposit_settlements_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1392,21 +1397,6 @@ CREATE TABLE "inventory_locations" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "inventory_locations_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "inventory_pools" (
-    "id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-    "variant_size_id" TEXT NOT NULL,
-    "location_id" TEXT NOT NULL,
-    "on_hand_quantity" INTEGER NOT NULL DEFAULT 0,
-    "reorder_threshold" INTEGER,
-    "version" INTEGER NOT NULL DEFAULT 0,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "inventory_pools_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1476,14 +1466,7 @@ CREATE TABLE "inventory_transfer_lines" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
     "transfer_id" TEXT NOT NULL,
-    "line_kind" "InventoryTransferLineKind" NOT NULL,
     "variant_size_id" TEXT NOT NULL,
-    "inventory_pool_id" TEXT,
-    "requested_quantity" INTEGER NOT NULL,
-    "dispatched_quantity" INTEGER NOT NULL DEFAULT 0,
-    "received_quantity" INTEGER NOT NULL DEFAULT 0,
-    "damaged_quantity" INTEGER NOT NULL DEFAULT 0,
-    "lost_quantity" INTEGER NOT NULL DEFAULT 0,
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
@@ -1539,8 +1522,10 @@ CREATE TABLE "stock_units" (
     "rental_price_adjustment" INTEGER NOT NULL DEFAULT 0,
     "estimated_current_value" INTEGER,
     "storefront_sort_order" INTEGER NOT NULL DEFAULT 0,
-    "purchase_date" DATE,
-    "purchase_price" INTEGER,
+    "acquisition_date" DATE,
+    "acquisition_cost" INTEGER,
+    "acquisition_source" VARCHAR(200),
+    "acquisition_reference" VARCHAR(200),
     "notes" TEXT,
     "registration_key" TEXT,
     "registration_hash" TEXT,
@@ -1617,7 +1602,6 @@ CREATE TABLE "fulfillment_requirements" (
     "product_id" TEXT NOT NULL,
     "variant_size_id" TEXT NOT NULL,
     "source_location_id" TEXT NOT NULL,
-    "tracking_mode_snapshot" "InventoryTrackingMode" NOT NULL,
     "availability_policy_snapshot" JSONB NOT NULL,
     "quantity" INTEGER NOT NULL DEFAULT 1,
     "assigned_quantity" INTEGER NOT NULL DEFAULT 0,
@@ -1755,8 +1739,6 @@ CREATE TABLE "inventory_reservations" (
     "product_id" TEXT NOT NULL,
     "variant_size_id" TEXT NOT NULL,
     "source_location_id" TEXT NOT NULL,
-    "inventory_pool_id" TEXT,
-    "preferred_stock_unit_id" TEXT,
     "quantity" INTEGER NOT NULL DEFAULT 1,
     "rental_start_date" DATE NOT NULL,
     "rental_end_date" DATE NOT NULL,
@@ -1790,19 +1772,36 @@ CREATE TABLE "stock_unit_assignments" (
 );
 
 -- CreateTable
+CREATE TABLE "stock_unit_revenue_allocations" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "stock_unit_id" TEXT NOT NULL,
+    "assignment_id" TEXT NOT NULL,
+    "booking_id" TEXT NOT NULL,
+    "booking_item_id" TEXT NOT NULL,
+    "fulfillment_requirement_id" TEXT NOT NULL,
+    "allocation_kind" "StockUnitRevenueAllocationKind" NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "source_key" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "actor_user_id" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "stock_unit_revenue_allocations_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "inventory_movements" (
     "id" TEXT NOT NULL,
     "tenant_id" TEXT NOT NULL,
     "variant_size_id" TEXT,
-    "stock_unit_id" TEXT,
-    "inventory_pool_id" TEXT,
+    "stock_unit_id" TEXT NOT NULL,
     "origin_location_id" TEXT,
     "destination_location_id" TEXT,
     "transfer_id" TEXT,
     "transfer_line_id" TEXT,
     "reservation_id" TEXT,
     "movement_type" "InventoryMovementType" NOT NULL,
-    "quantity_delta" INTEGER,
     "before_state" JSONB,
     "after_state" JSONB,
     "reason" TEXT NOT NULL,
@@ -1821,9 +1820,6 @@ CREATE TABLE "inventory_blocks" (
     "variant_size_id" TEXT,
     "stock_unit_id" TEXT,
     "location_id" TEXT,
-    "inventory_pool_id" TEXT,
-    "transfer_line_id" TEXT,
-    "quantity" INTEGER,
     "start_date" DATE NOT NULL,
     "end_date" DATE NOT NULL,
     "block_type" "InventoryBlockType" NOT NULL,
@@ -2212,10 +2208,10 @@ CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 CREATE INDEX "users_phone_idx" ON "users"("phone");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "colors_name_tenant_id_key" ON "colors"("name", "tenant_id");
+CREATE UNIQUE INDEX "colors_system_key_key" ON "colors"("system_key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "colors_system_key_key" ON "colors"("system_key");
+CREATE UNIQUE INDEX "colors_name_tenant_id_key" ON "colors"("name", "tenant_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "subscription_plans_slug_key" ON "subscription_plans"("slug");
@@ -2246,6 +2242,15 @@ CREATE UNIQUE INDEX "tenant_usage_snapshots_tenant_id_snapshot_date_key" ON "ten
 
 -- CreateIndex
 CREATE UNIQUE INDEX "store_settings_tenant_id_key" ON "store_settings"("tenant_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "courier_connections_webhook_token_key" ON "courier_connections"("webhook_token");
+
+-- CreateIndex
+CREATE INDEX "courier_connections_tenant_id_is_enabled_is_default_idx" ON "courier_connections"("tenant_id", "is_enabled", "is_default");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "courier_connections_tenant_id_provider_key" ON "courier_connections"("tenant_id", "provider");
 
 -- CreateIndex
 CREATE INDEX "tenant_users_user_id_idx" ON "tenant_users"("user_id");
@@ -2320,13 +2325,13 @@ CREATE INDEX "product_onboardings_created_by_user_id_idx" ON "product_onboarding
 CREATE INDEX "product_onboardings_updated_by_user_id_idx" ON "product_onboardings"("updated_by_user_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "product_onboarding_commands_tenant_id_idempotency_key_key" ON "product_onboarding_commands"("tenant_id", "idempotency_key");
-
--- CreateIndex
 CREATE INDEX "product_onboarding_commands_onboarding_id_created_at_idx" ON "product_onboarding_commands"("onboarding_id", "created_at" DESC);
 
 -- CreateIndex
 CREATE INDEX "product_onboarding_commands_actor_user_id_idx" ON "product_onboarding_commands"("actor_user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "product_onboarding_commands_tenant_id_idempotency_key_key" ON "product_onboarding_commands"("tenant_id", "idempotency_key");
 
 -- CreateIndex
 CREATE INDEX "product_variants_product_id_idx" ON "product_variants"("product_id");
@@ -2341,7 +2346,7 @@ CREATE UNIQUE INDEX "product_variants_product_id_onboarding_key_key" ON "product
 CREATE INDEX "variant_sizes_variant_id_idx" ON "variant_sizes"("variant_id");
 
 -- CreateIndex
-CREATE INDEX "variant_sizes_tenant_id_tracking_mode_idx" ON "variant_sizes"("tenant_id", "tracking_mode");
+CREATE INDEX "variant_sizes_tenant_id_variant_id_idx" ON "variant_sizes"("tenant_id", "variant_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "variant_sizes_variant_id_size_instance_id_key" ON "variant_sizes"("variant_id", "size_instance_id");
@@ -2413,7 +2418,7 @@ CREATE INDEX "storefront_checkout_quotes_tenant_id_expires_at_idx" ON "storefron
 CREATE INDEX "storefront_checkout_quotes_cart_id_expires_at_idx" ON "storefront_checkout_quotes"("cart_id", "expires_at");
 
 -- CreateIndex
-CREATE INDEX "storefront_checkout_quotes_tenant_id_request_hash_created_at_idx" ON "storefront_checkout_quotes"("tenant_id", "request_hash", "created_at" DESC);
+CREATE INDEX "storefront_checkout_quotes_tenant_id_request_hash_created_a_idx" ON "storefront_checkout_quotes"("tenant_id", "request_hash", "created_at" DESC);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "storefront_carts_token_hash_key" ON "storefront_carts"("token_hash");
@@ -2425,13 +2430,13 @@ CREATE INDEX "storefront_carts_tenant_id_status_expires_at_idx" ON "storefront_c
 CREATE INDEX "storefront_carts_tenant_id_last_activity_at_idx" ON "storefront_carts"("tenant_id", "last_activity_at" DESC);
 
 -- CreateIndex
-CREATE UNIQUE INDEX "storefront_cart_lines_cart_id_line_key_key" ON "storefront_cart_lines"("cart_id", "line_key");
-
--- CreateIndex
 CREATE INDEX "storefront_cart_lines_cart_id_updated_at_idx" ON "storefront_cart_lines"("cart_id", "updated_at" DESC);
 
 -- CreateIndex
 CREATE INDEX "storefront_cart_lines_product_id_variant_size_id_idx" ON "storefront_cart_lines"("product_id", "variant_size_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "storefront_cart_lines_cart_id_line_key_key" ON "storefront_cart_lines"("cart_id", "line_key");
 
 -- CreateIndex
 CREATE INDEX "product_types_tenant_id_idx" ON "product_types"("tenant_id");
@@ -2500,22 +2505,19 @@ CREATE INDEX "product_faqs_product_id_idx" ON "product_faqs"("product_id");
 CREATE INDEX "product_faqs_tenant_id_idx" ON "product_faqs"("tenant_id");
 
 -- CreateIndex
-CREATE INDEX "customers_tenant_id_full_name_idx" ON "customers"("tenant_id", "full_name");
+CREATE INDEX "customers_tenant_id_status_updated_at_idx" ON "customers"("tenant_id", "status", "updated_at" DESC);
 
 -- CreateIndex
-CREATE INDEX "customers_tenant_id_status_updated_at_idx" ON "customers"("tenant_id", "status", "updated_at" DESC);
+CREATE INDEX "customers_tenant_id_full_name_idx" ON "customers"("tenant_id", "full_name");
 
 -- CreateIndex
 CREATE INDEX "customers_merged_into_customer_id_idx" ON "customers"("merged_into_customer_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "customer_identities_tenant_id_kind_normalized_value_key" ON "customer_identities"("tenant_id", "kind", "normalized_value");
-
--- CreateIndex
 CREATE INDEX "customer_identities_customer_id_kind_idx" ON "customer_identities"("customer_id", "kind");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "customer_identities_one_primary_per_kind" ON "customer_identities"("customer_id", "kind") WHERE "is_primary" = true;
+CREATE UNIQUE INDEX "customer_identities_tenant_id_kind_normalized_value_key" ON "customer_identities"("tenant_id", "kind", "normalized_value");
 
 -- CreateIndex
 CREATE INDEX "customer_addresses_customer_id_kind_archived_at_idx" ON "customer_addresses"("customer_id", "kind", "archived_at");
@@ -2524,16 +2526,13 @@ CREATE INDEX "customer_addresses_customer_id_kind_archived_at_idx" ON "customer_
 CREATE INDEX "customer_addresses_tenant_id_city_idx" ON "customer_addresses"("tenant_id", "city");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "customer_addresses_one_default_per_kind" ON "customer_addresses"("customer_id", "kind") WHERE "is_default" = true AND "archived_at" IS NULL;
-
--- CreateIndex
 CREATE UNIQUE INDEX "customer_tag_definitions_tenant_id_name_key" ON "customer_tag_definitions"("tenant_id", "name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "customer_tag_assignments_customer_id_tag_id_key" ON "customer_tag_assignments"("customer_id", "tag_id");
+CREATE INDEX "customer_tag_assignments_tenant_id_tag_id_idx" ON "customer_tag_assignments"("tenant_id", "tag_id");
 
 -- CreateIndex
-CREATE INDEX "customer_tag_assignments_tenant_id_tag_id_idx" ON "customer_tag_assignments"("tenant_id", "tag_id");
+CREATE UNIQUE INDEX "customer_tag_assignments_customer_id_tag_id_key" ON "customer_tag_assignments"("customer_id", "tag_id");
 
 -- CreateIndex
 CREATE INDEX "customer_notes_customer_id_is_pinned_created_at_idx" ON "customer_notes"("customer_id", "is_pinned", "created_at" DESC);
@@ -2551,22 +2550,10 @@ CREATE INDEX "customer_events_tenant_id_type_occurred_at_idx" ON "customer_event
 CREATE UNIQUE INDEX "customer_accounts_customer_id_key" ON "customer_accounts"("customer_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "customer_accounts_tenant_id_login_identity_id_key" ON "customer_accounts"("tenant_id", "login_identity_id");
-
--- CreateIndex
 CREATE INDEX "customer_accounts_tenant_id_status_idx" ON "customer_accounts"("tenant_id", "status");
 
 -- CreateIndex
-CREATE INDEX "bookings_tenant_id_status_idx" ON "bookings"("tenant_id", "status");
-
--- CreateIndex
-CREATE INDEX "bookings_tenant_id_created_at_idx" ON "bookings"("tenant_id", "created_at" DESC);
-
--- CreateIndex
-CREATE INDEX "bookings_customer_id_idx" ON "bookings"("customer_id");
-
--- CreateIndex
-CREATE INDEX "bookings_policy_version_id_idx" ON "bookings"("policy_version_id");
+CREATE UNIQUE INDEX "customer_accounts_tenant_id_login_identity_id_key" ON "customer_accounts"("tenant_id", "login_identity_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "bookings_quote_id_key" ON "bookings"("quote_id");
@@ -2581,13 +2568,79 @@ CREATE UNIQUE INDEX "bookings_storefront_cart_id_key" ON "bookings"("storefront_
 CREATE UNIQUE INDEX "bookings_public_tracking_token_key" ON "bookings"("public_tracking_token");
 
 -- CreateIndex
-CREATE INDEX "bookings_tenant_id_source_location_id_rental_start_date_rental_end_date_idx" ON "bookings"("tenant_id", "source_location_id", "rental_start_date", "rental_end_date");
+CREATE INDEX "bookings_tenant_id_status_idx" ON "bookings"("tenant_id", "status");
+
+-- CreateIndex
+CREATE INDEX "bookings_tenant_id_created_at_idx" ON "bookings"("tenant_id", "created_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "bookings_customer_id_idx" ON "bookings"("customer_id");
+
+-- CreateIndex
+CREATE INDEX "bookings_tenant_id_source_location_id_rental_start_date_ren_idx" ON "bookings"("tenant_id", "source_location_id", "rental_start_date", "rental_end_date");
+
+-- CreateIndex
+CREATE INDEX "bookings_policy_version_id_idx" ON "bookings"("policy_version_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "bookings_tenant_id_booking_number_key" ON "bookings"("tenant_id", "booking_number");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "bookings_tenant_id_creation_key_key" ON "bookings"("tenant_id", "creation_key");
+
+-- CreateIndex
+CREATE INDEX "shipments_tenant_id_status_scheduled_pickup_at_idx" ON "shipments"("tenant_id", "status", "scheduled_pickup_at");
+
+-- CreateIndex
+CREATE INDEX "shipments_booking_id_direction_created_at_idx" ON "shipments"("booking_id", "direction", "created_at" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shipments_tenant_id_idempotency_key_key" ON "shipments"("tenant_id", "idempotency_key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shipments_provider_provider_reference_key" ON "shipments"("provider", "provider_reference");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shipments_provider_tracking_number_key" ON "shipments"("provider", "tracking_number");
+
+-- CreateIndex
+CREATE INDEX "shipment_dispatch_attempts_shipment_id_started_at_idx" ON "shipment_dispatch_attempts"("shipment_id", "started_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "shipment_dispatch_attempts_tenant_id_status_started_at_idx" ON "shipment_dispatch_attempts"("tenant_id", "status", "started_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shipment_dispatch_attempts_tenant_id_idempotency_key_key" ON "shipment_dispatch_attempts"("tenant_id", "idempotency_key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "cod_remittances_shipment_id_key" ON "cod_remittances"("shipment_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "cod_remittances_payment_id_key" ON "cod_remittances"("payment_id");
+
+-- CreateIndex
+CREATE INDEX "cod_remittances_tenant_id_status_created_at_idx" ON "cod_remittances"("tenant_id", "status", "created_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "cod_remittances_reconciled_by_id_idx" ON "cod_remittances"("reconciled_by_id");
+
+-- CreateIndex
+CREATE INDEX "shipment_items_booking_item_id_idx" ON "shipment_items"("booking_item_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shipment_items_shipment_id_booking_item_id_key" ON "shipment_items"("shipment_id", "booking_item_id");
+
+-- CreateIndex
+CREATE INDEX "shipment_events_tenant_id_occurred_at_idx" ON "shipment_events"("tenant_id", "occurred_at" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shipment_events_shipment_id_dedupe_key_key" ON "shipment_events"("shipment_id", "dedupe_key");
+
+-- CreateIndex
+CREATE INDEX "courier_webhook_receipts_tenant_id_received_at_idx" ON "courier_webhook_receipts"("tenant_id", "received_at" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "courier_webhook_receipts_provider_payload_hash_key" ON "courier_webhook_receipts"("provider", "payload_hash");
 
 -- CreateIndex
 CREATE INDEX "booking_items_booking_id_idx" ON "booking_items"("booking_id");
@@ -2597,34 +2650,6 @@ CREATE INDEX "booking_items_product_id_idx" ON "booking_items"("product_id");
 
 -- CreateIndex
 CREATE INDEX "booking_items_variant_size_id_idx" ON "booking_items"("variant_size_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "courier_connections_webhook_token_key" ON "courier_connections"("webhook_token");
-CREATE UNIQUE INDEX "courier_connections_tenant_id_provider_key" ON "courier_connections"("tenant_id", "provider");
-CREATE INDEX "courier_connections_tenant_id_is_enabled_is_default_idx" ON "courier_connections"("tenant_id", "is_enabled", "is_default");
-
--- Only one enabled workflow can be the tenant's automatic courier choice.
-CREATE UNIQUE INDEX "courier_connections_one_default_per_tenant" ON "courier_connections"("tenant_id") WHERE "is_default" = true;
-
--- CreateIndex
-CREATE UNIQUE INDEX "shipments_tenant_id_idempotency_key_key" ON "shipments"("tenant_id", "idempotency_key");
-CREATE UNIQUE INDEX "shipments_provider_provider_reference_key" ON "shipments"("provider", "provider_reference");
-CREATE UNIQUE INDEX "shipments_provider_tracking_number_key" ON "shipments"("provider", "tracking_number");
-CREATE INDEX "shipments_tenant_id_status_scheduled_pickup_at_idx" ON "shipments"("tenant_id", "status", "scheduled_pickup_at");
-CREATE INDEX "shipments_booking_id_direction_created_at_idx" ON "shipments"("booking_id", "direction", "created_at" DESC);
-CREATE UNIQUE INDEX "shipment_dispatch_attempts_tenant_id_idempotency_key_key" ON "shipment_dispatch_attempts"("tenant_id", "idempotency_key");
-CREATE INDEX "shipment_dispatch_attempts_shipment_id_started_at_idx" ON "shipment_dispatch_attempts"("shipment_id", "started_at" DESC);
-CREATE INDEX "shipment_dispatch_attempts_tenant_id_status_started_at_idx" ON "shipment_dispatch_attempts"("tenant_id", "status", "started_at");
-CREATE UNIQUE INDEX "cod_remittances_shipment_id_key" ON "cod_remittances"("shipment_id");
-CREATE UNIQUE INDEX "cod_remittances_payment_id_key" ON "cod_remittances"("payment_id");
-CREATE INDEX "cod_remittances_tenant_id_status_created_at_idx" ON "cod_remittances"("tenant_id", "status", "created_at" DESC);
-CREATE INDEX "cod_remittances_reconciled_by_id_idx" ON "cod_remittances"("reconciled_by_id");
-CREATE UNIQUE INDEX "shipment_items_shipment_id_booking_item_id_key" ON "shipment_items"("shipment_id", "booking_item_id");
-CREATE INDEX "shipment_items_booking_item_id_idx" ON "shipment_items"("booking_item_id");
-CREATE UNIQUE INDEX "shipment_events_shipment_id_dedupe_key_key" ON "shipment_events"("shipment_id", "dedupe_key");
-CREATE INDEX "shipment_events_tenant_id_occurred_at_idx" ON "shipment_events"("tenant_id", "occurred_at" DESC);
-CREATE UNIQUE INDEX "courier_webhook_receipts_provider_payload_hash_key" ON "courier_webhook_receipts"("provider", "payload_hash");
-CREATE INDEX "courier_webhook_receipts_tenant_id_received_at_idx" ON "courier_webhook_receipts"("tenant_id", "received_at" DESC);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "damage_reports_booking_item_id_key" ON "damage_reports"("booking_item_id");
@@ -2642,13 +2667,13 @@ CREATE UNIQUE INDEX "deposit_settlements_booking_item_id_key" ON "deposit_settle
 CREATE UNIQUE INDEX "deposit_settlements_damage_report_id_key" ON "deposit_settlements"("damage_report_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "deposit_settlements_tenant_id_idempotency_key_key" ON "deposit_settlements"("tenant_id", "idempotency_key");
-
--- CreateIndex
 CREATE INDEX "deposit_settlements_tenant_id_booking_id_created_at_idx" ON "deposit_settlements"("tenant_id", "booking_id", "created_at" DESC);
 
 -- CreateIndex
 CREATE INDEX "deposit_settlements_actor_user_id_idx" ON "deposit_settlements"("actor_user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "deposit_settlements_tenant_id_idempotency_key_key" ON "deposit_settlements"("tenant_id", "idempotency_key");
 
 -- CreateIndex
 CREATE INDEX "inventory_locations_tenant_id_is_active_location_type_idx" ON "inventory_locations"("tenant_id", "is_active", "location_type");
@@ -2658,15 +2683,6 @@ CREATE INDEX "inventory_locations_created_by_user_id_idx" ON "inventory_location
 
 -- CreateIndex
 CREATE UNIQUE INDEX "inventory_locations_tenant_id_code_key" ON "inventory_locations"("tenant_id", "code");
-
--- CreateIndex
-CREATE INDEX "inventory_pools_tenant_id_location_id_idx" ON "inventory_pools"("tenant_id", "location_id");
-
--- CreateIndex
-CREATE INDEX "inventory_pools_tenant_id_variant_size_id_idx" ON "inventory_pools"("tenant_id", "variant_size_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "inventory_pools_variant_size_id_location_id_key" ON "inventory_pools"("variant_size_id", "location_id");
 
 -- CreateIndex
 CREATE INDEX "availability_policies_tenant_id_scope_is_active_idx" ON "availability_policies"("tenant_id", "scope", "is_active");
@@ -2717,10 +2733,7 @@ CREATE INDEX "inventory_transfer_lines_tenant_id_transfer_id_idx" ON "inventory_
 CREATE INDEX "inventory_transfer_lines_variant_size_id_idx" ON "inventory_transfer_lines"("variant_size_id");
 
 -- CreateIndex
-CREATE INDEX "inventory_transfer_lines_inventory_pool_id_idx" ON "inventory_transfer_lines"("inventory_pool_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "inventory_transfer_lines_transfer_id_variant_size_id_line_k_key" ON "inventory_transfer_lines"("transfer_id", "variant_size_id", "line_kind");
+CREATE UNIQUE INDEX "inventory_transfer_lines_transfer_id_variant_size_id_key" ON "inventory_transfer_lines"("transfer_id", "variant_size_id");
 
 -- CreateIndex
 CREATE INDEX "inventory_transfer_units_tenant_id_stock_unit_id_outcome_idx" ON "inventory_transfer_units"("tenant_id", "stock_unit_id", "outcome");
@@ -2750,6 +2763,12 @@ CREATE INDEX "stock_units_tenant_id_location_id_variant_size_id_idx" ON "stock_u
 CREATE INDEX "stock_units_tenant_id_variant_size_id_disposition_operation_idx" ON "stock_units"("tenant_id", "variant_size_id", "disposition", "operational_state");
 
 -- CreateIndex
+CREATE INDEX "stock_units_tenant_id_registration_key_idx" ON "stock_units"("tenant_id", "registration_key");
+
+-- CreateIndex
+CREATE INDEX "stock_units_tenant_id_acquisition_date_idx" ON "stock_units"("tenant_id", "acquisition_date");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "stock_units_tenant_id_asset_code_key" ON "stock_units"("tenant_id", "asset_code");
 
 -- CreateIndex
@@ -2757,9 +2776,6 @@ CREATE UNIQUE INDEX "stock_units_tenant_id_barcode_key" ON "stock_units"("tenant
 
 -- CreateIndex
 CREATE UNIQUE INDEX "stock_units_tenant_id_registration_key_registration_row_key" ON "stock_units"("tenant_id", "registration_key", "registration_row");
-
--- CreateIndex
-CREATE INDEX "stock_units_tenant_id_registration_key_idx" ON "stock_units"("tenant_id", "registration_key");
 
 -- CreateIndex
 CREATE INDEX "product_composition_rules_tenant_id_parent_product_id_is_ac_idx" ON "product_composition_rules"("tenant_id", "parent_product_id", "is_active", "display_order");
@@ -2846,13 +2862,13 @@ CREATE UNIQUE INDEX "fulfillment_substitutions_requirement_id_to_version_key" ON
 CREATE UNIQUE INDEX "fulfillment_substitutions_tenant_id_idempotency_key_key" ON "fulfillment_substitutions"("tenant_id", "idempotency_key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "fulfillment_extensions_tenant_id_idempotency_key_key" ON "fulfillment_extensions"("tenant_id", "idempotency_key");
-
--- CreateIndex
 CREATE INDEX "fulfillment_extensions_tenant_id_booking_id_created_at_idx" ON "fulfillment_extensions"("tenant_id", "booking_id", "created_at" DESC);
 
 -- CreateIndex
 CREATE INDEX "fulfillment_extensions_actor_user_id_idx" ON "fulfillment_extensions"("actor_user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "fulfillment_extensions_tenant_id_idempotency_key_key" ON "fulfillment_extensions"("tenant_id", "idempotency_key");
 
 -- CreateIndex
 CREATE INDEX "fulfillment_requirement_events_tenant_id_requirement_id_cre_idx" ON "fulfillment_requirement_events"("tenant_id", "requirement_id", "created_at" DESC);
@@ -2885,12 +2901,6 @@ CREATE INDEX "inventory_reservations_tenant_id_variant_size_id_status_blo_idx" O
 CREATE INDEX "inventory_reservations_tenant_id_source_location_id_variant_idx" ON "inventory_reservations"("tenant_id", "source_location_id", "variant_size_id", "status", "blocked_start_date", "blocked_end_date");
 
 -- CreateIndex
-CREATE INDEX "inventory_reservations_inventory_pool_id_status_blocked_sta_idx" ON "inventory_reservations"("inventory_pool_id", "status", "blocked_start_date", "blocked_end_date");
-
--- CreateIndex
-CREATE INDEX "inventory_reservations_preferred_stock_unit_id_status_block_idx" ON "inventory_reservations"("preferred_stock_unit_id", "status", "blocked_start_date", "blocked_end_date");
-
--- CreateIndex
 CREATE INDEX "inventory_reservations_tenant_id_status_expires_at_idx" ON "inventory_reservations"("tenant_id", "status", "expires_at");
 
 -- CreateIndex
@@ -2903,13 +2913,31 @@ CREATE INDEX "stock_unit_assignments_tenant_id_stock_unit_id_blocked_star_idx" O
 CREATE INDEX "stock_unit_assignments_assigned_by_user_id_idx" ON "stock_unit_assignments"("assigned_by_user_id");
 
 -- CreateIndex
+CREATE INDEX "stock_unit_revenue_allocations_tenant_id_stock_unit_id_crea_idx" ON "stock_unit_revenue_allocations"("tenant_id", "stock_unit_id", "created_at");
+
+-- CreateIndex
+CREATE INDEX "stock_unit_revenue_allocations_tenant_id_booking_id_created_idx" ON "stock_unit_revenue_allocations"("tenant_id", "booking_id", "created_at");
+
+-- CreateIndex
+CREATE INDEX "stock_unit_revenue_allocations_booking_item_id_idx" ON "stock_unit_revenue_allocations"("booking_item_id");
+
+-- CreateIndex
+CREATE INDEX "stock_unit_revenue_allocations_fulfillment_requirement_id_idx" ON "stock_unit_revenue_allocations"("fulfillment_requirement_id");
+
+-- CreateIndex
+CREATE INDEX "stock_unit_revenue_allocations_assignment_id_idx" ON "stock_unit_revenue_allocations"("assignment_id");
+
+-- CreateIndex
+CREATE INDEX "stock_unit_revenue_allocations_actor_user_id_idx" ON "stock_unit_revenue_allocations"("actor_user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "stock_unit_revenue_allocations_tenant_id_source_key_key" ON "stock_unit_revenue_allocations"("tenant_id", "source_key");
+
+-- CreateIndex
 CREATE INDEX "inventory_movements_tenant_id_variant_size_id_created_at_idx" ON "inventory_movements"("tenant_id", "variant_size_id", "created_at");
 
 -- CreateIndex
 CREATE INDEX "inventory_movements_stock_unit_id_created_at_idx" ON "inventory_movements"("stock_unit_id", "created_at");
-
--- CreateIndex
-CREATE INDEX "inventory_movements_inventory_pool_id_created_at_idx" ON "inventory_movements"("inventory_pool_id", "created_at");
 
 -- CreateIndex
 CREATE INDEX "inventory_movements_transfer_id_created_at_idx" ON "inventory_movements"("transfer_id", "created_at");
@@ -2919,9 +2947,6 @@ CREATE INDEX "inventory_movements_reservation_id_created_at_idx" ON "inventory_m
 
 -- CreateIndex
 CREATE INDEX "inventory_movements_actor_user_id_idx" ON "inventory_movements"("actor_user_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "inventory_blocks_transfer_line_id_key" ON "inventory_blocks"("transfer_line_id");
 
 -- CreateIndex
 CREATE INDEX "inventory_blocks_tenant_id_product_id_start_date_end_date_idx" ON "inventory_blocks"("tenant_id", "product_id", "start_date", "end_date");
@@ -2937,9 +2962,6 @@ CREATE INDEX "inventory_blocks_tenant_id_stock_unit_id_start_date_end_dat_idx" O
 
 -- CreateIndex
 CREATE INDEX "inventory_blocks_tenant_id_location_id_start_date_end_date_idx" ON "inventory_blocks"("tenant_id", "location_id", "start_date", "end_date");
-
--- CreateIndex
-CREATE INDEX "inventory_blocks_tenant_id_inventory_pool_id_start_date_end_idx" ON "inventory_blocks"("tenant_id", "inventory_pool_id", "start_date", "end_date");
 
 -- CreateIndex
 CREATE INDEX "inventory_blocks_created_by_user_id_idx" ON "inventory_blocks"("created_by_user_id");
@@ -3116,13 +3138,13 @@ CREATE INDEX "notifications_tenant_id_is_read_idx" ON "notifications"("tenant_id
 CREATE INDEX "notifications_tenant_id_created_at_idx" ON "notifications"("tenant_id", "created_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "notification_deliveries_tenant_id_dedupe_key_key" ON "notification_deliveries"("tenant_id", "dedupe_key");
-
--- CreateIndex
 CREATE INDEX "notification_deliveries_status_next_attempt_at_idx" ON "notification_deliveries"("status", "next_attempt_at");
 
 -- CreateIndex
 CREATE INDEX "notification_deliveries_tenant_id_created_at_idx" ON "notification_deliveries"("tenant_id", "created_at" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "notification_deliveries_tenant_id_dedupe_key_key" ON "notification_deliveries"("tenant_id", "dedupe_key");
 
 -- CreateIndex
 CREATE INDEX "audit_logs_tenant_id_idx" ON "audit_logs"("tenant_id");
@@ -3179,6 +3201,9 @@ CREATE INDEX "storefront_events_product_id_event_type_idx" ON "storefront_events
 CREATE INDEX "storefront_events_session_id_idx" ON "storefront_events"("session_id");
 
 -- AddForeignKey
+ALTER TABLE "colors" ADD CONSTRAINT "colors_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "tenants" ADD CONSTRAINT "tenants_owner_user_id_fkey" FOREIGN KEY ("owner_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3188,16 +3213,13 @@ ALTER TABLE "tenants" ADD CONSTRAINT "tenants_plan_id_fkey" FOREIGN KEY ("plan_i
 ALTER TABLE "tenants" ADD CONSTRAINT "tenants_promo_code_id_fkey" FOREIGN KEY ("promo_code_id") REFERENCES "promo_codes"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "colors" ADD CONSTRAINT "colors_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "payments" ADD CONSTRAINT "payments_recorded_by_fkey" FOREIGN KEY ("recorded_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "tenant_usage_snapshots" ADD CONSTRAINT "tenant_usage_snapshots_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "store_settings" ADD CONSTRAINT "store_settings_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "courier_connections" ADD CONSTRAINT "courier_connections_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "tenant_users" ADD CONSTRAINT "tenant_users_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -3326,6 +3348,9 @@ ALTER TABLE "quote_line_items" ADD CONSTRAINT "quote_line_items_quote_id_fkey" F
 ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "storefront_checkout_quotes" ADD CONSTRAINT "storefront_checkout_quotes_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3345,12 +3370,6 @@ ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_varian
 
 -- AddForeignKey
 ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_variant_size_id_fkey" FOREIGN KEY ("variant_size_id") REFERENCES "variant_sizes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "storefront_cart_lines" ADD CONSTRAINT "storefront_cart_lines_preferred_stock_unit_id_fkey" FOREIGN KEY ("preferred_stock_unit_id") REFERENCES "stock_units"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "booking_quotes" ADD CONSTRAINT "booking_quotes_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "product_types" ADD CONSTRAINT "product_types_default_size_schema_id_fkey" FOREIGN KEY ("default_size_schema_id") REFERENCES "size_schemas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -3467,24 +3486,49 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_policy_version_id_fkey" FOREIGN 
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "booking_items" ADD CONSTRAINT "booking_items_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
-ALTER TABLE "courier_connections" ADD CONSTRAINT "courier_connections_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "shipment_dispatch_attempts" ADD CONSTRAINT "shipment_dispatch_attempts_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "shipment_dispatch_attempts" ADD CONSTRAINT "shipment_dispatch_attempts_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_payment_id_fkey" FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "cod_remittances" ADD CONSTRAINT "cod_remittances_reconciled_by_id_fkey" FOREIGN KEY ("reconciled_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "shipment_items" ADD CONSTRAINT "shipment_items_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "shipment_items" ADD CONSTRAINT "shipment_items_booking_item_id_fkey" FOREIGN KEY ("booking_item_id") REFERENCES "booking_items"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "shipment_events" ADD CONSTRAINT "shipment_events_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "shipment_events" ADD CONSTRAINT "shipment_events_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "courier_webhook_receipts" ADD CONSTRAINT "courier_webhook_receipts_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "courier_webhook_receipts" ADD CONSTRAINT "courier_webhook_receipts_shipment_id_fkey" FOREIGN KEY ("shipment_id") REFERENCES "shipments"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "booking_items" ADD CONSTRAINT "booking_items_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "booking_items" ADD CONSTRAINT "booking_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -3521,15 +3565,6 @@ ALTER TABLE "inventory_locations" ADD CONSTRAINT "inventory_locations_tenant_id_
 
 -- AddForeignKey
 ALTER TABLE "inventory_locations" ADD CONSTRAINT "inventory_locations_created_by_user_id_fkey" FOREIGN KEY ("created_by_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_pools" ADD CONSTRAINT "inventory_pools_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_pools" ADD CONSTRAINT "inventory_pools_variant_size_id_fkey" FOREIGN KEY ("variant_size_id") REFERENCES "variant_sizes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_pools" ADD CONSTRAINT "inventory_pools_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "availability_policies" ADD CONSTRAINT "availability_policies_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -3572,9 +3607,6 @@ ALTER TABLE "inventory_transfer_lines" ADD CONSTRAINT "inventory_transfer_lines_
 
 -- AddForeignKey
 ALTER TABLE "inventory_transfer_lines" ADD CONSTRAINT "inventory_transfer_lines_variant_size_id_fkey" FOREIGN KEY ("variant_size_id") REFERENCES "variant_sizes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_transfer_lines" ADD CONSTRAINT "inventory_transfer_lines_inventory_pool_id_fkey" FOREIGN KEY ("inventory_pool_id") REFERENCES "inventory_pools"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "inventory_transfer_units" ADD CONSTRAINT "inventory_transfer_units_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -3736,12 +3768,6 @@ ALTER TABLE "inventory_reservations" ADD CONSTRAINT "inventory_reservations_vari
 ALTER TABLE "inventory_reservations" ADD CONSTRAINT "inventory_reservations_source_location_id_fkey" FOREIGN KEY ("source_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "inventory_reservations" ADD CONSTRAINT "inventory_reservations_inventory_pool_id_fkey" FOREIGN KEY ("inventory_pool_id") REFERENCES "inventory_pools"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_reservations" ADD CONSTRAINT "inventory_reservations_preferred_stock_unit_id_fkey" FOREIGN KEY ("preferred_stock_unit_id") REFERENCES "stock_units"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "stock_unit_assignments" ADD CONSTRAINT "stock_unit_assignments_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3754,16 +3780,34 @@ ALTER TABLE "stock_unit_assignments" ADD CONSTRAINT "stock_unit_assignments_stoc
 ALTER TABLE "stock_unit_assignments" ADD CONSTRAINT "stock_unit_assignments_assigned_by_user_id_fkey" FOREIGN KEY ("assigned_by_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "stock_unit_revenue_allocations" ADD CONSTRAINT "stock_unit_revenue_allocations_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "stock_unit_revenue_allocations" ADD CONSTRAINT "stock_unit_revenue_allocations_stock_unit_id_fkey" FOREIGN KEY ("stock_unit_id") REFERENCES "stock_units"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "stock_unit_revenue_allocations" ADD CONSTRAINT "stock_unit_revenue_allocations_assignment_id_fkey" FOREIGN KEY ("assignment_id") REFERENCES "stock_unit_assignments"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "stock_unit_revenue_allocations" ADD CONSTRAINT "stock_unit_revenue_allocations_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "stock_unit_revenue_allocations" ADD CONSTRAINT "stock_unit_revenue_allocations_booking_item_id_fkey" FOREIGN KEY ("booking_item_id") REFERENCES "booking_items"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "stock_unit_revenue_allocations" ADD CONSTRAINT "stock_unit_revenue_allocations_fulfillment_requirement_id_fkey" FOREIGN KEY ("fulfillment_requirement_id") REFERENCES "fulfillment_requirements"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "stock_unit_revenue_allocations" ADD CONSTRAINT "stock_unit_revenue_allocations_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_variant_size_id_fkey" FOREIGN KEY ("variant_size_id") REFERENCES "variant_sizes"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_stock_unit_id_fkey" FOREIGN KEY ("stock_unit_id") REFERENCES "stock_units"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_inventory_pool_id_fkey" FOREIGN KEY ("inventory_pool_id") REFERENCES "inventory_pools"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_stock_unit_id_fkey" FOREIGN KEY ("stock_unit_id") REFERENCES "stock_units"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_origin_location_id_fkey" FOREIGN KEY ("origin_location_id") REFERENCES "inventory_locations"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -3800,12 +3844,6 @@ ALTER TABLE "inventory_blocks" ADD CONSTRAINT "inventory_blocks_stock_unit_id_fk
 
 -- AddForeignKey
 ALTER TABLE "inventory_blocks" ADD CONSTRAINT "inventory_blocks_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "inventory_locations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_blocks" ADD CONSTRAINT "inventory_blocks_inventory_pool_id_fkey" FOREIGN KEY ("inventory_pool_id") REFERENCES "inventory_pools"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventory_blocks" ADD CONSTRAINT "inventory_blocks_transfer_line_id_fkey" FOREIGN KEY ("transfer_line_id") REFERENCES "inventory_transfer_lines"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "inventory_blocks" ADD CONSTRAINT "inventory_blocks_created_by_user_id_fkey" FOREIGN KEY ("created_by_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -3952,6 +3990,9 @@ ALTER TABLE "inventory_media_attachments" ADD CONSTRAINT "inventory_media_attach
 ALTER TABLE "payments" ADD CONSTRAINT "payments_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "payments" ADD CONSTRAINT "payments_recorded_by_fkey" FOREIGN KEY ("recorded_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "reviews" ADD CONSTRAINT "reviews_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -4019,11 +4060,9 @@ ALTER TABLE "booking_items"
   ADD CONSTRAINT "booking_items_quantity_check" CHECK ("quantity" > 0),
   ADD CONSTRAINT "booking_items_item_total_check" CHECK ("item_total" >= 0);
 
-ALTER TABLE "inventory_pools"
-  ADD CONSTRAINT "inventory_pools_quantities_check" CHECK (
-    "on_hand_quantity" >= 0
-    AND "version" >= 0
-    AND ("reorder_threshold" IS NULL OR "reorder_threshold" >= 0)
+ALTER TABLE "products"
+  ADD CONSTRAINT "products_reference_retail_value_check" CHECK (
+    "reference_retail_value" IS NULL OR "reference_retail_value" >= 0
   );
 
 ALTER TABLE "product_onboardings"
@@ -4058,22 +4097,17 @@ ALTER TABLE "inventory_transfers"
     OR "expected_dispatch_at" <= "expected_arrival_at"
   );
 
-ALTER TABLE "inventory_transfer_lines"
-  ADD CONSTRAINT "inventory_transfer_lines_quantities_check" CHECK (
-    "requested_quantity" > 0
-    AND "dispatched_quantity" >= 0
-    AND "received_quantity" >= 0
-    AND "damaged_quantity" >= 0
-    AND "lost_quantity" >= 0
-    AND "dispatched_quantity" <= "requested_quantity"
-    AND "received_quantity" + "damaged_quantity" + "lost_quantity" <= "dispatched_quantity"
-  );
-
 ALTER TABLE "stock_units"
   ADD CONSTRAINT "stock_units_values_check" CHECK (
-    ("purchase_price" IS NULL OR "purchase_price" >= 0)
+    ("acquisition_cost" IS NULL OR "acquisition_cost" >= 0)
     AND ("estimated_current_value" IS NULL OR "estimated_current_value" >= 0)
     AND "storefront_sort_order" >= 0
+  );
+
+ALTER TABLE "stock_unit_revenue_allocations"
+  ADD CONSTRAINT "stock_unit_revenue_allocations_amount_check" CHECK (
+    ("allocation_kind" = 'RENTAL_REVENUE' AND "amount" >= 0)
+    OR ("allocation_kind" = 'ADJUSTMENT' AND "amount" <> 0)
   );
 
 ALTER TABLE "inventory_reservations"
@@ -4094,15 +4128,11 @@ ALTER TABLE "stock_unit_assignments"
 ALTER TABLE "inventory_blocks"
   ADD CONSTRAINT "inventory_blocks_dates_check" CHECK ("start_date" <= "end_date"),
   ADD CONSTRAINT "inventory_blocks_scope_check" CHECK (
-    num_nonnulls("product_id", "variant_id", "variant_size_id", "stock_unit_id", "inventory_pool_id") = 1
+    num_nonnulls("product_id", "variant_id", "variant_size_id", "stock_unit_id") = 1
     OR (
-      num_nonnulls("product_id", "variant_id", "variant_size_id", "stock_unit_id", "inventory_pool_id") = 0
+      num_nonnulls("product_id", "variant_id", "variant_size_id", "stock_unit_id") = 0
       AND "location_id" IS NOT NULL
     )
-  ),
-  ADD CONSTRAINT "inventory_blocks_quantity_check" CHECK (
-    ("inventory_pool_id" IS NOT NULL AND "quantity" IS NOT NULL AND "quantity" > 0)
-    OR ("inventory_pool_id" IS NULL AND "quantity" IS NULL)
   );
 
 ALTER TABLE "stock_unit_inspection_checks"

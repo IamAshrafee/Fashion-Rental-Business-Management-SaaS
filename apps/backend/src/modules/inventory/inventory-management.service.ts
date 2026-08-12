@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import {
   InventoryMovementType,
-  InventoryTrackingMode,
   Prisma,
   StockConditionGrade,
   StockUnitDisposition,
@@ -15,7 +14,6 @@ import {
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  ConfigureVariantSizeInventoryDto,
   CreateStockUnitDto,
   InventoryCalendarQueryDto,
   RegisterStockUnitBatchDto,
@@ -50,15 +48,7 @@ export class InventoryManagementService {
             sizes: {
               select: {
                 id: true,
-                trackingMode: true,
                 inventoryVersion: true,
-                inventoryPools: {
-                  where: { location: { isActive: true } },
-                  include: {
-                    location: { select: { id: true, code: true, name: true, isDefault: true } },
-                  },
-                  orderBy: { location: { name: 'asc' } },
-                },
                 sizeInstance: {
                   select: {
                     id: true,
@@ -121,38 +111,16 @@ export class InventoryManagementService {
                 (sum, entry) => sum + (entry._sum.quantity ?? 0),
                 0,
               );
-              const pooledCapacity = sku.inventoryPools.reduce(
-                (sum, pool) => sum + pool.onHandQuantity,
-                0,
-              );
-              const totalCapacity =
-                sku.trackingMode === InventoryTrackingMode.POOLED
-                  ? pooledCapacity
-                  : activeUnits;
-              const currentlyUsableCapacity =
-                sku.trackingMode === InventoryTrackingMode.POOLED
-                  ? pooledCapacity
-                  : operationallyAvailableUnits;
+              const totalCapacity = activeUnits;
+              const currentlyUsableCapacity = operationallyAvailableUnits;
 
               return {
                 variantSizeId: sku.id,
                 sizeInstance: sku.sizeInstance,
-                trackingMode: sku.trackingMode,
                 inventoryVersion: sku.inventoryVersion,
                 totalCapacity,
                 reservedQuantity,
                 availableQuantity: Math.max(0, currentlyUsableCapacity - reservedQuantity),
-                pools: sku.inventoryPools.map((pool) => ({
-                  id: pool.id,
-                  location: pool.location,
-                  onHandQuantity: pool.onHandQuantity,
-                  reorderThreshold: pool.reorderThreshold,
-                  version: pool.version,
-                  reservedQuantity:
-                    reservationByLocation.find(
-                      (entry) => entry.sourceLocationId === pool.locationId,
-                    )?._sum.quantity ?? 0,
-                })),
                 unitCounts: unitCounts.map((entry) => ({
                   locationId: entry.locationId,
                   disposition: entry.disposition,
@@ -166,93 +134,6 @@ export class InventoryManagementService {
     );
 
     return { ...product, variants };
-  }
-
-  async configureVariantSize(
-    tenantId: string,
-    variantSizeId: string,
-    dto: ConfigureVariantSizeInventoryDto,
-    actorUserId?: string,
-  ) {
-    return this.prisma.$transaction(async (tx) => {
-      const sku = await this.getVariantSize(tx, tenantId, variantSizeId);
-      const nextMode = dto.trackingMode;
-
-      if (nextMode !== sku.trackingMode) {
-        const activeReservations = await tx.inventoryReservation.count({
-          where: {
-            tenantId,
-            variantSizeId,
-            status: { in: ['PENDING', 'CONFIRMED'] },
-            blockedEndDate: { gte: this.startOfToday() },
-          },
-        });
-        if (activeReservations > 0) {
-          throw new ConflictException({
-            code: 'INVALID_TRACKING_MODE_CHANGE',
-            message: 'Tracking mode cannot change while active or future reservations exist',
-          });
-        }
-
-        if (nextMode === InventoryTrackingMode.POOLED) {
-          const activeUnits = await tx.stockUnit.count({
-            where: {
-              tenantId,
-              variantSizeId,
-              disposition: { in: ['ACTIVE', 'QUARANTINED'] },
-              deletedAt: null,
-            },
-          });
-          if (activeUnits > 0) {
-            throw new ConflictException({
-              code: 'INVALID_TRACKING_MODE_CHANGE',
-              message: 'Retire active physical units before switching this SKU to pooled inventory',
-            });
-          }
-        }
-      }
-
-      if (nextMode === InventoryTrackingMode.SERIALIZED) {
-        const pooledStock = await tx.inventoryPool.aggregate({
-          where: { tenantId, variantSizeId },
-          _sum: { onHandQuantity: true },
-        });
-        if ((pooledStock._sum.onHandQuantity ?? 0) > 0) {
-          throw new ConflictException({
-            code: 'TRACKING_MODE_HAS_POOLED_STOCK',
-            message: 'Move or count pooled stock down to zero before enabling serialized tracking',
-          });
-        }
-      }
-
-      const updated = await tx.variantSize.update({
-        where: { id: variantSizeId },
-        data: {
-          trackingMode: nextMode,
-          inventoryVersion: { increment: 1 },
-        },
-        include: { sizeInstance: true },
-      });
-
-      if (nextMode !== sku.trackingMode) {
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            variantSizeId,
-            movementType: InventoryMovementType.ADMIN_CORRECTION,
-            quantityDelta: 0,
-            beforeState: this.json({
-              trackingMode: sku.trackingMode,
-            }),
-            afterState: this.json({ trackingMode: nextMode }),
-            reason: dto.reason?.trim() || 'Inventory configuration updated',
-            actorUserId: actorUserId ?? null,
-          },
-        });
-      }
-
-      return updated;
-    });
   }
 
   async listStockUnits(tenantId: string, variantSizeId: string) {
@@ -292,10 +173,7 @@ export class InventoryManagementService {
   ) {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const sku = await this.getVariantSize(tx, tenantId, variantSizeId);
-        if (sku.trackingMode !== InventoryTrackingMode.SERIALIZED) {
-          throw new ConflictException('Physical units can only be added to serialized inventory');
-        }
+        await this.getVariantSize(tx, tenantId, variantSizeId);
         await this.locations.getActiveOrThrow(
           tx,
           tenantId,
@@ -317,8 +195,10 @@ export class InventoryManagementService {
             assetCode: this.normalizeAssetCode(dto.assetCode),
             barcode: dto.barcode?.trim() || null,
             condition: dto.condition ?? StockConditionGrade.GOOD,
-            purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
-            purchasePrice: dto.purchasePrice ?? null,
+            acquisitionDate: dto.acquisitionDate ? new Date(dto.acquisitionDate) : null,
+            acquisitionCost: dto.acquisitionCost ?? null,
+            acquisitionSource: dto.acquisitionSource?.trim() || null,
+            acquisitionReference: dto.acquisitionReference?.trim() || null,
             notes: dto.notes?.trim() || null,
             storefrontVisible: dto.storefrontVisible ?? false,
             publicConditionNote: dto.publicConditionNote?.trim() || null,
@@ -364,14 +244,23 @@ export class InventoryManagementService {
     const normalizedRows = dto.rows.map((row) => ({
       assetCode: this.normalizeAssetCode(row.assetCode),
       barcode: row.barcode?.trim() || null,
+      condition: row.condition ?? dto.condition ?? StockConditionGrade.GOOD,
+      acquisitionDate: row.acquisitionDate ?? dto.acquisitionDate ?? null,
+      acquisitionCost: row.acquisitionCost ?? dto.acquisitionCost ?? null,
+      acquisitionSource: row.acquisitionSource?.trim() || dto.acquisitionSource?.trim() || null,
+      acquisitionReference:
+        row.acquisitionReference?.trim() || dto.acquisitionReference?.trim() || null,
+      notes: row.notes?.trim() || dto.notes?.trim() || null,
     }));
     const requestHash = createHash('sha256').update(JSON.stringify({
       variantSizeId,
       locationId: dto.locationId,
       rows: normalizedRows,
       condition: dto.condition ?? StockConditionGrade.GOOD,
-      purchaseDate: dto.purchaseDate ?? null,
-      purchasePrice: dto.purchasePrice ?? null,
+      acquisitionDate: dto.acquisitionDate ?? null,
+      acquisitionCost: dto.acquisitionCost ?? null,
+      acquisitionSource: dto.acquisitionSource?.trim() || null,
+      acquisitionReference: dto.acquisitionReference?.trim() || null,
       notes: dto.notes?.trim() || null,
       componentStates: (dto.componentStates ?? []).map((component) => ({
         ...component,
@@ -399,10 +288,7 @@ export class InventoryManagementService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const sku = await this.getVariantSize(tx, tenantId, variantSizeId);
-        if (sku.trackingMode !== InventoryTrackingMode.SERIALIZED) {
-          throw new ConflictException('Physical units can only be added to serialized inventory');
-        }
+        await this.getVariantSize(tx, tenantId, variantSizeId);
         await this.locations.getActiveOrThrow(tx, tenantId, dto.locationId, 'canStoreInventory');
 
         const rowErrors: Array<{ row: number; field: string; code: string; message: string }> = [];
@@ -467,10 +353,14 @@ export class InventoryManagementService {
               locationId: dto.locationId,
               assetCode: identity.assetCode,
               barcode: identity.barcode,
-              condition: dto.condition ?? StockConditionGrade.GOOD,
-              purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
-              purchasePrice: dto.purchasePrice ?? null,
-              notes: dto.notes?.trim() || null,
+              condition: identity.condition,
+              acquisitionDate: identity.acquisitionDate
+                ? new Date(identity.acquisitionDate)
+                : null,
+              acquisitionCost: identity.acquisitionCost,
+              acquisitionSource: identity.acquisitionSource,
+              acquisitionReference: identity.acquisitionReference,
+              notes: identity.notes,
               registrationKey: dto.idempotencyKey,
               registrationHash: requestHash,
               registrationRow: rowIndex,
@@ -482,7 +372,7 @@ export class InventoryManagementService {
                     setComponentDefinitionId: definition.id,
                     presence: configured?.presence ?? 'PRESENT',
                     presentQuantity: configured?.presentQuantity ?? definition.requiredQuantity,
-                    condition: configured?.condition ?? dto.condition ?? StockConditionGrade.GOOD,
+                    condition: configured?.condition ?? identity.condition,
                     notes: configured?.notes?.trim() || null,
                   };
                 }),
@@ -523,15 +413,41 @@ export class InventoryManagementService {
         if (unit.disposition === StockUnitDisposition.RETIRED) {
           throw new ConflictException('Retired units cannot be edited');
         }
+        const correctionRequested = [
+          dto.assetCode,
+          dto.barcode,
+          dto.condition,
+          dto.acquisitionDate,
+          dto.acquisitionCost,
+          dto.acquisitionSource,
+          dto.acquisitionReference,
+          dto.notes,
+          dto.estimatedCurrentValue,
+        ].some((value) => value !== undefined);
+        if (correctionRequested && !dto.reason?.trim()) {
+          throw new BadRequestException(
+            'A correction reason is required when changing identity, acquisition, condition, notes, or valuation data',
+          );
+        }
 
         const updated = await tx.stockUnit.update({
           where: { id: stockUnitId },
           data: {
-            ...(dto.assetCode !== undefined ? { assetCode: dto.assetCode.trim() } : {}),
+            ...(dto.assetCode !== undefined
+              ? { assetCode: this.normalizeAssetCode(dto.assetCode) }
+              : {}),
             ...(dto.barcode !== undefined ? { barcode: dto.barcode.trim() || null } : {}),
             ...(dto.condition !== undefined ? { condition: dto.condition } : {}),
-            ...(dto.purchaseDate !== undefined ? { purchaseDate: new Date(dto.purchaseDate) } : {}),
-            ...(dto.purchasePrice !== undefined ? { purchasePrice: dto.purchasePrice } : {}),
+            ...(dto.acquisitionDate !== undefined
+              ? { acquisitionDate: new Date(dto.acquisitionDate) }
+              : {}),
+            ...(dto.acquisitionCost !== undefined ? { acquisitionCost: dto.acquisitionCost } : {}),
+            ...(dto.acquisitionSource !== undefined
+              ? { acquisitionSource: dto.acquisitionSource.trim() || null }
+              : {}),
+            ...(dto.acquisitionReference !== undefined
+              ? { acquisitionReference: dto.acquisitionReference.trim() || null }
+              : {}),
             ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
             ...(dto.storefrontVisible !== undefined
               ? { storefrontVisible: dto.storefrontVisible }
@@ -550,6 +466,46 @@ export class InventoryManagementService {
               : {}),
           },
         });
+
+        const metadataCorrectionRequested = [
+          dto.assetCode,
+          dto.barcode,
+          dto.acquisitionDate,
+          dto.acquisitionCost,
+          dto.acquisitionSource,
+          dto.acquisitionReference,
+          dto.notes,
+        ].some((value) => value !== undefined);
+        if (metadataCorrectionRequested) {
+          await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              variantSizeId: unit.variantSizeId,
+              stockUnitId,
+              movementType: InventoryMovementType.ADMIN_CORRECTION,
+              beforeState: this.json({
+                assetCode: unit.assetCode,
+                barcode: unit.barcode,
+                acquisitionDate: unit.acquisitionDate,
+                acquisitionCost: unit.acquisitionCost,
+                acquisitionSource: unit.acquisitionSource,
+                acquisitionReference: unit.acquisitionReference,
+                notes: unit.notes,
+              }),
+              afterState: this.json({
+                assetCode: updated.assetCode,
+                barcode: updated.barcode,
+                acquisitionDate: updated.acquisitionDate,
+                acquisitionCost: updated.acquisitionCost,
+                acquisitionSource: updated.acquisitionSource,
+                acquisitionReference: updated.acquisitionReference,
+                notes: updated.notes,
+              }),
+              reason: dto.reason!.trim(),
+              actorUserId: actorUserId ?? null,
+            },
+          });
+        }
 
         if (dto.condition !== undefined && dto.condition !== unit.condition) {
           await tx.inventoryMovement.create({
@@ -679,11 +635,9 @@ export class InventoryManagementService {
           startDate: true,
           endDate: true,
           blockType: true,
-          quantity: true,
           reason: true,
           serviceOrder: { select: { id: true } },
           inspection: { select: { id: true } },
-          transferLine: { select: { id: true } },
         },
       }),
     ]);
@@ -698,8 +652,7 @@ export class InventoryManagementService {
         canDelete:
           ['MANUAL', 'LOCATION_BLACKOUT', 'SKU_BLACKOUT'].includes(block.blockType) &&
           !block.serviceOrder &&
-          !block.inspection &&
-          !block.transferLine,
+          !block.inspection,
       })),
     };
   }

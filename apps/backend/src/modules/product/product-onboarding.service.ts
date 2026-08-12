@@ -6,19 +6,12 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import {
-  InventoryMovementType,
-  InventoryTrackingMode,
-  Prisma,
-  ProductOnboardingSection,
-  StockConditionGrade,
-} from '@prisma/client';
+import { Prisma, ProductOnboardingSection } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingAdminService } from '../pricing-engine/pricing-admin.service';
 import {
   OnboardingVariantDto,
   PublishOnboardedProductDto,
-  SaveOpeningInventoryDto,
   SaveProductBasicsDto,
   SaveProductContentDto,
   SaveProductPricingSectionDto,
@@ -33,7 +26,6 @@ const SECTION_ORDER: ProductOnboardingSection[] = [
   'SKUS',
   'CONTENT',
   'PRICING',
-  'OPENING_INVENTORY',
   'REVIEW',
 ];
 
@@ -88,12 +80,10 @@ export class ProductOnboardingService {
               productTypeId: dto.productTypeId,
               sizeSchemaOverrideId: dto.sizeSchemaOverrideId ?? null,
               status: 'draft',
-              purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
-              purchasePrice: dto.purchasePrice ?? null,
-              purchasePricePublic: dto.purchasePricePublic ?? false,
-              itemCountry: dto.itemCountry?.trim() || null,
-              itemCountryPublic: dto.itemCountryPublic ?? false,
-              targetRentals: dto.targetRentals ?? null,
+              countryOfOrigin: dto.countryOfOrigin?.trim() || null,
+              countryOfOriginPublic: dto.countryOfOriginPublic ?? false,
+              referenceRetailValue: dto.referenceRetailValue ?? null,
+              referenceRetailValuePublic: dto.referenceRetailValuePublic ?? false,
               storefrontItemMode: dto.storefrontItemMode ?? 'INTERNAL_ONLY',
             },
             select: { id: true },
@@ -214,21 +204,8 @@ export class ProductOnboardingService {
       dto.expectedRevision,
       idempotencyKey,
       dto,
-      async (tx, onboarding) => {
+      async (tx) => {
         await this.validateCatalogReferences(tx, tenantId, dto);
-        if (onboarding.completedSections.includes('OPENING_INVENTORY')) {
-          const current = await tx.product.findUniqueOrThrow({ where: { id: productId } });
-          if (
-            current.productTypeId !== dto.productTypeId ||
-            current.sizeSchemaOverrideId !== (dto.sizeSchemaOverrideId ?? null)
-          ) {
-            throw new ConflictException({
-              code: 'ONBOARDING_SKU_STRUCTURE_LOCKED',
-              section: 'BASICS',
-              message: 'Sizing cannot change after opening inventory has been recorded.',
-            });
-          }
-        }
         await tx.product.update({
           where: { id: productId },
           data: {
@@ -238,12 +215,10 @@ export class ProductOnboardingService {
             subcategoryId: dto.subcategoryId ?? null,
             productTypeId: dto.productTypeId,
             sizeSchemaOverrideId: dto.sizeSchemaOverrideId ?? null,
-            purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : null,
-            purchasePrice: dto.purchasePrice ?? null,
-            purchasePricePublic: dto.purchasePricePublic ?? false,
-            itemCountry: dto.itemCountry?.trim() || null,
-            itemCountryPublic: dto.itemCountryPublic ?? false,
-            targetRentals: dto.targetRentals ?? null,
+            countryOfOrigin: dto.countryOfOrigin?.trim() || null,
+            countryOfOriginPublic: dto.countryOfOriginPublic ?? false,
+            referenceRetailValue: dto.referenceRetailValue ?? null,
+            referenceRetailValuePublic: dto.referenceRetailValuePublic ?? false,
             storefrontItemMode: dto.storefrontItemMode ?? 'INTERNAL_ONLY',
           },
         });
@@ -272,15 +247,7 @@ export class ProductOnboardingService {
       dto.expectedRevision,
       idempotencyKey,
       dto,
-      async (tx, onboarding) => {
-        if (onboarding.completedSections.includes('OPENING_INVENTORY')) {
-          throw new ConflictException({
-            code: 'ONBOARDING_SKU_STRUCTURE_LOCKED',
-            section: 'SKUS',
-            message:
-              'Manage SKU structure from the product workspace after opening inventory is recorded.',
-          });
-        }
+      async (tx) => {
         await this.reconcileSkus(tx, tenantId, productId, dto.variants);
       },
     );
@@ -380,36 +347,6 @@ export class ProductOnboardingService {
     );
   }
 
-  saveOpeningInventory(
-    tenantId: string,
-    productId: string,
-    actorUserId: string,
-    dto: SaveOpeningInventoryDto,
-    idempotencyKey?: string,
-  ) {
-    return this.executeSection(
-      tenantId,
-      productId,
-      actorUserId,
-      'OPENING_INVENTORY',
-      dto.expectedRevision,
-      idempotencyKey,
-      dto,
-      async (tx, onboarding) => {
-        if (onboarding.completedSections.includes('OPENING_INVENTORY')) {
-          throw new ConflictException({
-            code: 'OPENING_INVENTORY_ALREADY_RECORDED',
-            section: 'OPENING_INVENTORY',
-            message:
-              'Opening inventory is immutable. Use Inventory to receive or register later stock.',
-          });
-        }
-        if (dto.skipInventory) return;
-        await this.recordOpeningInventory(tx, tenantId, productId, actorUserId, dto);
-      },
-    );
-  }
-
   publish(
     tenantId: string,
     productId: string,
@@ -431,7 +368,6 @@ export class ProductOnboardingService {
           'SKUS',
           'CONTENT',
           'PRICING',
-          'OPENING_INVENTORY',
         ];
         const missing = required.filter(
           (section) => !onboarding.completedSections.includes(section),
@@ -559,8 +495,7 @@ export class ProductOnboardingService {
         SKUS: ['BASICS'],
         CONTENT: ['BASICS', 'SKUS'],
         PRICING: ['BASICS', 'SKUS'],
-        OPENING_INVENTORY: ['BASICS', 'SKUS'],
-        REVIEW: ['BASICS', 'SKUS', 'CONTENT', 'PRICING', 'OPENING_INVENTORY'],
+        REVIEW: ['BASICS', 'SKUS', 'CONTENT', 'PRICING'],
       };
     const missing = (requiredBySection[section] ?? []).filter(
       (value) => !completed.includes(value),
@@ -765,14 +700,7 @@ export class ProductOnboardingService {
               tenantId,
               variantId: saved.id,
               sizeInstanceId: requestedSize.sizeInstanceId,
-              trackingMode: requestedSize.trackingMode,
             },
-          });
-        } else if (current.trackingMode !== requestedSize.trackingMode) {
-          await this.assertSkuHasNoOperationalHistory(tx, tenantId, current.id);
-          await tx.variantSize.update({
-            where: { id: current.id },
-            data: { trackingMode: requestedSize.trackingMode, inventoryVersion: { increment: 1 } },
           });
         }
       }
@@ -802,10 +730,9 @@ export class ProductOnboardingService {
     tenantId: string,
     variantSizeId: string,
   ) {
-    const [units, pools, reservations, bookings, movements, requirements, blocks, transfers] =
+    const [units, reservations, bookings, movements, requirements, blocks, transfers] =
       await Promise.all([
         tx.stockUnit.count({ where: { tenantId, variantSizeId } }),
-        tx.inventoryPool.count({ where: { tenantId, variantSizeId } }),
         tx.inventoryReservation.count({ where: { tenantId, variantSizeId } }),
         tx.bookingItem.count({ where: { tenantId, variantSizeId } }),
         tx.inventoryMovement.count({ where: { tenantId, variantSizeId } }),
@@ -814,7 +741,7 @@ export class ProductOnboardingService {
         tx.inventoryTransferLine.count({ where: { tenantId, variantSizeId } }),
       ]);
     if (
-      units + pools + reservations + bookings + movements + requirements + blocks + transfers >
+      units + reservations + bookings + movements + requirements + blocks + transfers >
       0
     ) {
       throw new ConflictException({
@@ -823,190 +750,6 @@ export class ProductOnboardingService {
         entityId: variantSizeId,
         message: 'A SKU with inventory or rental history cannot be restructured.',
       });
-    }
-  }
-
-  private async recordOpeningInventory(
-    tx: Transaction,
-    tenantId: string,
-    productId: string,
-    actorUserId: string,
-    dto: SaveOpeningInventoryDto,
-  ) {
-    const lines = dto.lines ?? [];
-    const lineKeys = lines.map((line) => `${line.variantSizeId}:${line.locationId}`);
-    if (new Set(lineKeys).size !== lineKeys.length) {
-      throw new BadRequestException({
-        code: 'DUPLICATE_OPENING_INVENTORY_LINE',
-        section: 'OPENING_INVENTORY',
-        message: 'Combine duplicate SKU and location rows.',
-      });
-    }
-    const variantSizeIds = [...new Set(lines.map((line) => line.variantSizeId))];
-    const skus = await tx.variantSize.findMany({
-      where: { tenantId, id: { in: variantSizeIds }, variant: { productId } },
-      select: { id: true, trackingMode: true },
-    });
-    if (skus.length !== variantSizeIds.length) {
-      throw new BadRequestException({
-        code: 'INVALID_OPENING_INVENTORY_SKU',
-        section: 'OPENING_INVENTORY',
-        message: 'Every opening inventory row must belong to this product.',
-      });
-    }
-    const locationIds = [...new Set(lines.map((line) => line.locationId))];
-    const locationCount = await tx.inventoryLocation.count({
-      where: { tenantId, id: { in: locationIds }, isActive: true, canStoreInventory: true },
-    });
-    if (locationCount !== locationIds.length) {
-      throw new BadRequestException({
-        code: 'INVALID_OPENING_INVENTORY_LOCATION',
-        section: 'OPENING_INVENTORY',
-        message: 'Choose active inventory-storing locations from this store.',
-      });
-    }
-    const [existingPoolQuantity, existingUnits] = await Promise.all([
-      tx.inventoryPool.aggregate({
-        where: { tenantId, variantSizeId: { in: variantSizeIds } },
-        _sum: { onHandQuantity: true },
-      }),
-      tx.stockUnit.count({ where: { tenantId, variantSizeId: { in: variantSizeIds } } }),
-    ]);
-    if ((existingPoolQuantity._sum.onHandQuantity ?? 0) > 0 || existingUnits > 0) {
-      throw new ConflictException({
-        code: 'OPENING_INVENTORY_NOT_EMPTY',
-        section: 'OPENING_INVENTORY',
-        message:
-          'Opening inventory can only be recorded before stock exists. Use Inventory for later receipts.',
-      });
-    }
-
-    const requestedUnits = lines.flatMap((line) => line.units ?? []);
-    const assetCodes = requestedUnits.map((unit) => this.normalizeAssetCode(unit.assetCode));
-    const barcodes = requestedUnits.flatMap((unit) =>
-      unit.barcode?.trim() ? [unit.barcode.trim()] : [],
-    );
-    if (
-      new Set(assetCodes).size !== assetCodes.length ||
-      new Set(barcodes).size !== barcodes.length
-    ) {
-      throw new BadRequestException({
-        code: 'DUPLICATE_PHYSICAL_ITEM_IDENTITY',
-        section: 'OPENING_INVENTORY',
-        message: 'Asset codes and barcodes must be unique within the opening inventory.',
-      });
-    }
-    if (assetCodes.length) {
-      const conflicts = await tx.stockUnit.count({
-        where: {
-          tenantId,
-          OR: [
-            { assetCode: { in: assetCodes } },
-            ...(barcodes.length ? [{ barcode: { in: barcodes } }] : []),
-          ],
-        },
-      });
-      if (conflicts > 0) {
-        throw new ConflictException({
-          code: 'PHYSICAL_ITEM_IDENTITY_EXISTS',
-          section: 'OPENING_INVENTORY',
-          message: 'One or more asset codes or barcodes already exist in this store.',
-        });
-      }
-    }
-
-    for (const [lineIndex, line] of lines.entries()) {
-      const sku = skus.find((candidate) => candidate.id === line.variantSizeId)!;
-      if (sku.trackingMode === InventoryTrackingMode.POOLED) {
-        if (!line.pooledQuantity || line.pooledQuantity < 1 || line.units?.length) {
-          throw new BadRequestException({
-            code: 'INVALID_POOLED_OPENING_INVENTORY',
-            section: 'OPENING_INVENTORY',
-            row: lineIndex,
-            message: 'Pooled SKUs need a positive quantity and cannot contain physical item rows.',
-          });
-        }
-        const pool = await tx.inventoryPool.upsert({
-          where: {
-            variantSizeId_locationId: {
-              variantSizeId: line.variantSizeId,
-              locationId: line.locationId,
-            },
-          },
-          create: {
-            tenantId,
-            variantSizeId: line.variantSizeId,
-            locationId: line.locationId,
-            onHandQuantity: line.pooledQuantity,
-            version: 1,
-          },
-          update: { onHandQuantity: line.pooledQuantity, version: { increment: 1 } },
-        });
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            variantSizeId: line.variantSizeId,
-            inventoryPoolId: pool.id,
-            destinationLocationId: line.locationId,
-            movementType: InventoryMovementType.INITIAL_STOCK,
-            quantityDelta: line.pooledQuantity,
-            beforeState: { onHandQuantity: 0 },
-            afterState: { onHandQuantity: line.pooledQuantity, version: pool.version },
-            reason: 'Opening inventory received during product onboarding',
-            actorUserId,
-          },
-        });
-        continue;
-      }
-
-      if (line.pooledQuantity !== undefined || !line.units?.length) {
-        throw new BadRequestException({
-          code: 'INVALID_SERIALIZED_OPENING_INVENTORY',
-          section: 'OPENING_INVENTORY',
-          row: lineIndex,
-          message: 'Serialized SKUs need at least one individually identified physical item.',
-        });
-      }
-      const definitions = await tx.skuSetComponentDefinition.findMany({
-        where: { tenantId, variantSizeId: line.variantSizeId, isActive: true },
-        select: { id: true, requiredQuantity: true },
-      });
-      for (const requestedUnit of line.units) {
-        const unit = await tx.stockUnit.create({
-          data: {
-            tenantId,
-            variantSizeId: line.variantSizeId,
-            locationId: line.locationId,
-            assetCode: this.normalizeAssetCode(requestedUnit.assetCode),
-            barcode: requestedUnit.barcode?.trim() || null,
-            condition: requestedUnit.condition ?? StockConditionGrade.GOOD,
-            purchaseDate: requestedUnit.purchaseDate ? new Date(requestedUnit.purchaseDate) : null,
-            purchasePrice: requestedUnit.purchasePrice ?? null,
-            notes: requestedUnit.notes?.trim() || null,
-            componentStates: {
-              create: definitions.map((definition) => ({
-                tenantId,
-                setComponentDefinitionId: definition.id,
-                presence: 'PRESENT',
-                presentQuantity: definition.requiredQuantity,
-                condition: requestedUnit.condition ?? StockConditionGrade.GOOD,
-              })),
-            },
-          },
-        });
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            variantSizeId: line.variantSizeId,
-            stockUnitId: unit.id,
-            destinationLocationId: line.locationId,
-            movementType: InventoryMovementType.UNIT_REGISTERED,
-            afterState: this.toJson(unit),
-            reason: 'Physical item registered during product onboarding',
-            actorUserId,
-          },
-        });
-      }
     }
   }
 
@@ -1126,11 +869,4 @@ export class ProductOnboardingService {
     return value;
   }
 
-  private normalizeAssetCode(value: string) {
-    return value.trim().toUpperCase().replace(/\s+/g, '-');
-  }
-
-  private toJson(value: unknown): Prisma.InputJsonValue {
-    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-  }
 }

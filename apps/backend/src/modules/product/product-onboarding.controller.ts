@@ -20,7 +20,6 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
   PublishOnboardedProductDto,
-  SaveOpeningInventoryDto,
   SaveProductBasicsDto,
   SaveProductContentDto,
   SaveProductPricingSectionDto,
@@ -99,18 +98,6 @@ export class ProductOnboardingController {
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     return this.onboarding.savePricing(tenant.id, productId, user.id, dto, idempotencyKey);
-  }
-
-  @Put(':productId/opening-inventory')
-  @Roles('owner', 'manager')
-  saveOpeningInventory(
-    @CurrentTenant() tenant: TenantContext,
-    @CurrentUser() user: AuthUser,
-    @Param('productId') productId: string,
-    @Body() dto: SaveOpeningInventoryDto,
-    @Headers('idempotency-key') idempotencyKey?: string,
-  ) {
-    return this.onboarding.saveOpeningInventory(tenant.id, productId, user.id, dto, idempotencyKey);
   }
 
   @Post(':productId/publish')

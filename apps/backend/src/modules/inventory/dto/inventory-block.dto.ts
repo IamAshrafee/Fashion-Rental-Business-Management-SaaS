@@ -43,9 +43,6 @@ export class InventoryBlocksQueryDto {
   @IsOptional() @IsUUID()
   locationId?: string;
 
-  @IsOptional() @IsUUID()
-  inventoryPoolId?: string;
-
   @IsOptional() @IsDateString()
   from?: string;
 
@@ -73,16 +70,6 @@ export class CreateInventoryBlockDto {
 
   @IsOptional() @IsUUID()
   locationId?: string;
-
-  @IsOptional() @IsUUID()
-  inventoryPoolId?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100_000)
-  quantity?: number;
 
   @IsDateString()
   startDate!: string;

@@ -333,7 +333,6 @@ export class BookingService {
             variantSizeId: item.variantSizeId,
             quantity: item.quantity,
             selections: item.compositionSelections,
-            preferredStockUnitId: item.preferredStockUnitId,
           });
           result.itemTotal += proposals.reduce(
             (sum, proposal) => sum + proposal.priceAdjustment,
@@ -345,7 +344,6 @@ export class BookingService {
                 tenantId,
                 productId: proposal.productId,
                 variantSizeId: proposal.variantSizeId,
-                preferredStockUnitId: proposal.preferredStockUnitId,
                 startDate: item.startDate,
                 endDate: item.endDate,
                 quantity: proposal.quantity,
@@ -535,7 +533,6 @@ export class BookingService {
             tenantId,
             productId: item.productId,
             variantSizeId: item.variantSizeId,
-            preferredStockUnitId: item.preferredStockUnitId,
             quantity: item.quantity,
             selections: item.compositionSelections,
           });
@@ -602,7 +599,6 @@ export class BookingService {
                 tenantId,
                 productId: proposal.productId,
                 variantSizeId: proposal.variantSizeId,
-                preferredStockUnitId: proposal.preferredStockUnitId,
                 sourceLocationId: location.id,
                 startDate: dto.plan.startDate,
                 endDate: dto.plan.endDate,
@@ -619,7 +615,6 @@ export class BookingService {
               quantity: proposal.quantity,
               sourceLocationId: availability.sourceLocationId,
               sourceLocationName: availability.sourceLocation?.name ?? location.name,
-              trackingMode: availability.trackingMode,
               blockedRange: availability.effectiveBlockedRange,
               remainingQuantity: availability.remainingQuantity,
               transferRequired: false,
@@ -630,7 +625,6 @@ export class BookingService {
                   tenantId,
                   productId: proposal.productId,
                   variantSizeId: proposal.variantSizeId,
-                  preferredStockUnitId: proposal.preferredStockUnitId,
                   startDate: dto.plan.startDate,
                   endDate: dto.plan.endDate,
                   quantity: proposal.quantity,
@@ -1058,7 +1052,6 @@ export class BookingService {
               tenantId,
               productId: item.productId,
               variantSizeId: item.variantSizeId,
-              preferredStockUnitId: item.preferredStockUnitId,
               quantity: item.quantity,
               selections: item.compositionSelections,
             }),
@@ -1637,7 +1630,6 @@ export class BookingService {
           some: {
             fulfillmentRequirements: {
               some: {
-                trackingModeSnapshot: 'SERIALIZED' as const,
                 status: {
                   in: [
                     FulfillmentRequirementStatus.PLANNED,
@@ -1794,7 +1786,6 @@ export class BookingService {
                 select: {
                   status: true,
                   sourceLocationId: true,
-                  trackingModeSnapshot: true,
                   quantity: true,
                   assignedQuantity: true,
                   handedOutQuantity: true,
@@ -1814,11 +1805,11 @@ export class BookingService {
     return {
       data: bookings.map((booking) => {
         const requirements = booking.items.flatMap((item) => item.fulfillmentRequirements);
-        const serialized = requirements.filter(
-          (item) => item.trackingModeSnapshot === 'SERIALIZED',
+        const physicalItemRequired = requirements.reduce((sum, item) => sum + item.quantity, 0);
+        const physicalItemAssigned = requirements.reduce(
+          (sum, item) => sum + item.assignedQuantity,
+          0,
         );
-        const serializedRequired = serialized.reduce((sum, item) => sum + item.quantity, 0);
-        const serializedAssigned = serialized.reduce((sum, item) => sum + item.assignedQuantity, 0);
         const inventoryShortages = requirements.filter((item) => item.status === 'PLANNED').length;
         const handedOutQuantity = requirements.reduce(
           (sum, item) => sum + item.handedOutQuantity,
@@ -1834,8 +1825,14 @@ export class BookingService {
           (sum, item) => sum + item.stockUnitInspections.length,
           0,
         );
-        const serializedReturned = serialized.reduce((sum, item) => sum + item.returnedQuantity, 0);
-        const inspectionOutstanding = Math.max(0, serializedReturned - completedReturnInspections);
+        const physicalItemsReturned = requirements.reduce(
+          (sum, item) => sum + item.returnedQuantity,
+          0,
+        );
+        const inspectionOutstanding = Math.max(
+          0,
+          physicalItemsReturned - completedReturnInspections,
+        );
         const unresolvedIssueCount = booking.items.reduce(
           (sum, item) => sum + item.stockUnitIssues.length,
           0,
@@ -1853,13 +1850,13 @@ export class BookingService {
           null,
         );
         const needsAssignment =
-          booking.status === 'confirmed' && serializedAssigned < serializedRequired;
+          booking.status === 'confirmed' && physicalItemAssigned < physicalItemRequired;
         const unpreparedRequirementCount = requirements.filter(
           (item) => item.preparationStatus !== 'READY',
         ).length;
         const preparationReady =
           inventoryShortages === 0 &&
-          serializedAssigned >= serializedRequired &&
+          physicalItemAssigned >= physicalItemRequired &&
           unpreparedRequirementCount === 0;
         const nextAction =
           booking.status === 'pending'
@@ -1895,7 +1892,7 @@ export class BookingService {
             : []),
           ...(needsAssignment
             ? [
-                `${serializedRequired - serializedAssigned} serialized assignment${serializedRequired - serializedAssigned === 1 ? '' : 's'} missing`,
+                `${physicalItemRequired - physicalItemAssigned} physical-item assignment${physicalItemRequired - physicalItemAssigned === 1 ? '' : 's'} missing`,
               ]
             : []),
           ...(unpreparedRequirementCount > 0
@@ -1949,8 +1946,8 @@ export class BookingService {
             totalQuantity: booking.items.reduce((sum, item) => sum + item.quantity, 0),
             requirementCount: requirements.length,
             inventoryShortages,
-            serializedRequired,
-            serializedAssigned,
+            physicalItemRequired,
+            physicalItemAssigned,
             needsAssignment,
             preparationReady,
             handedOutQuantity,
@@ -2623,7 +2620,6 @@ export class BookingService {
             some: {
               fulfillmentRequirements: {
                 some: {
-                  trackingModeSnapshot: 'SERIALIZED',
                   status: { in: ['PLANNED', 'RESERVED', 'PARTIALLY_ASSIGNED'] },
                 },
               },
@@ -2749,11 +2745,11 @@ export class BookingService {
         COUNT(*) FILTER (WHERE b.status = 'pending') AS "REQUEST",
         COUNT(*) FILTER (WHERE b.status = 'confirmed' AND (
           EXISTS (SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND fr.status = 'PLANNED')
-          OR EXISTS (SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND fr.tracking_mode_snapshot = 'SERIALIZED' AND fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
+          OR EXISTS (SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
         )) AS "ASSIGNMENT",
         COUNT(*) FILTER (WHERE b.status = 'confirmed' AND NOT EXISTS (
           SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND (
-            fr.status = 'PLANNED' OR (fr.tracking_mode_snapshot = 'SERIALIZED' AND fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
+            fr.status = 'PLANNED' OR (fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
           )
         ) AND EXISTS (
           SELECT 1 FROM fulfillment_requirements fr
@@ -2761,7 +2757,7 @@ export class BookingService {
         )) AS "PREPARATION",
         COUNT(*) FILTER (WHERE b.status = 'confirmed' AND NOT EXISTS (
           SELECT 1 FROM fulfillment_requirements fr WHERE fr.booking_id = b.id AND (
-            fr.status = 'PLANNED' OR (fr.tracking_mode_snapshot = 'SERIALIZED' AND fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
+            fr.status = 'PLANNED' OR (fr.assigned_quantity < fr.quantity AND fr.status NOT IN ('CANCELLED', 'SUPERSEDED'))
           )
         ) AND NOT EXISTS (
           SELECT 1 FROM fulfillment_requirements fr
@@ -2968,7 +2964,7 @@ export class BookingService {
         depositSettlement: { select: { id: true } },
         fulfillmentRequirements: {
           where: { status: { notIn: ['CANCELLED', 'SUPERSEDED'] } },
-          select: { trackingModeSnapshot: true },
+          select: { id: true },
         },
       },
     });
@@ -2990,9 +2986,7 @@ export class BookingService {
     if (dto.deductionAmount > item.depositAmount) {
       throw new BadRequestException('Suggested deposit deduction cannot exceed the item deposit');
     }
-    const requiresExactIssue = item.fulfillmentRequirements.some(
-      (requirement) => requirement.trackingModeSnapshot === 'SERIALIZED',
-    );
+    const requiresExactIssue = item.fulfillmentRequirements.length > 0;
     if (requiresExactIssue && !dto.stockUnitIssueId) {
       throw new ConflictException({
         code: 'EXACT_ITEM_ISSUE_REQUIRED',
@@ -3278,7 +3272,6 @@ export class BookingService {
           tenantId,
           productId: item.productId,
           variantSizeId: item.variantSizeId,
-          preferredStockUnitId: item.preferredStockUnitId,
           sourceLocationId,
           startDate: item.startDate,
           endDate: item.endDate,
@@ -3293,35 +3286,15 @@ export class BookingService {
     }
 
     const unitPricing = await this.calculatePricingForDates(product.id, item, tx, sourceLocationId);
-    const preferredUnit = item.preferredStockUnitId
-      ? await tx.stockUnit.findFirst({
-          where: {
-            id: item.preferredStockUnitId,
-            tenantId,
-            variantSizeId: item.variantSizeId,
-            storefrontVisible: true,
-            variantSize: {
-              variant: {
-                product: { id: item.productId, storefrontItemMode: 'SPECIFIC_ITEM_SELECTION' },
-              },
-            },
-          },
-          select: { rentalPriceAdjustment: true },
-        })
-      : null;
-    const adjustedBaseRental = Math.max(
-      0,
-      unitPricing.baseRental + (preferredUnit?.rentalPriceAdjustment ?? 0),
-    );
     const pricing: PricingSnapshot = {
       ...unitPricing,
-      baseRental: adjustedBaseRental * quantity,
+      baseRental: unitPricing.baseRental * quantity,
       extendedCost: unitPricing.extendedCost * quantity,
       depositAmount: unitPricing.depositAmount * quantity,
       cleaningFee: unitPricing.cleaningFee * quantity,
       backupSizeFee: unitPricing.backupSizeFee * quantity,
       tryOnFee: unitPricing.tryOnFee * quantity,
-      itemTotal: (unitPricing.itemTotal - unitPricing.baseRental + adjustedBaseRental) * quantity,
+      itemTotal: unitPricing.itemTotal * quantity,
     };
 
     return {

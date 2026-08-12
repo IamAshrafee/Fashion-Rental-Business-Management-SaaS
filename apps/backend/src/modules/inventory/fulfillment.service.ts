@@ -11,8 +11,6 @@ import {
   FulfillmentSelectionSource,
   FulfillmentVersionAction,
   InventoryReservationStatus,
-  InventoryMovementType,
-  InventoryTrackingMode,
   Prisma,
   ProductCompositionRole,
   StockConditionGrade,
@@ -69,7 +67,6 @@ export interface RequirementProposal {
   ruleSnapshot?: Prisma.InputJsonValue;
   customerSelectionSnapshot?: Prisma.InputJsonValue;
   priceAdjustment: number;
-  preferredStockUnitId?: string;
 }
 
 interface ExpandInput {
@@ -78,7 +75,6 @@ interface ExpandInput {
   variantSizeId: string;
   quantity: number;
   selections?: FulfillmentSelectionDto[];
-  preferredStockUnitId?: string;
 }
 
 interface CreateRequirementsInput {
@@ -117,10 +113,8 @@ export class FulfillmentService {
       variantName: mainSku.variant.variantName,
       sizeLabel: mainSku.sizeInstance.displayLabel,
       priceAdjustment: 0,
-      preferredStockUnitId: input.preferredStockUnitId,
       ruleSnapshot: this.json({
         source: 'main-product',
-        preferredStockUnitId: input.preferredStockUnitId ?? null,
       }),
     }];
 
@@ -177,7 +171,6 @@ export class FulfillmentService {
           productId: proposal.productId,
           variantSizeId: proposal.variantSizeId,
           sourceLocationId: availability.sourceLocationId,
-          trackingModeSnapshot: availability.trackingMode,
           availabilityPolicySnapshot: this.json(availability.availabilityPolicy)!,
           quantity: proposal.quantity,
           productNameSnapshot: proposal.productName,
@@ -228,7 +221,6 @@ export class FulfillmentService {
         endDate: input.endDate,
         status: input.reservationStatus,
         expiresAt: input.expiresAt,
-        preferredStockUnitId: proposal.preferredStockUnitId,
       });
       await tx.fulfillmentRequirementVersion.update({
         where: { requirementId_version: { requirementId: requirement.id, version: 1 } },
@@ -733,7 +725,6 @@ export class FulfillmentService {
             productId: dto.productId,
             variantSizeId: dto.variantSizeId,
             sourceLocationId: availability.sourceLocationId,
-            inventoryPoolId: availability.inventoryPoolId,
             rentalStartDate: new Date(availability.rentalRange.start),
             rentalEndDate: new Date(availability.rentalRange.end),
             blockedStartDate: new Date(availability.effectiveBlockedRange.start),
@@ -751,7 +742,6 @@ export class FulfillmentService {
             productId: dto.productId,
             variantSizeId: dto.variantSizeId,
             sourceLocationId: availability.sourceLocationId,
-            inventoryPoolId: availability.inventoryPoolId,
             quantity: requirement.quantity,
             rentalStartDate: new Date(availability.rentalRange.start),
             rentalEndDate: new Date(availability.rentalRange.end),
@@ -840,7 +830,6 @@ export class FulfillmentService {
           productId: dto.productId,
           variantSizeId: dto.variantSizeId,
           sourceLocationId: availability.sourceLocationId,
-          trackingModeSnapshot: availability.trackingMode,
           availabilityPolicySnapshot: this.json(availability.availabilityPolicy),
           productNameSnapshot: targetSku.variant.product.name,
           variantNameSnapshot: targetSku.variant.variantName,
@@ -936,7 +925,6 @@ export class FulfillmentService {
 
       const assignments = await this.resolveEventAssignments(tx, tenantId, {
         id: requirement.id,
-        variantSize: requirement.variantSize,
         reservation: requirement.reservation,
       }, dto);
       if (dto.eventType === FulfillmentEventType.HANDED_OUT) {
@@ -967,52 +955,6 @@ export class FulfillmentService {
         }
       }
       const next = this.nextCounters(requirement, dto.eventType, dto.quantity);
-      if (
-        dto.eventType === FulfillmentEventType.MARKED_LOST
-        && requirement.variantSize.trackingMode === InventoryTrackingMode.POOLED
-      ) {
-        if (!requirement.reservation.inventoryPoolId) {
-          throw new ConflictException({
-            code: 'INVENTORY_POOL_MISSING',
-            message: 'The pooled reservation has no source inventory pool',
-          });
-        }
-        await tx.$queryRaw(Prisma.sql`
-          SELECT id FROM inventory_pools
-          WHERE tenant_id = ${tenantId} AND id = ${requirement.reservation.inventoryPoolId}
-          FOR UPDATE
-        `);
-        const pool = await tx.inventoryPool.findFirst({
-          where: { id: requirement.reservation.inventoryPoolId, tenantId },
-        });
-        if (!pool || pool.onHandQuantity < dto.quantity) {
-          throw new ConflictException({
-            code: 'POOLED_LOSS_RECONCILIATION_REQUIRED',
-            message: 'The pooled loss exceeds the recorded on-hand quantity and requires a stock count',
-            onHandQuantity: pool?.onHandQuantity ?? null,
-            lostQuantity: dto.quantity,
-          });
-        }
-        const updatedPool = await tx.inventoryPool.update({
-          where: { id: pool.id },
-          data: { onHandQuantity: { decrement: dto.quantity }, version: { increment: 1 } },
-        });
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            variantSizeId: requirement.variantSizeId,
-            inventoryPoolId: pool.id,
-            originLocationId: requirement.sourceLocationId,
-            reservationId: requirement.reservation.id,
-            movementType: InventoryMovementType.DAMAGE_WRITE_OFF,
-            quantityDelta: -dto.quantity,
-            beforeState: this.json({ onHandQuantity: pool.onHandQuantity, version: pool.version }),
-            afterState: this.json({ onHandQuantity: updatedPool.onHandQuantity, version: updatedPool.version }),
-            reason: dto.reason.trim(),
-            actorUserId: actorUserId ?? null,
-          },
-        });
-      }
       for (const assignment of assignments) {
         if (dto.eventType === FulfillmentEventType.HANDED_OUT) {
           await this.lifecycle.transitionInTransaction(tx, {
@@ -1164,7 +1106,6 @@ export class FulfillmentService {
       }
       if (
         targetStatus === FulfillmentPreparationStatus.READY
-        && requirement.variantSize.trackingMode === InventoryTrackingMode.SERIALIZED
         && requirement.assignedQuantity !== requirement.quantity
       ) {
         throw new ConflictException({
@@ -1302,10 +1243,10 @@ export class FulfillmentService {
     type Result = Awaited<ReturnType<InventoryAvailabilityService['check']>>;
     const groups = new Map<
       string,
-      { productId: string; variantSizeId: string; preferredStockUnitId?: string; quantity: number; proposals: RequirementProposal[] }
+      { productId: string; variantSizeId: string; quantity: number; proposals: RequirementProposal[] }
     >();
     for (const proposal of input.proposals) {
-      const key = `${proposal.productId}:${proposal.variantSizeId}:${proposal.preferredStockUnitId ?? 'generic'}`;
+      const key = `${proposal.productId}:${proposal.variantSizeId}`;
       const group = groups.get(key);
       if (group) {
         group.quantity += proposal.quantity;
@@ -1314,7 +1255,6 @@ export class FulfillmentService {
         groups.set(key, {
           productId: proposal.productId,
           variantSizeId: proposal.variantSizeId,
-          preferredStockUnitId: proposal.preferredStockUnitId,
           quantity: proposal.quantity,
           proposals: [proposal],
         });
@@ -1342,7 +1282,6 @@ export class FulfillmentService {
           tenantId: input.tenantId,
           productId: group.productId,
           variantSizeId: group.variantSizeId,
-          preferredStockUnitId: group.preferredStockUnitId,
           sourceLocationId: location.id,
           startDate: input.startDate,
           endDate: input.endDate,
@@ -1377,8 +1316,7 @@ export class FulfillmentService {
       variantSizeId: mainProposal.variantSizeId,
       startDate: input.startDate,
       endDate: input.endDate,
-      preferredStockUnitId: mainProposal.preferredStockUnitId,
-      quantity: groups.get(`${mainProposal.productId}:${mainProposal.variantSizeId}:${mainProposal.preferredStockUnitId ?? 'generic'}`)!.quantity,
+      quantity: groups.get(`${mainProposal.productId}:${mainProposal.variantSizeId}`)!.quantity,
       enforcePublished: false,
     }, tx);
     if (
@@ -1394,13 +1332,12 @@ export class FulfillmentService {
 
     const splitResults = new Map<string, Result>();
     for (const [key, group] of groups) {
-      const result = key === `${mainProposal.productId}:${mainProposal.variantSizeId}:${mainProposal.preferredStockUnitId ?? 'generic'}`
+      const result = key === `${mainProposal.productId}:${mainProposal.variantSizeId}`
         ? mainAvailability
         : await this.availability.check({
             tenantId: input.tenantId,
             productId: group.productId,
             variantSizeId: group.variantSizeId,
-            preferredStockUnitId: group.preferredStockUnitId,
             startDate: input.startDate,
             endDate: input.endDate,
             quantity: group.quantity,
@@ -1419,7 +1356,7 @@ export class FulfillmentService {
   private expandAvailabilityGroups(
     groups: Map<
       string,
-      { productId: string; variantSizeId: string; preferredStockUnitId?: string; quantity: number; proposals: RequirementProposal[] }
+      { productId: string; variantSizeId: string; quantity: number; proposals: RequirementProposal[] }
     >,
     results: Map<string, Awaited<ReturnType<InventoryAvailabilityService['check']>>>,
   ) {
@@ -1464,13 +1401,7 @@ export class FulfillmentService {
         where: {
           tenantId,
           variant: { productId: rule.componentProductId, product: { deletedAt: null } },
-          OR: [
-            {
-              trackingMode: InventoryTrackingMode.POOLED,
-              inventoryPools: { some: { onHandQuantity: { gt: 0 }, location: { isActive: true } } },
-            },
-            { trackingMode: InventoryTrackingMode.SERIALIZED, stockUnits: { some: { disposition: 'ACTIVE', deletedAt: null } } },
-          ],
+          stockUnits: { some: { disposition: 'ACTIVE', deletedAt: null } },
         },
         orderBy: [{ variant: { sequence: 'asc' } }, { id: 'asc' }],
         select: { id: true },
@@ -1570,15 +1501,11 @@ export class FulfillmentService {
   private async resolveEventAssignments(
     tx: Transaction,
     tenantId: string,
-    requirement: { id: string; reservation: { id: string }; variantSize: { trackingMode: InventoryTrackingMode } },
+    requirement: { id: string; reservation: { id: string } },
     dto: RecordFulfillmentEventDto,
   ) {
-    if (requirement.variantSize.trackingMode === InventoryTrackingMode.POOLED) {
-      if (dto.assignmentIds?.length) throw new BadRequestException('Pooled requirements do not use physical-unit assignments');
-      return [];
-    }
     const ids = [...new Set(dto.assignmentIds ?? [])];
-    if (ids.length !== dto.quantity) throw new BadRequestException('Select one physical-unit assignment for each serialized item');
+    if (ids.length !== dto.quantity) throw new BadRequestException('Select one physical-item assignment for each item');
     const priorEvents = await tx.fulfillmentRequirementEvent.findMany({
       where: {
         tenantId,
@@ -1685,7 +1612,6 @@ export class FulfillmentService {
       variantSize: {
         select: {
           id: true,
-          trackingMode: true,
           sizeInstance: { select: { displayLabel: true } },
           variant: { select: { id: true, variantName: true } },
         },

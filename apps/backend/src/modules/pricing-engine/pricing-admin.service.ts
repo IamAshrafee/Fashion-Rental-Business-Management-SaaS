@@ -161,10 +161,10 @@ export class PricingAdminService {
   ) {
       const product = await tx.product.findFirst({
         where: { id: productId, tenantId, deletedAt: null },
-        select: { id: true, purchasePrice: true },
+        select: { id: true, referenceRetailValue: true },
       });
       if (!product) throw new NotFoundException('Product not found');
-      this.validatePricingConfiguration(input, product.purchasePrice);
+      this.validatePricingConfiguration(input, product.referenceRetailValue);
 
       // 1. Upsert PricingProfile
       let profile = await tx.pricingProfile.findUnique({
@@ -330,7 +330,7 @@ export class PricingAdminService {
       }>;
       lateFeePolicy?: LateFeePolicyInput;
     },
-    purchasePrice: number | null,
+    referenceRetailValue: number | null,
   ): void {
     const config = input.ratePlan.config;
     const integer = (value: unknown, minimum = 0): value is number =>
@@ -407,7 +407,7 @@ export class PricingAdminService {
           fail('ratePlan.config.percent', 'Retail percentage must be greater than 0 and no more than 100.');
         }
         if (!['PER_DAY', 'PER_RENTAL'].includes(String(config.basis))) fail('ratePlan.config.basis', 'Choose a valid retail-percentage basis.');
-        if (!purchasePrice || purchasePrice <= 0) fail('purchasePrice', 'A positive purchase price is required for percentage-of-retail pricing.');
+        if (!referenceRetailValue || referenceRetailValue <= 0) fail('referenceRetailValue', 'A positive reference retail value is required for percentage-of-retail pricing.');
         if (!optionalMoney(config.minPriceMinor) || !optionalMoney(config.maxPriceMinor)) fail('ratePlan.config', 'Minimum and maximum prices must be non-negative integer amounts.');
         if (
           typeof config.minPriceMinor === 'number' &&
@@ -441,8 +441,8 @@ export class PricingAdminService {
         for (const key of ['capMinor', 'minMinor', 'maxMinor']) {
           if (!optionalMoney(rule[key])) fail(`components.${index}.config.pricing.${key}`, 'Component bounds must be non-negative integer amounts.');
         }
-        if (rule.mode === 'PERCENT_OF_RETAIL' && (!purchasePrice || purchasePrice <= 0)) {
-          fail('purchasePrice', 'A positive purchase price is required for retail-based components.');
+        if (rule.mode === 'PERCENT_OF_RETAIL' && (!referenceRetailValue || referenceRetailValue <= 0)) {
+          fail('referenceRetailValue', 'A positive reference retail value is required for retail-based components.');
         }
       } else {
         fail(`components.${index}.config.pricing.mode`, 'Choose a supported component pricing mode.');

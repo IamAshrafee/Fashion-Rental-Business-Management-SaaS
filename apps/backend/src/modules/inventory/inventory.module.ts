@@ -15,7 +15,6 @@ import { FulfillmentService } from './fulfillment.service';
 import { ProductCompositionService } from './product-composition.service';
 import { InventoryFoundationController } from './inventory-foundation.controller';
 import { InventoryLocationService } from './inventory-location.service';
-import { InventoryPoolService } from './inventory-pool.service';
 import { AvailabilityPolicyService } from './availability-policy.service';
 import { InventoryTransferController } from './inventory-transfer.controller';
 import { InventoryTransferService } from './inventory-transfer.service';
@@ -46,7 +45,6 @@ import { InventoryBlockService } from './inventory-block.service';
     FulfillmentService,
     ProductCompositionService,
     InventoryLocationService,
-    InventoryPoolService,
     AvailabilityPolicyService,
     InventoryTransferService,
     InventoryDashboardService,
@@ -58,7 +56,6 @@ import { InventoryBlockService } from './inventory-block.service';
     InventoryReservationService,
     FulfillmentService,
     InventoryLocationService,
-    InventoryPoolService,
     AvailabilityPolicyService,
   ],
 })

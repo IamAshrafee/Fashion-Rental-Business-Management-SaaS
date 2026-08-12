@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InventoryTrackingMode, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateVariantDto,
@@ -52,7 +52,6 @@ export class VariantService {
             create: sizes.map((size) => ({
               tenantId,
               sizeInstanceId: size.sizeInstanceId,
-              trackingMode: size.trackingMode,
             })),
           },
         },
@@ -86,7 +85,6 @@ export class VariantService {
         ? this.normalizeSizes(dto.sizes)
         : variant.sizes.map((size) => ({
             sizeInstanceId: size.sizeInstanceId,
-            trackingMode: size.trackingMode,
           }));
       const mainColorId = dto.mainColorId ?? variant.mainColorId;
 
@@ -122,7 +120,7 @@ export class VariantService {
       });
 
       if (sizesProvided) {
-        await this.reconcileSizes(tx, tenantId, variantId, variant.sizes, sizes, dto.sizes !== undefined);
+        await this.reconcileSizes(tx, tenantId, variantId, variant.sizes, sizes);
       }
 
       if (dto.identicalColorIds !== undefined || dto.mainColorId !== undefined) {
@@ -190,10 +188,7 @@ export class VariantService {
 
   private normalizeSizes(
     configured: VariantSizeInventoryDto[] | undefined,
-  ): Array<{
-    sizeInstanceId: string;
-    trackingMode: InventoryTrackingMode;
-  }> {
+  ): Array<{ sizeInstanceId: string }> {
     const values = configured ?? [];
     const unique = new Set<string>();
 
@@ -202,10 +197,7 @@ export class VariantService {
         throw new BadRequestException('A size can only appear once in a variant');
       }
       unique.add(size.sizeInstanceId);
-      return {
-        sizeInstanceId: size.sizeInstanceId,
-        trackingMode: size.trackingMode ?? InventoryTrackingMode.POOLED,
-      };
+      return { sizeInstanceId: size.sizeInstanceId };
     });
   }
 
@@ -263,13 +255,8 @@ export class VariantService {
     existing: Array<{
       id: string;
       sizeInstanceId: string;
-      trackingMode: InventoryTrackingMode;
     }>,
-    desired: Array<{
-      sizeInstanceId: string;
-      trackingMode: InventoryTrackingMode;
-    }>,
-    configurationProvided: boolean,
+    desired: Array<{ sizeInstanceId: string }>,
   ): Promise<void> {
     const desiredIds = new Set(desired.map((size) => size.sizeInstanceId));
     const removed = existing.filter((size) => !desiredIds.has(size.sizeInstanceId));
@@ -287,36 +274,19 @@ export class VariantService {
             tenantId,
             variantId,
             sizeInstanceId: desiredSize.sizeInstanceId,
-            trackingMode: desiredSize.trackingMode,
           },
         });
-        continue;
       }
-
-      if (!configurationProvided) continue;
-      if (current.trackingMode !== desiredSize.trackingMode) {
-        await this.assertVariantSizeMutable(tx, tenantId, current.id, 'changed to another tracking mode');
-      }
-
-      await tx.variantSize.update({
-        where: { id: current.id },
-        data: {
-          trackingMode: desiredSize.trackingMode,
-          inventoryVersion: { increment: 1 },
-        },
-      });
     }
   }
 
   private sameSizeConfiguration(
-    current: Array<{ sizeInstanceId: string; trackingMode: InventoryTrackingMode }>,
-    desired: Array<{ sizeInstanceId: string; trackingMode: InventoryTrackingMode }>,
+    current: Array<{ sizeInstanceId: string }>,
+    desired: Array<{ sizeInstanceId: string }>,
   ): boolean {
     if (current.length !== desired.length) return false;
-    const desiredBySize = new Map(desired.map((size) => [size.sizeInstanceId, size.trackingMode]));
-    return current.every(
-      (size) => desiredBySize.get(size.sizeInstanceId) === size.trackingMode,
-    );
+    const desiredIds = new Set(desired.map((size) => size.sizeInstanceId));
+    return current.every((size) => desiredIds.has(size.sizeInstanceId));
   }
 
   private async assertVariantSizeMutable(
@@ -327,7 +297,6 @@ export class VariantService {
   ): Promise<void> {
     const dependencyCounts = await Promise.all([
       tx.stockUnit.count({ where: { tenantId, variantSizeId } }),
-      tx.inventoryPool.count({ where: { tenantId, variantSizeId } }),
       tx.inventoryReservation.count({ where: { tenantId, variantSizeId } }),
       tx.bookingItem.count({ where: { tenantId, variantSizeId } }),
       tx.fulfillmentRequirement.count({ where: { tenantId, variantSizeId } }),

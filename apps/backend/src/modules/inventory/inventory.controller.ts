@@ -22,7 +22,6 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
-  ConfigureVariantSizeInventoryDto,
   CreateStockUnitDto,
   InventoryCalendarQueryDto,
   PublicAvailabilityQueryDto,
@@ -92,17 +91,6 @@ export class InventoryOwnerController {
     @Query() query: InventoryCalendarQueryDto,
   ) {
     return this.inventory.getCalendar(tenant.id, productId, query);
-  }
-
-  @Patch('variant-sizes/:variantSizeId/inventory')
-  @Roles('owner', 'manager')
-  async configureVariantSize(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('variantSizeId') variantSizeId: string,
-    @Body() dto: ConfigureVariantSizeInventoryDto,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.inventory.configureVariantSize(tenant.id, variantSizeId, dto, request.user?.id);
   }
 
   @Get('variant-sizes/:variantSizeId/stock-units')

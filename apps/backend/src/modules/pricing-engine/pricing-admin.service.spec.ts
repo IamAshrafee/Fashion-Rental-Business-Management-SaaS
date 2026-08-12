@@ -24,7 +24,7 @@ describe('PricingAdminService configuration authority', () => {
     prisma.$transaction.mockImplementation(
       async (callback: (database: typeof tx) => unknown) => callback(tx),
     );
-    tx.product.findFirst.mockResolvedValue({ id: 'product-1', purchasePrice: 500_000 });
+    tx.product.findFirst.mockResolvedValue({ id: 'product-1', referenceRetailValue: 500_000 });
     tx.pricingProfile.findUnique.mockResolvedValue({ id: 'profile-1' });
     tx.pricePolicyVersion.updateMany.mockResolvedValue({ count: 1 });
     tx.pricePolicyVersion.findFirst.mockResolvedValue({ version: 2 });
@@ -63,7 +63,7 @@ describe('PricingAdminService configuration authority', () => {
   });
 
   it('requires acquisition value for percentage-of-retail pricing', async () => {
-    tx.product.findFirst.mockResolvedValue({ id: 'product-1', purchasePrice: null });
+    tx.product.findFirst.mockResolvedValue({ id: 'product-1', referenceRetailValue: null });
 
     await expect(service.savePricing('tenant-1', 'product-1', {
       ratePlan: {
@@ -71,7 +71,7 @@ describe('PricingAdminService configuration authority', () => {
         config: { percent: 10, basis: 'PER_RENTAL', minPriceMinor: 50_000 },
       },
     })).rejects.toMatchObject({
-      response: expect.objectContaining({ field: 'purchasePrice' }),
+      response: expect.objectContaining({ field: 'referenceRetailValue' }),
     });
   });
 

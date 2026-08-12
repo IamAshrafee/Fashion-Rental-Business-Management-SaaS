@@ -16,11 +16,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import {
-  InventoryTransferLineKind,
-  InventoryTransferStatus,
-  InventoryTransferUnitOutcome,
-} from '@prisma/client';
+import { InventoryTransferStatus, InventoryTransferUnitOutcome } from '@prisma/client';
 
 export class ListInventoryTransfersQueryDto {
   @IsOptional()
@@ -29,26 +25,15 @@ export class ListInventoryTransfersQueryDto {
 }
 
 export class CreateInventoryTransferLineDto {
-  @IsEnum(InventoryTransferLineKind)
-  lineKind!: InventoryTransferLineKind;
-
   @IsUUID()
   variantSizeId!: string;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100_000)
-  quantity?: number;
-
-  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(500)
   @ArrayUnique()
   @IsUUID(undefined, { each: true })
-  stockUnitIds?: string[];
+  stockUnitIds!: string[];
 
   @IsOptional()
   @IsString()
@@ -118,33 +103,12 @@ export class ReceiveInventoryTransferLineDto {
   @IsUUID()
   transferLineId!: string;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(100_000)
-  receivedQuantity?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(100_000)
-  damagedQuantity?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(100_000)
-  lostQuantity?: number;
-
-  @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
   @ArrayMaxSize(500)
   @ValidateNested({ each: true })
   @Type(() => ReceiveInventoryTransferUnitDto)
-  units?: ReceiveInventoryTransferUnitDto[];
+  units!: ReceiveInventoryTransferUnitDto[];
 }
 
 export class ReceiveInventoryTransferDto extends InventoryTransferActionDto {

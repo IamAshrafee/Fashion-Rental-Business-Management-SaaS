@@ -29,7 +29,6 @@ export class InventoryLedgerService {
         : {}),
       ...(query.variantSizeId ? { variantSizeId: query.variantSizeId } : {}),
       ...(query.stockUnitId ? { stockUnitId: query.stockUnitId } : {}),
-      ...(query.inventoryPoolId ? { inventoryPoolId: query.inventoryPoolId } : {}),
       ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),
       ...(query.bookingId ? { reservation: { bookingId: query.bookingId } } : {}),
       ...(query.transferId ? { transferId: query.transferId } : {}),
@@ -38,7 +37,6 @@ export class InventoryLedgerService {
             OR: [
               { originLocationId: query.locationId },
               { destinationLocationId: query.locationId },
-              { inventoryPool: { locationId: query.locationId } },
               { stockUnit: { locationId: query.locationId } },
             ],
           }
@@ -92,14 +90,6 @@ export class InventoryLedgerService {
             },
           },
           stockUnit: { select: { id: true, assetCode: true } },
-          inventoryPool: {
-            select: {
-              id: true,
-              onHandQuantity: true,
-              version: true,
-              location: { select: { id: true, code: true, name: true } },
-            },
-          },
           originLocation: { select: { id: true, code: true, name: true } },
           destinationLocation: { select: { id: true, code: true, name: true } },
           actor: { select: { id: true, fullName: true } },

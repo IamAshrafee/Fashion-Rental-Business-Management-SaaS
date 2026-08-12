@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InventoryTrackingMode, Prisma, ProductStatus } from '@prisma/client';
+import { Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityPolicyService,
@@ -12,14 +12,11 @@ export interface InventoryAvailabilityInput {
   tenantId: string;
   productId: string;
   variantSizeId: string;
-  preferredStockUnitId?: string;
   sourceLocationId?: string;
   startDate: string | Date;
   endDate: string | Date;
   quantity?: number;
   enforcePublished?: boolean;
-  allowPreferredOutsideStorefrontMode?: boolean;
-  requireStorefrontVisibility?: boolean;
   excludeReservationId?: string;
 }
 
@@ -30,8 +27,6 @@ export interface InventoryAvailabilityResult {
   sizeInstanceId: string;
   sourceLocationId: string | null;
   sourceLocation: { code: string; name: string } | null;
-  inventoryPoolId: string | null;
-  trackingMode: InventoryTrackingMode;
   available: boolean;
   requestedQuantity: number;
   totalCapacity: number;
@@ -74,7 +69,6 @@ export class InventoryAvailabilityService {
         id: true,
         variantId: true,
         sizeInstanceId: true,
-        trackingMode: true,
         variant: {
           select: {
             product: {
@@ -84,7 +78,6 @@ export class InventoryAvailabilityService {
                 isAvailable: true,
                 availableFrom: true,
                 deletedAt: true,
-                storefrontItemMode: true,
               },
             },
           },
@@ -101,23 +94,6 @@ export class InventoryAvailabilityService {
     if (productReason) {
       return this.unavailableResult(input, quantity, rentalStart, rentalEnd, productReason, sku);
     }
-    if (
-      input.preferredStockUnitId &&
-      (quantity !== 1 ||
-        (!input.allowPreferredOutsideStorefrontMode &&
-          sku.variant.product.storefrontItemMode !== 'SPECIFIC_ITEM_SELECTION') ||
-        sku.trackingMode !== InventoryTrackingMode.SERIALIZED)
-    ) {
-      return this.unavailableResult(
-        input,
-        quantity,
-        rentalStart,
-        rentalEnd,
-        'Specific item selection is not enabled for this product and SKU',
-        sku,
-      );
-    }
-
     const locations = await db.inventoryLocation.findMany({
       where: {
         tenantId: input.tenantId,
@@ -203,9 +179,7 @@ export class InventoryAvailabilityService {
             { productId: input.productId },
             { variantId: current.variantId },
             { variantSizeId: input.variantSizeId },
-            ...(input.preferredStockUnitId ? [{ stockUnitId: input.preferredStockUnitId }] : []),
             { blockType: 'LOCATION_BLACKOUT' },
-            { inventoryPool: { variantSizeId: input.variantSizeId } },
           ],
         },
         select: { endDate: true },
@@ -272,7 +246,8 @@ export class InventoryAvailabilityService {
       return { mode: product.storefrontItemMode, summary: [], items: [] };
     }
 
-    const units = await this.prisma.stockUnit.findMany({
+    const [units, availability] = await Promise.all([
+      this.prisma.stockUnit.findMany({
       where: {
         tenantId,
         variantSizeId: query.variantSizeId,
@@ -295,30 +270,22 @@ export class InventoryAvailabilityService {
         },
       },
       orderBy: [{ storefrontSortOrder: 'asc' }, { createdAt: 'asc' }],
-    });
+      }),
+      this.check({
+        tenantId,
+        productId,
+        variantSizeId: query.variantSizeId,
+        startDate: query.startDate,
+        endDate: query.endDate,
+      }),
+    ]);
 
     if (product.storefrontItemMode === 'CONDITION_SUMMARY') {
-      const datedUnits = await Promise.all(
-        units.map(async (unit) => ({
-          unit,
-          availability: await this.check({
-            tenantId,
-            productId,
-            variantSizeId: query.variantSizeId,
-            preferredStockUnitId: unit.id,
-            startDate: query.startDate,
-            endDate: query.endDate,
-            quantity: 1,
-            allowPreferredOutsideStorefrontMode: true,
-          }),
-        })),
-      );
       const grouped = new Map<
         string,
         { condition: string; count: number; minimumAdjustment: number; maximumAdjustment: number }
       >();
-      for (const { unit, availability } of datedUnits) {
-        if (!availability.available) continue;
+      for (const unit of units) {
         const current = grouped.get(unit.condition) ?? {
           condition: unit.condition,
           count: 0,
@@ -330,36 +297,20 @@ export class InventoryAvailabilityService {
         current.maximumAdjustment = Math.max(current.maximumAdjustment, unit.rentalPriceAdjustment);
         grouped.set(unit.condition, current);
       }
+      let remaining = availability.remainingQuantity;
+      const summary = [...grouped.values()].flatMap((group) => {
+        if (remaining < 1) return [];
+        const count = Math.min(group.count, remaining);
+        remaining -= count;
+        return [{ ...group, count }];
+      });
       return {
         mode: product.storefrontItemMode,
-        summary: [...grouped.values()],
+        summary,
         items: [],
       };
     }
-
-    const items = await Promise.all(
-      units.map(async (unit, index) => {
-        const availability = await this.check({
-          tenantId,
-          productId,
-          variantSizeId: query.variantSizeId,
-          preferredStockUnitId: unit.id,
-          startDate: query.startDate,
-          endDate: query.endDate,
-          quantity: 1,
-        });
-        return {
-          id: unit.id,
-          label: `Piece ${index + 1}`,
-          condition: unit.condition,
-          conditionNote: unit.publicConditionNote,
-          priceAdjustment: unit.rentalPriceAdjustment,
-          media: unit.mediaAttachments,
-          available: availability.available,
-        };
-      }),
-    );
-    return { mode: product.storefrontItemMode, summary: [], items };
+    return { mode: product.storefrontItemMode, summary: [], items: [] };
   }
 
   async getEffectiveBlockedRange(
@@ -401,7 +352,6 @@ export class InventoryAvailabilityService {
       id: string;
       variantId: string;
       sizeInstanceId: string;
-      trackingMode: InventoryTrackingMode;
     },
     location: { id: string; code: string; name: string; timezone: string },
     quantity: number,
@@ -430,18 +380,11 @@ export class InventoryAvailabilityService {
       });
     }
 
-    const pool = sku.trackingMode === InventoryTrackingMode.POOLED
-      ? await db.inventoryPool.findUnique({
-          where: { variantSizeId_locationId: { variantSizeId: sku.id, locationId: location.id } },
-          select: { id: true, onHandQuantity: true },
-        })
-      : null;
     const fullBlock = await db.inventoryBlock.findFirst({
       where: {
         tenantId: input.tenantId,
         startDate: { lte: blockedEnd },
         endDate: { gte: blockedStart },
-        quantity: null,
         AND: [
           { OR: [{ locationId: null }, { locationId: location.id }] },
           {
@@ -450,7 +393,6 @@ export class InventoryAvailabilityService {
               { variantId: sku.variantId },
               { variantSizeId: sku.id },
               { locationId: location.id, blockType: 'LOCATION_BLACKOUT' },
-              ...(pool ? [{ inventoryPoolId: pool.id }] : []),
             ],
           },
         ],
@@ -469,7 +411,6 @@ export class InventoryAvailabilityService {
         blockedEnd,
         policy,
         {
-          inventoryPoolId: pool?.id ?? null,
           totalCapacity: 0,
           blockedQuantity: 0,
           reservedQuantity: 0,
@@ -478,44 +419,16 @@ export class InventoryAvailabilityService {
       );
     }
 
-    if (input.preferredStockUnitId) {
-      return this.checkPreferredUnitAtLocation(
-        db,
-        input,
-        sku,
-        location,
-        rentalStart,
-        rentalEnd,
-        blockedStart,
-        blockedEnd,
-        policy,
-      );
-    }
-
-    const [totalCapacity, blockedQuantity, reservationAggregate] = await Promise.all([
+    const [totalCapacity, reservationAggregate] = await Promise.all([
       this.resolveCapacity(
         db,
         input.tenantId,
         sku.id,
         location.id,
-        sku.trackingMode,
-        pool?.onHandQuantity ?? 0,
         policy,
         blockedStart,
         blockedEnd,
       ),
-      pool
-        ? db.inventoryBlock.aggregate({
-            where: {
-              tenantId: input.tenantId,
-              inventoryPoolId: pool.id,
-              startDate: { lte: blockedEnd },
-              endDate: { gte: blockedStart },
-              quantity: { not: null },
-            },
-            _sum: { quantity: true },
-          }).then((result) => result._sum.quantity ?? 0)
-        : Promise.resolve(0),
       db.inventoryReservation.aggregate({
         where: {
           tenantId: input.tenantId,
@@ -534,13 +447,11 @@ export class InventoryAvailabilityService {
     ]);
 
     const reservedQuantity = reservationAggregate._sum.quantity ?? 0;
-    const effectiveCapacity = Math.max(0, totalCapacity - blockedQuantity);
     const shortageCapacity = policy.allowShortage ? policy.shortageLimit : 0;
-    const remainingQuantity = Math.max(0, effectiveCapacity + shortageCapacity - reservedQuantity);
+    const remainingQuantity = Math.max(0, totalCapacity + shortageCapacity - reservedQuantity);
     return this.locationResult(input, sku, location, quantity, rentalStart, rentalEnd, blockedStart, blockedEnd, policy, {
-      inventoryPoolId: pool?.id ?? null,
       totalCapacity,
-      blockedQuantity,
+      blockedQuantity: 0,
       reservedQuantity,
       reason: remainingQuantity < quantity
           ? 'Requested quantity is not available at this location'
@@ -553,13 +464,10 @@ export class InventoryAvailabilityService {
     tenantId: string,
     variantSizeId: string,
     locationId: string,
-    trackingMode: InventoryTrackingMode,
-    onHandQuantity: number,
     policy: EffectiveAvailabilityPolicy,
     blockedStart: Date,
     blockedEnd: Date,
   ) {
-    if (trackingMode === InventoryTrackingMode.POOLED) return Math.max(0, onHandQuantity);
     return db.stockUnit.count({
       where: {
         tenantId,
@@ -579,111 +487,6 @@ export class InventoryAvailabilityService {
         blocks: { none: { startDate: { lte: blockedEnd }, endDate: { gte: blockedStart } } },
       },
     });
-  }
-
-  private async checkPreferredUnitAtLocation(
-    db: InventoryDatabase,
-    input: InventoryAvailabilityInput,
-    sku: { id: string; variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
-    location: { id: string; code: string; name: string; timezone: string },
-    rentalStart: Date,
-    rentalEnd: Date,
-    blockedStart: Date,
-    blockedEnd: Date,
-    policy: EffectiveAvailabilityPolicy,
-  ): Promise<InventoryAvailabilityResult> {
-    const [eligibleUnit, overallCapacity, reservations] = await Promise.all([
-      db.stockUnit.findFirst({
-        where: {
-          id: input.preferredStockUnitId,
-          tenantId: input.tenantId,
-          variantSizeId: sku.id,
-          locationId: location.id,
-          ...(input.requireStorefrontVisibility === false ? {} : { storefrontVisible: true }),
-          disposition: 'ACTIVE',
-          operationalState: { in: policy.eligibleOperationalStates },
-          condition: { in: policy.eligibleConditionGrades },
-          deletedAt: null,
-          issues: { none: { isAvailabilityBlocking: true, status: { in: ['OPEN', 'IN_SERVICE'] } } },
-          componentStates: {
-            none: {
-              setComponentDefinition: { isActive: true, absenceBlocksRental: true },
-              presence: { in: ['MISSING', 'DAMAGED'] },
-            },
-          },
-          blocks: { none: { startDate: { lte: blockedEnd }, endDate: { gte: blockedStart } } },
-          assignments: {
-            none: {
-              releasedAt: null,
-              blockedStartDate: { lte: blockedEnd },
-              blockedEndDate: { gte: blockedStart },
-            },
-          },
-        },
-        select: { id: true },
-      }),
-      this.resolveCapacity(
-        db,
-        input.tenantId,
-        sku.id,
-        location.id,
-        sku.trackingMode,
-        0,
-        policy,
-        blockedStart,
-        blockedEnd,
-      ),
-      db.inventoryReservation.findMany({
-        where: {
-          tenantId: input.tenantId,
-          sourceLocationId: location.id,
-          variantSizeId: sku.id,
-          ...(input.excludeReservationId ? { id: { not: input.excludeReservationId } } : {}),
-          blockedStartDate: { lte: blockedEnd },
-          blockedEndDate: { gte: blockedStart },
-          OR: [
-            { status: 'CONFIRMED' },
-            { status: 'PENDING', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
-          ],
-        },
-        select: { quantity: true, preferredStockUnitId: true },
-      }),
-    ]);
-
-    const selectedAlreadyReserved = reservations.some(
-      (reservation) => reservation.preferredStockUnitId === input.preferredStockUnitId,
-    );
-    const genericReserved = reservations
-      .filter((reservation) => reservation.preferredStockUnitId === null)
-      .reduce((sum, reservation) => sum + reservation.quantity, 0);
-    const otherSpecificUnits = new Set(
-      reservations.flatMap((reservation) =>
-        reservation.preferredStockUnitId &&
-        reservation.preferredStockUnitId !== input.preferredStockUnitId
-          ? [reservation.preferredStockUnitId]
-          : [],
-      ),
-    ).size;
-    const enoughUncommittedAlternatives =
-      genericReserved <= Math.max(0, overallCapacity - otherSpecificUnits - 1);
-    const available = Boolean(eligibleUnit) && !selectedAlreadyReserved && enoughUncommittedAlternatives;
-    return this.locationResult(
-      input,
-      sku,
-      location,
-      1,
-      rentalStart,
-      rentalEnd,
-      blockedStart,
-      blockedEnd,
-      policy,
-      {
-        totalCapacity: eligibleUnit ? 1 : 0,
-        blockedQuantity: 0,
-        reservedQuantity: available ? 0 : 1,
-        reason: available ? undefined : 'This physical item is unavailable for the selected dates',
-      },
-    );
   }
 
   private productUnavailableReason(
@@ -748,7 +551,7 @@ export class InventoryAvailabilityService {
 
   private locationResult(
     input: InventoryAvailabilityInput,
-    sku: { id: string; variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
+    sku: { id: string; variantId: string; sizeInstanceId: string },
     location: { id: string; code: string; name: string; timezone: string },
     quantity: number,
     rentalStart: Date,
@@ -757,7 +560,6 @@ export class InventoryAvailabilityService {
     blockedEnd: Date,
     policy: EffectiveAvailabilityPolicy,
     capacity: {
-      inventoryPoolId?: string | null;
       totalCapacity: number;
       blockedQuantity: number;
       reservedQuantity: number;
@@ -774,8 +576,6 @@ export class InventoryAvailabilityService {
       sizeInstanceId: sku.sizeInstanceId,
       sourceLocationId: location.id,
       sourceLocation: { code: location.code, name: location.name },
-      inventoryPoolId: capacity.inventoryPoolId ?? null,
-      trackingMode: sku.trackingMode,
       available: !capacity.reason && remainingQuantity >= quantity,
       requestedQuantity: quantity,
       totalCapacity: capacity.totalCapacity,
@@ -795,7 +595,7 @@ export class InventoryAvailabilityService {
     rentalStart: Date,
     rentalEnd: Date,
     reason: string,
-    sku?: { variantId: string; sizeInstanceId: string; trackingMode: InventoryTrackingMode },
+    sku?: { variantId: string; sizeInstanceId: string },
   ): InventoryAvailabilityResult {
     return {
       productId: input.productId,
@@ -804,8 +604,6 @@ export class InventoryAvailabilityService {
       sizeInstanceId: sku?.sizeInstanceId ?? '',
       sourceLocationId: input.sourceLocationId ?? null,
       sourceLocation: null,
-      inventoryPoolId: null,
-      trackingMode: sku?.trackingMode ?? InventoryTrackingMode.POOLED,
       available: false,
       requestedQuantity: quantity,
       totalCapacity: 0,

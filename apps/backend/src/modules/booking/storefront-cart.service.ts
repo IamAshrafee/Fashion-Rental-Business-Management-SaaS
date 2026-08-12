@@ -65,7 +65,6 @@ export class StorefrontCartService {
             productId: item.productId,
             variantId: item.variantId,
             variantSizeId: item.variantSizeId,
-            preferredStockUnitId: item.preferredStockUnitId,
             quantity: item.quantity,
             startDate: new Date(item.startDate),
             endDate: new Date(item.endDate),
@@ -117,7 +116,6 @@ export class StorefrontCartService {
       productId: item.productId,
       variantId: item.variantId,
       variantSizeId: item.variantSizeId,
-      preferredStockUnitId: item.preferredStockUnitId ?? null,
       quantity: item.quantity ?? 1,
       startDate: item.startDate,
       endDate: item.endDate,
@@ -129,7 +127,7 @@ export class StorefrontCartService {
   }
 
   private toBookingItem(line: {
-    productId: string; variantId: string; variantSizeId: string; preferredStockUnitId: string | null;
+    productId: string; variantId: string; variantSizeId: string;
     quantity: number; startDate: Date; endDate: Date; selectedSize: string | null; configuration: Prisma.JsonValue;
   }): CartItemDto {
     const configuration = (line.configuration && typeof line.configuration === 'object' && !Array.isArray(line.configuration))
@@ -139,7 +137,6 @@ export class StorefrontCartService {
       productId: line.productId,
       variantId: line.variantId,
       variantSizeId: line.variantSizeId,
-      ...(line.preferredStockUnitId ? { preferredStockUnitId: line.preferredStockUnitId } : {}),
       quantity: line.quantity,
       startDate: line.startDate.toISOString().slice(0, 10),
       endDate: line.endDate.toISOString().slice(0, 10),
@@ -153,7 +150,7 @@ export class StorefrontCartService {
   }
 
   private project(cart: { id: string; expiresAt: Date; lines: Array<{
-    lineKey: string; productId: string; variantId: string; variantSizeId: string; preferredStockUnitId: string | null;
+    lineKey: string; productId: string; variantId: string; variantSizeId: string;
     quantity: number; startDate: Date; endDate: Date; selectedSize: string | null; configuration: Prisma.JsonValue; displaySnapshot: Prisma.JsonValue;
   }> }) {
     return {
@@ -195,13 +192,6 @@ export class StorefrontCartService {
         throw new BadRequestException('A cart item no longer belongs to this store or product');
       }
       if (item.endDate < item.startDate) throw new BadRequestException('Rental end date must be on or after the start date');
-    }
-    const preferredIds = items.map((item) => item.preferredStockUnitId).filter((id): id is string => Boolean(id));
-    if (preferredIds.length) {
-      const valid = await this.prisma.stockUnit.count({
-        where: { tenantId, id: { in: [...new Set(preferredIds)] }, deletedAt: null },
-      });
-      if (valid !== new Set(preferredIds).size) throw new BadRequestException('A preferred physical item is unavailable');
     }
   }
 }

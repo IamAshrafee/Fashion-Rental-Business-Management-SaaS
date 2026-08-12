@@ -20,7 +20,7 @@ export class InventoryLocationService {
       where: { tenantId, ...(includeInactive ? {} : { isActive: true }) },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
       include: {
-        _count: { select: { stockUnits: true, pools: true } },
+        _count: { select: { stockUnits: true } },
       },
     });
   }
@@ -175,11 +175,10 @@ export class InventoryLocationService {
     locationId: string,
   ) {
     const now = new Date();
-    const [stockUnits, pooledStock, activeReservations, activeTransfers] = await Promise.all([
+    const [stockUnits, activeReservations, activeTransfers] = await Promise.all([
       tx.stockUnit.count({
         where: { tenantId, locationId, deletedAt: null, disposition: { not: 'RETIRED' } },
       }),
-      tx.inventoryPool.count({ where: { tenantId, locationId, onHandQuantity: { gt: 0 } } }),
       tx.inventoryReservation.count({
         where: {
           tenantId,
@@ -196,11 +195,11 @@ export class InventoryLocationService {
         },
       }),
     ]);
-    if (stockUnits || pooledStock || activeReservations || activeTransfers) {
+    if (stockUnits || activeReservations || activeTransfers) {
       throw new ConflictException({
         code: 'INVENTORY_LOCATION_IN_USE',
         message: 'Move stock and finish reservations and transfers before deactivating this location',
-        details: { stockUnits, pooledStock, activeReservations, activeTransfers },
+        details: { stockUnits, activeReservations, activeTransfers },
       });
     }
   }

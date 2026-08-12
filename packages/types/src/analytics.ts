@@ -61,18 +61,25 @@ export interface TopProduct {
 export interface TargetRecoveryProduct {
   productId: string;
   name: string;
-  purchasePrice: number;
-  recovered: number;
-  recoveryPercentage: number;
-  status: 'exceeded' | 'recovering' | 'idle';
+  physicalItemCount: number;
+  acquisitionCost: number;
+  attributedRentalRevenue: number;
+  recordedServiceCost: number;
+  netContribution: number;
+  missingAcquisitionCostCount: number;
+  recoveryPercentage: number | null;
+  status: 'recovered' | 'recovering' | 'idle' | 'incomplete';
 }
 
 export interface TargetRecoverySummary {
-  totalInvestment: number;
-  totalRecovered: number;
-  overallRecoveryPercentage: number;
-  productsAtTarget: number;
-  productsBelowTarget: number;
+  totalAcquisitionCost: number;
+  totalAttributedRevenue: number;
+  totalRecordedServiceCost: number;
+  netContribution: number;
+  overallRecoveryPercentage: number | null;
+  recoveredProducts: number;
+  recoveringProducts: number;
+  incompleteProducts: number;
   products: TargetRecoveryProduct[];
 }
 

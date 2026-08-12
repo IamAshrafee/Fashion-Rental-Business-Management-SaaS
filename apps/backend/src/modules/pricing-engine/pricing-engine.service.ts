@@ -31,7 +31,7 @@ export interface QuoteInput {
     location?: string;
   };
   selectedAddons?: string[];
-  retailPriceMinor?: number; // from product.purchasePrice
+  retailPriceMinor?: number; // from product.referenceRetailValue
 }
 
 export interface ComputedLineItem {
@@ -96,7 +96,7 @@ export class PricingEngineService {
         product: { deletedAt: null },
       },
       include: {
-        product: { select: { purchasePrice: true } },
+        product: { select: { referenceRetailValue: true } },
         policyVersions: {
           where: { status: 'ACTIVE' },
           orderBy: { version: 'desc' },
@@ -156,7 +156,7 @@ export class PricingEngineService {
       applicableRatePlan.type as any,
       applicableRatePlan.config as any,
       billableDays,
-      input.retailPriceMinor ?? profile.product.purchasePrice ?? undefined,
+      input.retailPriceMinor ?? profile.product.referenceRetailValue ?? undefined,
     );
 
     const lineItems: ComputedLineItem[] = [baseLineItem];
@@ -181,7 +181,7 @@ export class PricingEngineService {
       const lineItem = this.computeComponentLineItem(
         component,
         baseAmount,
-        input.retailPriceMinor ?? profile.product.purchasePrice ?? undefined,
+        input.retailPriceMinor ?? profile.product.referenceRetailValue ?? undefined,
         billableDays,
       );
 
@@ -299,7 +299,7 @@ export class PricingEngineService {
   ) {
     const product = await db.product.findUnique({
       where: { id: productId },
-      select: { purchasePrice: true, tenantId: true },
+      select: { referenceRetailValue: true, tenantId: true },
     });
     if (!product) throw new NotFoundException(`Product ${productId} not found`);
 
@@ -308,7 +308,7 @@ export class PricingEngineService {
       productId,
       startAt: new Date(startDate),
       endAt: new Date(endDate),
-      retailPriceMinor: product.purchasePrice ?? undefined,
+      retailPriceMinor: product.referenceRetailValue ?? undefined,
       context: {
         location: options?.location,
         channel: options?.channel,

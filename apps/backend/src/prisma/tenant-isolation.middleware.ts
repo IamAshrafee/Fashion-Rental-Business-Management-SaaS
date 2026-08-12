@@ -18,7 +18,6 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'Notification',
   'AuditLog',
   'InventoryLocation',
-  'InventoryPool',
   'AvailabilityPolicy',
   'InventoryTransfer',
   'InventoryTransferLine',

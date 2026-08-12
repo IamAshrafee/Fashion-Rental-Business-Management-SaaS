@@ -27,26 +27,22 @@ export class InventoryBlockService {
               { variant: { productId: query.productId } },
               { variantSize: { variant: { productId: query.productId } } },
               { stockUnit: { variantSize: { variant: { productId: query.productId } } } },
-              { inventoryPool: { variantSize: { variant: { productId: query.productId } } } },
             ] }]
           : []),
         ...(query.locationId
           ? [{ OR: [
               { locationId: query.locationId },
               { stockUnit: { locationId: query.locationId } },
-              { inventoryPool: { locationId: query.locationId } },
             ] }]
           : []),
         ...(query.variantSizeId
           ? [{ OR: [
               { variantSizeId: query.variantSizeId },
               { stockUnit: { variantSizeId: query.variantSizeId } },
-              { inventoryPool: { variantSizeId: query.variantSizeId } },
             ] }]
           : []),
       ],
       ...(query.stockUnitId ? { stockUnitId: query.stockUnitId } : {}),
-      ...(query.inventoryPoolId ? { inventoryPoolId: query.inventoryPoolId } : {}),
       ...(query.from ? { endDate: { gte: this.date(query.from, 'from') } } : {}),
       ...(query.to ? { startDate: { lte: this.date(query.to, 'to') } } : {}),
       ...(!query.from && query.activeOnly ? { endDate: { gte: this.today() } } : {}),
@@ -97,7 +93,6 @@ export class InventoryBlockService {
     return {
       target,
       dateRange: { start: dto.startDate, end: dto.endDate },
-      quantity: dto.quantity ?? null,
       affectedReservations: aggregate._count._all,
       affectedQuantity: aggregate._sum.quantity ?? 0,
       affectedBookings: bookings.map(({ booking }) => booking),
@@ -118,8 +113,6 @@ export class InventoryBlockService {
         variantSizeId: dto.variantSizeId ?? null,
         stockUnitId: dto.stockUnitId ?? null,
         locationId: dto.locationId ?? null,
-        inventoryPoolId: dto.inventoryPoolId ?? null,
-        quantity: dto.quantity ?? null,
         startDate: this.date(dto.startDate, 'startDate'),
         endDate: this.date(dto.endDate, 'endDate'),
         blockType: dto.blockType,
@@ -134,12 +127,12 @@ export class InventoryBlockService {
   async remove(tenantId: string, blockId: string) {
     const block = await this.prisma.inventoryBlock.findFirst({
       where: { id: blockId, tenantId },
-      include: { serviceOrder: { select: { id: true } }, inspection: { select: { id: true } }, transferLine: { select: { id: true } } },
+      include: { serviceOrder: { select: { id: true } }, inspection: { select: { id: true } } },
     });
     if (!block) throw new NotFoundException('Inventory block not found');
     if (!this.canDelete(block)) {
       throw new BadRequestException(
-        'This block is owned by an inspection, service order, transfer, or lifecycle workflow. Complete or cancel that workflow instead.',
+        'This block is owned by an inspection, service order, or lifecycle workflow. Complete or cancel that workflow instead.',
       );
     }
     await this.prisma.inventoryBlock.delete({ where: { id: block.id } });
@@ -156,7 +149,6 @@ export class InventoryBlockService {
       dto.variantSizeId,
       dto.stockUnitId,
       dto.locationId,
-      dto.inventoryPoolId,
     ].filter(Boolean);
     if (scopeIds.length !== 1) {
       throw new BadRequestException('Exactly one inventory block target is required');
@@ -173,10 +165,6 @@ export class InventoryBlockService {
     if (dto.blockType === InventoryBlockType.MANUAL && dto.locationId) {
       throw new BadRequestException('Use LOCATION_BLACKOUT for a location-wide block');
     }
-    if (dto.quantity !== undefined && !dto.inventoryPoolId) {
-      throw new BadRequestException('A partial quantity block must target one pooled inventory record');
-    }
-
     if (dto.productId) {
       const product = await this.prisma.product.findFirst({
         where: { id: dto.productId, tenantId, deletedAt: null },
@@ -217,15 +205,7 @@ export class InventoryBlockService {
       if (!location) throw new NotFoundException('Inventory location not found');
       return { kind: 'LOCATION', ...location };
     }
-    const pool = await this.prisma.inventoryPool.findFirst({
-      where: { id: dto.inventoryPoolId, tenantId },
-      select: { id: true, onHandQuantity: true, location: { select: { id: true, code: true, name: true } }, variantSize: { select: { id: true, sizeInstance: { select: { displayLabel: true } }, variant: { select: { variantName: true, product: { select: { id: true, name: true } } } } } } },
-    });
-    if (!pool) throw new NotFoundException('Pooled inventory record not found');
-    if (dto.quantity !== undefined && dto.quantity > pool.onHandQuantity) {
-      throw new BadRequestException('Blocked quantity cannot exceed current on-hand quantity');
-    }
-    return { kind: 'INVENTORY_POOL', ...pool };
+    throw new BadRequestException('An inventory block target is required');
   }
 
   private reservationWhere(
@@ -241,10 +221,10 @@ export class InventoryBlockService {
         : dto.variantSizeId
           ? { variantSizeId: dto.variantSizeId }
           : dto.stockUnitId
-            ? { OR: [{ preferredStockUnitId: dto.stockUnitId }, { assignments: { some: { stockUnitId: dto.stockUnitId, releasedAt: null } } }] }
+            ? { assignments: { some: { stockUnitId: dto.stockUnitId, releasedAt: null } } }
             : dto.locationId
               ? { sourceLocationId: dto.locationId }
-              : { inventoryPoolId: dto.inventoryPoolId };
+              : {};
     return {
       tenantId,
       status: { in: ['PENDING', 'CONFIRMED'] },
@@ -261,20 +241,18 @@ export class InventoryBlockService {
       variantSize: { select: { id: true, sizeInstance: { select: { displayLabel: true } }, variant: { select: { variantName: true, product: { select: { id: true, name: true } } } } } },
       stockUnit: { select: { id: true, assetCode: true, location: { select: { id: true, code: true, name: true } }, variantSize: { select: { sizeInstance: { select: { displayLabel: true } }, variant: { select: { variantName: true, product: { select: { id: true, name: true } } } } } } } },
       location: { select: { id: true, code: true, name: true } },
-      inventoryPool: { select: { id: true, onHandQuantity: true, location: { select: { id: true, code: true, name: true } }, variantSize: { select: { id: true, sizeInstance: { select: { displayLabel: true } }, variant: { select: { variantName: true, product: { select: { id: true, name: true } } } } } } } },
       createdByUser: { select: { id: true, fullName: true } },
       serviceOrder: { select: { id: true } },
       inspection: { select: { id: true } },
-      transferLine: { select: { id: true, transfer: { select: { id: true, transferNumber: true } } } },
     } satisfies Prisma.InventoryBlockInclude;
   }
 
-  private project<T extends { blockType: InventoryBlockType; serviceOrder: unknown; inspection: unknown; transferLine: unknown }>(block: T) {
-    return { ...block, canDelete: this.canDelete(block), owner: block.serviceOrder ? 'SERVICE_ORDER' : block.inspection ? 'INSPECTION' : block.transferLine ? 'TRANSFER' : 'MANUAL' };
+  private project<T extends { blockType: InventoryBlockType; serviceOrder: unknown; inspection: unknown }>(block: T) {
+    return { ...block, canDelete: this.canDelete(block), owner: block.serviceOrder ? 'SERVICE_ORDER' : block.inspection ? 'INSPECTION' : 'MANUAL' };
   }
 
-  private canDelete(block: { blockType: InventoryBlockType; serviceOrder: unknown; inspection: unknown; transferLine: unknown }) {
-    return MANUAL_BLOCK_TYPES.includes(block.blockType) && !block.serviceOrder && !block.inspection && !block.transferLine;
+  private canDelete(block: { blockType: InventoryBlockType; serviceOrder: unknown; inspection: unknown }) {
+    return MANUAL_BLOCK_TYPES.includes(block.blockType) && !block.serviceOrder && !block.inspection;
   }
 
   private date(value: string, field: string) {

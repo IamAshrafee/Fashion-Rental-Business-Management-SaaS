@@ -68,13 +68,9 @@ export class AnalyticsService {
     productId?: string,
   ): Promise<number> {
     const productFilter = productId ? { variantSize: { variant: { productId } } } : {};
-    const [serializedCapacity, pooledCapacity, reservations] = await Promise.all([
+    const [physicalItemCapacity, reservations] = await Promise.all([
       this.prisma.stockUnit.count({
         where: { tenantId, deletedAt: null, disposition: 'ACTIVE', ...productFilter },
-      }),
-      this.prisma.inventoryPool.aggregate({
-        where: { tenantId, ...(productId ? { variantSize: { variant: { productId } } } : {}) },
-        _sum: { onHandQuantity: true },
       }),
       this.prisma.inventoryReservation.findMany({
         where: {
@@ -87,7 +83,7 @@ export class AnalyticsService {
         select: { blockedStartDate: true, blockedEndDate: true, quantity: true },
       }),
     ]);
-    const capacity = serializedCapacity + (pooledCapacity._sum.onHandQuantity ?? 0);
+    const capacity = physicalItemCapacity;
     if (!capacity) return 0;
     const dayMs = 86_400_000;
     const periodDays = Math.max(1, Math.floor((to.getTime() - from.getTime()) / dayMs) + 1);
@@ -190,8 +186,10 @@ export class AnalyticsService {
           operationalState: true,
           condition: true,
           storefrontVisible: true,
-          purchaseDate: true,
-          purchasePrice: true,
+          acquisitionDate: true,
+          acquisitionCost: true,
+          acquisitionSource: true,
+          acquisitionReference: true,
           estimatedCurrentValue: true,
           createdAt: true,
           location: { select: { code: true, name: true } },
@@ -215,8 +213,10 @@ export class AnalyticsService {
         operational_state: record.operationalState,
         condition: record.condition,
         storefront_visible: record.storefrontVisible,
-        purchase_date: record.purchaseDate,
-        purchase_price: record.purchasePrice,
+        acquisition_date: record.acquisitionDate,
+        acquisition_cost: record.acquisitionCost,
+        acquisition_source: record.acquisitionSource ?? '',
+        acquisition_reference: record.acquisitionReference ?? '',
         estimated_value: record.estimatedCurrentValue,
         registered_at: record.createdAt,
       }));
@@ -262,8 +262,10 @@ export class AnalyticsService {
       const recovery = await this.getTargetRecovery(tenantId);
       rows = recovery.products.map((record) => ({
         product: record.name,
-        purchase_price: record.purchasePrice,
-        recovered: record.recovered,
+        acquisition_cost: record.acquisitionCost,
+        attributed_rental_revenue: record.attributedRentalRevenue,
+        recorded_service_cost: record.recordedServiceCost,
+        net_contribution: record.netContribution,
         recovery_percentage: record.recoveryPercentage,
         status: record.status,
       }));
@@ -515,57 +517,110 @@ export class AnalyticsService {
 
   async getTargetRecovery(tenantId: string): Promise<TargetRecoverySummary> {
     const products = await this.prisma.product.findMany({
-      where: { tenantId, deletedAt: null, purchasePrice: { not: null } },
+      where: { tenantId, deletedAt: null },
       select: {
         id: true,
         name: true,
-        purchasePrice: true,
-        totalRevenue: true,
+        variants: {
+          select: {
+            sizes: {
+              select: {
+                stockUnits: {
+                  where: { deletedAt: null },
+                  select: {
+                    acquisitionCost: true,
+                    revenueAllocations: { select: { amount: true } },
+                    serviceOrders: {
+                      where: { status: 'COMPLETED' },
+                      select: { cost: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
-    let totalInvestment = 0;
-    let totalRecovered = 0;
-    let productsAtTarget = 0;
-    let productsBelowTarget = 0;
+    let totalAcquisitionCost = 0;
+    let totalAttributedRevenue = 0;
+    let totalRecordedServiceCost = 0;
+    let recoveredProducts = 0;
+    let recoveringProducts = 0;
+    let incompleteProducts = 0;
 
     const items: TargetRecoveryProduct[] = products.map((p) => {
-      const purchasePrice = p.purchasePrice || 0;
-      const recovered = p.totalRevenue;
-      const perc = purchasePrice > 0 ? (recovered / purchasePrice) * 100 : 100;
+      const units = p.variants.flatMap((variant) =>
+        variant.sizes.flatMap((size) => size.stockUnits),
+      );
+      const missingAcquisitionCostCount = units.filter(
+        (unit) => unit.acquisitionCost === null,
+      ).length;
+      const acquisitionCost = units.reduce(
+        (sum, unit) => sum + (unit.acquisitionCost ?? 0),
+        0,
+      );
+      const attributedRentalRevenue = units.reduce(
+        (sum, unit) =>
+          sum + unit.revenueAllocations.reduce((subtotal, allocation) => subtotal + allocation.amount, 0),
+        0,
+      );
+      const recordedServiceCost = units.reduce(
+        (sum, unit) =>
+          sum + unit.serviceOrders.reduce((subtotal, order) => subtotal + (order.cost ?? 0), 0),
+        0,
+      );
+      const netContribution = attributedRentalRevenue - recordedServiceCost;
+      const inputsComplete = units.length > 0 && missingAcquisitionCostCount === 0 && acquisitionCost > 0;
+      const recoveryPercentage = inputsComplete
+        ? Number(((netContribution / acquisitionCost) * 100).toFixed(1))
+        : null;
+      const status: TargetRecoveryProduct['status'] = !inputsComplete
+        ? 'incomplete'
+        : netContribution >= acquisitionCost
+          ? 'recovered'
+          : attributedRentalRevenue > 0
+            ? 'recovering'
+            : 'idle';
 
-      totalInvestment += purchasePrice;
-      totalRecovered += recovered;
-
-      let status: 'exceeded' | 'recovering' | 'idle' = 'idle';
-      if (recovered === 0) status = 'idle';
-      else if (recovered >= purchasePrice) status = 'exceeded';
-      else status = 'recovering';
-
-      if (status === 'exceeded') productsAtTarget++;
-      if (status === 'recovering' || status === 'idle') productsBelowTarget++;
+      totalAcquisitionCost += acquisitionCost;
+      totalAttributedRevenue += attributedRentalRevenue;
+      totalRecordedServiceCost += recordedServiceCost;
+      if (status === 'recovered') recoveredProducts += 1;
+      if (status === 'recovering' || status === 'idle') recoveringProducts += 1;
+      if (status === 'incomplete') incompleteProducts += 1;
 
       return {
         productId: p.id,
         name: p.name,
-        purchasePrice,
-        recovered,
-        recoveryPercentage: Number(perc.toFixed(1)),
+        physicalItemCount: units.length,
+        acquisitionCost,
+        attributedRentalRevenue,
+        recordedServiceCost,
+        netContribution,
+        missingAcquisitionCostCount,
+        recoveryPercentage,
         status,
       };
     });
 
-    items.sort((a, b) => b.recoveryPercentage - a.recoveryPercentage);
+    items.sort((a, b) => (b.recoveryPercentage ?? -1) - (a.recoveryPercentage ?? -1));
 
-    const overallRecoveryPercentage =
-      totalInvestment > 0 ? Number(((totalRecovered / totalInvestment) * 100).toFixed(1)) : 0;
+    const netContribution = totalAttributedRevenue - totalRecordedServiceCost;
+    const overallRecoveryPercentage = totalAcquisitionCost > 0
+      ? Number(((netContribution / totalAcquisitionCost) * 100).toFixed(1))
+      : null;
 
     return {
-      totalInvestment,
-      totalRecovered,
+      totalAcquisitionCost,
+      totalAttributedRevenue,
+      totalRecordedServiceCost,
+      netContribution,
       overallRecoveryPercentage,
-      productsAtTarget,
-      productsBelowTarget,
+      recoveredProducts,
+      recoveringProducts,
+      incompleteProducts,
       products: items,
     };
   }
