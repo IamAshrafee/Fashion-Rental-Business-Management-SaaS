@@ -1,4 +1,4 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { PricingEngineModule } from '../pricing-engine/pricing-engine.module';
 
@@ -65,11 +65,4 @@ import { ProductOnboardingController } from './product-onboarding.controller';
     SearchService,
   ],
 })
-export class ProductModule implements OnModuleInit {
-  constructor(private readonly colorService: ColorService) {}
-
-  async onModuleInit() {
-    // Seed system colors on startup
-    await this.colorService.seedSystemColors();
-  }
-}
+export class ProductModule {}

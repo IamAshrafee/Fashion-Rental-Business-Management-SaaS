@@ -5,7 +5,6 @@ import {
   NotFoundException,
   BadRequestException,
   ServiceUnavailableException,
-  OnModuleInit,
   ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,7 +21,7 @@ interface UploadResult {
 }
 
 @Injectable()
-export class UploadService implements OnModuleInit {
+export class UploadService {
   private readonly logger = new Logger(UploadService.name);
   private bucketReady = false;
   private privateBucketReady = false;
@@ -80,17 +79,6 @@ export class UploadService implements OnModuleInit {
     this.imageQuality = imageConfig?.quality || 80;
     this.thumbnailWidth = imageConfig?.thumbnailWidth || 400;
     this.fullWidth = imageConfig?.maxWidth || 1200;
-  }
-
-  /**
-   * Called once when the module initializes.
-   * Ensures bucket exists and has public read policy.
-   */
-  async onModuleInit(): Promise<void> {
-    if (this.minioClient) {
-      await this.ensureBucket();
-      await this.ensurePrivateBucket();
-    }
   }
 
   /**

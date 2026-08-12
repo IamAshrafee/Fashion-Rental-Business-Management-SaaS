@@ -37,7 +37,7 @@ The container listens on 5432. Local applications connect through the published 
 
 ## Object storage
 
-`STORAGE_ENDPOINT`, `STORAGE_PORT`, `STORAGE_CONSOLE_PORT`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_BUCKET`, `STORAGE_REGION`, `STORAGE_USE_SSL`, and `STORAGE_PUBLIC_URL` configure MinIO or an S3-compatible service. `dev:prepare` idempotently creates the configured bucket and its public-download policy.
+`STORAGE_ENDPOINT`, `STORAGE_PORT`, `STORAGE_CONSOLE_PORT`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_BUCKET`, `STORAGE_REGION`, `STORAGE_USE_SSL`, and `STORAGE_PUBLIC_URL` configure MinIO or an S3-compatible service. `dev:prepare` idempotently creates the configured public bucket, its download policy, and the corresponding private inventory-media bucket.
 
 ## Authentication and encryption
 

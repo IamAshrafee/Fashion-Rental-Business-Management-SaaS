@@ -35,6 +35,12 @@ describe('UploadService product media safety', () => {
     jest.clearAllMocks();
   });
 
+  it('does not provision object storage during application startup', () => {
+    expect(Object.prototype.hasOwnProperty.call(UploadService.prototype, 'onModuleInit')).toBe(
+      false,
+    );
+  });
+
   it('rejects image IDs from another tenant or variant during reorder', async () => {
     prisma.productVariant.findFirst.mockResolvedValue({ id: 'variant-1' });
     prisma.productImage.count

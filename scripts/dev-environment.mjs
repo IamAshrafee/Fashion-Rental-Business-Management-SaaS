@@ -204,17 +204,31 @@ async function ensurePrerequisites(environment) {
   await execute(NPM, ['--version'], { environment, quiet: true });
 }
 
-async function ensureDependencies(environment) {
+async function dependenciesAreReady() {
   const installedLock = path.join(REPOSITORY_ROOT, 'node_modules', '.package-lock.json');
   const sourceLock = path.join(REPOSITORY_ROOT, 'package-lock.json');
+  const executableSuffix = process.platform === 'win32' ? '.cmd' : '';
+  const requiredExecutables = ['nest', 'next'].map((name) =>
+    path.join(REPOSITORY_ROOT, 'node_modules', '.bin', `${name}${executableSuffix}`),
+  );
   try {
+    await Promise.all(requiredExecutables.map((executable) => access(executable)));
     const [installed, source] = await Promise.all([stat(installedLock), stat(sourceLock)]);
-    if (installed.mtimeMs >= source.mtimeMs) return;
+    return installed.mtimeMs >= source.mtimeMs;
   } catch {
-    // A missing install marker means dependencies must be restored.
+    return false;
   }
+}
+
+async function ensureDependencies(environment) {
+  if (await dependenciesAreReady()) return;
   console.log('\nInstalling workspace dependencies...');
   await execute(NPM, ['install'], { environment });
+}
+
+async function assertDependenciesReady() {
+  if (await dependenciesAreReady()) return;
+  throw new Error('Dependencies are missing or out of date. Run npm run dev:prepare once.');
 }
 
 async function waitForService(environment, name, checkArgs, attempts = 60) {
@@ -226,11 +240,7 @@ async function waitForService(environment, name, checkArgs, attempts = 60) {
   throw new Error(`${name} did not become ready within ${attempts} seconds`);
 }
 
-async function prepare(environment) {
-  validateConfiguration(environment);
-  await ensurePrerequisites(environment);
-  await ensureDependencies(environment);
-
+async function startInfrastructure(environment) {
   console.log('\nStarting PostgreSQL, Redis, and MinIO...');
   await compose(environment, ['up', '-d', 'postgres', 'redis', 'minio']);
   await Promise.all([
@@ -254,6 +264,21 @@ async function prepare(environment) {
       'http://localhost:9000/minio/health/live',
     ]),
   ]);
+}
+
+async function startDaily(environment) {
+  validateConfiguration(environment);
+  await ensurePrerequisites(environment);
+  await assertDependenciesReady();
+  await startInfrastructure(environment);
+  console.log('\nDevelopment infrastructure is ready for daily startup.');
+}
+
+async function prepare(environment) {
+  validateConfiguration(environment);
+  await ensurePrerequisites(environment);
+  await ensureDependencies(environment);
+  await startInfrastructure(environment);
 
   console.log('Ensuring the object-storage bucket exists...');
   await compose(environment, ['--profile', 'tools', 'run', '--rm', '-T', 'minio-init']);
@@ -321,7 +346,7 @@ async function startApplications(environment) {
     }),
     spawn(NPM, ['run', 'dev:frontend'], {
       cwd: REPOSITORY_ROOT,
-      env: environment,
+      env: { ...environment, PORT: environment.FRONTEND_PORT },
       stdio: 'inherit',
       detached: process.platform !== 'win32',
       shell: false,
@@ -404,6 +429,13 @@ async function status(environment) {
   console.log(`Database  ${database.hostname}:${database.port}/${environment.DATABASE_NAME}`);
 }
 
+async function stop(environment) {
+  validateConfiguration(environment);
+  await ensurePrerequisites(environment);
+  await compose(environment, ['down', '--remove-orphans']);
+  console.log('Development infrastructure stopped; named data volumes were preserved.');
+}
+
 function printConfigurationSummary(environment) {
   const { database } = validateConfiguration(environment);
   console.log('Environment contract is valid.');
@@ -414,37 +446,48 @@ function printConfigurationSummary(environment) {
   console.log(`Storage: ${environment.STORAGE_ENDPOINT}/${environment.STORAGE_BUCKET}`);
 }
 
-async function main() {
-  const command = process.argv[2] || 'start';
-  const environment = await loadEnvironment();
+const WORKFLOW_OPERATIONS = {
+  check: printConfigurationSummary,
+  prepare,
+  startDaily,
+  startApplications,
+  status,
+  stop,
+  reset,
+};
+
+export async function runCommand(command, environment, operations = WORKFLOW_OPERATIONS) {
   switch (command) {
     case 'check':
-      printConfigurationSummary(environment);
+      await operations.check(environment);
       break;
     case 'prepare':
-      await prepare(environment);
+      await operations.prepare(environment);
       break;
     case 'start':
-      await prepare(environment);
-      await startApplications(environment);
+      await operations.startDaily(environment);
+      await operations.startApplications(environment);
       break;
     case 'status':
-      await status(environment);
+      await operations.status(environment);
       break;
     case 'stop':
-      validateConfiguration(environment);
-      await ensurePrerequisites(environment);
-      await compose(environment, ['down', '--remove-orphans']);
-      console.log('Development infrastructure stopped; named data volumes were preserved.');
+      await operations.stop(environment);
       break;
     case 'reset':
-      await reset(environment);
+      await operations.reset(environment);
       break;
     default:
       throw new Error(
         `Unknown command "${command}". Use start, prepare, status, stop, reset, or check.`,
       );
   }
+}
+
+async function main() {
+  const command = process.argv[2] || 'start';
+  const environment = await loadEnvironment();
+  await runCommand(command, environment);
 }
 
 const isDirectExecution =

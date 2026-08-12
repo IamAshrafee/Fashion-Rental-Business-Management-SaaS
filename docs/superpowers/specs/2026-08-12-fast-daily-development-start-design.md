@@ -19,7 +19,7 @@ Daily start will not install dependencies, generate Prisma Client, deploy migrat
 
 ## Explicit Preparation and Reset
 
-`npm run dev:prepare` remains the deliberate preparation command. It installs dependencies when required, starts and health-checks infrastructure, creates the configured MinIO bucket, generates Prisma Client, deploys committed migrations, and applies the idempotent platform seed.
+`npm run dev:prepare` remains the deliberate preparation command. It installs dependencies when required, starts and health-checks infrastructure, creates the configured public and private MinIO buckets, generates Prisma Client, deploys committed migrations, and applies the idempotent platform seed.
 
 `npm run dev:reset` remains the guarded destructive workflow. It verifies the local `closetrent_dev` target, recreates only this repository's Compose volumes, and then performs full preparation.
 
@@ -36,4 +36,3 @@ Daily start fails with a direct message if `.env` is invalid, Docker is unavaila
 ## Verification
 
 Automated tests will verify that the command routing keeps daily startup separate from preparation. Shell syntax and all wrapper routes will be checked. A CLI smoke test will confirm that both applications start successfully while seed output, Prisma generation, migration deployment, and MinIO initialization are absent from the daily-start output.
-

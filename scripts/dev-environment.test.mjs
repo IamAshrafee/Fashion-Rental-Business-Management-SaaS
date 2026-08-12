@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseDotEnv, validateConfiguration, validateResetTarget } from './dev-environment.mjs';
+import {
+  parseDotEnv,
+  runCommand,
+  validateConfiguration,
+  validateResetTarget,
+} from './dev-environment.mjs';
 
 const validEnvironment = () => ({
   NODE_ENV: 'development',
@@ -77,4 +82,45 @@ test('validateResetTarget accepts only the dedicated local development database'
   wrongDatabase.DATABASE_URL = 'postgresql://closetrent:dev_password@localhost:5433/production';
   wrongDatabase.DATABASE_NAME = 'production';
   assert.throws(() => validateResetTarget(wrongDatabase), /closetrent_dev database/);
+});
+
+function workflowRecorder() {
+  const calls = [];
+  const operations = Object.fromEntries(
+    ['check', 'prepare', 'startDaily', 'startApplications', 'status', 'stop', 'reset'].map(
+      (name) => [
+        name,
+        async () => {
+          calls.push(name);
+        },
+      ],
+    ),
+  );
+  return { calls, operations };
+}
+
+test('start uses the non-mutating daily path before starting applications', async () => {
+  const { calls, operations } = workflowRecorder();
+
+  await runCommand('start', validEnvironment(), operations);
+
+  assert.deepEqual(calls, ['startDaily', 'startApplications']);
+  assert.equal(calls.includes('prepare'), false);
+});
+
+test('prepare remains an explicit standalone workflow', async () => {
+  const { calls, operations } = workflowRecorder();
+
+  await runCommand('prepare', validEnvironment(), operations);
+
+  assert.deepEqual(calls, ['prepare']);
+});
+
+test('unknown development workflow commands are rejected', async () => {
+  const { operations } = workflowRecorder();
+
+  await assert.rejects(
+    runCommand('surprise', validEnvironment(), operations),
+    /Unknown command "surprise"/,
+  );
 });

@@ -21,12 +21,15 @@ From the repository root:
 cp .env.example .env
 npm install
 npm run env:check
+npm run dev:prepare
 npm run dev
 ```
 
 The checked-in template already uses PostgreSQL host port `5433`; no manual port correction is required. The application database inside Docker still listens on its normal container port `5432`.
 
-The preparation phase starts PostgreSQL, Redis, and MinIO, waits for all three services, creates the storage bucket, generates Prisma Client, deploys committed migrations, and applies the platform seed. NestJS and Next.js start only after preparation succeeds.
+The explicit preparation command starts PostgreSQL, Redis, and MinIO, waits for all three services, creates the public and private storage buckets, generates Prisma Client, deploys committed migrations, and applies the platform seed. Run it on first setup and after dependency or schema changes.
+
+The normal `npm run dev` command validates the environment, starts infrastructure when necessary, waits for health, and launches NestJS and Next.js. It deliberately skips installation, generation, migrations, bucket initialization, and seeding.
 
 Use `Control+C` to stop both application development servers. Docker infrastructure stays running for fast subsequent starts.
 
@@ -47,6 +50,8 @@ npm run dev
 npm run dev:status
 npm run dev:stop
 ```
+
+You can also double-click `start-dev.command` for the same fast daily workflow. If daily start reports that dependencies are missing or out of date, run `npm run dev:prepare` once and retry.
 
 `dev:stop` removes containers and the project network but preserves PostgreSQL, Redis, and MinIO volumes.
 
