@@ -6,31 +6,31 @@ One per product. Stores the pricing mode and all mode-specific values.
 
 ### Columns
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `id` | UUID | No | `gen_random_uuid()` | Primary key |
-| `tenant_id` | UUID | No | — | FK → `tenants.id` |
-| `product_id` | UUID | No | — | FK → `products.id` (unique) |
-| `mode` | ENUM | No | — | one_time, per_day, percentage |
-| `rental_price` | INTEGER | Yes | `NULL` | Fixed rental price (one_time) |
-| `included_days` | INT | Yes | `NULL` | Days included in base price (one_time/percentage) |
-| `price_per_day` | INTEGER | Yes | `NULL` | Per day rate (per_day mode) |
-| `minimum_days` | INT | Yes | `1` | Minimum rental days (per_day mode) |
-| `retail_price` | INTEGER | Yes | `NULL` | Retail/purchase price (percentage mode) |
-| `rental_percentage` | DECIMAL(5,2) | Yes | `NULL` | Percentage of retail (percentage mode) |
-| `calculated_price` | INTEGER | Yes | `NULL` | Auto-calculated: retail × percentage |
-| `price_override` | INTEGER | Yes | `NULL` | Manual override of calculated price |
-| `min_internal_price` | INTEGER | Yes | `NULL` | Internal minimum (staff visible) |
-| `max_discount_price` | INTEGER | Yes | `NULL` | Maximum discount ceiling |
-| `extended_rental_rate` | INTEGER | Yes | `NULL` | Per day rate for extra days |
-| `late_fee_type` | ENUM | Yes | `NULL` | fixed, percentage |
-| `late_fee_amount` | INTEGER | Yes | `NULL` | Late fee per day (fixed) |
-| `late_fee_percentage` | DECIMAL(5,2) | Yes | `NULL` | Late fee % of retail (percentage) |
-| `max_late_fee` | INTEGER | Yes | `NULL` | Maximum late fee cap |
-| `shipping_mode` | ENUM | Yes | `NULL` | free, flat, area_based |
-| `shipping_fee` | INTEGER | Yes | `NULL` | Flat shipping fee |
-| `created_at` | TIMESTAMP | No | `NOW()` | — |
-| `updated_at` | TIMESTAMP | No | `NOW()` | — |
+| Column                 | Type         | Nullable | Default             | Description                                                                                         |
+| ---------------------- | ------------ | -------- | ------------------- | --------------------------------------------------------------------------------------------------- |
+| `id`                   | UUID         | No       | `gen_random_uuid()` | Primary key                                                                                         |
+| `tenant_id`            | UUID         | No       | —                   | FK → `tenants.id`                                                                                   |
+| `product_id`           | UUID         | No       | —                   | FK → `products.id` (unique)                                                                         |
+| `mode`                 | ENUM         | No       | —                   | one_time, per_day, percentage                                                                       |
+| `rental_price`         | INTEGER      | Yes      | `NULL`              | Fixed rental price (one_time)                                                                       |
+| `included_days`        | INT          | Yes      | `NULL`              | Days included in base price (one_time/percentage)                                                   |
+| `price_per_day`        | INTEGER      | Yes      | `NULL`              | Per day rate (per_day mode)                                                                         |
+| `minimum_days`         | INT          | Yes      | `1`                 | Minimum rental days (per_day mode)                                                                  |
+| `retail_price`         | INTEGER      | Yes      | `NULL`              | Versioned reference retail value snapshot for percentage mode; never physical-item acquisition cost |
+| `rental_percentage`    | DECIMAL(5,2) | Yes      | `NULL`              | Percentage of retail (percentage mode)                                                              |
+| `calculated_price`     | INTEGER      | Yes      | `NULL`              | Auto-calculated: retail × percentage                                                                |
+| `price_override`       | INTEGER      | Yes      | `NULL`              | Manual override of calculated price                                                                 |
+| `min_internal_price`   | INTEGER      | Yes      | `NULL`              | Internal minimum (staff visible)                                                                    |
+| `max_discount_price`   | INTEGER      | Yes      | `NULL`              | Maximum discount ceiling                                                                            |
+| `extended_rental_rate` | INTEGER      | Yes      | `NULL`              | Per day rate for extra days                                                                         |
+| `late_fee_type`        | ENUM         | Yes      | `NULL`              | fixed, percentage                                                                                   |
+| `late_fee_amount`      | INTEGER      | Yes      | `NULL`              | Late fee per day (fixed)                                                                            |
+| `late_fee_percentage`  | DECIMAL(5,2) | Yes      | `NULL`              | Late fee % of retail (percentage)                                                                   |
+| `max_late_fee`         | INTEGER      | Yes      | `NULL`              | Maximum late fee cap                                                                                |
+| `shipping_mode`        | ENUM         | Yes      | `NULL`              | free, flat, area_based                                                                              |
+| `shipping_fee`         | INTEGER      | Yes      | `NULL`              | Flat shipping fee                                                                                   |
+| `created_at`           | TIMESTAMP    | No       | `NOW()`             | —                                                                                                   |
+| `updated_at`           | TIMESTAMP    | No       | `NOW()`             | —                                                                                                   |
 
 ### Enums
 
@@ -55,10 +55,10 @@ enum ShippingMode {
 
 ### Indexes
 
-| Index | Columns | Type |
-|---|---|---|
+| Index                            | Columns      | Type   |
+| -------------------------------- | ------------ | ------ |
 | `product_pricing_product_id_key` | `product_id` | UNIQUE |
-| `product_pricing_tenant_id_idx` | `tenant_id` | INDEX |
+| `product_pricing_tenant_id_idx`  | `tenant_id`  | INDEX  |
 
 ---
 

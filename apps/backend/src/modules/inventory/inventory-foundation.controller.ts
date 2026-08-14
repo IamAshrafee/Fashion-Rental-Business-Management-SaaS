@@ -28,6 +28,7 @@ import {
   InventoryItemsQueryDto,
   InventoryMovementsQueryDto,
   InventorySkusQueryDto,
+  ReconcileInventoryCountDto,
   ResolveAvailabilityPolicyQueryDto,
   UpdateInventoryLocationDto,
   UpsertAvailabilityPolicyDto,
@@ -38,6 +39,7 @@ import { InventoryLocationService } from './inventory-location.service';
 import { InventoryDashboardService } from './inventory-dashboard.service';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { InventoryBlockService } from './inventory-block.service';
+import { InventoryCountService } from './inventory-count.service';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string };
@@ -53,6 +55,7 @@ export class InventoryFoundationController {
     private readonly dashboard: InventoryDashboardService,
     private readonly ledger: InventoryLedgerService,
     private readonly blocks: InventoryBlockService,
+    private readonly counts: InventoryCountService,
   ) {}
 
   @Get('overview')
@@ -85,7 +88,27 @@ export class InventoryFoundationController {
   @Get('counts')
   @Roles('owner', 'manager', 'staff')
   listCounts(@CurrentTenant() tenant: TenantContext, @Query() query: InventoryMovementsQueryDto) {
-    return this.ledger.listCounts(tenant.id, query);
+    return this.counts.list(tenant.id, query);
+  }
+
+  @Get('counts/:countSessionId')
+  @Roles('owner', 'manager', 'staff')
+  getCount(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('countSessionId', ParseUUIDPipe) countSessionId: string,
+  ) {
+    return this.counts.get(tenant.id, countSessionId);
+  }
+
+  @Post('counts/reconcile')
+  @Roles('owner', 'manager', 'staff')
+  @HttpCode(HttpStatus.CREATED)
+  reconcileCount(
+    @CurrentTenant() tenant: TenantContext,
+    @Body() dto: ReconcileInventoryCountDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.counts.reconcile(tenant.id, dto, request.user.id);
   }
 
   @Get('locations')

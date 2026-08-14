@@ -22,8 +22,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import {
-  CreateStockUnitDto,
   InventoryCalendarQueryDto,
+  CreateStockUnitRevenueAdjustmentDto,
   PublicAvailabilityQueryDto,
   RegisterStockUnitBatchDto,
   StockUnitLifecycleDto,
@@ -31,6 +31,7 @@ import {
 } from './dto/inventory.dto';
 import { InventoryAvailabilityService } from './inventory-availability.service';
 import { InventoryManagementService } from './inventory-management.service';
+import { StockUnitRevenueService } from './stock-unit-revenue.service';
 
 interface AuthenticatedRequest extends Request {
   user?: { id: string };
@@ -72,7 +73,10 @@ export class InventoryGuestController {
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @RequirePermission('manage_inventory')
 export class InventoryOwnerController {
-  constructor(private readonly inventory: InventoryManagementService) {}
+  constructor(
+    private readonly inventory: InventoryManagementService,
+    private readonly revenue: StockUnitRevenueService,
+  ) {}
 
   @Get('products/:productId/inventory')
   @Roles('owner', 'manager', 'staff')
@@ -102,18 +106,6 @@ export class InventoryOwnerController {
     return this.inventory.listStockUnits(tenant.id, variantSizeId);
   }
 
-  @Post('variant-sizes/:variantSizeId/stock-units')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async createStockUnit(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('variantSizeId') variantSizeId: string,
-    @Body() dto: CreateStockUnitDto,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.inventory.createStockUnit(tenant.id, variantSizeId, dto, request.user?.id);
-  }
-
   @Post('variant-sizes/:variantSizeId/stock-units/batch')
   @Roles('owner', 'manager')
   @HttpCode(HttpStatus.CREATED)
@@ -135,6 +127,18 @@ export class InventoryOwnerController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.inventory.updateStockUnit(tenant.id, stockUnitId, dto, request.user?.id);
+  }
+
+  @Post('stock-units/:stockUnitId/revenue-adjustments')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.CREATED)
+  async createRevenueAdjustment(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('stockUnitId', ParseUUIDPipe) stockUnitId: string,
+    @Body() dto: CreateStockUnitRevenueAdjustmentDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.revenue.createAdjustment(tenant.id, stockUnitId, dto, request.user?.id);
   }
 
   @Post('stock-units/:stockUnitId/maintenance')

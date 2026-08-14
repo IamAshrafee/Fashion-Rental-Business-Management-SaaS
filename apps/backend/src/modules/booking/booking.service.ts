@@ -1625,7 +1625,7 @@ export class BookingService {
       today.setUTCHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      const needsSerializedAssignment: Prisma.BookingWhereInput = {
+      const needsPhysicalItemAssignment: Prisma.BookingWhereInput = {
         items: {
           some: {
             fulfillmentRequirements: {
@@ -1645,7 +1645,7 @@ export class BookingService {
       const hasShortage: Prisma.BookingWhereInput = {
         items: { some: { fulfillmentRequirements: { some: { status: 'PLANNED' } } } },
       };
-      const notReady: Prisma.BookingWhereInput = { OR: [needsSerializedAssignment, hasShortage] };
+      const notReady: Prisma.BookingWhereInput = { OR: [needsPhysicalItemAssignment, hasShortage] };
       const hasUnpreparedRequirement: Prisma.BookingWhereInput = {
         items: {
           some: {

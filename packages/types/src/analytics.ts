@@ -58,7 +58,7 @@ export interface TopProduct {
   thumbnailUrl: string | null;
 }
 
-export interface TargetRecoveryProduct {
+export interface CostRecoveryProduct {
   productId: string;
   name: string;
   physicalItemCount: number;
@@ -71,7 +71,7 @@ export interface TargetRecoveryProduct {
   status: 'recovered' | 'recovering' | 'idle' | 'incomplete';
 }
 
-export interface TargetRecoverySummary {
+export interface CostRecoverySummary {
   totalAcquisitionCost: number;
   totalAttributedRevenue: number;
   totalRecordedServiceCost: number;
@@ -80,13 +80,13 @@ export interface TargetRecoverySummary {
   recoveredProducts: number;
   recoveringProducts: number;
   incompleteProducts: number;
-  products: TargetRecoveryProduct[];
+  products: CostRecoveryProduct[];
 }
 
-export type StorefrontEventType = 
-  | 'product_view' 
-  | 'add_to_cart' 
-  | 'remove_from_cart' 
+export type StorefrontEventType =
+  | 'product_view'
+  | 'add_to_cart'
+  | 'remove_from_cart'
   | 'checkout_started';
 
 export interface StorefrontEventPayload {

@@ -14,7 +14,6 @@ import {
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  CreateStockUnitDto,
   InventoryCalendarQueryDto,
   RegisterStockUnitBatchDto,
   UpdateStockUnitDto,
@@ -163,76 +162,6 @@ export class InventoryManagementService {
         },
       },
     });
-  }
-
-  async createStockUnit(
-    tenantId: string,
-    variantSizeId: string,
-    dto: CreateStockUnitDto,
-    actorUserId?: string,
-  ) {
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        await this.getVariantSize(tx, tenantId, variantSizeId);
-        await this.locations.getActiveOrThrow(
-          tx,
-          tenantId,
-          dto.locationId,
-          'canStoreInventory',
-        );
-
-        const componentDefinitions = await tx.skuSetComponentDefinition.findMany({
-          where: { tenantId, variantSizeId, isActive: true },
-          select: { id: true, requiredQuantity: true },
-          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
-        });
-
-        const unit = await tx.stockUnit.create({
-          data: {
-            tenantId,
-            variantSizeId,
-            locationId: dto.locationId,
-            assetCode: this.normalizeAssetCode(dto.assetCode),
-            barcode: dto.barcode?.trim() || null,
-            condition: dto.condition ?? StockConditionGrade.GOOD,
-            acquisitionDate: dto.acquisitionDate ? new Date(dto.acquisitionDate) : null,
-            acquisitionCost: dto.acquisitionCost ?? null,
-            acquisitionSource: dto.acquisitionSource?.trim() || null,
-            acquisitionReference: dto.acquisitionReference?.trim() || null,
-            notes: dto.notes?.trim() || null,
-            storefrontVisible: dto.storefrontVisible ?? false,
-            publicConditionNote: dto.publicConditionNote?.trim() || null,
-            rentalPriceAdjustment: dto.rentalPriceAdjustment ?? 0,
-            estimatedCurrentValue: dto.estimatedCurrentValue ?? null,
-            componentStates: {
-              create: componentDefinitions.map((definition) => ({
-                tenantId,
-                setComponentDefinitionId: definition.id,
-                presence: 'PRESENT',
-                presentQuantity: definition.requiredQuantity,
-                condition: dto.condition ?? StockConditionGrade.GOOD,
-              })),
-            },
-          },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            variantSizeId,
-            stockUnitId: unit.id,
-            destinationLocationId: dto.locationId,
-            movementType: InventoryMovementType.UNIT_REGISTERED,
-            afterState: this.json(unit),
-            reason: 'Physical unit registered',
-            actorUserId: actorUserId ?? null,
-          },
-        });
-        return unit;
-      });
-    } catch (error) {
-      this.rethrowUniqueConflict(error);
-    }
   }
 
   async createStockUnitBatch(
@@ -429,17 +358,20 @@ export class InventoryManagementService {
             'A correction reason is required when changing identity, acquisition, condition, notes, or valuation data',
           );
         }
+        if (correctionRequested && dto.expectedVersion === undefined) {
+          throw new BadRequestException(
+            'The current physical-item version is required for an audited correction',
+          );
+        }
 
-        const updated = await tx.stockUnit.update({
-          where: { id: stockUnitId },
-          data: {
+        const updateData: Prisma.StockUnitUpdateManyMutationInput = {
             ...(dto.assetCode !== undefined
               ? { assetCode: this.normalizeAssetCode(dto.assetCode) }
               : {}),
             ...(dto.barcode !== undefined ? { barcode: dto.barcode.trim() || null } : {}),
             ...(dto.condition !== undefined ? { condition: dto.condition } : {}),
             ...(dto.acquisitionDate !== undefined
-              ? { acquisitionDate: new Date(dto.acquisitionDate) }
+              ? { acquisitionDate: dto.acquisitionDate ? new Date(dto.acquisitionDate) : null }
               : {}),
             ...(dto.acquisitionCost !== undefined ? { acquisitionCost: dto.acquisitionCost } : {}),
             ...(dto.acquisitionSource !== undefined
@@ -464,8 +396,29 @@ export class InventoryManagementService {
             ...(dto.storefrontSortOrder !== undefined
               ? { storefrontSortOrder: dto.storefrontSortOrder }
               : {}),
-          },
-        });
+            ...(correctionRequested ? { version: { increment: 1 } } : {}),
+        };
+        if (correctionRequested) {
+          const result = await tx.stockUnit.updateMany({
+            where: {
+              id: stockUnitId,
+              tenantId,
+              version: dto.expectedVersion,
+              deletedAt: null,
+            },
+            data: updateData,
+          });
+          if (result.count !== 1) {
+            throw new ConflictException({
+              code: 'STALE_PHYSICAL_ITEM',
+              message: 'This physical item changed after you opened it. Reload before applying the correction.',
+              expectedVersion: dto.expectedVersion,
+            });
+          }
+        } else {
+          await tx.stockUnit.update({ where: { id: stockUnitId }, data: updateData });
+        }
+        const updated = await tx.stockUnit.findUniqueOrThrow({ where: { id: stockUnitId } });
 
         const metadataCorrectionRequested = [
           dto.assetCode,

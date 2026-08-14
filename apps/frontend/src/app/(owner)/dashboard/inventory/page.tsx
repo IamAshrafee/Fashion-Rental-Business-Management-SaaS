@@ -49,8 +49,8 @@ export default function InventoryOverviewPage() {
     );
   }
   const data = query.data;
-  const serializedTotal = data.serialized.reduce((sum, row) => sum + row._count._all, 0);
-  const availableUnits = data.serialized
+  const physicalItemTotal = data.physicalItems.reduce((sum, row) => sum + row._count._all, 0);
+  const availableUnits = data.physicalItems
     .filter((row) => row.disposition === 'ACTIVE' && row.operationalState === 'AVAILABLE')
     .reduce((sum, row) => sum + row._count._all, 0);
   const activeTransfers =
@@ -90,20 +90,11 @@ export default function InventoryOverviewPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Pooled pieces on hand</CardDescription>
-            <CardTitle className="text-3xl">{data.pooled.onHandQuantity}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            Across {data.pooled.poolCount} location pools
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Serialized pieces</CardDescription>
-            <CardTitle className="text-3xl">{serializedTotal}</CardTitle>
+            <CardDescription>Registered physical items</CardDescription>
+            <CardTitle className="text-3xl">{physicalItemTotal}</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
             {availableUnits} operationally available now
@@ -188,7 +179,6 @@ export default function InventoryOverviewPage() {
                   </div>
                   <div className="text-right text-xs text-muted-foreground">
                     <p>{location._count.stockUnits} physical items</p>
-                    <p>{location._count.pools} pooled SKUs</p>
                   </div>
                 </div>
               ))
@@ -239,38 +229,6 @@ export default function InventoryOverviewPage() {
         </Card>
       </div>
 
-      {!!data.lowStock.length && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Low pooled stock</CardTitle>
-            <CardDescription>
-              On-hand quantity has reached the configured reorder threshold.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-2 md:grid-cols-2">
-            {data.lowStock.map((pool) => (
-              <div
-                key={pool.id}
-                className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50/60 p-3 text-sm"
-              >
-                <div>
-                  <p className="font-medium">{pool.variantSize.variant.product.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {pool.variantSize.variant.variantName || 'Default variant'} ·{' '}
-                    {pool.variantSize.sizeInstance.displayLabel} · {pool.location.name}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{pool.onHandQuantity} / {pool.reorderThreshold}</Badge>
-                  <Button size="sm" variant="ghost" asChild>
-                    <Link href={`/dashboard/products/${pool.variantSize.variant.product.id}/inventory`}>Restock</Link>
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

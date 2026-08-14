@@ -125,12 +125,19 @@ export class InventoryDashboardService {
     const skus = await this.prisma.variantSize.findMany({
       where: {
         tenantId,
+        ...(search
+          ? {
+              OR: [
+                { variant: { product: { name: { contains: search, mode: 'insensitive' as const } } } },
+                { variant: { variantName: { contains: search, mode: 'insensitive' as const } } },
+                { sizeInstance: { displayLabel: { contains: search, mode: 'insensitive' as const } } },
+              ],
+            }
+          : {}),
         variant: {
           product: {
             deletedAt: null,
-            ...(search
-              ? { name: { contains: search, mode: 'insensitive' } }
-              : {}),
+            ...(query.productId ? { id: query.productId } : {}),
           },
         },
       },

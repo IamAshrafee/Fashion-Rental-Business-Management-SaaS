@@ -26,14 +26,10 @@ export function mapProductToFormValues(product: ProductDetail): ProductFormValue
     subcategoryId: product.subcategoryId ?? undefined,
     events: product.events.map((association) => association.event.id),
     status: product.status,
-    purchaseDate: product.purchaseDate
-      ? new Date(product.purchaseDate).toISOString().split('T')[0]
-      : undefined,
-    purchasePrice: product.purchasePrice ?? undefined,
-    showPurchasePrice: product.purchasePricePublic,
-    itemCountry: product.itemCountry ?? undefined,
-    showCountry: product.itemCountryPublic,
-    targetRentals: product.targetRentals ?? undefined,
+    countryOfOrigin: product.countryOfOrigin ?? undefined,
+    countryOfOriginPublic: product.countryOfOriginPublic,
+    referenceRetailValue: product.referenceRetailValue ?? undefined,
+    referenceRetailValuePublic: product.referenceRetailValuePublic,
     productTypeId: product.productTypeId ?? '',
     sizeSchemaOverrideId: product.sizeSchemaOverrideId ?? '',
     variants: product.variants.map((variant) => ({
@@ -42,12 +38,6 @@ export function mapProductToFormValues(product: ProductDetail): ProductFormValue
       name: variant.variantName ?? '',
       mainColorId: variant.mainColorId,
       sizeInstanceIds: variant.sizes.map((size) => size.sizeInstanceId),
-      inventoryBySizeId: Object.fromEntries(
-        variant.sizes.map((size) => [
-          size.sizeInstanceId,
-          { trackingMode: size.trackingMode },
-        ]),
-      ),
       skuIdBySizeInstanceId: Object.fromEntries(
         variant.sizes.map((size) => [size.sizeInstanceId, size.id]),
       ),
@@ -79,8 +69,6 @@ export function mapProductToFormValues(product: ProductDetail): ProductFormValue
       items: header.entries.map((entry) => ({ key: entry.key, value: entry.value })),
     })),
     faqs: product.faqs.map((faq) => ({ question: faq.question, answer: faq.answer })),
-    openingInventorySkipped: true,
-    openingInventoryLines: [],
   };
 }
 
@@ -91,12 +79,10 @@ const emptyValues: ProductFormValues = {
   subcategoryId: undefined,
   events: [],
   status: 'draft',
-  purchaseDate: undefined,
-  purchasePrice: undefined,
-  showPurchasePrice: false,
-  itemCountry: undefined,
-  showCountry: false,
-  targetRentals: undefined,
+  countryOfOrigin: undefined,
+  countryOfOriginPublic: false,
+  referenceRetailValue: undefined,
+  referenceRetailValuePublic: false,
   productTypeId: '',
   sizeSchemaOverrideId: '',
   variants: [{
@@ -104,7 +90,6 @@ const emptyValues: ProductFormValues = {
     name: '',
     mainColorId: '',
     sizeInstanceIds: [],
-    inventoryBySizeId: {},
     skuIdBySizeInstanceId: {},
     identicalColorIds: [],
     images: [],
@@ -120,8 +105,6 @@ const emptyValues: ProductFormValues = {
   flatShippingFee: undefined,
   details: [],
   faqs: [],
-  openingInventorySkipped: true,
-  openingInventoryLines: [],
 };
 
 export function useEditProduct(productId: string) {

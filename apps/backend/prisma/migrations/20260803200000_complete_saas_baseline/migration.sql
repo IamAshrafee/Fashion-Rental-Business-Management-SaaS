@@ -176,6 +176,12 @@ CREATE TYPE "FulfillmentEventType" AS ENUM ('RESERVED', 'ASSIGNED', 'ASSIGNMENT_
 CREATE TYPE "InventoryMovementType" AS ENUM ('UNIT_REGISTERED', 'CONDITION_CHANGED', 'VALUATION_CHANGED', 'MAINTENANCE_STARTED', 'MAINTENANCE_ENDED', 'UNIT_RETIRED', 'UNIT_LOST', 'UNIT_RECOVERED', 'ADMIN_CORRECTION', 'TRANSFER_RESERVED', 'TRANSFER_DISPATCHED', 'TRANSFER_RECEIVED', 'TRANSFER_CANCELLED', 'COUNT_CORRECTION', 'DAMAGE_WRITE_OFF');
 
 -- CreateEnum
+CREATE TYPE "InventoryCountSessionStatus" AS ENUM ('DRAFT', 'COMPLETED', 'CANCELLED');
+
+-- CreateEnum
+CREATE TYPE "InventoryCountIdentityMatch" AS ENUM ('ASSET_CODE', 'BARCODE', 'UNKNOWN');
+
+-- CreateEnum
 CREATE TYPE "StockUnitRevenueAllocationKind" AS ENUM ('RENTAL_REVENUE', 'ADJUSTMENT');
 
 -- CreateEnum
@@ -1527,6 +1533,7 @@ CREATE TABLE "stock_units" (
     "acquisition_source" VARCHAR(200),
     "acquisition_reference" VARCHAR(200),
     "notes" TEXT,
+    "version" INTEGER NOT NULL DEFAULT 0,
     "registration_key" TEXT,
     "registration_hash" TEXT,
     "registration_row" INTEGER,
@@ -1801,6 +1808,7 @@ CREATE TABLE "inventory_movements" (
     "transfer_id" TEXT,
     "transfer_line_id" TEXT,
     "reservation_id" TEXT,
+    "count_session_id" TEXT,
     "movement_type" "InventoryMovementType" NOT NULL,
     "before_state" JSONB,
     "after_state" JSONB,
@@ -1809,6 +1817,68 @@ CREATE TABLE "inventory_movements" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "inventory_movements_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "inventory_count_sessions" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "location_id" TEXT NOT NULL,
+    "status" "InventoryCountSessionStatus" NOT NULL DEFAULT 'COMPLETED',
+    "reason" TEXT NOT NULL,
+    "notes" TEXT,
+    "expected_count" INTEGER NOT NULL,
+    "observed_unique_count" INTEGER NOT NULL,
+    "missing_count" INTEGER NOT NULL,
+    "unexpected_count" INTEGER NOT NULL,
+    "duplicate_scan_count" INTEGER NOT NULL,
+    "unknown_scan_count" INTEGER NOT NULL,
+    "wrong_location_count" INTEGER NOT NULL,
+    "operational_review_count" INTEGER NOT NULL,
+    "idempotency_key" TEXT NOT NULL,
+    "request_hash" TEXT NOT NULL,
+    "created_by_user_id" TEXT NOT NULL,
+    "completed_by_user_id" TEXT NOT NULL,
+    "completed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "inventory_count_sessions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "inventory_count_observations" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "count_session_id" TEXT NOT NULL,
+    "sequence" INTEGER NOT NULL,
+    "scanned_identity" TEXT NOT NULL,
+    "identity_match" "InventoryCountIdentityMatch" NOT NULL,
+    "stock_unit_id" TEXT,
+    "is_duplicate" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "inventory_count_observations_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "inventory_count_items" (
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "count_session_id" TEXT NOT NULL,
+    "stock_unit_id" TEXT NOT NULL,
+    "expected_at_location" BOOLEAN NOT NULL,
+    "observed" BOOLEAN NOT NULL,
+    "scan_count" INTEGER NOT NULL,
+    "missing" BOOLEAN NOT NULL,
+    "unexpected" BOOLEAN NOT NULL,
+    "wrong_location" BOOLEAN NOT NULL,
+    "requires_operational_review" BOOLEAN NOT NULL,
+    "recorded_location_id" TEXT NOT NULL,
+    "recorded_disposition" "StockUnitDisposition" NOT NULL,
+    "recorded_operational_state" "StockUnitOperationalState" NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "inventory_count_items_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -2949,6 +3019,39 @@ CREATE INDEX "inventory_movements_reservation_id_created_at_idx" ON "inventory_m
 CREATE INDEX "inventory_movements_actor_user_id_idx" ON "inventory_movements"("actor_user_id");
 
 -- CreateIndex
+CREATE INDEX "inventory_movements_count_session_id_created_at_idx" ON "inventory_movements"("count_session_id", "created_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "inventory_count_sessions_tenant_id_idempotency_key_key" ON "inventory_count_sessions"("tenant_id", "idempotency_key");
+
+-- CreateIndex
+CREATE INDEX "inventory_count_sessions_tenant_id_location_id_completed_at_idx" ON "inventory_count_sessions"("tenant_id", "location_id", "completed_at" DESC);
+
+-- CreateIndex
+CREATE INDEX "inventory_count_sessions_created_by_user_id_idx" ON "inventory_count_sessions"("created_by_user_id");
+
+-- CreateIndex
+CREATE INDEX "inventory_count_sessions_completed_by_user_id_idx" ON "inventory_count_sessions"("completed_by_user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "inventory_count_observations_count_session_id_sequence_key" ON "inventory_count_observations"("count_session_id", "sequence");
+
+-- CreateIndex
+CREATE INDEX "inventory_count_observations_tenant_id_scanned_identity_idx" ON "inventory_count_observations"("tenant_id", "scanned_identity");
+
+-- CreateIndex
+CREATE INDEX "inventory_count_observations_stock_unit_id_idx" ON "inventory_count_observations"("stock_unit_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "inventory_count_items_count_session_id_stock_unit_id_key" ON "inventory_count_items"("count_session_id", "stock_unit_id");
+
+-- CreateIndex
+CREATE INDEX "inventory_count_items_tenant_id_recorded_location_id_idx" ON "inventory_count_items"("tenant_id", "recorded_location_id");
+
+-- CreateIndex
+CREATE INDEX "inventory_count_items_stock_unit_id_idx" ON "inventory_count_items"("stock_unit_id");
+
+-- CreateIndex
 CREATE INDEX "inventory_blocks_tenant_id_product_id_start_date_end_date_idx" ON "inventory_blocks"("tenant_id", "product_id", "start_date", "end_date");
 
 -- CreateIndex
@@ -3826,6 +3929,42 @@ ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_reservatio
 
 -- AddForeignKey
 ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_movements" ADD CONSTRAINT "inventory_movements_count_session_id_fkey" FOREIGN KEY ("count_session_id") REFERENCES "inventory_count_sessions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_sessions" ADD CONSTRAINT "inventory_count_sessions_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_sessions" ADD CONSTRAINT "inventory_count_sessions_location_id_fkey" FOREIGN KEY ("location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_sessions" ADD CONSTRAINT "inventory_count_sessions_created_by_user_id_fkey" FOREIGN KEY ("created_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_sessions" ADD CONSTRAINT "inventory_count_sessions_completed_by_user_id_fkey" FOREIGN KEY ("completed_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_observations" ADD CONSTRAINT "inventory_count_observations_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_observations" ADD CONSTRAINT "inventory_count_observations_count_session_id_fkey" FOREIGN KEY ("count_session_id") REFERENCES "inventory_count_sessions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_observations" ADD CONSTRAINT "inventory_count_observations_stock_unit_id_fkey" FOREIGN KEY ("stock_unit_id") REFERENCES "stock_units"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_items" ADD CONSTRAINT "inventory_count_items_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_items" ADD CONSTRAINT "inventory_count_items_count_session_id_fkey" FOREIGN KEY ("count_session_id") REFERENCES "inventory_count_sessions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_items" ADD CONSTRAINT "inventory_count_items_stock_unit_id_fkey" FOREIGN KEY ("stock_unit_id") REFERENCES "stock_units"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "inventory_count_items" ADD CONSTRAINT "inventory_count_items_recorded_location_id_fkey" FOREIGN KEY ("recorded_location_id") REFERENCES "inventory_locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "inventory_blocks" ADD CONSTRAINT "inventory_blocks_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

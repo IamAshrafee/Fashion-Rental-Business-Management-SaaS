@@ -17,7 +17,6 @@ export interface ManualBookingItemInput {
   productId: string;
   variantId: string;
   variantSizeId: string;
-  preferredStockUnitId?: string;
   quantity: number;
   startDate: string;
   endDate: string;
@@ -117,7 +116,6 @@ export interface ManualBookingQuoteResponse {
     quantity: number;
     sourceLocationId: string | null;
     sourceLocationName: string;
-    trackingMode: 'POOLED' | 'SERIALIZED';
     blockedRange: { start: string; end: string };
     remainingQuantity: number;
     transferRequired: boolean;
@@ -206,8 +204,8 @@ export interface BookingListItem {
     totalQuantity: number;
     requirementCount: number;
     inventoryShortages: number;
-    serializedRequired: number;
-    serializedAssigned: number;
+    physicalItemRequired: number;
+    physicalItemAssigned: number;
     needsAssignment: boolean;
     preparationReady: boolean;
     handedOutQuantity: number;
@@ -272,14 +270,12 @@ export interface BookingDetailItem {
   updatedAt: string;
   variantSize?: {
     id: string;
-    trackingMode: 'POOLED' | 'SERIALIZED';
     sizeInstance: { displayLabel: string };
   } | null;
   fulfillmentRequirements?: Array<{
     id: string;
     role: string;
     status: string;
-    trackingModeSnapshot: 'POOLED' | 'SERIALIZED';
     productNameSnapshot: string;
     sizeSnapshot: string | null;
     quantity: number;
@@ -439,7 +435,6 @@ export interface ValidateCartPayload {
     productId: string;
     variantId: string;
     variantSizeId: string;
-    preferredStockUnitId?: string;
     quantity: number;
     startDate: string;
     endDate: string;

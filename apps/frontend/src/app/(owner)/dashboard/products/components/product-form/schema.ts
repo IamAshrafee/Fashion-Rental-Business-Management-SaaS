@@ -12,12 +12,10 @@ export const productFormSchema = z.object({
   subcategoryId: z.string().optional(),
   events: z.array(z.string()).default([]),
   status: z.enum(['draft', 'published', 'archived'] as [ProductStatus, ...ProductStatus[]]).default('draft'),
-  purchaseDate: z.string().optional(),
-  purchasePrice: z.number().int().nonnegative().optional(),
-  showPurchasePrice: z.boolean().default(false),
-  itemCountry: z.string().optional(),
-  showCountry: z.boolean().default(false),
-  targetRentals: z.number().int().optional(),
+  countryOfOrigin: z.string().max(100).optional(),
+  countryOfOriginPublic: z.boolean().default(false),
+  referenceRetailValue: z.number().int().nonnegative().optional(),
+  referenceRetailValuePublic: z.boolean().default(false),
 
   // Step 2: Variants & Step 3: Images
   variants: z
@@ -27,9 +25,6 @@ export const productFormSchema = z.object({
         clientKey: z.string().min(1).default(() => Math.random().toString(36).slice(2)),
         name: z.string().optional(),
         sizeInstanceIds: z.array(z.string()).min(1, 'At least one rentable size is required').default([]),
-        inventoryBySizeId: z.record(z.object({
-          trackingMode: z.enum(['POOLED', 'SERIALIZED']).default('POOLED'),
-        })).default({}),
         skuIdBySizeInstanceId: z.record(z.string()).default({}),
         mainColorId: z.string().min(1, 'Main color is required'),
         identicalColorIds: z.array(z.string()).default([]),
@@ -93,23 +88,6 @@ export const productFormSchema = z.object({
     )
     .optional(),
 
-  // Step 5: auditable opening inventory receipt/registration
-  openingInventorySkipped: z.boolean().default(false),
-  openingInventoryLines: z.array(z.object({
-    variantSizeId: z.string().min(1),
-    label: z.string(),
-    trackingMode: z.enum(['POOLED', 'SERIALIZED']),
-    locationId: z.string().min(1, 'Choose an inventory location'),
-    pooledQuantity: z.number().int().nonnegative().optional(),
-    units: z.array(z.object({
-      assetCode: z.string().min(1, 'Asset code is required'),
-      barcode: z.string().optional(),
-      condition: z.enum(['NEW', 'EXCELLENT', 'GOOD', 'FAIR', 'POOR', 'DAMAGED']).default('GOOD'),
-      purchaseDate: z.string().optional(),
-      purchasePrice: z.number().int().nonnegative().optional(),
-      notes: z.string().optional(),
-    })).default([]),
-  })).default([]),
 }).superRefine((data, ctx) => {
   // Pricing validation: rate plan type is required
   if (!data.ratePlanType) {
@@ -172,7 +150,7 @@ export const productFormSchema = z.object({
       break;
     case 'PERCENT_RETAIL':
       if (typeof config.percent !== 'number' || config.percent <= 0 || config.percent > 100) pricingIssue('Rental percentage must be between 0 and 100');
-      if (!data.purchasePrice || data.purchasePrice <= 0) pricingIssue('Enter a purchase price before using percentage-of-retail pricing', ['purchasePrice']);
+      if (!data.referenceRetailValue || data.referenceRetailValue <= 0) pricingIssue('Enter a reference retail value before using percentage-of-retail pricing', ['referenceRetailValue']);
       if (!nonNegativeInteger(config.minPriceMinor) || !nonNegativeInteger(config.maxPriceMinor)) pricingIssue('Minimum and maximum prices must be valid amounts');
       if (typeof config.minPriceMinor === 'number' && typeof config.maxPriceMinor === 'number' && config.maxPriceMinor > 0 && config.minPriceMinor > config.maxPriceMinor) pricingIssue('Maximum price cannot be lower than the minimum');
       break;
@@ -190,32 +168,6 @@ export const productFormSchema = z.object({
   if (data.lateFeeEnabled) {
     if (!data.lateFeeAmountMinor || data.lateFeeAmountMinor <= 0) pricingIssue('Late fee per day must be greater than zero', ['lateFeeAmountMinor']);
     if (data.lateFeeGraceHours === undefined) pricingIssue('Enter the late-fee grace period', ['lateFeeGraceHours']);
-  }
-
-  if (!data.openingInventorySkipped) {
-    if (data.openingInventoryLines.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Add opening inventory or choose to add stock later',
-        path: ['openingInventoryLines'],
-      });
-    }
-    data.openingInventoryLines.forEach((line, index) => {
-      if (line.trackingMode === 'POOLED' && (!line.pooledQuantity || line.pooledQuantity < 1)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Enter a positive opening quantity',
-          path: ['openingInventoryLines', index, 'pooledQuantity'],
-        });
-      }
-      if (line.trackingMode === 'SERIALIZED' && line.units.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Register at least one physical item',
-          path: ['openingInventoryLines', index, 'units'],
-        });
-      }
-    });
   }
 });
 

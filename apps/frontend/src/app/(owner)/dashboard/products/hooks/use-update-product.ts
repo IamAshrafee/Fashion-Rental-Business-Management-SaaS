@@ -19,12 +19,10 @@ function buildUpdatePayload(data: ProductFormValues) {
     categoryId: data.categoryId,
     subcategoryId: data.subcategoryId,
     eventIds: data.events,
-    purchaseDate: data.purchaseDate || undefined,
-    purchasePrice: data.purchasePrice,
-    purchasePricePublic: data.showPurchasePrice,
-    itemCountry: data.itemCountry,
-    itemCountryPublic: data.showCountry,
-    targetRentals: data.targetRentals,
+    countryOfOrigin: data.countryOfOrigin,
+    countryOfOriginPublic: data.countryOfOriginPublic,
+    referenceRetailValue: data.referenceRetailValue,
+    referenceRetailValuePublic: data.referenceRetailValuePublic,
     productTypeId: data.productTypeId,
     sizeSchemaOverrideId: data.sizeSchemaOverrideId,
 
@@ -152,7 +150,6 @@ export function useUpdateProduct(
             mainColorId: fv.mainColorId,
             sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
               sizeInstanceId,
-              trackingMode: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
             })),
             identicalColorIds: fv.identicalColorIds,
           });
@@ -165,7 +162,6 @@ export function useUpdateProduct(
             mainColorId: fv.mainColorId,
             sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
               sizeInstanceId,
-              trackingMode: fv.inventoryBySizeId?.[sizeInstanceId]?.trackingMode ?? 'POOLED',
             })),
             identicalColorIds: fv.identicalColorIds,
           });
@@ -176,7 +172,6 @@ export function useUpdateProduct(
         const originalImages = fv.id && isRealId(fv.id)
           ? originalVariants.find((ov) => ov.id === fv.id)?.images ?? []
           : [];
-        const originalImageIds = new Set(originalImages.map((img) => img.id));
         const formImages = fv.images ?? [];
         const formImageIds = new Set(
           formImages.filter((img) => img.id && isRealId(img.id)).map((img) => img.id),

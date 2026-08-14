@@ -16,32 +16,28 @@ import { SizeStep } from './steps/size';
 import { VariantsMediaStep } from './steps/variants';
 import { ContentMediaStep } from './steps/content-media';
 import { PricingServicesStep } from './steps/pricing-services';
-import { OpeningInventoryStep } from './steps/opening-inventory';
 import { ReviewStep } from './steps/review';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { getApiErrorMessage } from '@/lib/api-error';
-import {
-  productApi,
-  productOnboardingApi,
-  type ProductOnboarding,
-} from '@/lib/api/products';
+import { productApi, productOnboardingApi, type ProductOnboarding } from '@/lib/api/products';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const STEP_FIELDS: Record<number, FieldPath<ProductFormValues>[]> = {
   0: ['name', 'categoryId', 'productTypeId', 'sizeSchemaOverrideId'],
   1: ['variants'],
-  2: ['variants', 'details', 'faqs'],
+  2: ['details', 'faqs'],
   3: ['ratePlanType', 'ratePlanConfig', 'pricingComponents', 'shippingMode', 'flatShippingFee'],
-  4: ['openingInventorySkipped', 'openingInventoryLines'],
-  5: [],
+  4: [],
 };
 
 function commandKey() {
-  return globalThis.crypto?.randomUUID?.()
-    ?? `product-command-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `product-command-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 }
 
 export function ProductFormWizard() {
@@ -79,21 +75,25 @@ export function ProductFormWizard() {
     retry: false,
   });
 
-  const synchronizeServerIdentity = useCallback((workflow: ProductOnboarding) => {
-    const values = form.getValues('variants');
-    for (const [index, localVariant] of values.entries()) {
-      const serverVariant = workflow.product.variants.find((variant) =>
-        variant.onboardingKey === localVariant.clientKey || variant.id === localVariant.id,
-      );
-      if (!serverVariant) continue;
-      form.setValue(`variants.${index}.id`, serverVariant.id, { shouldDirty: false });
-      form.setValue(
-        `variants.${index}.skuIdBySizeInstanceId`,
-        Object.fromEntries(serverVariant.sizes.map((size) => [size.sizeInstanceId, size.id])),
-        { shouldDirty: false },
-      );
-    }
-  }, [form]);
+  const synchronizeServerIdentity = useCallback(
+    (workflow: ProductOnboarding) => {
+      const values = form.getValues('variants');
+      for (const [index, localVariant] of values.entries()) {
+        const serverVariant = workflow.product.variants.find(
+          (variant) =>
+            variant.onboardingKey === localVariant.clientKey || variant.id === localVariant.id,
+        );
+        if (!serverVariant) continue;
+        form.setValue(`variants.${index}.id`, serverVariant.id, { shouldDirty: false });
+        form.setValue(
+          `variants.${index}.skuIdBySizeInstanceId`,
+          Object.fromEntries(serverVariant.sizes.map((size) => [size.sizeInstanceId, size.id])),
+          { shouldDirty: false },
+        );
+      }
+    },
+    [form],
+  );
 
   useEffect(() => {
     const workflow = onboardingQuery.data;
@@ -105,11 +105,20 @@ export function ProductFormWizard() {
       }
       checkpointProduct(workflow.productId);
       hydratedProductId.current = workflow.productId;
-      const sectionIndex = WIZARD_STEPS.findIndex((step) => step.section === workflow.currentSection);
+      const sectionIndex = WIZARD_STEPS.findIndex(
+        (step) => step.section === workflow.currentSection,
+      );
       setCurrentStep(Math.max(0, sectionIndex));
     }
     synchronizeServerIdentity(workflow);
-  }, [checkpointProduct, form, hasDraft, onboardingQuery.data, requestedProductId, synchronizeServerIdentity]);
+  }, [
+    checkpointProduct,
+    form,
+    hasDraft,
+    onboardingQuery.data,
+    requestedProductId,
+    synchronizeServerIdentity,
+  ]);
 
   useEffect(() => {
     if (
@@ -144,7 +153,7 @@ export function ProductFormWizard() {
   }, [computeStepErrors, form.formState.errors]);
 
   const validateCurrentStep = useCallback(async () => {
-    if (currentStep === 2) {
+    if (currentStep === 1) {
       let missingImages = false;
       form.getValues('variants').forEach((variant, index) => {
         if (!variant.images.length) {
@@ -174,7 +183,8 @@ export function ProductFormWizard() {
         variant: 'destructive',
       });
       setTimeout(() => {
-        document.querySelector('[data-invalid="true"], [aria-invalid="true"]')
+        document
+          .querySelector('[data-invalid="true"], [aria-invalid="true"]')
           ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
     }
@@ -189,7 +199,11 @@ export function ProductFormWizard() {
       }
       for (const [imageIndex, image] of variant.images.entries()) {
         if (!image.file) continue;
-        const uploaded = await productApi.uploadImage(variant.id, image.file, Boolean(image.isFeatured));
+        const uploaded = await productApi.uploadImage(
+          variant.id,
+          image.file,
+          Boolean(image.isFeatured),
+        );
         checkpointImage(variantIndex, imageIndex, uploaded);
       }
     }
@@ -209,12 +223,10 @@ export function ProductFormWizard() {
         productTypeId: values.productTypeId,
         sizeSchemaOverrideId: values.sizeSchemaOverrideId || undefined,
         eventIds: values.events,
-        purchaseDate: values.purchaseDate || undefined,
-        purchasePrice: values.purchasePrice,
-        purchasePricePublic: values.showPurchasePrice,
-        itemCountry: values.itemCountry || undefined,
-        itemCountryPublic: values.showCountry,
-        targetRentals: values.targetRentals,
+        countryOfOrigin: values.countryOfOrigin || undefined,
+        countryOfOriginPublic: values.countryOfOriginPublic,
+        referenceRetailValue: values.referenceRetailValue,
+        referenceRetailValuePublic: values.referenceRetailValuePublic,
       };
       saved = onboarding
         ? await productOnboardingApi.saveBasics(
@@ -239,15 +251,14 @@ export function ProductFormWizard() {
               identicalColorIds: variant.identicalColorIds,
               sizes: variant.sizeInstanceIds.map((sizeInstanceId) => ({
                 sizeInstanceId,
-                trackingMode: variant.inventoryBySizeId[sizeInstanceId]?.trackingMode ?? 'POOLED',
               })),
             })),
           },
           key,
         );
-        form.setValue('openingInventoryLines', [], { shouldDirty: false });
-      } else if (currentStep === 2) {
+        synchronizeServerIdentity(saved);
         await uploadPendingImages();
+      } else if (currentStep === 2) {
         saved = await productOnboardingApi.saveContent(
           onboarding.productId,
           {
@@ -268,31 +279,6 @@ export function ProductFormWizard() {
           { expectedRevision: onboarding.revision, pricing: buildPricingPayload(values) },
           key,
         );
-      } else if (currentStep === 4) {
-        saved = await productOnboardingApi.saveOpeningInventory(
-          onboarding.productId,
-          {
-            expectedRevision: onboarding.revision,
-            skipInventory: values.openingInventorySkipped,
-            ...(!values.openingInventorySkipped ? {
-              lines: values.openingInventoryLines.map((line) => ({
-                variantSizeId: line.variantSizeId,
-                locationId: line.locationId,
-                ...(line.trackingMode === 'POOLED'
-                  ? { pooledQuantity: line.pooledQuantity }
-                  : { units: line.units.map(({ assetCode, barcode, condition, purchaseDate, purchasePrice, notes }) => ({
-                      assetCode,
-                      barcode: barcode || undefined,
-                      condition,
-                      purchaseDate: purchaseDate || undefined,
-                      purchasePrice,
-                      notes: notes || undefined,
-                    })) }),
-              })),
-            } : {}),
-          },
-          key,
-        );
       } else {
         saved = await productOnboardingApi.publish(onboarding.productId, onboarding.revision, key);
       }
@@ -303,7 +289,16 @@ export function ProductFormWizard() {
     synchronizeServerIdentity(saved);
     queryClient.setQueryData(['product-onboarding', saved.productId], saved);
     return saved;
-  }, [checkpointProduct, creationKey, currentStep, form, onboarding, queryClient, synchronizeServerIdentity, uploadPendingImages]);
+  }, [
+    checkpointProduct,
+    creationKey,
+    currentStep,
+    form,
+    onboarding,
+    queryClient,
+    synchronizeServerIdentity,
+    uploadPendingImages,
+  ]);
 
   const handleNext = useCallback(async () => {
     if (!(await validateCurrentStep())) return;
@@ -313,8 +308,11 @@ export function ProductFormWizard() {
       if (currentStep === WIZARD_STEPS.length - 1) {
         clearDraft();
         await queryClient.invalidateQueries({ queryKey: ['products'] });
-        toast({ title: 'Product published', description: 'The rental listing is live and ready for date-based bookings.' });
-        router.push(`/dashboard/products/${saved.productId}`);
+        toast({
+          title: 'Product published',
+          description: 'The rental listing is live and ready for date-based bookings.',
+        });
+        router.push(`/dashboard/products/${saved.productId}/setup-complete?status=published`);
         return;
       }
       const nextStep = currentStep + 1;
@@ -325,13 +323,25 @@ export function ProductFormWizard() {
     } catch (error) {
       toast({
         title: 'Could not save this section',
-        description: getApiErrorMessage(error, 'Your input is still here. Correct the issue and retry.'),
+        description: getApiErrorMessage(
+          error,
+          'Your input is still here. Correct the issue and retry.',
+        ),
         variant: 'destructive',
       });
     } finally {
       setIsSubmitting(false);
     }
-  }, [clearDraft, currentStep, forceSaveDraft, queryClient, router, saveCurrentSection, toast, validateCurrentStep]);
+  }, [
+    clearDraft,
+    currentStep,
+    forceSaveDraft,
+    queryClient,
+    router,
+    saveCurrentSection,
+    toast,
+    validateCurrentStep,
+  ]);
 
   const handlePrev = useCallback(() => {
     if (currentStep === 0) return;
@@ -341,20 +351,29 @@ export function ProductFormWizard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [currentStep, forceSaveDraft]);
 
-  const handleStepClick = useCallback((index: number) => {
-    if (index > currentStep) {
-      toast({ title: 'Save this section first', description: 'Forward sections unlock after the current section is saved.' });
-      return;
-    }
-    setCurrentStep(index);
-    forceSaveDraft(index);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [currentStep, forceSaveDraft, toast]);
+  const handleStepClick = useCallback(
+    (index: number) => {
+      if (index > currentStep) {
+        toast({
+          title: 'Save this section first',
+          description: 'Forward sections unlock after the current section is saved.',
+        });
+        return;
+      }
+      setCurrentStep(index);
+      forceSaveDraft(index);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [currentStep, forceSaveDraft, toast],
+  );
 
   const handleForceSave = useCallback(async () => {
     if (currentStep === WIZARD_STEPS.length - 1) {
       forceSaveDraft(currentStep);
-      toast({ title: 'Everything is saved', description: 'Publish when you are ready to make the product visible.' });
+      toast({
+        title: 'Everything is saved',
+        description: 'Publish when you are ready to make the product visible.',
+      });
       return;
     }
     if (!(await validateCurrentStep())) return;
@@ -362,9 +381,16 @@ export function ProductFormWizard() {
     try {
       await saveCurrentSection();
       forceSaveDraft(currentStep);
-      toast({ title: 'Server draft saved', description: 'This section can be resumed from another device.' });
+      toast({
+        title: 'Server draft saved',
+        description: 'This section can be resumed from another device.',
+      });
     } catch (error) {
-      toast({ title: 'Could not save draft', description: getApiErrorMessage(error), variant: 'destructive' });
+      toast({
+        title: 'Could not save draft',
+        description: getApiErrorMessage(error),
+        variant: 'destructive',
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -381,15 +407,30 @@ export function ProductFormWizard() {
     try {
       const saved = await saveCurrentSection();
       forceSaveDraft(currentStep);
-      toast({ title: 'Server draft saved', description: 'Continue setup from the product catalogue whenever you are ready.' });
+      toast({
+        title: 'Server draft saved',
+        description: 'Continue setup from the product catalogue whenever you are ready.',
+      });
       router.push('/dashboard/products');
       queryClient.setQueryData(['product-onboarding', saved.productId], saved);
     } catch (error) {
-      toast({ title: 'Could not save draft', description: getApiErrorMessage(error), variant: 'destructive' });
+      toast({
+        title: 'Could not save draft',
+        description: getApiErrorMessage(error),
+        variant: 'destructive',
+      });
     } finally {
       setIsSubmitting(false);
     }
-  }, [currentStep, forceSaveDraft, queryClient, router, saveCurrentSection, toast, validateCurrentStep]);
+  }, [
+    currentStep,
+    forceSaveDraft,
+    queryClient,
+    router,
+    saveCurrentSection,
+    toast,
+    validateCurrentStep,
+  ]);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
@@ -404,22 +445,30 @@ export function ProductFormWizard() {
   }, [handleForceSave]);
 
   if (!isLoaded || onboardingQuery.isLoading) {
-    return <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary/50" /></div>;
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
+      </div>
+    );
   }
 
   const renderStep = () => {
     switch (currentStep) {
       case 0:
-        return <div className="space-y-8"><BasicInfoStep showStatus={false} /><Separator /><SizeStep /></div>;
+        return (
+          <div className="space-y-8">
+            <BasicInfoStep />
+            <Separator />
+            <SizeStep />
+          </div>
+        );
       case 1:
-        return <VariantsMediaStep showConfiguration showMedia={false} />;
+        return <VariantsMediaStep showConfiguration showMedia />;
       case 2:
         return <ContentMediaStep />;
       case 3:
         return <PricingServicesStep />;
       case 4:
-        return <OpeningInventoryStep />;
-      case 5:
         return <ReviewStep onGoToStep={(step) => setCurrentStep(step)} />;
       default:
         return null;
@@ -445,12 +494,22 @@ export function ProductFormWizard() {
             <div>
               <p className="text-sm font-medium text-amber-900">Resumable product setup</p>
               <p className="text-xs text-amber-700">
-                {onboarding ? `Server revision ${onboarding.revision}` : 'Unsaved browser recovery draft'}
+                {onboarding
+                  ? `Server revision ${onboarding.revision}`
+                  : 'Unsaved browser recovery draft'}
               </p>
             </div>
             <div className="flex items-center gap-2">
               {!onboarding && (
-                <Button type="button" variant="outline" size="sm" onClick={() => { clearDraft(); setCurrentStep(0); }}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    clearDraft();
+                    setCurrentStep(0);
+                  }}
+                >
                   <RotateCcw className="h-4 w-4" /> Start fresh
                 </Button>
               )}
@@ -459,7 +518,12 @@ export function ProductFormWizard() {
                   <Link href={`/dashboard/products/${onboarding.productId}`}>View product</Link>
                 </Button>
               )}
-              <Button type="button" variant="outline" size="sm" onClick={() => void handleSaveAndExit()}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleSaveAndExit()}
+              >
                 <LogOut className="h-4 w-4" /> Save & exit
               </Button>
             </div>

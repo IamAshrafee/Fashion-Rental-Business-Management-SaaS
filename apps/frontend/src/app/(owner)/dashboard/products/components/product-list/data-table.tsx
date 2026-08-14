@@ -63,16 +63,6 @@ function StatusBadge({ status }: { status: ProductStatus }) {
   return <Badge variant="outline">Archived</Badge>;
 }
 
-function TrackingBadge({ mode }: { mode: ProductListItem['trackingMode'] }) {
-  const labels: Record<ProductListItem['trackingMode'], string> = {
-    NONE: 'Not configured',
-    POOLED: 'Pooled',
-    SERIALIZED: 'Physical items',
-    MIXED: 'Mixed',
-  };
-  return <Badge variant="outline">{labels[mode]}</Badge>;
-}
-
 function Readiness({ product }: { product: ProductListItem }) {
   if (product.readiness.ready) {
     return <Badge variant="secondary">Ready</Badge>;
@@ -229,7 +219,6 @@ export function ProductsDataTable({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={product.status as ProductStatus} />
-              <TrackingBadge mode={product.trackingMode} />
               <Readiness product={product} />
             </div>
             <div className="grid grid-cols-3 gap-3 text-sm">
@@ -262,8 +251,7 @@ export function ProductsDataTable({
                 <TableCell><Readiness product={product} /></TableCell>
                 <TableCell>
                   <div className="flex flex-col items-start gap-1">
-                    <span className="font-medium">{product.inventory.onHand} on hand</span>
-                    <TrackingBadge mode={product.trackingMode} />
+                    <span className="font-medium">{product.inventory.physicalItems} physical items</span>
                   </div>
                 </TableCell>
                 <TableCell>

@@ -58,7 +58,6 @@ export interface ProductListItem {
   rentalPrice: number;
   headlineLabel: string | null;
   pricingMode: string | null;
-  targetRentals: number | null;
   totalBookings: number;
   createdAt: string;
   updatedAt: string;
@@ -67,11 +66,9 @@ export interface ProductListItem {
   thumbnailUrl: string | null;
   variantCount: number;
   skuCount: number;
-  trackingMode: 'NONE' | 'POOLED' | 'SERIALIZED' | 'MIXED';
   inventory: {
     onHand: number;
-    pooledOnHand: number;
-    serializedUnits: number;
+    physicalItems: number;
     hasStock: boolean;
   };
   readiness: {
@@ -97,7 +94,6 @@ export type ProductReadinessCode =
   | 'RENTABLE_SKU'
   | 'VARIANT_MEDIA'
   | 'ACTIVE_PRICING'
-  | 'STOREFRONT_ITEM_MODE'
   | 'COMPOSITION';
 
 export type ProductReadinessSection =
@@ -217,7 +213,6 @@ export interface ProductVariantData {
   sizes: Array<{
     id: string;
     sizeInstanceId: string;
-    trackingMode: 'POOLED' | 'SERIALIZED';
     inventoryVersion: number;
     sizeInstance: SizeInstanceData;
     _count?: { stockUnits: number };
@@ -237,7 +232,6 @@ export type ProductOnboardingSection =
   | 'SKUS'
   | 'CONTENT'
   | 'PRICING'
-  | 'OPENING_INVENTORY'
   | 'REVIEW';
 
 export interface ProductOnboarding {
@@ -282,15 +276,13 @@ export interface ProductDetail {
   subcategoryId: string | null;
   status: 'draft' | 'published' | 'archived';
   isAvailable: boolean;
-  storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION';
+  storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY';
   availableFrom: string | null;
   unavailableReason: string | null;
-  purchaseDate: string | null;
-  purchasePrice: number | null;
-  purchasePricePublic: boolean;
-  itemCountry: string | null;
-  itemCountryPublic: boolean;
-  targetRentals: number | null;
+  countryOfOrigin: string | null;
+  countryOfOriginPublic: boolean;
+  referenceRetailValue: number | null;
+  referenceRetailValuePublic: boolean;
   totalBookings: number;
   totalRevenue: number;
   createdAt: string;
@@ -326,7 +318,6 @@ export interface ProductListQuery {
   search?: string;
   categoryId?: string;
   productTypeId?: string;
-  trackingMode?: InventoryTrackingMode;
   readiness?: 'ready' | 'needs_attention';
   stockState?: 'in_stock' | 'no_stock';
   sort?: 'name' | 'status' | 'createdAt' | 'updatedAt';
@@ -340,24 +331,6 @@ export interface ProductOnboardingVariantInput {
   mainColorId: string;
   identicalColorIds?: string[];
   sizes: VariantSizeInventoryInput[];
-}
-
-export interface OpeningInventoryInput {
-  expectedRevision: number;
-  skipInventory: boolean;
-  lines?: Array<{
-    variantSizeId: string;
-    locationId: string;
-    pooledQuantity?: number;
-    units?: Array<{
-      assetCode: string;
-      barcode?: string;
-      condition?: StockUnit['condition'];
-      purchaseDate?: string;
-      purchasePrice?: number;
-      notes?: string;
-    }>;
-  }>;
 }
 
 // ─── API Functions ────────────────────────────────────────────────────────────
@@ -432,19 +405,6 @@ export const productOnboardingApi = {
   ): Promise<ProductOnboarding> => {
     const { data } = await apiClient.put<ApiResponse<ProductOnboarding>>(
       `/owner/product-onboardings/${productId}/pricing`,
-      payload,
-      onboardingHeaders(idempotencyKey),
-    );
-    return data.data;
-  },
-
-  saveOpeningInventory: async (
-    productId: string,
-    payload: OpeningInventoryInput,
-    idempotencyKey: string,
-  ): Promise<ProductOnboarding> => {
-    const { data } = await apiClient.put<ApiResponse<ProductOnboarding>>(
-      `/owner/product-onboardings/${productId}/opening-inventory`,
       payload,
       onboardingHeaders(idempotencyKey),
     );
@@ -689,17 +649,8 @@ export const productApi = {
     return data.data;
   },
 
-  configureInventory: async (variantSizeId: string, payload: { trackingMode: InventoryTrackingMode; reason?: string }): Promise<void> => {
-    await apiClient.patch(`/owner/variant-sizes/${variantSizeId}/inventory`, payload);
-  },
-
   listStockUnits: async (variantSizeId: string): Promise<StockUnit[]> => {
     const { data } = await apiClient.get<ApiResponse<StockUnit[]>>(`/owner/variant-sizes/${variantSizeId}/stock-units`);
-    return data.data;
-  },
-
-  createStockUnit: async (variantSizeId: string, payload: CreateStockUnitInput): Promise<StockUnit> => {
-    const { data } = await apiClient.post<ApiResponse<StockUnit>>(`/owner/variant-sizes/${variantSizeId}/stock-units`, payload);
     return data.data;
   },
 
@@ -723,8 +674,6 @@ export const productApi = {
   },
 };
 
-export type InventoryTrackingMode = 'POOLED' | 'SERIALIZED';
-
 export interface UploadedProductImage {
   id: string;
   url: string;
@@ -734,25 +683,15 @@ export interface UploadedProductImage {
 
 export interface VariantSizeInventoryInput {
   sizeInstanceId: string;
-  trackingMode: InventoryTrackingMode;
 }
 
 export interface ProductInventorySize {
   variantSizeId: string;
   sizeInstance: SizeInstanceData;
-  trackingMode: InventoryTrackingMode;
   inventoryVersion: number;
   totalCapacity: number;
   reservedQuantity: number;
   availableQuantity: number;
-  pools: Array<{
-    id: string;
-    location: { id: string; code: string; name: string; isDefault: boolean };
-    onHandQuantity: number;
-    reorderThreshold: number | null;
-    version: number;
-    reservedQuantity: number;
-  }>;
   unitCounts: Array<{
     locationId: string;
     disposition: StockUnit['disposition'];
@@ -766,7 +705,7 @@ export interface ProductInventory {
   name: string;
   status: string;
   isAvailable: boolean;
-  storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION';
+  storefrontItemMode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY';
   variants: Array<{
     id: string;
     variantName: string | null;
@@ -777,6 +716,7 @@ export interface ProductInventory {
 
 export interface StockUnit {
   id: string;
+  version: number;
   assetCode: string;
   barcode: string | null;
   condition: 'NEW' | 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'DAMAGED';
@@ -787,20 +727,16 @@ export interface StockUnit {
   rentalPriceAdjustment: number;
   estimatedCurrentValue: number | null;
   storefrontSortOrder: number;
+  acquisitionDate: string | null;
+  acquisitionCost: number | null;
+  acquisitionSource: string | null;
+  acquisitionReference: string | null;
   locationId: string;
   location: { id: string; code: string; name: string };
   notes: string | null;
   componentStates?: Array<{ id: string; presence: 'PRESENT' | 'MISSING' | 'DAMAGED' | 'NOT_APPLICABLE' }>;
   issues?: Array<{ id: string; status: string; isAvailabilityBlocking: boolean }>;
   serviceOrders?: Array<{ id: string; status: string; isAvailabilityBlocking: boolean }>;
-}
-
-export interface CreateStockUnitInput {
-  locationId: string;
-  assetCode: string;
-  barcode?: string;
-  condition?: StockUnit['condition'];
-  notes?: string;
 }
 
 export interface InventoryCalendarEntry {
@@ -829,10 +765,9 @@ export interface InventoryCalendar {
 export interface InventoryMovement {
   id: string;
   movementType: string;
-  quantityDelta: number | null;
   reason: string | null;
   createdAt: string;
-  stockUnit: { id: string; assetCode: string } | null;
+  stockUnit: { id: string; assetCode: string };
   actor: { id: string; fullName: string } | null;
 }
 

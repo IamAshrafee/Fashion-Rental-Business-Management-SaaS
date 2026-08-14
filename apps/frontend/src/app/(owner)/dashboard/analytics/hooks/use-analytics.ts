@@ -4,10 +4,12 @@ import { analyticsApi } from '@/lib/api/analytics';
 export const analyticsKeys = {
   all: ['analytics'] as const,
   summary: (params: Record<string, any>) => [...analyticsKeys.all, 'summary', params] as const,
-  revenueSeries: (params: Record<string, any>) => [...analyticsKeys.all, 'revenue', params] as const,
+  revenueSeries: (params: Record<string, any>) =>
+    [...analyticsKeys.all, 'revenue', params] as const,
   categoryRevenue: () => [...analyticsKeys.all, 'category'] as const,
-  topProducts: (params: Record<string, any>) => [...analyticsKeys.all, 'top-products', params] as const,
-  targetRecovery: () => [...analyticsKeys.all, 'target-recovery'] as const,
+  topProducts: (params: Record<string, any>) =>
+    [...analyticsKeys.all, 'top-products', params] as const,
+  costRecovery: () => [...analyticsKeys.all, 'cost-recovery'] as const,
 };
 
 export function useAnalyticsSummary(params: { from?: string; to?: string } = {}) {
@@ -38,9 +40,9 @@ export function useTopProducts(params: { sortBy?: 'bookings' | 'revenue'; limit?
   });
 }
 
-export function useTargetRecovery() {
+export function useCostRecovery() {
   return useQuery({
-    queryKey: analyticsKeys.targetRecovery(),
-    queryFn: () => analyticsApi.getTargetRecovery(),
+    queryKey: analyticsKeys.costRecovery(),
+    queryFn: () => analyticsApi.getCostRecovery(),
   });
 }

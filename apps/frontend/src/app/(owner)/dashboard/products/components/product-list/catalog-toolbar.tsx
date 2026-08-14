@@ -53,7 +53,6 @@ export function CatalogToolbar({
     query.status ||
     query.categoryId ||
     query.productTypeId ||
-    query.trackingMode ||
     query.readiness ||
     query.stockState ||
     query.sort !== 'updatedAt' ||
@@ -137,7 +136,7 @@ export function CatalogToolbar({
         </Select>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Select
           value={query.categoryId ?? 'all'}
           onValueChange={(value) => onChange({ categoryId: value === 'all' ? null : value })}
@@ -168,24 +167,6 @@ export function CatalogToolbar({
               {productTypes.map((type) => (
                 <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
               ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={query.trackingMode ?? 'all'}
-          onValueChange={(value) => onChange({
-            trackingMode: value === 'all' ? null : value as NonNullable<ProductListQuery['trackingMode']>,
-          })}
-        >
-          <SelectTrigger aria-label="Filter by inventory tracking">
-            <SelectValue placeholder="All tracking" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="all">All tracking</SelectItem>
-              <SelectItem value="SERIALIZED">Physical items</SelectItem>
-              <SelectItem value="POOLED">Pooled quantity</SelectItem>
             </SelectGroup>
           </SelectContent>
         </Select>

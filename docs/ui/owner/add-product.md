@@ -1,222 +1,89 @@
-# UI Spec: Add Product (Multi-Step Form)
+# UI Specification: Create and Edit a Rental Product
 
-## Overview
+## Purpose
 
-Multi-step wizard for creating a new product. Guides the owner through all required information in logical order.
+Catalog setup describes what customers can rent. Inventory registration records the exact physical pieces the business owns. These are connected workflows, but they are not the same form.
 
-**Route**: `/dashboard/products/new`
+- Create route: `/dashboard/products/new`
+- Edit route: `/dashboard/products/:id/edit`
+- Setup completion: `/dashboard/products/:id/setup-complete`
+- Canonical item registration: `/dashboard/inventory/items/register`
 
----
+A catalog product may be published with zero physical items. In that case it can appear on the storefront but is unavailable for booking until eligible physical pieces are registered.
 
-## Steps
+## Five-stage create workflow
 
-### Step Indicator
+### 1. Basics and sizing
 
-```
-[1 Basic] → [2 Variants] → [3 Images] → [4 Pricing] → [5 Size] → [6 Services] → [7 Details] → [8 Review]
-```
+Collect:
 
-Steps are clickable (can jump back). Progress bar shows completion.
+- product name, description, category, subcategory, and suitable events;
+- size mode, sizes, measurements, multipart definitions, or free-size details;
+- optional country of origin and its public-display setting;
+- optional product-level reference retail value and its public-display setting.
 
----
+Country of origin describes the catalog style or manufacture. Reference retail value is customer-facing comparison/replacement context. Neither field represents what the business paid for a physical piece.
 
-### Step 1: Basic Information
+Product status is not edited here. A new product begins as a draft and publication is handled only after readiness review.
 
-```
-Product Name *           [Royal Banarasi Saree              ]
-Description              [Rich text editor                   ]
-Category *               [Saree                            ▾]
-Subcategory              [Banarasi                         ▾] ← Depends on category
-Events                   [☑ Wedding] [☑ Reception] [☐ Holud]
-Status                   ○ Draft  ● Published
+### 2. Variants, SKUs, and images
 
-Purchase Info (Internal)
-Purchase Date            [2026-01-15                        ]
-Purchase Price           [৳ 15,000                          ]
-  ☐ Show purchase price to guests
-Item Country             [India                              ]
-  ☐ Show country to guests
-Target Rentals           [5                                  ]
+Configure each visual variant, color mapping, rentable size/SKU, and the images associated with that variant. Product and variant images belong here so staff can verify that media is attached to the correct visual edition before moving on.
 
-[Next: Variants →]
-```
+Each SKU is implicitly backed by physical-item identities, and its stock count is always derived from registered pieces.
 
----
+### 3. Details and FAQ
 
-### Step 2: Color Variants
+Add structured product details and customer questions. Content changes presentation only; it does not mutate physical inventory.
 
-```
-Color Variants
+### 4. Pricing and services
 
-Variant 1 (Default)
-  Variant Name:    [Ivory Gold                  ]
-  Main Color:      [White                      ▾] ← Color swatch dropdown
-  Identical Colors: [Ivory ✕] [Cream ✕] [+ Add]
-  [Remove Variant]
+Configure authoritative rental rates, deposits, fees, late-return rules, shipping, and optional services. Money is entered in major currency units and stored as integer minor units.
 
-[+ Add Another Variant]
+Percentage-based pricing or deposits may use the product reference retail value. They never use a physical item's private acquisition cost.
 
-[← Back]                              [Next: Images →]
-```
+### 5. Review and publish
 
----
+The review stage shows readiness blockers and links back to the responsible stage. Staff may:
 
-### Step 3: Images
+- save the product as a draft;
+- publish when catalog readiness passes;
+- return to any stage to correct data.
 
-```
-Upload Images
+Publication does not create inventory and does not require opening stock.
 
-Variant: Ivory Gold (White)    [Switch Variant ▾]
+## Setup completion
 
-┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐
-│ ⭐     │ │        │ │        │ │            │
-│ [img1] │ │ [img2] │ │ [img3] │ │ + Upload   │
-│        │ │        │ │        │ │ Drag here  │
-└────────┘ └────────┘ └────────┘ └────────────┘
-  Featured    Drag to reorder      or click
+After publication, the completion screen provides three explicit next actions:
 
-• Max 10 images per variant
-• Accepted: JPEG, PNG, WebP (max 10 MB each)
-• First image is automatically featured (⭐)
-• Drag to reorder
+1. register physical items for this product using the canonical registration route;
+2. open the product-scoped inventory workspace;
+3. return to the product catalog.
 
-[← Back]                             [Next: Pricing →]
-```
+Every global, product-scoped, and SKU-scoped “add item” action opens the same registration workflow with validated URL context. No embedded registration dialog or onboarding-only inventory endpoint exists.
 
----
+## Draft persistence and concurrency
 
-### Step 4: Pricing & Logistics
+- Server-side onboarding sections are authoritative and use idempotency keys and revisions.
+- Local draft persistence protects unsent form work and supports resuming the wizard.
+- A stale section revision is rejected rather than overwriting a newer edit.
+- Keyboard save shortcuts invoke the same server-backed draft command.
 
-```
-Pricing Mode
-◉ One-time rental    ○ Per day    ○ Percentage of retail
+## Product editing
 
-── One-Time Rental ──
-Rental Price *        [৳ 7,500                   ]
-Included Days *       [3                          ]
+Editing uses focused tabs for basics, variants/media, pricing, size/details, and publication.
 
-Internal Pricing
-Min Price (staff)     [৳ 5,000                   ]
-Max Discount          [৳ 6,000                   ]
+- Published catalog structure must be unpublished to draft before structural edits.
+- Saving validates all tabs and points staff to the first invalid section.
+- Publication controls are separate from editable catalog fields.
+- Archiving requires confirmation and retains bookings, physical items, finance, and operational history.
+- Existing booking, price, policy, product, SKU, and composition snapshots are never rewritten by later edits.
+- Variant or SKU identity restructuring is rejected when protected inventory or rental history would be damaged.
 
-Extended Rental
-Rate per extra day    [৳ 500                     ]
+## Contextual help
 
-Late Return
-Late fee type         ◉ Fixed   ○ Percentage
-Late fee per day      [৳ 300                     ]
-Max late fee cap      [৳ 2,000                   ]
+High-risk fields use focusable, clickable/touch-friendly contextual help. Help explains meaning, why it matters, a fashion-rental example where useful, and downstream effect. The trigger is keyboard accessible, exposes a permanent accessible description, closes with Escape/outside interaction, and returns focus correctly.
 
-Shipping
-Shipping mode         ◉ Free   ○ Flat fee   ○ Area-based
-Flat shipping fee     [৳ 150                     ]
+## Validation summary
 
-[← Back]                              [Next: Size →]
-```
-
----
-
-### Step 5: Size
-
-```
-Size Mode
-○ Standard Sizes    ◉ Measurements    ○ Multi-Part    ○ Free Size
-
-── Measurement Mode ──
-┌──────────────────────────────────────────────┐
-│ Label *         Value *       Unit           │
-│ [Chest      ]   [38       ]   [inch ▾]       │
-│ [Waist      ]   [32       ]   [inch ▾]       │
-│ [Length     ]   [42       ]   [inch ▾]       │
-│                                              │
-│ [+ Add Measurement]                          │
-└──────────────────────────────────────────────┘
-
-Size Chart Image (optional)
-[Upload size chart image]
-
-[← Back]                           [Next: Services →]
-```
-
----
-
-### Step 6: Services & Protection
-
-```
-Deposit & Fees
-Security deposit      [৳ 5,000                   ]
-Cleaning fee          [৳ 500                     ]
-
-Backup Size
-☑ Enable backup size option
-Backup size fee       [৳ 300                     ]
-
-Try Before Rent
-☑ Enable try-before-rent
-Try-on fee            [৳ 1,000                   ]
-Try-on duration       [24 hours                  ]
-☐ Credit try-on fee to rental price
-
-[← Back]                           [Next: Details →]
-```
-
----
-
-### Step 7: Product Details & FAQ
-
-```
-Product Details (Key-Value Sections)
-
-Section: [Fabric Details              ]
-┌──────────────────────────────────────────────┐
-│ Key              Value                       │
-│ [Material    ]   [Banarasi Silk          ]   │
-│ [Weight      ]   [Heavy                  ]   │
-│ [+ Add Entry]                                │
-└──────────────────────────────────────────────┘
-[+ Add Another Section]
-
-──────────────────────────────
-
-FAQ
-┌──────────────────────────────────────────────┐
-│ Q: [Is alteration possible?              ]   │
-│ A: [No, this is a rental item...         ]   │
-│                                              │
-│ Q: [What if I return late?               ]   │
-│ A: [Late fee of ৳300/day applies...      ]   │
-│                                              │
-│ [+ Add FAQ]                                  │
-└──────────────────────────────────────────────┘
-
-[← Back]                            [Next: Review →]
-```
-
----
-
-### Step 8: Review & Publish
-
-Shows a preview of the entire product with all entered data. Owner can review and go back to any step to make changes.
-
-```
-Review Your Product
-──────────────────
-
-[Product Preview Card]
-
-Basic: Royal Banarasi Saree · Saree › Banarasi · Wedding, Reception
-Pricing: ৳7,500 / 3 days · Extended: ৳500/day
-Deposit: ৳5,000 · Cleaning: ৳500
-Size: Measurement (Chest 38", Waist 32", Length 42")
-Variants: 3 (White, Blue, Red)
-Images: 12 total
-FAQ: 2 entries
-
-[← Back]         [Save as Draft]    [Publish Product]
-```
-
----
-
-## Auto-Save
-
-Each step auto-saves to localStorage so the owner doesn't lose progress if the page is accidentally closed.
+Draft creation requires only the minimum identity needed to resume. Publication readiness requires valid catalog structure, media coverage, and pricing configuration. Inventory count is deliberately excluded from catalog readiness because booking availability is derived separately from eligible physical items.

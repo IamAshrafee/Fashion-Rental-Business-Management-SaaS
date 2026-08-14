@@ -85,9 +85,9 @@ export class AnalyticsController {
     return this.analyticsService.getTopProducts(tenant.id, query);
   }
 
-  @Get('target-recovery')
-  async getTargetRecovery(@CurrentTenant() tenant: TenantContext) {
-    return this.analyticsService.getTargetRecovery(tenant.id);
+  @Get('cost-recovery')
+  async getCostRecovery(@CurrentTenant() tenant: TenantContext) {
+    return this.analyticsService.getCostRecovery(tenant.id);
   }
 
   @Get('export/:type')

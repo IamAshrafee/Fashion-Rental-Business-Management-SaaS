@@ -12,7 +12,6 @@ import {
   Info,
   Image as ImageIcon,
   DollarSign,
-  Shield,
   Ruler,
   FileText,
 } from 'lucide-react';
@@ -170,13 +169,10 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
           <AlertTitle className="text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
             <span>Ready to complete</span>
-            <Badge variant={data.status === 'published' ? 'default' : 'secondary'} className="uppercase text-[10px]">
-              {data.status === 'published' ? 'Will be Live' : 'Saved as Draft'}
-            </Badge>
+            <Badge variant="default" className="uppercase text-[10px]">Will be live</Badge>
           </AlertTitle>
           <AlertDescription className="text-emerald-700 dark:text-emerald-400 mt-2">
-            All required fields are filled.
-            {data.status === 'draft' ? ' This product will remain invisible to customers until you publish it.' : ' This product will go live on your storefront instantly.'}
+            All required fields are filled. Publishing makes the catalog listing visible; physical items can be registered separately in Inventory.
             {totalWarnings > 0 && ` ${totalWarnings} optional improvement${totalWarnings > 1 ? 's' : ''} suggested below.`}
           </AlertDescription>
         </Alert>
@@ -212,17 +208,6 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
           <Row label="Name" value={data.name || 'Not set'} />
           <Row label="Category" value={categoryName} />
           {subcategoryName && <Row label="Subcategory" value={subcategoryName} />}
-          <Row
-            label="Status"
-            value={
-              <Badge
-                variant={data.status === 'published' ? 'default' : 'secondary'}
-                className="capitalize"
-              >
-                {data.status}
-              </Badge>
-            }
-          />
           {selectedEvents.length > 0 && (
             <div className="flex justify-between items-start py-0.5">
               <span className="font-medium text-muted-foreground">Events</span>
@@ -233,8 +218,8 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
               </div>
             </div>
           )}
-          {data.targetRentals && <Row label="Target Rentals" value={data.targetRentals.toString()} />}
-          {data.purchasePrice && <Row label="Purchase Price" value={formatMinorMoney(data.purchasePrice)} />}
+          {data.countryOfOrigin && <Row label="Country of origin" value={data.countryOfOrigin} />}
+          {data.referenceRetailValue && <Row label="Reference retail value" value={formatMinorMoney(data.referenceRetailValue)} />}
         </ReviewCard>
 
         {/* ── Variants & Media ─────────────────────────────── */}
@@ -303,7 +288,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
         </ReviewCard>
 
         {/* ── Size & Details ───────────────────────────────── */}
-        <ReviewCard title="Sizing & Details" icon={Ruler} step={0} onGoToStep={onGoToStep} warnings={sizeWarnings}>
+        <ReviewCard title="Sizing" icon={Ruler} step={0} onGoToStep={onGoToStep} warnings={sizeWarnings.filter((warning) => !warning.startsWith('No FAQs'))}>
           <Row
             label="Product Type"
             value={
@@ -313,21 +298,11 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
             }
           />
           {data.sizeSchemaOverrideId && <Row label="Custom Size Schema" value={<Badge variant="default" className="text-[10px]">Overridden</Badge>} />}
-          
-          {/* Details & FAQ summary */}
-          {((data.details && data.details.length > 0) || (data.faqs && data.faqs.length > 0)) && (
-            <div className="border-t mt-2 pt-2">
-              <span className="font-medium text-muted-foreground text-xs flex items-center gap-1 mb-1">
-                <FileText className="h-3 w-3" /> Content
-              </span>
-              {data.details && data.details.length > 0 && (
-                <Row label="Detail Sections" value={String(data.details.length)} />
-              )}
-              {data.faqs && data.faqs.length > 0 && (
-                <Row label="FAQs" value={String(data.faqs.length)} />
-              )}
-            </div>
-          )}
+        </ReviewCard>
+
+        <ReviewCard title="Details & FAQ" icon={FileText} step={2} onGoToStep={onGoToStep} warnings={sizeWarnings.filter((warning) => warning.startsWith('No FAQs'))}>
+          <Row label="Detail sections" value={String(data.details?.length ?? 0)} />
+          <Row label="FAQs" value={String(data.faqs?.length ?? 0)} />
         </ReviewCard>
       </div>
     </div>

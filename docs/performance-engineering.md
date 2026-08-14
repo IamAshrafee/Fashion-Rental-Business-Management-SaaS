@@ -8,22 +8,23 @@ Pre-development audit of database, API, caching, and infrastructure efficiency. 
 
 ### 🔴 1.1 — All Money Fields Must Be INTEGER (Not DECIMAL)
 
-**ADR-04** states: *"All currency stored as integers (৳7,500 → stored as `7500`). Always round UP."*
+**ADR-04** states: _"All currency stored as integers (৳7,500 → stored as `7500`). Always round UP."_
 
 But **every schema** still uses `DECIMAL(12,2)`:
 
-| Table | Affected Columns |
-|---|---|
-| `bookings` | subtotal, total_fees, shipping_fee, total_deposit, grand_total, total_paid |
-| `booking_items` | base_rental, extended_cost, deposit_amount, deposit_refund_amount, cleaning_fee, backup_size_fee, try_on_fee, item_total, late_fee |
-| `products` | purchase_price, total_revenue |
-| `customers` | total_spent |
-| `product_pricing` | All price columns |
-| `product_services` | All fee columns |
-| `damage_reports` | estimated_repair_cost, deduction_amount, additional_charge |
-| `payments` | amount |
+| Table                               | Affected Columns                                                                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `bookings`                          | subtotal, total_fees, shipping_fee, total_deposit, grand_total, total_paid                                                         |
+| `booking_items`                     | base_rental, extended_cost, deposit_amount, deposit_refund_amount, cleaning_fee, backup_size_fee, try_on_fee, item_total, late_fee |
+| `stock_units` / revenue allocations | acquisition_cost, attributed item revenue, completed service cost                                                                  |
+| `customers`                         | total_spent                                                                                                                        |
+| `product_pricing`                   | All price columns                                                                                                                  |
+| `product_services`                  | All fee columns                                                                                                                    |
+| `damage_reports`                    | estimated_repair_cost, deduction_amount, additional_charge                                                                         |
+| `payments`                          | amount                                                                                                                             |
 
 **Fix**: Change all money columns from `DECIMAL(12,2)` → `INTEGER`. This also:
+
 - Eliminates floating-point rounding bugs
 - Reduces storage size (4 bytes vs 8+ bytes per field)
 - Faster comparisons and aggregations
@@ -33,7 +34,7 @@ But **every schema** still uses `DECIMAL(12,2)`:
 
 ### 🔴 1.2 — `date_blocks` Needs Exclusion Constraint for Concurrency
 
-**ADR-06** states: *"Concurrency handled by database-level UNIQUE constraints on date blocks."*
+**ADR-06** states: _"Concurrency handled by database-level UNIQUE constraints on date blocks."_
 
 Current index is just a B-tree: `@@index([productId, startDate, endDate])` — this does **NOT** prevent overlapping ranges. Two concurrent requests can both insert overlapping dates.
 
@@ -77,6 +78,7 @@ Without these, localization cannot work per-tenant.
 ### 🔴 1.4 — Delivery Address Fields Are BD-Specific
 
 `bookings` table has hardcoded BD address fields:
+
 - `delivery_area` — BD-specific concept
 - `delivery_thana` — BD-specific concept
 - `delivery_district` — BD-specific concept
@@ -124,6 +126,7 @@ ORDER BY created_at DESC
 ```
 
 No single index covers this. Current indexes:
+
 - `@@index([tenantId, status])` — covers tenant + status but not availability or soft-delete
 
 **Fix**: Add a covering partial index:
@@ -135,6 +138,7 @@ CREATE INDEX products_storefront_idx
 ```
 
 This partial index is:
+
 - **Small** (only published + available products, ~20-50% of rows)
 - **Pre-sorted** (DESC for latest first)
 - **Instant** for the most frequent query
@@ -169,6 +173,7 @@ CREATE INDEX date_blocks_overlap_gist
 UUIDs are 16 bytes vs 4 bytes for INT. For this SaaS scale (< 100 tenants, < 100K products total), UUID overhead is acceptable. However:
 
 **Optimization**: Use `uuid_generate_v7()` (time-ordered UUIDs) instead of `gen_random_uuid()` (v4):
+
 - V7 UUIDs are **chronologically sorted** → better B-tree index locality
 - Reduces page splits during inserts
 - Available in PostgreSQL 17+ or via `pgcrypto` extension
@@ -196,13 +201,13 @@ ALTER TABLE audit_logs SET (autovacuum_analyze_threshold = 100);
 
 Prisma's lazy loading causes N+1 by default. The top 5 N+1 traps:
 
-| Query | N+1 Trap | Fix |
-|---|---|---|
-| Product list → variants → images | 3 levels of lazy loading | Use `include: { variants: { include: { images: true, mainColor: true } } }` |
-| Booking list → items → product | 3 levels | Use `include: { items: { include: { product: true } } }` |
-| Dashboard stats → multiple counts | Multiple COUNT queries | Single raw query with multiple aggregations |
-| Category list → product count | 1 query per category | `groupBy` or raw COUNT with JOIN |
-| Customer list → booking count | Already denormalized | ✅ OK (uses `total_bookings` cache column) |
+| Query                             | N+1 Trap                 | Fix                                                                         |
+| --------------------------------- | ------------------------ | --------------------------------------------------------------------------- |
+| Product list → variants → images  | 3 levels of lazy loading | Use `include: { variants: { include: { images: true, mainColor: true } } }` |
+| Booking list → items → product    | 3 levels                 | Use `include: { items: { include: { product: true } } }`                    |
+| Dashboard stats → multiple counts | Multiple COUNT queries   | Single raw query with multiple aggregations                                 |
+| Category list → product count     | 1 query per category     | `groupBy` or raw COUNT with JOIN                                            |
+| Customer list → booking count     | Already denormalized     | ✅ OK (uses `total_bookings` cache column)                                  |
 
 **Rule**: Every service method must declare its `include` strategy. Never rely on implicit loading.
 
@@ -256,6 +261,7 @@ CREATE INDEX products_trgm_idx ON products USING gin(name gin_trgm_ops);
 ```
 
 Query strategy:
+
 1. First try `tsvector` match (fast, exact word match)
 2. If < 3 results, fall back to `pg_trgm` (fuzzy)
 
@@ -288,6 +294,7 @@ Content:      Serialized product list with variant images
 ```
 
 **Warning**: Don't cache filtered results aggressively — the combination space explodes. Only cache:
+
 - Default listing (no filters, page 1)
 - Category pages (category filter only)
 
@@ -323,13 +330,13 @@ These rarely change. Aggressive caching is safe.
 
 ### 🟡 4.1 — Response Size Optimization
 
-| Optimization | Where |
-|---|---|
-| **Select only needed fields** | Prisma `select` instead of full model — especially on list endpoints |
-| **Exclude internal fields** | Never return `tenant_id`, `deleted_at`, `search_vector` to clients |
-| **Image URL optimization** | Return thumbnail URL for lists, full URL for detail page |
-| **Gzip/Brotli compression** | Enable in Nginx for all JSON and text responses |
-| **Avoid nested includes on lists** | Product list: return variant count, not full variants |
+| Optimization                       | Where                                                                |
+| ---------------------------------- | -------------------------------------------------------------------- |
+| **Select only needed fields**      | Prisma `select` instead of full model — especially on list endpoints |
+| **Exclude internal fields**        | Never return `tenant_id`, `deleted_at`, `search_vector` to clients   |
+| **Image URL optimization**         | Return thumbnail URL for lists, full URL for detail page             |
+| **Gzip/Brotli compression**        | Enable in Nginx for all JSON and text responses                      |
+| **Avoid nested includes on lists** | Product list: return variant count, not full variants                |
 
 ### 🟡 4.2 — API Response Shaping (List vs Detail)
 
@@ -348,12 +355,12 @@ GET /products/:slug → { ...full product with all relations }
 
 ### 🔴 5.1 — Image Optimization Pipeline
 
-| Stage | Action |
-|---|---|
-| Upload | Validate type (JPEG, PNG, WebP, HEIC), max 5 MB |
-| Process | Convert to WebP, generate 3 sizes (thumbnail 400px, medium 800px, full 1200px) |
-| Store | MinIO with structured paths: `/tenants/{id}/products/{id}/{size}_{hash}.webp` |
-| Serve | Cloudflare CDN → Nginx cache headers (1 year for hashed filenames) |
+| Stage   | Action                                                                                 |
+| ------- | -------------------------------------------------------------------------------------- |
+| Upload  | Validate type (JPEG, PNG, WebP, HEIC), max 5 MB                                        |
+| Process | Convert to WebP, generate 3 sizes (thumbnail 400px, medium 800px, full 1200px)         |
+| Store   | MinIO with structured paths: `/tenants/{id}/products/{id}/{size}_{hash}.webp`          |
+| Serve   | Cloudflare CDN → Nginx cache headers (1 year for hashed filenames)                     |
 | Display | Next.js `<Image>` component with `loading="lazy"`, `sizes` attribute, blur placeholder |
 
 **Estimated savings**: 60-80% bandwidth reduction vs raw uploaded images.
@@ -362,24 +369,24 @@ GET /products/:slug → { ...full product with all relations }
 
 ### 🟡 5.2 — Core Web Vitals Targets
 
-| Metric | Target | Strategy |
-|---|---|---|
-| LCP (Largest Contentful Paint) | < 2.5s | SSR for product pages, preload hero image |
-| FID (First Input Delay) | < 100ms | Minimal client-side JS, code splitting per route |
-| CLS (Cumulative Layout Shift) | < 0.1 | Fixed image dimensions, skeleton loading states |
-| TTFB (Time to First Byte) | < 600ms | Redis cache for tenant info, SSR with streaming |
+| Metric                         | Target  | Strategy                                         |
+| ------------------------------ | ------- | ------------------------------------------------ |
+| LCP (Largest Contentful Paint) | < 2.5s  | SSR for product pages, preload hero image        |
+| FID (First Input Delay)        | < 100ms | Minimal client-side JS, code splitting per route |
+| CLS (Cumulative Layout Shift)  | < 0.1   | Fixed image dimensions, skeleton loading states  |
+| TTFB (Time to First Byte)      | < 600ms | Redis cache for tenant info, SSR with streaming  |
 
 ---
 
 ### 🟡 5.3 — Bundle Size Strategy
 
-| Strategy | Implementation |
-|---|---|
-| Route-based splitting | Next.js does this automatically via App Router |
-| Dynamic imports | Calendar picker, rich text editor, chart libraries — `dynamic(() => import(...))` |
-| Tree-shaking | Import only needed ShadCN components, not entire library |
-| Font optimization | `next/font` with subset for used characters only |
-| No heavy libraries | Avoid moment.js (use `date-fns`), avoid lodash full (use individual imports) |
+| Strategy              | Implementation                                                                    |
+| --------------------- | --------------------------------------------------------------------------------- |
+| Route-based splitting | Next.js does this automatically via App Router                                    |
+| Dynamic imports       | Calendar picker, rich text editor, chart libraries — `dynamic(() => import(...))` |
+| Tree-shaking          | Import only needed ShadCN components, not entire library                          |
+| Font optimization     | `next/font` with subset for used characters only                                  |
+| No heavy libraries    | Avoid moment.js (use `date-fns`), avoid lodash full (use individual imports)      |
 
 ---
 
@@ -393,10 +400,10 @@ Prisma uses a connection pool by default, but the config matters:
 DATABASE_URL="postgresql://user:pass@postgres:5432/closetrent?connection_limit=20&pool_timeout=10"
 ```
 
-| Setting | Value | Rationale |
-|---|---|---|
-| `connection_limit` | 20 | Appropriate for 4-core VPS |
-| `pool_timeout` | 10 | Fail fast on pool exhaustion |
+| Setting            | Value | Rationale                    |
+| ------------------ | ----- | ---------------------------- |
+| `connection_limit` | 20    | Appropriate for 4-core VPS   |
+| `pool_timeout`     | 10    | Fail fast on pool exhaustion |
 
 **Future**: Add PgBouncer as external pool for connection multiplexing when scaling beyond 1 backend instance.
 
@@ -410,6 +417,7 @@ maxmemory-policy allkeys-lru
 ```
 
 Estimated usage:
+
 - Tenant cache: ~10 KB × 100 tenants = 1 MB
 - Product list cache: ~50 KB × 100 tenants × 5 pages = 25 MB
 - Session data: ~1 KB × 500 sessions = 0.5 MB
@@ -447,15 +455,15 @@ limit_req_zone $binary_remote_addr zone=api:10m rate=120r/m;
 
 These changes MUST be applied to the database schema docs before development:
 
-| # | Change | Files Affected |
-|---|---|---|
-| 1 | `DECIMAL(12,2)` → `INTEGER` for all money fields | booking.md, booking-item.md, product.md, customer.md, pricing.md, service-options.md, damage-reports section, payment.md |
-| 2 | Add `EXCLUDE` constraint on `date_blocks` | booking.md |
-| 3 | Add locale fields to `store_settings` | tenant.md |
-| 4 | Replace BD-specific address fields with flexible structure | booking.md, customer.md |
-| 5 | Remove redundant standalone `tenant_id` indexes | All tenant-scoped tables with composite indexes |
-| 6 | Add partial indexes for hot queries | product.md, booking.md |
-| 7 | Add `pg_trgm` index for fuzzy search | product.md |
+| #   | Change                                                     | Files Affected                                                                                                           |
+| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `DECIMAL(12,2)` → `INTEGER` for all money fields           | booking.md, booking-item.md, product.md, customer.md, pricing.md, service-options.md, damage-reports section, payment.md |
+| 2   | Add `EXCLUDE` constraint on `date_blocks`                  | booking.md                                                                                                               |
+| 3   | Add locale fields to `store_settings`                      | tenant.md                                                                                                                |
+| 4   | Replace BD-specific address fields with flexible structure | booking.md, customer.md                                                                                                  |
+| 5   | Remove redundant standalone `tenant_id` indexes            | All tenant-scoped tables with composite indexes                                                                          |
+| 6   | Add partial indexes for hot queries                        | product.md, booking.md                                                                                                   |
+| 7   | Add `pg_trgm` index for fuzzy search                       | product.md                                                                                                               |
 
 ---
 

@@ -25,10 +25,10 @@ import { Loader2 } from 'lucide-react';
 import { useCategories, useEvents } from '../../../hooks/use-product-apis';
 import { FieldTip } from '@/components/shared/field-tip';
 
-export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = {}) {
+export function BasicInfoStep() {
   const { control, watch } = useFormContext<ProductFormValues>();
   const categoryId = watch('categoryId');
-  
+
   const { data: categories, isLoading: isLoadingCats } = useCategories();
   const { data: events, isLoading: isLoadingEvents } = useEvents();
 
@@ -43,7 +43,10 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
           name="name"
           render={({ field }) => (
             <FormItem className="col-span-2">
-              <FormLabel>Product Name * <FieldTip tip="The name customers will see on your storefront. Use a descriptive name like 'Royal Banarasi Saree - Ivory Gold'." /></FormLabel>
+              <FormLabel>
+                Product Name *{' '}
+                <FieldTip tip="The name customers will see on your storefront. Use a descriptive name like 'Royal Banarasi Saree - Ivory Gold'." />
+              </FormLabel>
               <FormControl>
                 <Input placeholder="e.g. Royal Banarasi Saree" {...field} />
               </FormControl>
@@ -57,7 +60,10 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
           name="description"
           render={({ field }) => (
             <FormItem className="col-span-2">
-              <FormLabel>Description <FieldTip tip="A detailed description helps customers understand the product. Mention fabric, occasion, styling tips, and any special features." /></FormLabel>
+              <FormLabel>
+                Description{' '}
+                <FieldTip tip="A detailed description helps customers understand the product. Mention fabric, occasion, styling tips, and any special features." />
+              </FormLabel>
               <FormControl>
                 <Textarea
                   placeholder="Tell customers about this product..."
@@ -75,16 +81,21 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
           name="categoryId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Category * <FieldTip tip="The main product category (e.g., Saree, Lehenga, Sherwani). Determines how the product is organized on your storefront." /></FormLabel>
+              <FormLabel>
+                Category *{' '}
+                <FieldTip tip="The main product category (e.g., Saree, Lehenga, Sherwani). Determines how the product is organized on your storefront." />
+              </FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                 <FormControl>
                   <SelectTrigger disabled={isLoadingCats}>
-                    <SelectValue placeholder={isLoadingCats ? "Loading..." : "Select a category"} />
+                    <SelectValue placeholder={isLoadingCats ? 'Loading...' : 'Select a category'} />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
                   {categories?.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                    <SelectItem key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -98,7 +109,10 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
           name="subcategoryId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Subcategory <FieldTip tip="A more specific classification within the category. Helps customers find exactly what they're looking for." /></FormLabel>
+              <FormLabel>
+                Subcategory{' '}
+                <FieldTip tip="A more specific classification within the category. Helps customers find exactly what they're looking for." />
+              </FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                 <FormControl>
                   <SelectTrigger disabled={!categoryId || subcategories.length === 0}>
@@ -107,7 +121,9 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
                 </FormControl>
                 <SelectContent>
                   {subcategories.map((sub) => (
-                    <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
+                    <SelectItem key={sub.id} value={sub.id}>
+                      {sub.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -122,13 +138,17 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
           render={() => (
             <FormItem className="col-span-2">
               <div className="mb-4">
-                <FormLabel className="text-base">Suitable Events <FieldTip tip="Select events where this product would be appropriate (e.g., Wedding, Engagement, Eid). Customers can filter by event." /></FormLabel>
-                <FormDescription>
-                  Select all events this product is suitable for.
-                </FormDescription>
+                <FormLabel className="text-base">
+                  Suitable Events{' '}
+                  <FieldTip tip="Select events where this product would be appropriate (e.g., Wedding, Engagement, Eid). Customers can filter by event." />
+                </FormLabel>
+                <FormDescription>Select all events this product is suitable for.</FormDescription>
               </div>
               {isLoadingEvents ? (
-                <div className="flex px-3 py-2 border rounded-md"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" /> Loading events...</div>
+                <div className="flex px-3 py-2 border rounded-md">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" /> Loading
+                  events...
+                </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
                   {events?.map((event) => (
@@ -149,10 +169,8 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
                                   return checked
                                     ? field.onChange([...field.value, event.id])
                                     : field.onChange(
-                                        field.value?.filter(
-                                          (value: string) => value !== event.id
-                                        )
-                                      )
+                                        field.value?.filter((value: string) => value !== event.id),
+                                      );
                                 }}
                               />
                             </FormControl>
@@ -160,7 +178,7 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
                               {event.name}
                             </FormLabel>
                           </FormItem>
-                        )
+                        );
                       }}
                     />
                   ))}
@@ -170,94 +188,28 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
             </FormItem>
           )}
         />
-
-        {showStatus && <FormField
-          control={control}
-          name="status"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Setup Status <FieldTip tip="Draft products are hidden from your storefront. Set to Published when the product is ready to be rented." /></FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="draft">Draft (Hidden)</SelectItem>
-                  <SelectItem value="published">Published (Visible)</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormDescription>
-                Published products appear on your storefront.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />}
-        
-        <FormField
-          control={control}
-          name="targetRentals"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Target Rentals <FieldTip tip="Your goal for how many times this product should be rented. Used for ROI tracking on the analytics dashboard." /></FormLabel>
-              <FormControl>
-                <Input 
-                  type="number" 
-                  placeholder="e.g. 10" 
-                  {...field}
-                  onChange={(e) => field.onChange(e.target.valueAsNumber || undefined)}
-                />
-              </FormControl>
-              <FormDescription>
-                Goal for ROI calculation (optional)
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
       </div>
 
       <Card>
         <CardContent className="pt-6 space-y-4">
-          <h3 className="text-lg font-medium">Internal Purchase Info</h3>
+          <h3 className="text-lg font-medium">Catalog provenance and reference value</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Used for your own accounting. Optionally show to customers to highlight value.
+            These values describe the product style. Acquisition date and cost belong to each
+            physical rental item and are recorded in Inventory.
           </p>
-          
-          <div className="grid gap-6 md:grid-cols-2">
-            <FormField
-              control={control}
-              name="purchaseDate"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Purchase Date <FieldTip tip="When you originally bought this item. Used for depreciation tracking and accounting reports." /></FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
+          <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-4">
               <FormField
                 control={control}
-                name="purchasePrice"
+                name="countryOfOrigin"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Purchase Price (৳) <FieldTip tip="What you paid for this item. Helps calculate ROI and profit margin per rental. Not shown to customers by default." /></FormLabel>
+                    <FormLabel>
+                      Country of origin <FieldTip helpKey="catalog.countryOfOrigin" />
+                    </FormLabel>
                     <FormControl>
-                      <Input 
-                        type="number" 
-                        min="0"
-                        step="0.01"
-                        placeholder="e.g. 15000" 
-                        {...field}
-                        value={minorToMajorInput(field.value)}
-                        onChange={(e) => field.onChange(majorInputToMinor(e.target.value))}
-                      />
+                      <Input placeholder="e.g. Bangladesh" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -265,17 +217,17 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
               />
               <FormField
                 control={control}
-                name="showPurchasePrice"
+                name="countryOfOriginPublic"
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                     <div className="space-y-0.5">
-                      <FormLabel>Show price to guests <FieldTip tip="If enabled, customers can see the original purchase price on the product page — useful for showing they're getting a deal." /></FormLabel>
+                      <FormLabel>
+                        Show origin to customers{' '}
+                        <FieldTip tip="When enabled, the storefront may display the country of origin. Keep this off if the value is only for internal cataloging or has not been verified." />
+                      </FormLabel>
                     </div>
                     <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
                     </FormControl>
                   </FormItem>
                 )}
@@ -285,12 +237,22 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
             <div className="space-y-4">
               <FormField
                 control={control}
-                name="itemCountry"
+                name="referenceRetailValue"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Item Country <FieldTip tip="The country of origin or manufacture. Adds authenticity for imported or handcrafted items (e.g., India, Turkey, Italy)." /></FormLabel>
+                    <FormLabel>
+                      Reference retail value (৳) <FieldTip helpKey="catalog.referenceRetailValue" />
+                    </FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. India, Turkey" {...field} />
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="e.g. 25000"
+                        {...field}
+                        value={minorToMajorInput(field.value)}
+                        onChange={(event) => field.onChange(majorInputToMinor(event.target.value))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -298,17 +260,17 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
               />
               <FormField
                 control={control}
-                name="showCountry"
+                name="referenceRetailValuePublic"
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                     <div className="space-y-0.5">
-                      <FormLabel>Show country to guests <FieldTip tip="Display the item's country of origin on the product page. Adds a premium feel for imported items." /></FormLabel>
+                      <FormLabel>
+                        Show reference value to customers{' '}
+                        <FieldTip helpKey="catalog.referenceRetailValuePublic" />
+                      </FormLabel>
                     </div>
                     <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
                     </FormControl>
                   </FormItem>
                 )}
@@ -317,7 +279,6 @@ export function BasicInfoStep({ showStatus = true }: { showStatus?: boolean } = 
           </div>
         </CardContent>
       </Card>
-      
     </div>
   );
 }

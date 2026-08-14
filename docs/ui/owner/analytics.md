@@ -43,7 +43,7 @@ Business performance dashboard with charts and exportable data.
 │ │ └───────────────────┘     │ │                            │   │
 │ └───────────────────────────┘ └────────────────────────────┘   │
 │                                                                │
-│  Target Recovery                                    [Export]   │
+│  Physical-item Cost Recovery                        [Export]   │
 │ ┌──────────────────────────────────────────────────────────┐   │
 │ │ Total Investment: ৳450,000                               │   │
 │ │ Total Recovered:  ৳185,000 (41.1%)                       │   │
@@ -67,6 +67,7 @@ Business performance dashboard with charts and exportable data.
 ## Chart Library
 
 Use **Chart.js** or **Recharts** (if React) for:
+
 - Line chart: Revenue trend
 - Donut chart: Revenue by category
 - Bar chart: Bookings per status (future)
@@ -75,14 +76,14 @@ Use **Chart.js** or **Recharts** (if React) for:
 
 ## Time Period Selector
 
-| Option | Range |
-|---|---|
-| Today | Current day |
-| Last 7 days | Past week |
-| Last 30 days | Past month (default) |
-| This month | Calendar month |
-| Last month | Previous calendar month |
-| Custom | Date range picker |
+| Option       | Range                   |
+| ------------ | ----------------------- |
+| Today        | Current day             |
+| Last 7 days  | Past week               |
+| Last 30 days | Past month (default)    |
+| This month   | Calendar month          |
+| Last month   | Previous calendar month |
+| Custom       | Date range picker       |
 
 ---
 

@@ -1,199 +1,87 @@
-# Serialized Inventory Cutover Checklist
+# Serialized Inventory Cutover Evidence
+
+**Completed:** 2026-08-15
 
 **Source design:** `docs/superpowers/specs/2026-08-12-serialized-rental-inventory-and-product-lifecycle-design.md`
 
 **Implementation plan:** `docs/superpowers/plans/2026-08-12-serialized-rental-inventory-and-product-lifecycle.md`
 
-**Status values:** `PENDING`, `IN PROGRESS`, `COMPLETE`
-
-This checklist tracks every live hybrid-inventory contract that must be removed or replaced. A row becomes `COMPLETE` only when its schema/service/API/UI/test or documentation evidence uses physical-item identity exclusively.
+This is the closure record for replacing the former hybrid quantity/item model. `COMPLETE` means the live schema, service, API, UI, documentation, and focused verification use exact physical-item identity. The old concepts below are named only as removal evidence.
 
 ## Protected worktree
 
-| Path | Rule |
-|---|---|
-| `apps/frontend/src/app/(owner)/dashboard/customers/[id]/page.tsx` | Existing user change. Do not edit or stage. |
-| `apps/frontend/src/app/(owner)/dashboard/customers/page.tsx` | Existing user change. Do not edit or stage. |
+These pre-existing user changes were preserved and excluded from every cutover commit:
 
-## Database and seed
+| Path                                                              | Rule                  |
+| ----------------------------------------------------------------- | --------------------- |
+| `apps/frontend/src/app/(owner)/dashboard/customers/[id]/page.tsx` | Do not edit or stage. |
+| `apps/frontend/src/app/(owner)/dashboard/customers/page.tsx`      | Do not edit or stage. |
 
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Inventory tracking enum | `schema.prisma:InventoryTrackingMode` | B1 | PENDING |
-| Transfer line kind enum | `schema.prisma:InventoryTransferLineKind` | B1 | PENDING |
-| Pooled movement types | `schema.prisma:InventoryMovementType` | B1 | PENDING |
-| SKU tracking mode | `VariantSize.trackingMode` | B1 | PENDING |
-| Inventory pools | `InventoryPool` and relations | B1 | PENDING |
-| Pool reservation reference | `InventoryReservation.inventoryPoolId` | B1 | PENDING |
-| Preferred physical-item reservation | `InventoryReservation.preferredStockUnitId` | B1/B6 | PENDING |
-| Tracking snapshot | `FulfillmentRequirement.trackingModeSnapshot` | B1 | PENDING |
-| Pool/quantity blocks | `InventoryBlock.inventoryPoolId`, `quantity` | B1 | PENDING |
-| Hybrid transfer line | `InventoryTransferLine.lineKind`, pool and quantity fields | B1/B5 | PENDING |
-| Anonymous movements | `InventoryMovement.inventoryPoolId`, `quantityDelta` | B1/B4 | PENDING |
-| Product purchase fields | `Product.purchaseDate`, `purchasePrice`, `purchasePricePublic` | B1 | PENDING |
-| Product target rentals | `Product.targetRentals` | B1 | PENDING |
-| Ambiguous item country field | `Product.itemCountry`, `itemCountryPublic` | B1/B3 | PENDING |
-| Physical-item acquisition naming | `StockUnit.purchaseDate`, `purchasePrice` | B1/B4 | PENDING |
-| Acquisition source/reference | Missing on `StockUnit` | B1/D1 | PENDING |
-| Item revenue attribution | Requirement-level allocation only | B1/B7 | PENDING |
-| Single clean baseline | `20260803200000_complete_saas_baseline/migration.sql` | B1/H3 | PENDING |
-| Deterministic serialized seed | `apps/backend/prisma/seed.ts` | B1/H3 | PENDING |
-| Tenant middleware pool registration | `tenant-isolation.middleware.ts` | B1 | PENDING |
+## Domain and database
 
-## Catalog backend
+| Contract                                  | Status   | Closure evidence                                                                                                                                                                      |
+| ----------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Serialized-only inventory                 | COMPLETE | Tracking-mode enums/columns and inventory-pool tables/relations are absent. Every rentable piece is a `StockUnit` with a tenant-scoped asset code.                                    |
+| Exact availability and reservation demand | COMPLETE | Availability counts eligible stock units and subtracts reservation demand once; assignments are identities fulfilling that demand, not a second capacity subtraction.                 |
+| Exact assignments and overlap prevention  | COMPLETE | Assignments always identify a stock unit. PostgreSQL GiST exclusion constraint `stock_unit_assignments_no_overlap` prevents date overlap for the same active item.                    |
+| Exact transfers, blocks, and movements    | COMPLETE | Transfer lines and blocks target item identities; every inventory movement has a stock unit and a one-item invariant.                                                                 |
+| Physical-item acquisition data            | COMPLETE | Acquisition date, cost, source, and reference live on `StockUnit`; product-level commercial reference value remains a separate catalog fact.                                          |
+| Physical-item revenue attribution         | COMPLETE | Booking completion creates deterministic `RENTAL_REVENUE` rows per assignment. Signed, idempotent `ADJUSTMENT` rows preserve refund/correction history without rewriting originals.   |
+| Identity-based stock counts               | COMPLETE | Count sessions retain raw observations and expected/observed item findings, including duplicates, unknowns, missing items, unexpected items, wrong locations, and state-review flags. |
+| Clean baseline and seed                   | COMPLETE | The single baseline migration applies to an empty PostgreSQL database; deterministic seed succeeds twice without duplicate system data.                                               |
+| Tenant isolation registration             | COMPLETE | All new serialized inventory and count models are tenant-scoped and registered with tenant isolation.                                                                                 |
 
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Product create/update purchase/target DTOs | `product.dto.ts`, `product-onboarding.dto.ts` | B2/B3 | PENDING |
-| SKU tracking selection DTO | onboarding/variant DTOs | B2/B3 | PENDING |
-| Opening inventory DTO | `SaveOpeningInventoryDto` | B2/B3 | PENDING |
-| Opening inventory controller | `PUT product-onboardings/:id/opening-inventory` | B3 | PENDING |
-| Opening inventory service | `recordOpeningInventory` | B3 | PENDING |
-| Opening inventory readiness dependency | onboarding section order/publish | B3 | PENDING |
-| Tracking mode change guard | `variant.service.ts`, onboarding service | B3 | PENDING |
-| Product list tracking filters/projection | `product.service.ts` | B3 | PENDING |
-| Product purchase/target detail projection | `product.service.ts` | B3 | PENDING |
-| Zero-stock publication | readiness and onboarding tests | B3/C4 | PENDING |
-| Safe SKU identity editing | variant/product services | B3/C3 | PENDING |
-| Draft-only hard deletion | product/variant services | B3/C3 | PENDING |
-| Product onboarding integration | `product-onboarding.integration-spec.ts` | B3/C4 | PENDING |
+## Product lifecycle
 
-## Inventory backend
+| Contract                         | Status   | Closure evidence                                                                                                                                          |
+| -------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Five-stage onboarding            | COMPLETE | Basics/sizing; variants, SKUs, and images; details/FAQ; pricing/services; review/publish. Inventory is no longer an onboarding section.                   |
+| Catalog/internal fact separation | COMPLETE | Country of origin and reference retail value are catalog facts. Acquisition facts are entered only while registering or correcting physical items.        |
+| Zero-stock publication           | COMPLETE | A complete listing can publish with zero items and appears unavailable until identities are registered. `product-readiness.spec.ts` locks this rule.      |
+| Publication lifecycle            | COMPLETE | Draft saving is distinct from publication. Publishing uses readiness checks; archive has an explicit confirmation and retains operational history.        |
+| Safe editing                     | COMPLETE | Create and edit share contracts; published structural changes are guarded when referenced by inventory, rental, pricing, composition, or history records. |
+| Completion handoff               | COMPLETE | Setup completion offers direct, product/SKU-prefilled physical-item registration without duplicating registration logic.                                  |
 
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Pool service/provider | `inventory-pool.service.ts`, `inventory.module.ts` | B4 | PENDING |
-| Pool endpoints | inventory foundation controller | B2/B4 | PENDING |
-| Pool adjustment/count DTOs | inventory foundation DTO | B2/B4 | PENDING |
-| Hybrid availability | `inventory-availability.service.ts` | B4 | PENDING |
-| Hybrid reservation creation | `inventory-reservation.service.ts` | B4 | PENDING |
-| Conditional assignment | `inventory-assignment.service.ts` | B4 | PENDING |
-| Pool/quantity blocks | block service/DTO | B2/B4 | PENDING |
-| Pool ledger entries | `inventory-ledger.service.ts` | B4 | PENDING |
-| Pool location deactivation guard | `inventory-location.service.ts` | B4 | PENDING |
-| Hybrid overview/SKU projection | `inventory-dashboard.service.ts` | B4/E1 | PENDING |
-| Hybrid product inventory projection | `inventory-management.service.ts` | B4/E5 | PENDING |
-| Duplicate single-item registration | inventory controller/service | D1 | PENDING |
-| Atomic canonical registration | batch endpoint/service | D1 | PENDING |
-| Audited acquisition correction | generic stock-unit patch | D1/E2 | PENDING |
-| Quantity stock counts | foundation services/contracts | B4/E3 | PENDING |
-| Item-only movement invariant | schema and ledger services | B1/B4 | PENDING |
+## Operational backend
 
-## Transfers, fulfilment, and booking backend
+| Contract                      | Status   | Closure evidence                                                                                                                                                     |
+| ----------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical registration        | COMPLETE | One atomic batch command creates one record per physical identity, validates duplicates and component completeness, and safely replays an identical idempotency key. |
+| Audited item correction       | COMPLETE | Item correction uses optimistic versioning and records before/after acquisition and identity changes in the movement ledger.                                         |
+| Exact fulfilment              | COMPLETE | Booking assignment, preparation, handout, return, inspection, loss, service, and release flows use stock-unit assignments.                                           |
+| Serialized transfers          | COMPLETE | Transfer drafts, dispatch, receipt, discrepancies, and history operate on exact item IDs.                                                                            |
+| Serialized inventory overview | COMPLETE | Overview, items, stock by SKU, locations, availability, movements, and product inventory derive counts from physical items.                                          |
+| Physical-item economics       | COMPLETE | Analytics aggregates item acquisition cost, attributed revenue, and recorded service cost; incomplete inputs remain explicit instead of being estimated.             |
 
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Pooled transfer branches | transfer DTO/service/spec | B5 | PENDING |
-| Stored transfer quantities | `InventoryTransferLine` fields | B1/B5 | PENDING |
-| Exact transfer unit outcomes | transfer unit service/spec | B5 | PENDING |
-| Pooled fulfilment branches | `fulfillment.service.ts` | B6 | PENDING |
-| Pooled loss reconciliation | fulfilment service/spec | B6 | PENDING |
-| Tracking snapshots in booking responses | booking/fulfilment DTOs and clients | B2/B6 | PENDING |
-| Preferred-item storefront/cart behavior | storefront cart and availability | B6/F1 | PENDING |
-| SKU capacity concurrency | reservation locks/integration test | B4/B6 | PENDING |
-| Exact assignment overlap concurrency | assignment/integration test | B6 | PENDING |
-| Deterministic revenue allocation | missing item allocation model/service | B7 | PENDING |
-| Refund/correction attribution | missing signed adjustment flow | B7 | PENDING |
+## Frontend and help
 
-## Analytics backend
+| Contract                       | Status   | Closure evidence                                                                                                                                                  |
+| ------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical item registration UI | COMPLETE | Dedicated registration route is reused from inventory, SKU, product inventory, and setup-complete entry points.                                                   |
+| Item correction UI             | COMPLETE | Product item detail exposes guarded acquisition/identity corrections and exact operational history.                                                               |
+| Identity count workspace       | COMPLETE | Counts page accepts scans, explains reconciliation, and exposes session findings/history.                                                                         |
+| Storefront behavior            | COMPLETE | Guest product, cart, and checkout use quantity/date availability without exposing internal identities or acquisition facts.                                       |
+| Booking assignment UI          | COMPLETE | Staff assign exact available pieces and see identity-specific fulfilment actions and history.                                                                     |
+| Cost-recovery analytics        | COMPLETE | The obsolete rental-count target is replaced by physical-item cost recovery derived from actual acquisition, revenue, and service records.                        |
+| Accessible contextual help     | COMPLETE | Typed help registry plus `ContextHelp` provides click, touch, keyboard, focus, screen-reader text, and examples. Component tests cover interaction accessibility. |
 
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Product purchase-price recovery | `analytics.service.ts` | B7/F3 | PENDING |
-| Product target progress | product detail UI/projection | B7/F3 | PENDING |
-| Item acquisition aggregates | inventory dashboard | B7/F3 | PENDING |
-| Item revenue allocation aggregates | missing | B7/F3 | PENDING |
-| Recorded service cost aggregates | service order cost | B7/F3 | PENDING |
-| Incomplete-input reporting | current missing-cost behavior | B7/F3 | PENDING |
+## Removal and verification
 
-## Frontend API contracts
+| Gate                         | Status   | Evidence                                                                                                                                                                                                                                                                       |
+| ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Live-code removal search     | COMPLETE | No live schema/API/UI/docs reference remains for inventory pools, pooled quantity, tracking modes, preferred-item reservations, opening inventory, product purchase facts, or rental-count targets. Current design/plan retain those terms only to document removal decisions. |
+| Superseded design removal    | COMPLETE | Hybrid and rental-target plan/spec files were removed; the current serialized design and plan are authoritative.                                                                                                                                                               |
+| Fresh database verification  | COMPLETE | Empty database migration and two consecutive seeds succeeded; baseline contains count tables and stock-unit versioning and contains no pool table.                                                                                                                             |
+| Focused backend verification | COMPLETE | Unit and PostgreSQL integration coverage exercise registration, counts, availability, transfers, exact revenue allocation/adjustment, lifecycle behavior, and zero-stock readiness.                                                                                            |
+| Frontend verification        | COMPLETE | Context-help component tests and the production frontend build cover the changed owner/storefront contracts.                                                                                                                                                                   |
+| Type and production builds   | COMPLETE | Shared types, NestJS backend, and Next.js frontend production builds pass.                                                                                                                                                                                                     |
 
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Product tracking and pooled onboarding types | `lib/api/products.ts` | B8 | PENDING |
-| Product purchase/target types | `lib/api/products.ts` | B8 | PENDING |
-| Inventory pools/tracking types | `lib/api/inventory.ts` | B8 | PENDING |
-| Pool blocks and transfers | `lib/api/inventory.ts` | B8 | PENDING |
-| Booking tracking snapshots | `lib/api/bookings.ts` | B8 | PENDING |
-| Fulfilment tracking responses | `lib/api/fulfillment.ts` | B8 | PENDING |
-| Guest tracking/item selection | `lib/api/guest-products.ts` | B8/F1 | PENDING |
-| Profitability response | `lib/api/analytics.ts` | B8/F3 | PENDING |
-| Canonical registration API | inventory API | D1/D2 | PENDING |
+## Final invariants
 
-## Catalog frontend
-
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Six-stage wizard | product form index/layout | C1 | PENDING |
-| Media separated from variants | variants/content steps | C1 | PENDING |
-| Opening inventory stage | `steps/opening-inventory.tsx` | C1 | PENDING |
-| Tracking selector/default | variants step/schema | C1 | PENDING |
-| Product purchase fields | basic info/schema/review | C1 | PENDING |
-| Target rentals field | basic info/schema/review | C1 | PENDING |
-| First-stage status selector | basic info | C1 | PENDING |
-| Completion actions | missing route | C2 | PENDING |
-| Tabbed safe editing | edit form/hooks | C3 | PENDING |
-| Product tracking filters/badges | catalog toolbar/table | C3 | PENDING |
-| Product detail purchase/target UI | product detail | C3/F3 | PENDING |
-
-## Inventory frontend
-
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Registration dialog | `register-item-dialog.tsx` | D2 | PENDING |
-| Canonical registration route | missing | D2 | PENDING |
-| Registration entry-point convergence | items/stock/product/setup pages | D3 | PENDING |
-| Overview hybrid totals | inventory overview | E1 | PENDING |
-| Stock tracking filter/badge | Stock by SKU | E1 | PENDING |
-| Physical-item acquisition correction | item detail | E2 | PENDING |
-| Pooled location totals | locations | E3 | PENDING |
-| Hybrid transfer builder | transfers | E3 | PENDING |
-| Quantity counts | counts | E3 | PENDING |
-| Pool block target | availability | E4 | PENDING |
-| Pool movements | movement ledger | E4 | PENDING |
-| Product pooled adjustment UI | product inventory | E5 | PENDING |
-| Inspection/service exact-item queues | inspections/service | E5 | PENDING |
-
-## Storefront, booking, and profitability frontend
-
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Public tracking mode | guest product types/views | F1 | PENDING |
-| Public preferred item | guest availability/cart | F1 | PENDING |
-| Conditional assignment UI | booking assignments | F2 | PENDING |
-| Pooled fulfilment copy/actions | booking detail/actions | F2 | PENDING |
-| Manual booking tracking branches | manual booking form | F2 | PENDING |
-| Target Rentals progress | product detail | F3 | PENDING |
-| Product purchase-cost display | product detail | F3 | PENDING |
-| Item/SKU/product recovery view | missing/partial analytics | F3 | PENDING |
-
-## Contextual help
-
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Hover-only/unfocusable help | `components/shared/field-tip.tsx` | G1 | PENDING |
-| Typed help registry | missing | G1/G2 | PENDING |
-| Catalog help coverage | scattered Basic/Variants tips | G2/G3 | PENDING |
-| Inventory help coverage | mostly missing | G2/G3 | PENDING |
-| Booking-assignment help coverage | mostly missing | G2/G3 | PENDING |
-| Obsolete pooled/purchase/target help | existing field tips/copy | G3 | PENDING |
-| Interaction accessibility tests | missing frontend test runner | G4 | PENDING |
-
-## Documentation and final evidence
-
-| Contract | Current evidence | Replacement checkpoint | Status |
-|---|---|---|---|
-| Add-product flow/UI | old eight-stage docs | H1 | PENDING |
-| Edit-product UI | old form assumptions | H1 | PENDING |
-| Stock inventory feature | hybrid docs | H1 | PENDING |
-| Availability feature | hybrid docs | H1 | PENDING |
-| Booking feature/API | tracking snapshots | H1 | PENDING |
-| Product/inventory API docs | purchase/pool examples | H1 | PENDING |
-| Product database docs | purchase/target columns | H1 | PENDING |
-| Target tracking feature | obsolete standalone spec | H1 | PENDING |
-| Domain completeness matrix | hybrid rows | H1 | PENDING |
-| Repository removal search | live references currently present | H2 | PENDING |
-| Fresh baseline migrate/seed twice | not yet verified | H3 | PENDING |
-| Backend unit/integration suite | not yet verified | H3 | PENDING |
-| Types/backend/frontend builds | not yet verified | H3 | PENDING |
-| Final acceptance workflow smoke | not yet verified | H4 | PENDING |
+- One rentable physical piece equals one stock-unit identity.
+- A SKU may exist with zero stock; it never implies anonymous capacity.
+- Inventory is registered after catalog setup and corrected only through the canonical item workflow.
+- Reservations express demand; assignments identify the exact pieces fulfilling that demand.
+- Acquisition and operational history belongs to physical items.
+- Financial corrections append signed rows and never rewrite earned-revenue attribution.
+- Published zero-stock products remain truthful and unavailable.

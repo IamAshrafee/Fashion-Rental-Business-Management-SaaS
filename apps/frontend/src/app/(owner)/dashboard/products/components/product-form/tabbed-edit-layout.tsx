@@ -8,6 +8,7 @@ export const EDIT_TABS = [
   { id: 'media', label: 'Variants & Media' },
   { id: 'pricing', label: 'Pricing & Fees' },
   { id: 'size_details', label: 'Size & Details' },
+  { id: 'publication', label: 'Publication' },
 ] as const;
 
 export type EditTabId = typeof EDIT_TABS[number]['id'];

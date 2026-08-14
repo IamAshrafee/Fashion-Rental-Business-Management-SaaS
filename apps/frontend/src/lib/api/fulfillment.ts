@@ -160,7 +160,6 @@ export interface FulfillmentRequirement {
   blockedEndDate: string;
   variantSize: {
     id: string;
-    trackingMode: 'POOLED' | 'SERIALIZED';
     sizeInstance: { displayLabel: string };
     variant: { id: string; variantName: string | null };
   } | null;

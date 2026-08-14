@@ -36,33 +36,33 @@ After marking an order as "Returned" → Owner inspects → If damage found:
 
 ### Damage Report Fields
 
-| Field | Type | Required |
-|---|---|---|
-| Damage Level | Dropdown | Yes |
-| Description | Textarea | Yes |
-| Photos | Image upload (up to 5) | Recommended |
-| Estimated Repair Cost | Number (৳) | If repairable |
-| Deduction Amount | Number (৳) | Yes |
-| Action | Dropdown | Yes |
+| Field                 | Type                   | Required      |
+| --------------------- | ---------------------- | ------------- |
+| Damage Level          | Dropdown               | Yes           |
+| Description           | Textarea               | Yes           |
+| Photos                | Image upload (up to 5) | Recommended   |
+| Estimated Repair Cost | Number (৳)             | If repairable |
+| Deduction Amount      | Number (৳)             | Yes           |
+| Action                | Dropdown               | Yes           |
 
 ### Damage Levels
 
-| Level | Description | Typical Action |
-|---|---|---|
-| **None** | No damage, normal wear | Full deposit refund |
-| **Minor** | Small stain, loose thread, missing button | Deduct repair cost (৳200-1,000) |
-| **Moderate** | Noticeable tear, significant stain, missing accessory | Deduct repair cost or partial retail value |
-| **Severe** | Major tear, permanent stain, structural damage | Forfeit deposit, may charge additional |
-| **Destroyed** | Product unusable, cannot be repaired | Forfeit deposit + charge full retail value |
-| **Lost** | Product not returned | Forfeit deposit + charge full retail value |
+| Level         | Description                                           | Typical Action                             |
+| ------------- | ----------------------------------------------------- | ------------------------------------------ |
+| **None**      | No damage, normal wear                                | Full deposit refund                        |
+| **Minor**     | Small stain, loose thread, missing button             | Deduct repair cost (৳200-1,000)            |
+| **Moderate**  | Noticeable tear, significant stain, missing accessory | Deduct repair cost or partial retail value |
+| **Severe**    | Major tear, permanent stain, structural damage        | Forfeit deposit, may charge additional     |
+| **Destroyed** | Product unusable, cannot be repaired                  | Forfeit deposit + charge full retail value |
+| **Lost**      | Product not returned                                  | Forfeit deposit + charge full retail value |
 
 ### Actions
 
-| Action | Financial Impact |
-|---|---|
-| **Deduct from deposit** | Repair cost subtracted, remaining deposit refunded |
-| **Forfeit deposit** | Full deposit kept by business |
-| **Forfeit deposit + additional charge** | Deposit kept + customer owes more |
+| Action                                  | Financial Impact                                   |
+| --------------------------------------- | -------------------------------------------------- |
+| **Deduct from deposit**                 | Repair cost subtracted, remaining deposit refunded |
+| **Forfeit deposit**                     | Full deposit kept by business                      |
+| **Forfeit deposit + additional charge** | Deposit kept + customer owes more                  |
 
 ---
 
@@ -92,7 +92,7 @@ Customer Owes:         ৳3,000 (beyond deposit)
 
 ```
 Security Deposit:      ৳5,000
-Retail/Purchase Price: ৳45,000
+Approved Loss Valuation: ৳45,000
 ─────────────────────
 Deposit Refund:        ৳0
 Customer Owes:         ৳40,000 (full retail minus deposit)
@@ -126,7 +126,7 @@ Financial Impact:
 📋 Damage History
   April 18, 2026 — Moderate damage (sleeve tear) — ৳1,500 deducted
   Feb 10, 2026 — Minor damage (small stain) — ৳500 deducted
-  
+
   Total damage costs: ৳2,000
   Total rentals earned: ৳22,500
 ```
@@ -138,6 +138,7 @@ Financial Impact:
 ### When Damage Is Reported
 
 Owner should be able to:
+
 1. Document damage with photos (evidence)
 2. Notify customer via SMS with damage details and deduction amount
 3. Customer sees deduction in their order summary (if guest accounts exist in future)
@@ -145,12 +146,14 @@ Owner should be able to:
 ### Dispute Handling (v1 — Manual)
 
 In v1, disputes are handled manually:
+
 - Customer contacts business via phone/WhatsApp
 - Owner reviews evidence
 - Owner can adjust the deduction amount
 - All changes logged in order timeline
 
 ### Future Enhancement
+
 - Formal dispute system
 - Customer can submit counter-evidence
 - Escalation to SaaS admin
@@ -161,19 +164,20 @@ In v1, disputes are handled manually:
 
 When damage is reported:
 
-| Damage Level | Product Status Impact |
-|---|---|
-| Minor | No change — product remains available after repair |
-| Moderate | Owner may temporarily set product as "Not Available" during repair |
-| Severe | Product likely set as "Not Available" permanently or archived |
-| Destroyed | Product archived with damage reason |
-| Lost | Product archived with loss reason |
+| Damage Level | Product Status Impact                                              |
+| ------------ | ------------------------------------------------------------------ |
+| Minor        | No change — product remains available after repair                 |
+| Moderate     | Owner may temporarily set product as "Not Available" during repair |
+| Severe       | Product likely set as "Not Available" permanently or archived      |
+| Destroyed    | Product archived with damage reason                                |
+| Lost         | Product archived with loss reason                                  |
 
 ### Automatic Suggestions (Future)
 
 When damage is "Destroyed" or "Lost", system could suggest:
+
 - Archive the product
-- Update target tracking (cost recovery no longer possible)
+- Update the physical item’s cost-recovery projection because it can no longer earn rental revenue
 - Mark insurance claim (if applicable)
 
 ---
@@ -182,13 +186,13 @@ When damage is "Destroyed" or "Lost", system could suggest:
 
 ### Damage Analytics (Owner Dashboard)
 
-| Metric | Description |
-|---|---|
-| Total Damage Incidents | Count of damage reports in period |
-| Total Damage Cost | Sum of deductions/charges |
-| Most Damaged Products | Products with most damage reports |
-| Damage Rate | Percentage of rentals that had damage |
-| Average Deduction | Mean deduction amount per incident |
+| Metric                 | Description                           |
+| ---------------------- | ------------------------------------- |
+| Total Damage Incidents | Count of damage reports in period     |
+| Total Damage Cost      | Sum of deductions/charges             |
+| Most Damaged Products  | Products with most damage reports     |
+| Damage Rate            | Percentage of rentals that had damage |
+| Average Deduction      | Mean deduction amount per incident    |
 
 ---
 
@@ -198,7 +202,7 @@ When damage is "Destroyed" or "Lost", system could suggest:
 2. Damage is documented with level, description, and photos
 3. Deductions are subtracted from the security deposit
 4. If damage cost exceeds deposit, customer owes the difference
-5. Lost products are charged at full retail/purchase price
+5. Lost-item charges use the booking policy and approved evidence-backed item valuation; they do not expose private acquisition cost
 6. All damage reports are logged and linked to the order
 7. Product may need status change depending on damage severity
 8. In v1, disputes are handled manually via direct communication

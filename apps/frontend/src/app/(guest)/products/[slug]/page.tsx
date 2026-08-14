@@ -96,12 +96,11 @@ export default function GuestProductDetailPage() {
   const [availabilityResult, setAvailabilityResult] = useState<DateRangeCheck | null>(null);
   const [compositionSelections, setCompositionSelections] = useState<BundleSelection[]>([]);
   const [validatedBundleSummary, setValidatedBundleSummary] = useState<Array<{ ruleId: string; label: string; productName: string; sizeLabel?: string; quantity: number; priceAdjustment: number }>>([]);
-  const [selectedStockUnitId, setSelectedStockUnitId] = useState<string | undefined>();
 
   const toggleAccordion = (id: string) => setOpenAccordion((prev) => (prev === id ? null : id));
 
   const availabilityMutation = useMutation({
-    mutationFn: async (params: { productId: string; variantId: string; variantSizeId: string; startDate: string; endDate: string; preferredStockUnitId?: string; backupSize?: string; tryOn?: boolean }) => {
+    mutationFn: async (params: { productId: string; variantId: string; variantSizeId: string; startDate: string; endDate: string; backupSize?: string; tryOn?: boolean }) => {
       const result = await validateCart({ items: [{
         ...params,
         quantity: 1,
@@ -186,14 +185,13 @@ export default function GuestProductDetailPage() {
           variantSizeId: selectedVariantSizeId,
           startDate: format(date.from, 'yyyy-MM-dd'),
           endDate: format(date.to, 'yyyy-MM-dd'),
-          preferredStockUnitId: selectedStockUnitId,
           backupSize: addBackup ? selectedBackupSizeId : undefined,
           tryOn: addTryOn,
         });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date.from, date.to, product?.id, selectedVariantId, selectedVariantSizeId, selectedStockUnitId, compositionSelections, compositionQuery.isLoading, compositionQuery.dataUpdatedAt, addBackup, selectedBackupSizeId, addTryOn]);
+  }, [date.from, date.to, product?.id, selectedVariantId, selectedVariantSizeId, compositionSelections, compositionQuery.isLoading, compositionQuery.dataUpdatedAt, addBackup, selectedBackupSizeId, addTryOn]);
 
   // 1. Group by unique colors to display the colour swatches
   const uniqueColors = useMemo(() => {
@@ -322,10 +320,7 @@ export default function GuestProductDetailPage() {
   );
   const hasAuthoritativeQuote = availabilityResult?.available === true && Boolean(availabilityResult.pricing);
   const isAvailable = availabilityResult?.available === true;
-  const itemSelectionValid =
-    Boolean(itemOptions.data) &&
-    (itemOptions.data?.mode !== 'SPECIFIC_ITEM_SELECTION' || Boolean(selectedStockUnitId));
-  const canAddToCart = isFormValid && compositionValid && itemSelectionValid && hasAuthoritativeQuote && !compositionQuery.isLoading && !availabilityMutation.isPending;
+  const canAddToCart = isFormValid && compositionValid && hasAuthoritativeQuote && !compositionQuery.isLoading && !availabilityMutation.isPending;
 
   const handleAddToCart = () => {
     if (!canAddToCart || !product || !date.from || !date.to) return;
@@ -347,7 +342,6 @@ export default function GuestProductDetailPage() {
       productId: product.id,
       variantId: selectedVariant?.id,
       variantSizeId: selectedVariantSizeId!,
-      preferredStockUnitId: selectedStockUnitId,
       quantity: 1,
       productName: product.name,
       categoryName: product.category?.name,
@@ -628,7 +622,6 @@ export default function GuestProductDetailPage() {
                       value={selectedVariantSizeId || ''}
                       onChange={(e) => {
                         setSelectedVariantSizeId(e.target.value);
-                        setSelectedStockUnitId(undefined);
                       }}
                       className="w-full rounded-lg border border-black/10 bg-neutral-50 px-3 py-2.5 text-sm font-medium focus:border-black focus:ring-1 focus:ring-black"
                     >
@@ -643,7 +636,6 @@ export default function GuestProductDetailPage() {
                           key={size.variantSizeId}
                           onClick={() => {
                             setSelectedVariantSizeId(size.variantSizeId);
-                            setSelectedStockUnitId(undefined);
                           }}
                           className={cn(
                             'flex min-w-[3rem] items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-all duration-300',
@@ -690,41 +682,6 @@ export default function GuestProductDetailPage() {
                       <span>{group.minimumAdjustment === group.maximumAdjustment ? `${group.minimumAdjustment >= 0 ? '+' : ''}${formatPrice(group.minimumAdjustment)}` : 'Varied pricing'}</span>
                     </div>
                   ))}
-                </div>
-              )}
-
-              {itemOptions.data?.mode === 'SPECIFIC_ITEM_SELECTION' && itemOptions.data.items.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-black/60">Choose a physical piece</h3>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {itemOptions.data.items.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        disabled={!item.available}
-                        onClick={() => setSelectedStockUnitId(item.id)}
-                        className={cn(
-                          'rounded-xl border p-3 text-left text-sm transition-all',
-                          selectedStockUnitId === item.id ? 'border-black bg-black text-white' : 'bg-neutral-50',
-                          !item.available && 'cursor-not-allowed opacity-45',
-                        )}
-                      >
-                        {item.media[0] && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={item.media[0].url}
-                            alt={item.media[0].caption || item.label}
-                            className="mb-3 aspect-[4/3] w-full rounded-lg object-cover"
-                          />
-                        )}
-                        <div className="flex justify-between gap-2 font-semibold">
-                          <span>{item.label} · {item.condition.toLowerCase()}</span>
-                          <span>{item.priceAdjustment === 0 ? 'Base price' : `${item.priceAdjustment > 0 ? '+' : ''}${formatPrice(item.priceAdjustment)}`}</span>
-                        </div>
-                        {item.conditionNote && <p className="mt-1 text-xs opacity-75">{item.conditionNote}</p>}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               )}
 

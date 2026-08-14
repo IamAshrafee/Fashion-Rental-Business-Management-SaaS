@@ -108,7 +108,7 @@ export class InventoryTransferService {
           select: { id: true },
         });
         if (units.length !== stockUnitIds.length) {
-          throw new ConflictException('Every serialized unit must be available at the transfer origin');
+          throw new ConflictException('Every physical item must be available at the transfer origin');
         }
         preparedLines.push({
           variantSizeId: line.variantSizeId,
@@ -181,7 +181,7 @@ export class InventoryTransferService {
       }
 
       for (const line of transfer.lines) {
-        await this.reserveSerializedLine(tx, tenantId, transfer, line, dto.reason, actorUserId);
+        await this.reservePhysicalItemLine(tx, tenantId, transfer, line, dto.reason, actorUserId);
       }
 
       await tx.inventoryTransfer.update({
@@ -305,7 +305,7 @@ export class InventoryTransferService {
         submittedLineIds.add(input.transferLineId);
         const line = linesById.get(input.transferLineId);
         if (!line) throw new BadRequestException('Receipt contains a line from another transfer');
-        await this.receiveSerializedLine(tx, tenantId, transfer, line, input, dto.reason, actorUserId);
+        await this.receivePhysicalItemLine(tx, tenantId, transfer, line, input, dto.reason, actorUserId);
       }
 
       const refreshedUnits = await tx.inventoryTransferUnit.findMany({
@@ -475,7 +475,7 @@ export class InventoryTransferService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  private async reserveSerializedLine(
+  private async reservePhysicalItemLine(
     tx: Prisma.TransactionClient,
     tenantId: string,
     transfer: Awaited<ReturnType<InventoryTransferService['lockTransfer']>>,
@@ -571,7 +571,7 @@ export class InventoryTransferService {
     }
   }
 
-  private async receiveSerializedLine(
+  private async receivePhysicalItemLine(
     tx: Prisma.TransactionClient,
     tenantId: string,
     transfer: Awaited<ReturnType<InventoryTransferService['lockTransfer']>>,
@@ -594,7 +594,7 @@ export class InventoryTransferService {
       if (result.outcome === InventoryTransferUnitOutcome.PENDING) {
         throw new BadRequestException('A receipt outcome cannot remain pending');
       }
-      const next = this.serializedOutcome(result.outcome);
+      const next = this.physicalItemOutcome(result.outcome);
       if (result.outcome !== InventoryTransferUnitOutcome.LOST) {
         await tx.stockUnit.update({
           where: { id: result.stockUnitId },
@@ -631,7 +631,7 @@ export class InventoryTransferService {
     }
   }
 
-  private serializedOutcome(outcome: InventoryTransferUnitOutcome) {
+  private physicalItemOutcome(outcome: InventoryTransferUnitOutcome) {
     if (outcome === InventoryTransferUnitOutcome.RECEIVED) {
       return {
         disposition: StockUnitDisposition.ACTIVE,

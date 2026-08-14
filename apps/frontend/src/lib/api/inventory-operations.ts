@@ -227,6 +227,7 @@ export interface InventoryServiceQueueQuery {
 export interface StockUnitOperations {
   stockUnit: {
     id: string;
+    version: number;
     assetCode: string;
     barcode: string | null;
     condition: StockConditionGrade;
@@ -234,8 +235,10 @@ export interface StockUnitOperations {
     operationalState: StockUnitOperationalState;
     locationId: string;
     location: { id: string; code: string; name: string };
-    purchaseDate: string | null;
-    purchasePrice: number | null;
+    acquisitionDate: string | null;
+    acquisitionCost: number | null;
+    acquisitionSource: string | null;
+    acquisitionReference: string | null;
     estimatedCurrentValue: number | null;
     storefrontVisible: boolean;
     publicConditionNote: string | null;

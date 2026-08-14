@@ -5,22 +5,21 @@ import { productFormSchema, type ProductFormValues } from '../components/product
 import type { UploadedProductImage } from '@/lib/api/products';
 
 const STORAGE_KEY = 'fashionRental_newProductDraft';
-const DRAFT_VERSION = 5;
+const DRAFT_VERSION = 6;
 const SAVE_DEBOUNCE_MS = 2000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const defaultValues: Partial<ProductFormValues> = {
   status: 'draft',
   events: [],
-  showPurchasePrice: false,
-  showCountry: false,
+  countryOfOriginPublic: false,
+  referenceRetailValuePublic: false,
   variants: [
     {
       clientKey: Math.random().toString(36).slice(2),
       name: '',
       mainColorId: '',
       sizeInstanceIds: [],
-      inventoryBySizeId: {},
       skuIdBySizeInstanceId: {},
       identicalColorIds: [],
       images: [],
@@ -35,8 +34,6 @@ const defaultValues: Partial<ProductFormValues> = {
   sizeSchemaOverrideId: '',
   details: [],
   faqs: [],
-  openingInventorySkipped: false,
-  openingInventoryLines: [],
 };
 
 interface DraftPayload {

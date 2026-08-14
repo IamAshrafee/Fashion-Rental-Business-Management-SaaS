@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryMovementType, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { InventoryMovementsQueryDto } from './dto/inventory-foundation.dto';
 
@@ -11,22 +11,12 @@ export class InventoryLedgerService {
     return this.list(tenantId, query);
   }
 
-  listCounts(tenantId: string, query: InventoryMovementsQueryDto) {
-    return this.list(tenantId, query, InventoryMovementType.COUNT_CORRECTION);
-  }
-
-  private async list(
-    tenantId: string,
-    query: InventoryMovementsQueryDto,
-    forcedType?: InventoryMovementType,
-  ) {
+  private async list(tenantId: string, query: InventoryMovementsQueryDto) {
     const search = query.search?.trim();
     const where: Prisma.InventoryMovementWhereInput = {
       tenantId,
-      movementType: forcedType ?? query.movementType,
-      ...(query.productId
-        ? { variantSize: { variant: { productId: query.productId } } }
-        : {}),
+      movementType: query.movementType,
+      ...(query.productId ? { variantSize: { variant: { productId: query.productId } } } : {}),
       ...(query.variantSizeId ? { variantSizeId: query.variantSizeId } : {}),
       ...(query.stockUnitId ? { stockUnitId: query.stockUnitId } : {}),
       ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),

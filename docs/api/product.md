@@ -12,14 +12,15 @@ List published products for storefront.
 
 **Query Params**: See [search.md](./search.md) for full filter params.
 
-| Param | Type | Default | Description |
-|---|---|---|---|
-| `page` | int | 1 | Page number |
-| `limit` | int | 20 | Items per page |
-| `sort` | string | `created_at` | Sort field |
-| `order` | string | `desc` | asc/desc |
+| Param   | Type   | Default      | Description    |
+| ------- | ------ | ------------ | -------------- |
+| `page`  | int    | 1            | Page number    |
+| `limit` | int    | 20           | Items per page |
+| `sort`  | string | `created_at` | Sort field     |
+| `order` | string | `desc`       | asc/desc       |
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
@@ -60,6 +61,7 @@ Get full product detail by slug.
 **Auth**: None
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
@@ -70,7 +72,10 @@ Get full product detail by slug.
     "description": "<p>Exquisite Banarasi silk...</p>",
     "category": { "id": "...", "name": "Saree" },
     "subcategory": { "id": "...", "name": "Banarasi" },
-    "events": [{ "id": "...", "name": "Wedding" }, { "id": "...", "name": "Reception" }],
+    "events": [
+      { "id": "...", "name": "Wedding" },
+      { "id": "...", "name": "Reception" }
+    ],
     "pricing": {
       "mode": "one_time",
       "rentalPrice": 7500,
@@ -106,9 +111,7 @@ Get full product detail by slug.
         ]
       }
     ],
-    "faqs": [
-      { "id": "...", "question": "Is this dry-clean only?", "answer": "Yes..." }
-    ],
+    "faqs": [{ "id": "...", "question": "Is this dry-clean only?", "answer": "Yes..." }],
     "details": [
       {
         "header": "Fabric Details",
@@ -119,13 +122,13 @@ Get full product detail by slug.
       }
     ],
     "totalBookings": 12,
-    "purchasePrice": null,
-    "itemCountry": null
+    "countryOfOrigin": "India",
+    "referenceRetailValue": 45000
   }
 }
 ```
 
-`purchasePrice` and `itemCountry` only included if their `_public` flag is true.
+`countryOfOrigin` and `referenceRetailValue` are included only when their explicit public-display flags are enabled. Physical-item acquisition fields are never returned by guest product endpoints.
 
 ---
 
@@ -147,8 +150,9 @@ List all products (including drafts, archived) for the owner dashboard.
 | `search` | string | Search by name |
 
 **Response** `200`: Same structure as guest list but includes:
+
 - `status` field visible
-- `purchasePrice` always included
+- catalog `countryOfOrigin`, `referenceRetailValue`, and their visibility settings
 - `minInternalPrice` included
 - Draft and archived products included
 
@@ -161,6 +165,7 @@ Create a new product.
 **Auth**: Bearer token — Owner, Manager
 
 **Request Body**:
+
 ```json
 {
   "name": "Royal Banarasi Saree",
@@ -168,13 +173,10 @@ Create a new product.
   "categoryId": "...",
   "subcategoryId": "...",
   "eventIds": ["...", "..."],
-  "status": "draft",
-  "purchaseDate": "2026-01-15",
-  "purchasePrice": 15000,
-  "purchasePricePublic": false,
-  "itemCountry": "India",
-  "itemCountryPublic": true,
-  "targetRentals": 5,
+  "countryOfOrigin": "India",
+  "countryOfOriginPublic": true,
+  "referenceRetailValue": 45000,
+  "referenceRetailValuePublic": true,
   "pricing": {
     "mode": "one_time",
     "rentalPrice": 7500,
@@ -189,9 +191,7 @@ Create a new product.
   },
   "size": {
     "mode": "measurement",
-    "measurements": [
-      { "label": "Chest", "value": "38", "unit": "inch" }
-    ]
+    "measurements": [{ "label": "Chest", "value": "38", "unit": "inch" }]
   },
   "services": {
     "depositAmount": 5000,
@@ -201,21 +201,17 @@ Create a new product.
     "tryOnEnabled": true,
     "tryOnFee": 1000
   },
-  "faqs": [
-    { "question": "Is this dry-clean only?", "answer": "Yes..." }
-  ],
+  "faqs": [{ "question": "Is this dry-clean only?", "answer": "Yes..." }],
   "details": [
     {
       "header": "Fabric Details",
-      "entries": [
-        { "key": "Material", "value": "Banarasi Silk" }
-      ]
+      "entries": [{ "key": "Material", "value": "Banarasi Silk" }]
     }
   ]
 }
 ```
 
-Variants and images are added separately via dedicated endpoints after product creation.
+Product onboarding saves five authoritative sections: basics/sizing, variants/SKUs/media, details/FAQ, pricing/services, and review/publication. Physical items are registered separately through the canonical inventory batch endpoint after the SKU exists.
 
 **Response** `201`: Created product object
 
@@ -223,7 +219,7 @@ Variants and images are added separately via dedicated endpoints after product c
 
 ### PATCH `/api/v1/owner/products/:id`
 
-Update a product. Same structure as POST, all fields optional.
+Update catalog content. Publication status uses the dedicated status command and is not a free-form field in the basic-information form. Structural changes are guarded when physical-item, booking, reservation, fulfilment, or movement history would be damaged.
 
 **Auth**: Bearer token — Owner, Manager
 
@@ -238,6 +234,7 @@ Soft-delete a product.
 **Auth**: Bearer token — Owner only
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
@@ -254,6 +251,7 @@ Quick status update.
 **Auth**: Bearer token — Owner, Manager
 
 **Request Body**:
+
 ```json
 {
   "status": "published"
@@ -273,6 +271,7 @@ Add a variant to a product.
 **Auth**: Bearer token — Owner, Manager
 
 **Request Body**:
+
 ```json
 {
   "variantName": "Ivory Gold",

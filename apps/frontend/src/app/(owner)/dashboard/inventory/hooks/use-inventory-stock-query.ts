@@ -4,7 +4,6 @@ import { useCallback, useMemo, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { InventorySkuQuery } from '@/lib/api/inventory';
 
-const TRACKING = new Set(['POOLED', 'SERIALIZED']);
 const STOCK = new Set(['AVAILABLE', 'LOW_STOCK', 'UNAVAILABLE', 'UNCONFIGURED']);
 const SORT = new Set(['PRODUCT', 'ON_HAND', 'AVAILABLE', 'RESERVED']);
 const ORDER = new Set(['asc', 'desc']);
@@ -26,9 +25,6 @@ export function useInventoryStockQuery() {
     page: pageNumber(params.get('page')),
     limit: 25,
     search: params.get('q')?.trim() || undefined,
-    trackingMode: allowed<NonNullable<InventorySkuQuery['trackingMode']>>(
-      params.get('tracking'), TRACKING,
-    ),
     locationId: params.get('location') || undefined,
     stockState: allowed<NonNullable<InventorySkuQuery['stockState']>>(
       params.get('state'), STOCK,
@@ -43,7 +39,6 @@ export function useInventoryStockQuery() {
     const mapped: Record<string, string | number | null | undefined> = {
       page: values.page,
       q: values.search,
-      tracking: values.trackingMode,
       location: values.locationId,
       state: values.stockState,
       sort: values.sort,

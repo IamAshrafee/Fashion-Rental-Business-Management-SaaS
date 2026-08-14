@@ -14,22 +14,25 @@ A fixed price for a fixed duration.
 
 **Configuration (Owner)**:
 
-| Field | Type | Required | Example |
-|---|---|---|---|
-| Rental Price | Number (৳) | Yes | 7,500৳ |
-| Included Days | Number | Yes | 3 days |
+| Field         | Type       | Required | Example |
+| ------------- | ---------- | -------- | ------- |
+| Rental Price  | Number (৳) | Yes      | 7,500৳  |
+| Included Days | Number     | Yes      | 3 days  |
 
 **How it works**:
+
 - Customer pays 7,500৳ for a 3-day rental period
 - If customer wants more days → extended rental fees apply (see [timing-logistics.md](./timing-logistics.md))
 - If customer returns late → late fees apply
 
 **How it displays to guests**:
+
 ```
 ৳7,500 / 3 days
 ```
 
 **Calculation**:
+
 - Base booking cost = Rental Price (fixed)
 - Extended days = Extra per-day charge (from timing-logistics)
 - Total = Base + Extended + Deposit + Cleaning Fee + Shipping
@@ -42,22 +45,25 @@ A daily rate. Total calculated based on rental duration.
 
 **Configuration (Owner)**:
 
-| Field | Type | Required | Example |
-|---|---|---|---|
-| Price Per Day | Number (৳) | Yes | 2,500৳ |
-| Minimum Days | Number | No (default: 1) | 2 days |
+| Field         | Type       | Required        | Example |
+| ------------- | ---------- | --------------- | ------- |
+| Price Per Day | Number (৳) | Yes             | 2,500৳  |
+| Minimum Days  | Number     | No (default: 1) | 2 days  |
 
 **How it works**:
+
 - Customer selects rental dates
 - System calculates: Price Per Day × Number of Days
 - Minimum days enforced (if set)
 
 **How it displays to guests**:
+
 ```
 ৳2,500 / day (min. 2 days)
 ```
 
 **Calculation Example**:
+
 - Guest selects 4 days
 - Rental cost = 2,500 × 4 = ৳10,000
 - Total = ৳10,000 + Deposit + Cleaning Fee + Shipping
@@ -66,28 +72,30 @@ A daily rate. Total calculated based on rental duration.
 
 ### Mode 3: Retail Percentage Pricing
 
-Rental price is calculated as a percentage of the product's retail/purchase price. Used by high-end boutiques.
+Rental price is calculated as a percentage of the product-level reference retail value. Used by high-end boutiques.
 
 **Configuration (Owner)**:
 
-| Field | Type | Required | Example |
-|---|---|---|---|
-| Retail Price | Number (৳) | Yes | 45,000৳ |
-| Rental Percentage | Number (%) | Yes | 20% |
-| Included Days | Number | Yes | 3 days |
+| Field                  | Type       | Required | Example |
+| ---------------------- | ---------- | -------- | ------- |
+| Reference Retail Value | Number (৳) | Yes      | 45,000৳ |
+| Rental Percentage      | Number (%) | Yes      | 20%     |
+| Included Days          | Number     | Yes      | 3 days  |
 
 **How it works**:
+
 - System calculates: Retail Price × Percentage = Rental Price
 - 45,000 × 20% = ৳9,000 for 3 days
 - Owner can manually override the calculated price
 
 **How it displays to guests**:
+
 ```
 ৳9,000 / 3 days
-(Retail value: ৳45,000)    ← only if owner has made purchase price public
+(Reference retail value: ৳45,000)    ← only when public display is enabled
 ```
 
-**Note**: The retail price shown publicly IS the purchase price field from [stock-inventory.md](./stock-inventory.md). If the owner has set purchase price to private, only the calculated rental price is shown without the retail reference.
+**Note**: Reference retail value is catalog context and is separate from the private acquisition cost of every physical piece. If its public-display setting is disabled, only the calculated rental price is shown.
 
 **Percentage Range**: System allows 5%–50% selection in 5% increments. Owner can also type a custom percentage.
 
@@ -99,14 +107,15 @@ Regardless of pricing mode, the owner can set an internal price floor.
 
 **Configuration**:
 
-| Field | Type | Required | Visibility |
-|---|---|---|---|
-| Minimum Price | Number (৳) | No | Staff + Owner only |
-| Maximum Discount Price | Number (৳) | No | Staff + Owner only |
+| Field                  | Type       | Required | Visibility         |
+| ---------------------- | ---------- | -------- | ------------------ |
+| Minimum Price          | Number (৳) | No       | Staff + Owner only |
+| Maximum Discount Price | Number (৳) | No       | Staff + Owner only |
 
 **Purpose**: When a staff member (salesperson) is negotiating with a customer over phone/WhatsApp, they can see the minimum acceptable price. They know they cannot go below this amount.
 
 **How it displays**:
+
 - **Guests**: Not visible at all
 - **Staff**: Shown as a subtle indicator on the product detail view in the owner portal
 - **Example**: "Price range: ৳5,000 – ৳7,500" (meaning: listed at 7,500 but can go as low as 5,000)
@@ -116,17 +125,19 @@ Regardless of pricing mode, the owner can set an internal price floor.
 ## Price Display Rules (Guest Side)
 
 ### Product Card
+
 Show the primary rental price clearly:
 
-| Mode | Card Display |
-|---|---|
+| Mode     | Card Display      |
+| -------- | ----------------- |
 | One-Time | `৳7,500 / 3 days` |
-| Per Day | `৳2,500 / day` |
+| Per Day  | `৳2,500 / day`    |
 | Retail % | `৳9,000 / 3 days` |
 
 Always show price in **bold**, with the duration in regular weight.
 
 ### Product Detail Page
+
 Show full pricing breakdown:
 
 ```
@@ -140,6 +151,7 @@ Subtotal: ৳13,000
 Deposit is clearly marked as **refundable**.
 
 ### Cart & Checkout
+
 Show itemized breakdown per product:
 
 ```
@@ -160,27 +172,27 @@ Royal Banarasi Saree
 
 ### Input Variables
 
-| Variable | Source |
-|---|---|
-| Pricing Mode | Product pricing config |
-| Rental Price / Per Day Price / Percentage | Product pricing config |
-| Rental Duration (days) | Guest's selected date range |
-| Extended Rental Rate | Product logistics config |
-| Security Deposit | Product service config |
-| Cleaning Fee | Product service config |
-| Backup Size Fee | Product service config (if selected) |
-| Try-On Fee | Product try-before-rent config (if selected) |
-| Shipping Fee | Product logistics config or area-based |
+| Variable                                  | Source                                       |
+| ----------------------------------------- | -------------------------------------------- |
+| Pricing Mode                              | Product pricing config                       |
+| Rental Price / Per Day Price / Percentage | Product pricing config                       |
+| Rental Duration (days)                    | Guest's selected date range                  |
+| Extended Rental Rate                      | Product logistics config                     |
+| Security Deposit                          | Product service config                       |
+| Cleaning Fee                              | Product service config                       |
+| Backup Size Fee                           | Product service config (if selected)         |
+| Try-On Fee                                | Product try-before-rent config (if selected) |
+| Shipping Fee                              | Product logistics config or area-based       |
 
 ### Calculation Logic
 
 ```
-baseRentalCost = 
+baseRentalCost =
   if mode === "one-time": rentalPrice
   if mode === "per-day": pricePerDay × rentalDays
   if mode === "percentage": retailPrice × (percentage / 100)
 
-includedDays = 
+includedDays =
   if mode === "one-time": includedDays
   if mode === "per-day": rentalDays (all days are paid)
   if mode === "percentage": includedDays
@@ -203,12 +215,12 @@ totalRefundable = securityDeposit
 
 All prices displayed in Bangladeshi Taka:
 
-| Format | Example |
-|---|---|
-| Standard | ৳7,500 |
-| With decimals (if needed) | ৳7,500.00 |
-| Thousands separator | ৳12,500 (comma at thousands) |
-| No paisa for round numbers | ৳7,500 not ৳7,500.00 |
+| Format                     | Example                      |
+| -------------------------- | ---------------------------- |
+| Standard                   | ৳7,500                       |
+| With decimals (if needed)  | ৳7,500.00                    |
+| Thousands separator        | ৳12,500 (comma at thousands) |
+| No paisa for round numbers | ৳7,500 not ৳7,500.00         |
 
 The ৳ symbol appears **before** the number.
 

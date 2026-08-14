@@ -32,10 +32,10 @@ export interface GuestProductDetail {
   description: string | null;
   status: string;
   isAvailable: boolean;
-  purchasePrice: number | null;
-  purchasePricePublic: boolean;
-  itemCountry: string | null;
-  itemCountryPublic: boolean;
+  referenceRetailValue: number | null;
+  referenceRetailValuePublic: boolean;
+  countryOfOrigin: string | null;
+  countryOfOriginPublic: boolean;
   totalBookings: number;
   createdAt: string;
   // Nested relations
@@ -60,7 +60,6 @@ export interface GuestProductDetail {
     sizes: Array<{
       variantSizeId: string;
       sizeInstance: import('./products').SizeInstanceData;
-      trackingMode: 'POOLED' | 'SERIALIZED';
       totalCapacity: number;
     }>;
     images: Array<{
@@ -161,28 +160,19 @@ export interface DateRangeCheck {
     totalCapacity: number;
     reservedQuantity: number;
     remainingQuantity: number;
-    trackingMode: 'POOLED' | 'SERIALIZED';
   };
   [key: string]: unknown;
 }
 
 export interface PublicItemOptions {
-  mode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY' | 'SPECIFIC_ITEM_SELECTION';
+  mode: 'INTERNAL_ONLY' | 'CONDITION_SUMMARY';
   summary: Array<{
     condition: string;
     count: number;
     minimumAdjustment: number;
     maximumAdjustment: number;
   }>;
-  items: Array<{
-    id: string;
-    label: string;
-    condition: string;
-    conditionNote: string | null;
-    priceAdjustment: number;
-    available: boolean;
-    media: Array<{ id: string; url: string; caption: string | null }>;
-  }>;
+  items: never[];
 }
 
 export async function getPublicItemOptions(

@@ -12,8 +12,8 @@ import {
   RevenueSeriesPoint,
   CategoryRevenue,
   TopProduct,
-  TargetRecoverySummary,
-  TargetRecoveryProduct,
+  CostRecoverySummary,
+  CostRecoveryProduct,
   StorefrontTrafficSummary,
   TrafficFunnel,
   TopViewedProduct,
@@ -259,7 +259,7 @@ export class AnalyticsService {
         created_at: record.createdAt,
       }));
     } else {
-      const recovery = await this.getTargetRecovery(tenantId);
+      const recovery = await this.getCostRecovery(tenantId);
       rows = recovery.products.map((record) => ({
         product: record.name,
         acquisition_cost: record.acquisitionCost,
@@ -515,7 +515,7 @@ export class AnalyticsService {
     );
   }
 
-  async getTargetRecovery(tenantId: string): Promise<TargetRecoverySummary> {
+  async getCostRecovery(tenantId: string): Promise<CostRecoverySummary> {
     const products = await this.prisma.product.findMany({
       where: { tenantId, deletedAt: null },
       select: {
@@ -550,20 +550,18 @@ export class AnalyticsService {
     let recoveringProducts = 0;
     let incompleteProducts = 0;
 
-    const items: TargetRecoveryProduct[] = products.map((p) => {
+    const items: CostRecoveryProduct[] = products.map((p) => {
       const units = p.variants.flatMap((variant) =>
         variant.sizes.flatMap((size) => size.stockUnits),
       );
       const missingAcquisitionCostCount = units.filter(
         (unit) => unit.acquisitionCost === null,
       ).length;
-      const acquisitionCost = units.reduce(
-        (sum, unit) => sum + (unit.acquisitionCost ?? 0),
-        0,
-      );
+      const acquisitionCost = units.reduce((sum, unit) => sum + (unit.acquisitionCost ?? 0), 0);
       const attributedRentalRevenue = units.reduce(
         (sum, unit) =>
-          sum + unit.revenueAllocations.reduce((subtotal, allocation) => subtotal + allocation.amount, 0),
+          sum +
+          unit.revenueAllocations.reduce((subtotal, allocation) => subtotal + allocation.amount, 0),
         0,
       );
       const recordedServiceCost = units.reduce(
@@ -572,11 +570,12 @@ export class AnalyticsService {
         0,
       );
       const netContribution = attributedRentalRevenue - recordedServiceCost;
-      const inputsComplete = units.length > 0 && missingAcquisitionCostCount === 0 && acquisitionCost > 0;
+      const inputsComplete =
+        units.length > 0 && missingAcquisitionCostCount === 0 && acquisitionCost > 0;
       const recoveryPercentage = inputsComplete
         ? Number(((netContribution / acquisitionCost) * 100).toFixed(1))
         : null;
-      const status: TargetRecoveryProduct['status'] = !inputsComplete
+      const status: CostRecoveryProduct['status'] = !inputsComplete
         ? 'incomplete'
         : netContribution >= acquisitionCost
           ? 'recovered'
@@ -608,9 +607,10 @@ export class AnalyticsService {
     items.sort((a, b) => (b.recoveryPercentage ?? -1) - (a.recoveryPercentage ?? -1));
 
     const netContribution = totalAttributedRevenue - totalRecordedServiceCost;
-    const overallRecoveryPercentage = totalAcquisitionCost > 0
-      ? Number(((netContribution / totalAcquisitionCost) * 100).toFixed(1))
-      : null;
+    const overallRecoveryPercentage =
+      totalAcquisitionCost > 0
+        ? Number(((netContribution / totalAcquisitionCost) * 100).toFixed(1))
+        : null;
 
     return {
       totalAcquisitionCost,

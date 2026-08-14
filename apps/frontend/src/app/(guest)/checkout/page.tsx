@@ -43,7 +43,6 @@ export default function GuestCheckoutPage() {
     productId: i.productId,
     variantId: i.variantId || '',
     variantSizeId: i.variantSizeId,
-    preferredStockUnitId: i.preferredStockUnitId,
     quantity: i.quantity,
     startDate: i.startDate,
     endDate: i.endDate,

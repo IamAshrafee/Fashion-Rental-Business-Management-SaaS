@@ -214,8 +214,8 @@ describe('BookingService', () => {
     );
     expect(result.data[0].operations).toMatchObject({
       totalQuantity: 2,
-      serializedRequired: 2,
-      serializedAssigned: 1,
+      physicalItemRequired: 2,
+      physicalItemAssigned: 1,
       needsAssignment: true,
       nextAction: 'ASSIGN_ITEMS',
     });

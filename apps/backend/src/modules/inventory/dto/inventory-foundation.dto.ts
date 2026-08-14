@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
+  ArrayMaxSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -49,6 +50,10 @@ export class InventorySkusQueryDto {
   @IsOptional()
   @IsUUID()
   locationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  productId?: string;
 
   @IsOptional()
   @IsIn(['AVAILABLE', 'LOW_STOCK', 'UNAVAILABLE', 'UNCONFIGURED'])
@@ -311,44 +316,88 @@ export class UpdateInventoryLocationDto {
 }
 
 export class InventoryMovementsQueryDto {
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page = 1;
 
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit = 25;
 
-  @IsOptional() @IsEnum(InventoryMovementType)
+  @IsOptional()
+  @IsEnum(InventoryMovementType)
   movementType?: InventoryMovementType;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   productId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   variantSizeId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   stockUnitId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   locationId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   actorUserId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   bookingId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   transferId?: string;
 
-  @IsOptional() @IsDateString()
+  @IsOptional()
+  @IsDateString()
   dateFrom?: string;
 
-  @IsOptional() @IsDateString()
+  @IsOptional()
+  @IsDateString()
   dateTo?: string;
 
-  @IsOptional() @IsString() @MaxLength(100)
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   search?: string;
+}
+
+export class ReconcileInventoryCountDto {
+  @IsUUID()
+  locationId!: string;
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(5000)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  identities!: string[];
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+
+  @IsUUID()
+  idempotencyKey!: string;
 }
 
 export class UpsertAvailabilityPolicyDto {

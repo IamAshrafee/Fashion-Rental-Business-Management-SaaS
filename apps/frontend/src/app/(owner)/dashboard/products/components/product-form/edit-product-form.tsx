@@ -10,7 +10,20 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useUpdateProductStatus } from '../../hooks/use-product-apis';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 // Unified Steps imports
 import { BasicInfoStep } from './steps/basic-info';
@@ -21,17 +34,39 @@ import type { ProductFormValues } from './schema';
 
 /* ─── Validation mapping for error badges ────────────────────────────── */
 const TAB_FIELDS: Record<EditTabId, string[]> = {
-  basic: ['name', 'description', 'categoryId', 'subcategoryId', 'events', 'status', 'purchaseDate', 'purchasePrice', 'itemCountry', 'targetRentals'],
+  basic: [
+    'name',
+    'description',
+    'categoryId',
+    'subcategoryId',
+    'events',
+    'countryOfOrigin',
+    'referenceRetailValue',
+  ],
   media: ['variants'],
   pricing: [
-    'ratePlanType', 'ratePlanConfig', 'pricingComponents',
-    'lateFeeEnabled', 'lateFeeGraceHours', 'lateFeeAmountMinor', 'lateFeeCapMinor',
-    'shippingMode', 'flatShippingFee',
+    'ratePlanType',
+    'ratePlanConfig',
+    'pricingComponents',
+    'lateFeeEnabled',
+    'lateFeeGraceHours',
+    'lateFeeAmountMinor',
+    'lateFeeCapMinor',
+    'shippingMode',
+    'flatShippingFee',
   ],
   size_details: [
-    'sizeMode', 'availableSizes', 'mainDisplaySize', 'freeSizeType', 'measurements', 'parts', 'sizeChartUrl',
-    'details', 'faqs'
+    'sizeMode',
+    'availableSizes',
+    'mainDisplaySize',
+    'freeSizeType',
+    'measurements',
+    'parts',
+    'sizeChartUrl',
+    'details',
+    'faqs',
   ],
+  publication: [],
 };
 
 interface Props {
@@ -63,7 +98,11 @@ export function EditProductForm({ productId }: Props) {
 
   const [activeTab, setActiveTab] = useState<EditTabId>('basic');
   const [tabErrors, setTabErrors] = useState<Record<EditTabId, boolean>>({
-    basic: false, media: false, pricing: false, size_details: false
+    basic: false,
+    media: false,
+    pricing: false,
+    size_details: false,
+    publication: false,
   });
 
   const handleSave = async () => {
@@ -87,14 +126,18 @@ export function EditProductForm({ productId }: Props) {
       const errors = form.formState.errors;
       // Map errors to their respective tabs
       const newTabErrors: Record<EditTabId, boolean> = {
-        basic: false, media: false, pricing: false, size_details: false
+        basic: false,
+        media: false,
+        pricing: false,
+        size_details: false,
+        publication: false,
       };
-      
+
       let firstErrorTab: EditTabId | null = null;
 
       for (const [tabId, fields] of Object.entries(TAB_FIELDS)) {
         const tId = tabId as EditTabId;
-        const hasErr = fields.some(field => errors[field as keyof typeof errors]);
+        const hasErr = fields.some((field) => errors[field as keyof typeof errors]);
         if (hasErr) {
           newTabErrors[tId] = true;
           if (!firstErrorTab) firstErrorTab = tId;
@@ -128,18 +171,146 @@ export function EditProductForm({ productId }: Props) {
     }
 
     // 3. If valid, clear errors and submit
-    setTabErrors({ basic: false, media: false, pricing: false, size_details: false });
+    setTabErrors({
+      basic: false,
+      media: false,
+      pricing: false,
+      size_details: false,
+      publication: false,
+    });
     const data = form.getValues();
     updateProduct(data);
   };
 
   const renderTabContent = (tabId: EditTabId) => {
+    if (!rawProduct) return null;
     switch (tabId) {
-      case 'basic': return <BasicInfoStep />;
-      case 'media': return <VariantsMediaStep />;
-      case 'pricing': return <PricingServicesStep />;
-      case 'size_details': return <SizeDetailsStep />;
-      default: return null;
+      case 'basic':
+        return <BasicInfoStep />;
+      case 'media':
+        return <VariantsMediaStep />;
+      case 'pricing':
+        return <PricingServicesStep />;
+      case 'size_details':
+        return <SizeDetailsStep />;
+      case 'publication':
+        return (
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between gap-3 text-base">
+                  Publication state
+                  <Badge variant={rawProduct.status === 'published' ? 'default' : 'secondary'}>
+                    {rawProduct.status}
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  Catalog publication is separate from physical inventory. A published product may
+                  have zero stock and will then appear unavailable.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {rawProduct.readiness.ready ? (
+                  <Alert>
+                    <AlertCircle className="size-4" />
+                    <AlertDescription>
+                      The catalog configuration is ready to publish.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert variant="destructive">
+                    <AlertCircle className="size-4" />
+                    <AlertDescription>
+                      <p className="font-medium">
+                        Resolve these catalog blockers before publishing:
+                      </p>
+                      <ul className="mt-2 list-disc pl-5">
+                        {rawProduct.readiness.blockers.map((blocker, index) => (
+                          <li key={`${blocker.section}-${blocker.field}-${index}`}>
+                            {blocker.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {rawProduct.status !== 'published' ? (
+                    <Button
+                      type="button"
+                      disabled={!rawProduct.readiness.ready || statusMutation.isPending}
+                      onClick={() => statusMutation.mutate({ id: productId, status: 'published' })}
+                    >
+                      Publish product
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={statusMutation.isPending}
+                      onClick={() => statusMutation.mutate({ id: productId, status: 'draft' })}
+                    >
+                      Unpublish to draft
+                    </Button>
+                  )}
+                  {rawProduct.status !== 'archived' ? (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          disabled={statusMutation.isPending}
+                        >
+                          Archive product
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Archive this product?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            The product will be removed from the storefront and normal catalog
+                            workflows. Existing bookings, physical items, financial records, and
+                            operational history will remain intact. You can restore it later as a
+                            draft.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep product</AlertDialogCancel>
+                          <AlertDialogAction asChild>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              onClick={() =>
+                                statusMutation.mutate({ id: productId, status: 'archived' })
+                              }
+                            >
+                              Archive product
+                            </Button>
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={statusMutation.isPending}
+                      onClick={() => statusMutation.mutate({ id: productId, status: 'draft' })}
+                    >
+                      Restore as draft
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Save listing edits before changing publication state. Existing bookings, physical
+                  items, and operational history are retained.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      default:
+        return null;
     }
   };
 
@@ -175,9 +346,12 @@ export function EditProductForm({ productId }: Props) {
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="font-medium text-foreground">Unpublish before changing catalog structure</p>
+                <p className="font-medium text-foreground">
+                  Unpublish before changing catalog structure
+                </p>
                 <p className="text-xs">
-                  Existing rentals remain intact. The listing stays in draft until all changes pass the publication check.
+                  Existing rentals remain intact. The listing stays in draft until all changes pass
+                  the publication check.
                 </p>
               </div>
               <Button
@@ -198,13 +372,15 @@ export function EditProductForm({ productId }: Props) {
               <Loader2 className="h-10 w-10 animate-spin text-primary" />
               <div className="text-center">
                 <p className="font-semibold text-lg">Saving Changes</p>
-                <p className="text-sm text-muted-foreground">Please wait while we update the product...</p>
+                <p className="text-sm text-muted-foreground">
+                  Please wait while we update the product...
+                </p>
               </div>
             </div>
           </div>
         )}
-        <TabbedEditLayout 
-          onSave={handleSave} 
+        <TabbedEditLayout
+          onSave={handleSave}
           isSaving={isSaving}
           saveDisabled={rawProduct.status === 'published'}
           activeTab={activeTab}

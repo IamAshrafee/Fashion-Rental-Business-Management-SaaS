@@ -21,6 +21,8 @@ import { InventoryTransferService } from './inventory-transfer.service';
 import { InventoryDashboardService } from './inventory-dashboard.service';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { InventoryBlockService } from './inventory-block.service';
+import { InventoryCountService } from './inventory-count.service';
+import { StockUnitRevenueService } from './stock-unit-revenue.service';
 
 @Module({
   imports: [PrismaModule],
@@ -50,6 +52,8 @@ import { InventoryBlockService } from './inventory-block.service';
     InventoryDashboardService,
     InventoryLedgerService,
     InventoryBlockService,
+    InventoryCountService,
+    StockUnitRevenueService,
   ],
   exports: [
     InventoryAvailabilityService,

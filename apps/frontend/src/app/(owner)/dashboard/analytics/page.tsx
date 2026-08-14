@@ -5,7 +5,7 @@ import { SummaryCards } from './components/summary-cards';
 import { RevenueChart } from './components/revenue-chart';
 import { CategoryDistribution } from './components/category-distribution';
 import { TopProducts } from './components/top-products';
-import { TargetRecovery } from './components/target-recovery';
+import { CostRecovery } from './components/cost-recovery';
 import {
   Select,
   SelectContent,
@@ -73,7 +73,7 @@ export default function AnalyticsPage() {
         <div className="space-y-1 w-full text-left">
           <h2 className="text-3xl font-bold tracking-tight">Analytics Overview</h2>
           <p className="text-muted-foreground">
-            Monitor your store performance and target recoveries.
+            Monitor store performance and physical-item cost recovery.
           </p>
         </div>
 
@@ -113,7 +113,7 @@ export default function AnalyticsPage() {
           <CategoryDistribution />
         </div>
 
-        <TargetRecovery />
+        <CostRecovery />
 
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-3 pt-2">
           <div className="col-span-1 lg:col-span-2">

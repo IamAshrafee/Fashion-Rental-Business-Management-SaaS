@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   ChevronLeft, Edit, Copy, Trash2, Loader2,
-  Eye, EyeOff, MoreVertical, Tag, Calendar, MapPin, Ruler,
+  Eye, EyeOff, MoreVertical, Tag, MapPin, Ruler,
   HelpCircle, Info, ChevronRight, Star,
   DollarSign, Shield, Package,
   Check, X, ImageIcon, Settings, Grid3X3, Boxes, AlertCircle, History
@@ -15,7 +15,6 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -588,9 +587,6 @@ export default function ProductDetailPage() {
   const canPublish = product.status === 'published'
     || (product.readiness.ready && (!product.onboarding || product.onboarding.completedSections.includes('REVIEW')));
   const effectivePrice = getEffectivePrice(product.pricing);
-  const targetProgress = product.targetRentals
-    ? Math.min(Math.round((product.totalBookings / product.targetRentals) * 100), 100)
-    : null;
 
   const hasPricing = !!product.pricing;
   const hasSizes = !!product.sizing?.schema;
@@ -819,17 +815,6 @@ export default function ProductDetailPage() {
                 <div className="text-xl font-bold leading-tight">{product.totalBookings}</div>
               </div>
             </div>
-            {targetProgress !== null && product.targetRentals && (
-              <div className="mt-3 pt-3 border-t">
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
-                  <span>Target: {product.targetRentals}</span>
-                  <span className="font-semibold text-foreground">{targetProgress}%</span>
-                </div>
-                <div className="relative">
-                  <Progress value={targetProgress} className="h-1.5" />
-                </div>
-              </div>
-            )}
           </motion.div>
 
           {/* Description */}
@@ -946,25 +931,19 @@ export default function ProductDetailPage() {
         className="rounded-2xl border bg-muted/20 px-4 py-3"
       >
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] text-muted-foreground">
-          {/* Purchase info */}
-          {product.purchaseDate && (
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3 w-3 opacity-60" />
-              Bought {formatDate(product.purchaseDate)}
-            </span>
-          )}
-          {product.purchasePrice !== null && (
+          {/* Catalog provenance */}
+          {product.referenceRetailValue !== null && (
             <span className="flex items-center gap-1">
               <DollarSign className="h-3 w-3 opacity-60" />
-              Cost <PriceDisplay amount={product.purchasePrice} className="font-medium text-foreground" />
-              {!product.purchasePricePublic && <EyeOff className="h-2.5 w-2.5 opacity-40" />}
+              Reference retail value <PriceDisplay amount={product.referenceRetailValue} className="font-medium text-foreground" />
+              {!product.referenceRetailValuePublic && <EyeOff className="h-2.5 w-2.5 opacity-40" />}
             </span>
           )}
-          {product.itemCountry && (
+          {product.countryOfOrigin && (
             <span className="flex items-center gap-1">
               <MapPin className="h-3 w-3 opacity-60" />
-              {product.itemCountry}
-              {!product.itemCountryPublic && <EyeOff className="h-2.5 w-2.5 opacity-40" />}
+              Origin: {product.countryOfOrigin}
+              {!product.countryOfOriginPublic && <EyeOff className="h-2.5 w-2.5 opacity-40" />}
             </span>
           )}
 

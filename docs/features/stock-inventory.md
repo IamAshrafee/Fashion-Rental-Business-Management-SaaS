@@ -1,227 +1,111 @@
-# Feature Spec: Stock / Inventory Management
+# Feature Specification: Serialized Rental Inventory
 
-## Overview
+## Domain rule
 
-Stock/Inventory is the foundation of the entire system. This is where business owners add, configure, and manage their rental products. Everything in the guest experience, booking system, and order management depends on the data structured here.
+Every rentable unit is an exact physical item. SKU and product stock numbers are read-only projections derived from those items; the system never stores an editable anonymous quantity.
 
-This spec covers the **product entity** as a whole — the container that holds variants, pricing, sizing, images, and all metadata. Individual sub-systems (color variants, pricing, sizes, etc.) have their own detailed specs.
+The hierarchy is:
 
----
+`Product → visual variant → rentable SKU/size → physical items`
 
-## Product Entity — Core Fields
+Catalog setup may exist with zero items. Booking capacity begins only when eligible physical pieces are registered at an operational inventory location.
 
-### Product Name
-- **Type**: Text input
-- **Required**: Yes
-- **Max length**: 200 characters
-- **Validation**: Cannot be empty, trimmed whitespace
-- **Visibility**: Public (shown to guests)
-- **Purpose**: The display name shown on product cards and detail pages
+## Canonical physical-item registration
 
-### Product Slug
-- **Type**: Auto-generated from product name
-- **Format**: kebab-case (e.g., `royal-banarasi-wedding-saree`)
-- **Uniqueness**: Must be unique within the tenant
-- **Used for**: URL routing (`/product/royal-banarasi-wedding-saree`)
-- **Editable**: No (auto-generated, but owner can override)
+All entry points use `/dashboard/inventory/items/register`, optionally scoped by product or SKU.
 
-### Category
-- **Type**: Dropdown, single select
-- **Required**: Yes
-- **Source**: Tenant's category list (see [category-management.md](./category-management.md))
-- **Visibility**: Public
-- **Purpose**: Top-level product classification, used for filtering and organization
+One atomic request registers 1–100 items and supports:
 
-### Subcategory
-- **Type**: Dropdown, single select, dependent on selected category
-- **Required**: No (optional)
-- **Source**: Subcategories under the selected category
-- **Visibility**: Public
-- **Purpose**: Second-level classification for more specific filtering
+- tenant-unique asset code and optional tenant-unique barcode;
+- active storage location;
+- shared acquisition defaults with per-row overrides;
+- acquisition date, cost, source, and invoice/agreement reference;
+- initial condition and notes;
+- required set-component initialization;
+- idempotent replay and row-addressable validation errors.
 
-### Events
-- **Type**: Multi-select tags
-- **Required**: No (but recommended)
-- **Source**: Tenant's event list (see [category-management.md](./category-management.md))
-- **Examples**: Wedding, Holud, Reception, Birthday, Club Party, Vacation
-- **Visibility**: Public
-- **Purpose**: Helps guests find products suitable for their occasion. Improves filtering and discoverability.
+Asset code is the permanent business identity. Barcode is an optional scanning aid, not a substitute for identity.
 
-### Product Description
-- **Type**: Rich text editor
-- **Required**: No
-- **Max length**: 5000 characters
-- **Visibility**: Public
-- **Supports**: Bold, italic, bullet lists, numbered lists, headings
-- **Does NOT support**: Images within description (images are handled by the variant system)
-- **Purpose**: Detailed product information — fabric, styling notes, occasion recommendations, care instructions
+## Physical-item record
 
----
+Each item stores:
 
-## Product Status System
+- catalog SKU identity;
+- structured current location;
+- administrative disposition: active, quarantined, lost, or retired;
+- operational state across availability, preparation, rental, return, inspection, cleaning, repair, and transfer;
+- condition and component completeness;
+- private acquisition and valuation data;
+- public condition presentation settings where explicitly enabled;
+- immutable links to assignments, movements, inspections, issues, service, transfers, and revenue allocations.
 
-A product can be in one of the following states:
+Location changes use a transfer/custody command. Operational state changes use the owning lifecycle workflow. Metadata corrections require a reason and expected item version and preserve before/after evidence.
 
-### Status: Draft
-- Product is created but not visible to guests
-- Owner can take time to fill in all details
-- Cannot be booked
-- Only visible in owner portal
+## Inventory workspaces
 
-### Status: Published
-- Product is visible to guests in the storefront
-- Can be booked (if availability allows)
-- Appears in search and filter results
+### Inventory Overview
 
-### Status: Archived
-- Product is hidden from guests
-- Cannot be booked
-- Owner can un-archive to re-publish
-- Keeps all data intact (unlike delete)
+Summarizes actual items by location, condition, disposition, and operational state, plus active reservation demand, transfer attention, inspection/service/issue queues, and item-backed economics.
 
-### Availability Toggle
-Independent of status, a published product has availability control:
+### Stock by SKU
 
-| Setting | Meaning |
-|---|---|
-| **Available** | Product can be booked for dates that are not already reserved |
-| **Not Available** | Product cannot be booked, even if dates are free |
+Groups physical items by product/variant/size and location. It shows derived capacity, reservation pressure, and next commitments. There is no stock adjustment field.
 
-If "Not Available", owner can optionally set:
-- **Available From Date**: The date when this product will become available
-- **Reason** (internal): Why it's unavailable (e.g., "Arriving next week", "Under repair")
+### Physical Items
 
-**Use case**: Business announces upcoming products on social media. The product is listed but marked as "Not Available" with a future date. Guests can see it, know when it's coming, but cannot book yet.
+Searches and filters individual assets. Item detail exposes acquisition, condition, components, lifecycle, booking context, service/issues, profitability, history, and valid next actions.
 
----
+### Locations
 
-## Internal Business Fields
+Counts reflect current physical-item custody. A location cannot be deactivated while it still owns items or participates in unfinished operational dependencies.
 
-These fields are for business owner internal use. Each has a visibility toggle.
+### Transfers
 
-### Purchase Date
-- **Type**: Date picker
-- **Required**: No
-- **Visibility**: Internal only (no public toggle)
-- **Purpose**: Record when the item was purchased. Useful for tracking asset age.
+Transfer drafts select exact eligible item IDs at the origin. Ready, dispatch, receipt, partial receipt, damage, loss, cancellation, and reconciliation record an outcome for each identity. Summary quantities are derived from transfer-unit outcomes.
 
-### Purchase Price
-- **Type**: Number input (৳)
-- **Required**: No
-- **Visibility**: Toggle — "Show publicly" / "Keep private"
-- **Default**: Private
-- **Purpose**:
-  - Internal: Cost tracking, profit calculation, damage compensation basis
-  - If public: Transparency signal for customers ("Retail value: ৳45,000")
-- **Important**: This value is used for target recovery calculation and damage/loss liability
+### Stock counts
 
-### Item Country
-- **Type**: Text input
-- **Required**: No
-- **Visibility**: Toggle — "Show publicly" / "Keep private"
-- **Default**: Private
-- **Examples**: "India", "Pakistan", "China", "Local"
-- **Purpose**:
-  - Internal: Sourcing information
-  - If public: Quality/origin signal for customers
+Counts reconcile observed asset codes/barcodes at one location. The immutable result distinguishes:
 
----
+- expected and observed items;
+- missing items;
+- unexpected and wrong-location items;
+- duplicate and unknown scans;
+- items whose disposition or operational state requires investigation.
 
-## Product Creation Flow (Owner Portal)
+Completing a count creates item-specific investigation movements for known discrepancies. It never silently relocates, reactivates, loses, or retires an item.
 
-The product creation form should be organized into clear sections. It should NOT be a single long form — use a multi-step or tabbed approach.
+### Availability controls and movements
 
-### Recommended Sections
+Manual date blocks may target a product, variant, SKU, physical item, or location. Service, inspection, and transfer-owned blocks can be resolved only by their owning workflow. Every inventory movement references an exact physical item and relevant source, locations, actor, reason, time, and before/after state.
 
-| Step/Tab | Contains |
-|---|---|
-| **1. Basic Info** | Name, category, subcategory, events, description |
-| **2. Images & Variants** | Color variants, images per variant, main/identical colors |
-| **3. Size** | Size mode selection, size values |
-| **4. Pricing** | Rental pricing mode, price values, internal min price |
-| **5. Services** | Deposit, cleaning fee, backup size, try-before-rent |
-| **6. Logistics** | Extended rental, late fees, shipping policy |
-| **7. Details & FAQ** | Product details builder, FAQ entries |
-| **8. Business Info** | Purchase date/price, country, target, availability |
+## Availability and reservation
 
-### Save Behavior
-- Owner can save at any step as **draft**
-- Only requires Product Name to save as draft
-- All other fields are optional until publish
-- Publish validates that minimum required fields are filled
-- Required for publish: Name, Category, at least one variant with a featured image, at least one pricing mode
+Capacity at a SKU/location is:
 
----
+`eligible physical items − overlapping active reservation demand + explicit shortage allowance`
 
-## Product Editing
+Eligibility excludes blocking disposition/state, date blocks, unresolved issues, missing required components, incompatible condition, transfer state, loss, and retirement. Exact assignment realizes existing reservation demand and is not subtracted a second time.
 
-- All fields editable after creation
-- Changes to published products are immediately reflected in storefront
-- Editing does not affect existing bookings (bookings reference product snapshot at time of booking — future consideration)
-- Image reordering and replacement supported
-- Variant addition/removal supported
+Reservation creation locks affected SKUs in stable order and rechecks capacity in the booking transaction. Exact assignments use overlap protection so the same item cannot serve two overlapping rentals.
 
----
+## Fulfilment lifecycle
 
-## Product Deletion
+Every quantity requirement ultimately needs the same number of physical-item assignments. Items are prepared, handed out, returned, inspected, serviced, lost/recovered, and retired by identity. Returns move to awaiting inspection; they do not become immediately available.
 
-- Soft delete: Product marked as deleted, not removed from database
-- Deleted products are not visible to guests
-- Existing bookings/orders referencing the product remain intact
-- Owner can permanently delete from trash (future feature)
-- Hard delete removes all data including images from MinIO
+## Physical-item economics
 
----
+Investment recovery uses actual item records rather than a manually chosen rental-count target.
 
-## Product List View (Owner Portal)
+- Acquisition cost belongs to each physical piece.
+- Earned rental revenue is allocated to the final handed-out assignments in stable order.
+- Integer-minor-unit remainders are distributed deterministically.
+- Released or substituted-before-handout items receive no revenue.
+- Completed service cost and signed financial adjustments affect net contribution.
+- Missing acquisition data is reported as incomplete instead of being treated as zero cost.
 
-The owner needs to see all products with quick filtering and actions.
+Product and SKU reporting aggregates these item-level facts without rewriting original financial allocations.
 
-### Columns / Information Shown
-- Thumbnail (featured image of first variant)
-- Product name
-- Category
-- Status (Draft / Published / Archived)
-- Availability (Available / Not Available)
-- Rental price (primary pricing)
-- Total bookings count
-- Target progress (X / Y rentals)
-- Created date
+## Catalog relationship
 
-### Actions
-- Edit
-- Duplicate (create copy with modified name)
-- Change status (Draft → Published, Published → Archived, etc.)
-- Toggle availability
-- Delete
-
-### Filtering
-- By status
-- By category
-- By availability
-- Search by name
-
-### Sorting
-- Name (A-Z, Z-A)
-- Price (low-high, high-low)
-- Newest first
-- Most booked
-
----
-
-## Relationships to Other Features
-
-| Feature | Relationship |
-|---|---|
-| [Color Variant System](./color-variant-system.md) | Product has many variants. Each variant has images and colors. |
-| [Size System](./size-system.md) | Product has a size configuration (one of 4 modes). |
-| [Rental Pricing](./rental-pricing.md) | Product has pricing rules (one or more modes). |
-| [Service & Protection](./service-protection.md) | Product has optional service fees (deposit, cleaning, backup). |
-| [Timing & Logistics](./timing-logistics.md) | Product has timing rules (extended rental, late fees, shipping). |
-| [Try-Before-Rent](./try-before-rent.md) | Product can optionally enable try-on feature. |
-| [Target Tracking](./target-tracking.md) | Product tracks cost recovery progress. |
-| [FAQ System](./faq-system.md) | Product has optional FAQ entries. |
-| [Product Details Builder](./product-details-builder.md) | Product has structured key-value detail sections. |
-| [Category Management](./category-management.md) | Product belongs to a category/subcategory and has events. |
-| [Availability Engine](./availability-engine.md) | Product availability is checked against bookings. |
-| [Booking System](./booking-system.md) | Bookings reference products and specific variants/sizes. |
+The product stores customer-facing catalog facts such as country of origin and optional reference retail value. Private acquisition cost, acquisition date, and supplier/reference data belong only to physical items. Publishing a product and registering its items are intentionally separate actions connected by the setup-completion screen.

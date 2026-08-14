@@ -1,20 +1,16 @@
 'use client';
 
-import { Separator } from '@/components/ui/separator';
 import { DetailsFAQStep } from './details-faq';
-import { VariantsMediaStep } from './variants';
 
 export function ContentMediaStep() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">Storefront content</h2>
+        <h2 className="text-xl font-semibold">Product details and FAQ</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Upload customer-facing photos, then add structured details and answers.
+          Add reusable specifications and answers that help customers rent with confidence.
         </p>
       </div>
-      <VariantsMediaStep showConfiguration={false} showMedia />
-      <Separator />
       <DetailsFAQStep />
     </div>
   );

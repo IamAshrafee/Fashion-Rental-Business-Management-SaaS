@@ -484,6 +484,18 @@ enum InventoryMovementType {
   DAMAGE_WRITE_OFF
 }
 
+enum InventoryCountSessionStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum InventoryCountIdentityMatch {
+  ASSET_CODE
+  BARCODE
+  UNKNOWN
+}
+
 enum StockUnitRevenueAllocationKind {
   RENTAL_REVENUE
   ADJUSTMENT
@@ -628,6 +640,8 @@ model User {
   subscriptionActions          SubscriptionHistory[]           @relation("HistoryPerformedBy")
   createdInventoryBlocks       InventoryBlock[]                @relation("InventoryBlockCreatedBy")
   inventoryMovements           InventoryMovement[]             @relation("InventoryMovementActor")
+  createdInventoryCounts       InventoryCountSession[]         @relation("InventoryCountCreator")
+  completedInventoryCounts     InventoryCountSession[]         @relation("InventoryCountCompleter")
   stockUnitAssignments         StockUnitAssignment[]           @relation("StockUnitAssignedBy")
   stockUnitLifecycleEvents     StockUnitLifecycleEvent[]       @relation("StockUnitLifecycleActor")
   stockUnitInspections         StockUnitInspection[]           @relation("StockUnitInspectionActor")
@@ -777,6 +791,9 @@ model Tenant {
   stockUnits                     StockUnit[]
   inventoryReservations          InventoryReservation[]
   inventoryMovements             InventoryMovement[]
+  inventoryCountSessions         InventoryCountSession[]
+  inventoryCountObservations     InventoryCountObservation[]
+  inventoryCountItems            InventoryCountItem[]
   inventoryBlocks                InventoryBlock[]
   stockUnitAssignments           StockUnitAssignment[]
   stockUnitLifecycleEvents       StockUnitLifecycleEvent[]
@@ -2310,6 +2327,8 @@ model InventoryLocation {
   incomingTransfers    InventoryTransfer[]      @relation("TransferDestination")
   originMovements      InventoryMovement[]      @relation("InventoryMovementOrigin")
   destinationMovements InventoryMovement[]      @relation("InventoryMovementDestination")
+  countSessions        InventoryCountSession[]
+  countItemSnapshots   InventoryCountItem[]     @relation("InventoryCountRecordedLocation")
   bookings             Booking[]
   bookingQuotes        BookingQuote[]
 
@@ -2494,6 +2513,7 @@ model StockUnit {
   acquisitionSource     String?                   @map("acquisition_source") @db.VarChar(200)
   acquisitionReference  String?                   @map("acquisition_reference") @db.VarChar(200)
   notes                 String?
+  version               Int                       @default(0)
   registrationKey       String?                   @map("registration_key")
   registrationHash      String?                   @map("registration_hash")
   registrationRow       Int?                      @map("registration_row")
@@ -2516,6 +2536,8 @@ model StockUnit {
   mediaAttachments   InventoryMediaAttachment[]
   transferUnits      InventoryTransferUnit[]
   revenueAllocations StockUnitRevenueAllocation[]
+  countObservations  InventoryCountObservation[]
+  countItems         InventoryCountItem[]
 
   @@unique([tenantId, assetCode])
   @@unique([tenantId, barcode])
@@ -2917,6 +2939,7 @@ model InventoryMovement {
   transferId            String?               @map("transfer_id")
   transferLineId        String?               @map("transfer_line_id")
   reservationId         String?               @map("reservation_id")
+  countSessionId        String?               @map("count_session_id")
   movementType          InventoryMovementType @map("movement_type")
   beforeState           Json?                 @map("before_state") @db.JsonB
   afterState            Json?                 @map("after_state") @db.JsonB
@@ -2932,14 +2955,108 @@ model InventoryMovement {
   transfer            InventoryTransfer?     @relation(fields: [transferId], references: [id], onDelete: SetNull)
   transferLine        InventoryTransferLine? @relation(fields: [transferLineId], references: [id], onDelete: SetNull)
   reservation         InventoryReservation?  @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  countSession        InventoryCountSession? @relation(fields: [countSessionId], references: [id], onDelete: SetNull)
   actor               User?                  @relation("InventoryMovementActor", fields: [actorUserId], references: [id])
 
   @@index([tenantId, variantSizeId, createdAt])
   @@index([stockUnitId, createdAt])
   @@index([transferId, createdAt])
   @@index([reservationId, createdAt])
+  @@index([countSessionId, createdAt])
   @@index([actorUserId])
   @@map("inventory_movements")
+}
+
+/// Immutable, identity-based reconciliation of physical items expected at one
+/// location against the asset codes or barcodes staff actually observed.
+model InventoryCountSession {
+  id                     String                      @id @default(uuid())
+  tenantId               String                      @map("tenant_id")
+  locationId             String                      @map("location_id")
+  status                 InventoryCountSessionStatus @default(COMPLETED)
+  reason                 String
+  notes                  String?
+  expectedCount          Int                         @map("expected_count")
+  observedUniqueCount    Int                         @map("observed_unique_count")
+  missingCount           Int                         @map("missing_count")
+  unexpectedCount        Int                         @map("unexpected_count")
+  duplicateScanCount     Int                         @map("duplicate_scan_count")
+  unknownScanCount       Int                         @map("unknown_scan_count")
+  wrongLocationCount     Int                         @map("wrong_location_count")
+  operationalReviewCount Int                         @map("operational_review_count")
+  idempotencyKey         String                      @map("idempotency_key")
+  requestHash            String                      @map("request_hash")
+  createdByUserId        String                      @map("created_by_user_id")
+  completedByUserId      String                      @map("completed_by_user_id")
+  completedAt            DateTime                    @default(now()) @map("completed_at")
+  createdAt              DateTime                    @default(now()) @map("created_at")
+
+  tenant       Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  location     InventoryLocation           @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  createdBy    User                        @relation("InventoryCountCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  completedBy  User                        @relation("InventoryCountCompleter", fields: [completedByUserId], references: [id], onDelete: Restrict)
+  observations InventoryCountObservation[]
+  items        InventoryCountItem[]
+  movements    InventoryMovement[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, locationId, completedAt(sort: Desc)])
+  @@index([createdByUserId])
+  @@index([completedByUserId])
+  @@map("inventory_count_sessions")
+}
+
+/// Preserves every submitted scan, including duplicate and unknown identities.
+model InventoryCountObservation {
+  id              String                      @id @default(uuid())
+  tenantId        String                      @map("tenant_id")
+  countSessionId  String                      @map("count_session_id")
+  sequence        Int
+  scannedIdentity String                      @map("scanned_identity")
+  identityMatch   InventoryCountIdentityMatch @map("identity_match")
+  stockUnitId     String?                     @map("stock_unit_id")
+  isDuplicate     Boolean                     @default(false) @map("is_duplicate")
+  createdAt       DateTime                    @default(now()) @map("created_at")
+
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  countSession InventoryCountSession @relation(fields: [countSessionId], references: [id], onDelete: Restrict)
+  stockUnit    StockUnit?            @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([countSessionId, sequence])
+  @@index([tenantId, scannedIdentity])
+  @@index([stockUnitId])
+  @@map("inventory_count_observations")
+}
+
+/// One snapshot result per known physical item in the expected/observed union.
+/// Flags are intentionally independent because a wrong-location item can also
+/// require an operational-state investigation.
+model InventoryCountItem {
+  id                        String                    @id @default(uuid())
+  tenantId                  String                    @map("tenant_id")
+  countSessionId            String                    @map("count_session_id")
+  stockUnitId               String                    @map("stock_unit_id")
+  expectedAtLocation        Boolean                   @map("expected_at_location")
+  observed                  Boolean
+  scanCount                 Int                       @map("scan_count")
+  missing                   Boolean
+  unexpected                Boolean
+  wrongLocation             Boolean                   @map("wrong_location")
+  requiresOperationalReview Boolean                   @map("requires_operational_review")
+  recordedLocationId        String                    @map("recorded_location_id")
+  recordedDisposition       StockUnitDisposition      @map("recorded_disposition")
+  recordedOperationalState  StockUnitOperationalState @map("recorded_operational_state")
+  createdAt                 DateTime                  @default(now()) @map("created_at")
+
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  countSession     InventoryCountSession @relation(fields: [countSessionId], references: [id], onDelete: Restrict)
+  stockUnit        StockUnit             @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  recordedLocation InventoryLocation     @relation("InventoryCountRecordedLocation", fields: [recordedLocationId], references: [id], onDelete: Restrict)
+
+  @@unique([countSessionId, stockUnitId])
+  @@index([tenantId, recordedLocationId])
+  @@index([stockUnitId])
+  @@map("inventory_count_items")
 }
 
 model InventoryBlock {

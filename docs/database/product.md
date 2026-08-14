@@ -1,128 +1,80 @@
-# Database Schema: `products`
+# Database Schema: Catalog Products and Physical Inventory
 
-## Table: `products`
+## `products`
 
-The central entity. Contains all product metadata. Variants, images, pricing, sizes, and services are in related tables.
+`products` stores customer-facing catalog identity and merchandising data. It deliberately does not store acquisition cost/date or an arbitrary rental-count target.
 
-### Columns
+| Column                          | Type      | Nullable | Default         | Meaning                                                      |
+| ------------------------------- | --------- | -------: | --------------- | ------------------------------------------------------------ |
+| `id`                            | UUID      |       No | generated       | Product identity                                             |
+| `tenant_id`                     | UUID      |       No | —               | Tenant ownership                                             |
+| `creation_key`                  | TEXT      |      Yes | `NULL`          | Idempotent draft creation key                                |
+| `name`                          | TEXT      |       No | —               | Catalog display name                                         |
+| `slug`                          | TEXT      |       No | —               | Tenant-unique storefront slug                                |
+| `description`                   | TEXT      |      Yes | `NULL`          | Catalog description                                          |
+| `category_id`                   | UUID      |       No | —               | Category identity                                            |
+| `subcategory_id`                | UUID      |      Yes | `NULL`          | Optional subcategory                                         |
+| `product_type_id`               | UUID      |      Yes | `NULL`          | Optional product type                                        |
+| `size_schema_override_id`       | UUID      |      Yes | `NULL`          | Optional sizing override                                     |
+| `status`                        | enum      |       No | `draft`         | `draft`, `published`, or `archived`                          |
+| `is_available`                  | BOOLEAN   |       No | `true`          | Catalog availability control                                 |
+| `available_from`                | DATE      |      Yes | `NULL`          | Future catalog availability                                  |
+| `unavailable_reason`            | TEXT      |      Yes | `NULL`          | Internal explanation                                         |
+| `country_of_origin`             | TEXT      |      Yes | `NULL`          | Catalog manufacture/design origin                            |
+| `country_of_origin_public`      | BOOLEAN   |       No | `false`         | Guest visibility                                             |
+| `reference_retail_value`        | INTEGER   |      Yes | `NULL`          | Optional product comparison/replacement value in minor units |
+| `reference_retail_value_public` | BOOLEAN   |       No | `false`         | Guest visibility                                             |
+| `storefront_item_mode`          | enum      |       No | `INTERNAL_ONLY` | Public condition presentation policy                         |
+| `total_bookings`                | INTEGER   |       No | `0`             | Cached catalog metric                                        |
+| `total_revenue`                 | INTEGER   |       No | `0`             | Cached catalog metric                                        |
+| `search_vector`                 | TSVECTOR  |      Yes | —               | PostgreSQL search projection                                 |
+| `created_at`, `updated_at`      | TIMESTAMP |       No | current/update  | Audit times                                                  |
+| `deleted_at`                    | TIMESTAMP |      Yes | `NULL`          | Soft deletion                                                |
+| `deleted_by_user_id`            | UUID      |      Yes | `NULL`          | Deletion actor                                               |
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `id` | UUID | No | `gen_random_uuid()` | Primary key |
-| `tenant_id` | UUID | No | — | FK → `tenants.id` |
-| `name` | VARCHAR(200) | No | — | Product display name |
-| `slug` | VARCHAR(250) | No | — | URL slug (unique per tenant) |
-| `description` | TEXT | Yes | `NULL` | Rich text product description |
-| `category_id` | UUID | No | — | FK → `categories.id` |
-| `subcategory_id` | UUID | Yes | `NULL` | FK → `subcategories.id` |
-| `status` | ENUM | No | `'draft'` | draft, published, archived |
-| `is_available` | BOOLEAN | No | `true` | Availability toggle |
-| `available_from` | DATE | Yes | `NULL` | Future availability date |
-| `unavailable_reason` | VARCHAR(300) | Yes | `NULL` | Internal reason for unavailability |
-| `purchase_date` | DATE | Yes | `NULL` | When item was purchased |
-| `purchase_price` | INTEGER | Yes | `NULL` | Cost to acquire the item (integer) |
-| `purchase_price_public` | BOOLEAN | No | `false` | Show purchase price to guests |
-| `item_country` | VARCHAR(100) | Yes | `NULL` | Country of origin |
-| `item_country_public` | BOOLEAN | No | `false` | Show country to guests |
-| `target_rentals` | INT | Yes | `NULL` | Manual target rental count |
-| `total_bookings` | INT | No | `0` | Cached booking count |
-| `total_revenue` | INTEGER | No | `0` | Cached revenue total |
-| `search_vector` | TSVECTOR | Yes | — | Full-text search vector |
-| `created_at` | TIMESTAMP | No | `NOW()` | Created timestamp |
-| `updated_at` | TIMESTAMP | No | `NOW()` | Last updated |
-| `deleted_at` | TIMESTAMP | Yes | `NULL` | Soft delete timestamp |
+Important constraints/indexes include tenant-unique slug and creation key, tenant/status lookup, category/product-type/sizing references, full-text/trigram indexes, and a partial storefront index for published, available, nondeleted products.
 
-### Enums
+## Catalog hierarchy
 
-```prisma
-enum ProductStatus {
-  draft
-  published
-  archived
-}
-```
+- `product_variants` represents a visual edition and color mapping.
+- `variant_sizes` represents a rentable SKU/size and keeps an inventory concurrency revision.
+- `product_images`, size/detail/FAQ tables, and versioned pricing tables describe the customer offer.
+- Product onboarding stores server revisions and idempotent section commands.
 
-### Indexes
+Every SKU is physical-item backed.
 
-| Index | Columns | Type | Purpose |
-|---|---|---|---|
-| `products_tenant_slug_key` | `tenant_id, slug` | UNIQUE | URL uniqueness per tenant |
-| `products_category_id_idx` | `category_id` | INDEX | Category filtering |
-| `products_status_idx` | `tenant_id, status` | INDEX | Status filtering |
-| `products_search_idx` | `search_vector` | GIN | Full-text search |
-| `products_trgm_idx` | `name` | GIN (gin_trgm_ops) | Fuzzy search |
-| `products_storefront_idx` | `tenant_id, created_at DESC` | PARTIAL (WHERE status='published' AND is_available=true AND deleted_at IS NULL) | Storefront listing |
-| `products_deleted_at_idx` | `deleted_at` | INDEX (where null) | Exclude soft-deleted |
+## `stock_units`
 
-### Relationships
+`stock_units` stores one row for every owned rental piece.
 
-| Relation | Type | Target |
-|---|---|---|
-| `tenant` | belongs-to | `tenants` |
-| `category` | belongs-to | `categories` |
-| `subcategory` | belongs-to | `subcategories` |
-| `variants` | has-many | `product_variants` |
-| `events` | many-to-many | `events` (via `product_events`) |
-| `productSize` | has-one | `product_sizes` |
-| `pricing` | has-one | `product_pricing` |
-| `services` | has-one | `product_services` |
-| `faqs` | has-many | `product_faqs` |
-| `detailHeaders` | has-many | `product_detail_headers` |
-| `bookingItems` | has-many | `booking_items` |
+| Column                      | Meaning                                                           |
+| --------------------------- | ----------------------------------------------------------------- |
+| `asset_code`                | Permanent tenant-unique item identity                             |
+| `barcode`                   | Optional tenant-unique scanning identity                          |
+| `variant_size_id`           | Exact catalog SKU                                                 |
+| `location_id`               | Structured current custody location                               |
+| `disposition`               | Active, quarantined, lost, or retired                             |
+| `operational_state`         | Availability/preparation/rental/inspection/service/transfer state |
+| `condition`                 | Last verified condition grade                                     |
+| `acquisition_date`          | Date this exact piece was obtained                                |
+| `acquisition_cost`          | Private item investment in minor units                            |
+| `acquisition_source`        | Supplier, owner contribution, consignment source, etc.            |
+| `acquisition_reference`     | Invoice, PO, or agreement reference                               |
+| `estimated_current_value`   | Separate approved current valuation                               |
+| `version`                   | Optimistic correction version                                     |
+| `registration_key/hash/row` | Atomic batch idempotency evidence                                 |
 
----
+SKU/product stock is derived from these rows; no inventory quantity table exists.
 
-## Prisma Model
+## Inventory evidence
 
-```prisma
-model Product {
-  id                  String        @id @default(uuid())
-  tenantId            String        @map("tenant_id")
-  name                String
-  slug                String
-  description         String?
-  categoryId          String        @map("category_id")
-  subcategoryId       String?       @map("subcategory_id")
-  status              ProductStatus @default(draft)
-  isAvailable         Boolean       @default(true) @map("is_available")
-  availableFrom       DateTime?     @map("available_from") @db.Date
-  unavailableReason   String?       @map("unavailable_reason")
-  purchaseDate        DateTime?     @map("purchase_date") @db.Date
-  purchasePrice       Int?          @map("purchase_price")
-  purchasePricePublic Boolean       @default(false) @map("purchase_price_public")
-  itemCountry         String?       @map("item_country")
-  itemCountryPublic   Boolean       @default(false) @map("item_country_public")
-  targetRentals       Int?          @map("target_rentals")
-  totalBookings       Int           @default(0) @map("total_bookings")
-  totalRevenue        Int           @default(0) @map("total_revenue")
-  createdAt           DateTime      @default(now()) @map("created_at")
-  updatedAt           DateTime      @updatedAt @map("updated_at")
-  deletedAt           DateTime?     @map("deleted_at")
+- `inventory_movements` requires a physical item and retains source workflow, location, actor, reason, and before/after state.
+- `inventory_count_sessions`, observations, and items preserve identity-based location reconciliation.
+- reservations retain quantity demand by SKU/location; assignments bind exact items without subtracting capacity twice.
+- transfers group exact transfer units by SKU and derive all summary counts from unit outcomes.
+- inspections, issues, service orders, lifecycle events, and component states always reference exact items.
+- `stock_unit_revenue_allocations` appends deterministic item-level rental revenue and signed corrections.
 
-  tenant              Tenant        @relation(fields: [tenantId], references: [id])
-  category            Category      @relation(fields: [categoryId], references: [id])
-  subcategory         Subcategory?  @relation(fields: [subcategoryId], references: [id])
-  variants            ProductVariant[]
-  events              ProductEvent[]
-  productSize         ProductSize?
-  pricing             ProductPricing?
-  services            ProductServices?
-  faqs                ProductFaq[]
-  detailHeaders       ProductDetailHeader[]
-  bookingItems        BookingItem[]
+## Publication and history
 
-  @@unique([tenantId, slug])
-  @@index([categoryId])
-  @@index([tenantId, status])
-  @@map("products")
-}
-```
-
----
-
-## Notes
-
-- `search_vector` is maintained via a PostgreSQL trigger (not Prisma — raw SQL migration)
-- `total_bookings` and `total_revenue` are denormalized cached values updated on order completion
-- `deleted_at` enables soft delete — all queries filter `WHERE deleted_at IS NULL`
-- `slug` auto-generated from `name` on creation, unique per tenant
+A product may be published with zero stock. Availability is computed from eligible items and reservations. Catalog edits do not rewrite booking, pricing, policy, composition, fulfilment, assignment, movement, or financial snapshots. Hard deletion is limited to records with no protected history; otherwise the catalog identity is archived or soft-deleted.

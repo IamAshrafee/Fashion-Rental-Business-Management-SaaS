@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import {
   Package,
   DollarSign,
-  Ruler,
   CheckCircle2,
   AlertCircle,
   ChevronLeft,
@@ -14,16 +13,15 @@ import {
   Save,
   Clock,
   FileText,
-  Boxes,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 /* ─── Step Definitions ─────────────────────────────────────────────────── */
 export const WIZARD_STEPS = [
-  { label: 'Basics', icon: Package, shortLabel: 'Basics', section: 'BASICS' },
-  { label: 'SKUs', icon: Ruler, shortLabel: 'SKUs', section: 'SKUS' },
-  { label: 'Content', icon: FileText, shortLabel: 'Content', section: 'CONTENT' },
+  { label: 'Basics & sizing', icon: Package, shortLabel: 'Basics', section: 'BASICS' },
+  { label: 'Variants & images', icon: ImageIcon, shortLabel: 'Images', section: 'SKUS' },
+  { label: 'Details & FAQ', icon: FileText, shortLabel: 'Details', section: 'CONTENT' },
   { label: 'Pricing', icon: DollarSign, shortLabel: 'Pricing', section: 'PRICING' },
-  { label: 'Inventory', icon: Boxes, shortLabel: 'Stock', section: 'OPENING_INVENTORY' },
   { label: 'Review', icon: CheckCircle2, shortLabel: 'Review', section: 'REVIEW' },
 ] as const;
 

@@ -91,4 +91,56 @@ describe('InventoryReservationService', () => {
       response: expect.objectContaining({ code: 'INVENTORY_RESERVATION_MISSING' }),
     });
   });
+
+  it('attributes completed rental revenue to physical assignments in stable order', async () => {
+    const tx = {
+      fulfillmentRequirement: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'requirement-1',
+            bookingItemId: 'booking-item-1',
+            revenueAllocation: 5,
+            reservation: {
+              assignments: [
+                { id: 'assignment-1', stockUnitId: 'unit-1' },
+                { id: 'assignment-2', stockUnitId: 'unit-2' },
+              ],
+            },
+          },
+        ]),
+      },
+      stockUnitRevenueAllocation: { createMany: jest.fn() },
+      stockUnitAssignment: { updateMany: jest.fn() },
+      inventoryReservation: { updateMany: jest.fn() },
+    };
+
+    await service.transitionForBooking(
+      tx as never,
+      'tenant-1',
+      'booking-1',
+      BookingStatus.completed,
+      'Rental completed',
+    );
+
+    expect(tx.stockUnitRevenueAllocation.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          assignmentId: 'assignment-1',
+          stockUnitId: 'unit-1',
+          amount: 3,
+        }),
+        expect.objectContaining({
+          assignmentId: 'assignment-2',
+          stockUnitId: 'unit-2',
+          amount: 2,
+        }),
+      ],
+      skipDuplicates: true,
+    });
+    expect(tx.stockUnitAssignment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant-1', releasedAt: null }),
+      }),
+    );
+  });
 });

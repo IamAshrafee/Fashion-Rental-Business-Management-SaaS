@@ -265,7 +265,7 @@ export function OrderActions({ bookingId, status, returnMethod }: OrderActionsPr
       )}
       {status === 'returned' && !inspectionReady && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Complete the return inspection for every serialized physical item before closing inspection.
+          Complete the return inspection for every physical item before closing inspection.
         </p>
       )}
 

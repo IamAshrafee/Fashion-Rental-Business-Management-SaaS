@@ -10,7 +10,6 @@ const DEFAULT_SORT: NonNullable<ProductListQuery['sort']> = 'updatedAt';
 const DEFAULT_ORDER: NonNullable<ProductListQuery['order']> = 'desc';
 
 const PRODUCT_STATUSES = new Set(['draft', 'published', 'archived']);
-const TRACKING_MODES = new Set(['POOLED', 'SERIALIZED']);
 const READINESS_STATES = new Set(['ready', 'needs_attention']);
 const STOCK_STATES = new Set(['in_stock', 'no_stock']);
 const SORT_FIELDS = new Set(['name', 'status', 'createdAt', 'updatedAt']);
@@ -49,10 +48,6 @@ export function useProductListQuery() {
     ),
     categoryId: searchParams.get('category') || undefined,
     productTypeId: searchParams.get('type') || undefined,
-    trackingMode: allowed<NonNullable<ProductListQuery['trackingMode']>>(
-      searchParams.get('tracking'),
-      TRACKING_MODES,
-    ),
     readiness: allowed<NonNullable<ProductListQuery['readiness']>>(
       searchParams.get('readiness'),
       READINESS_STATES,
@@ -83,7 +78,6 @@ export function useProductListQuery() {
       status: update.status,
       category: update.categoryId,
       type: update.productTypeId,
-      tracking: update.trackingMode,
       readiness: update.readiness,
       stock: update.stockState,
       sort: update.sort,

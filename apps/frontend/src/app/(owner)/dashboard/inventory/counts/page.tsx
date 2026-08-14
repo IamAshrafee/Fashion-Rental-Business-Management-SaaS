@@ -1,5 +1,5 @@
-import { InventoryLedgerTable } from '../components/inventory-ledger-table';
+import { InventoryCountsWorkspace } from '../components/inventory-counts-workspace';
 
 export default function InventoryCountsPage() {
-  return <InventoryLedgerTable mode="counts" />;
+  return <InventoryCountsWorkspace />;
 }

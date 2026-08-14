@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { majorInputToMinor, minorToMajorInput } from '@/lib/money';
 import { useState, useEffect, useMemo } from 'react';
 import type { ProductFormValues } from '../schema';
+import { FieldTip } from '@/components/shared/field-tip';
 
 /* ─── Rate Plan Templates ──────────────────────────────────────────────── */
 const RATE_PLAN_TEMPLATES = [
@@ -258,7 +259,7 @@ export function PricingServicesStep() {
             {ratePlanType === 'PER_DAY' && (
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Price per Day</Label>
+                  <Label className="text-sm font-medium">Price per Day <FieldTip helpKey="pricing.rentalRate" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -288,7 +289,7 @@ export function PricingServicesStep() {
             {ratePlanType === 'FLAT_PERIOD' && (
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Package Price</Label>
+                  <Label className="text-sm font-medium">Package Price <FieldTip helpKey="pricing.rentalRate" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -454,7 +455,7 @@ export function PricingServicesStep() {
             {ratePlanType === 'PERCENT_RETAIL' && (
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Rental %</Label>
+                  <Label className="text-sm font-medium">Rental % <FieldTip helpKey="catalog.referenceRetailValue" /></Label>
                   <div className="relative">
                     <Input
                       type="number"
@@ -465,7 +466,7 @@ export function PricingServicesStep() {
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">% of product&apos;s purchase/retail price</p>
+                  <p className="text-xs text-muted-foreground">Percentage of the product&apos;s reference retail value</p>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Min Price</Label>
@@ -523,7 +524,7 @@ export function PricingServicesStep() {
                 <Shield className="h-4 w-4" />
               </div>
               <div>
-                <p className="font-medium text-sm">Security Deposit</p>
+                <p className="font-medium text-sm">Security Deposit <FieldTip helpKey="pricing.deposit" /></p>
                 <p className="text-xs text-muted-foreground">Refundable upon safe return</p>
               </div>
             </div>
@@ -686,7 +687,7 @@ export function PricingServicesStep() {
         {watch('shippingMode') === 'flat' && (
           <div className="p-4 rounded-lg border bg-muted/20">
             <div className="space-y-2 max-w-[200px]">
-              <Label className="text-sm font-medium">Flat Shipping Fee</Label>
+              <Label className="text-sm font-medium">Flat Shipping Fee <FieldTip helpKey="pricing.rentalRate" /></Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                 <Input
@@ -730,7 +731,7 @@ export function PricingServicesStep() {
         {lateFeeEnabled && (
           <div className="grid sm:grid-cols-3 gap-4 p-4 rounded-lg border bg-muted/20">
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Grace Period</Label>
+              <Label className="text-sm font-medium">Grace Period <FieldTip helpKey="pricing.latePolicy" /></Label>
               <div className="relative">
                 <Input
                   type="number"
@@ -743,7 +744,7 @@ export function PricingServicesStep() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Fee per Day</Label>
+              <Label className="text-sm font-medium">Fee per Day <FieldTip helpKey="pricing.latePolicy" /></Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                 <Input
@@ -758,7 +759,7 @@ export function PricingServicesStep() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Max Fee Cap</Label>
+              <Label className="text-sm font-medium">Max Fee Cap <FieldTip helpKey="pricing.latePolicy" /></Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                 <Input

@@ -47,7 +47,6 @@ export function CatalogPageClient() {
     query.status ||
     query.categoryId ||
     query.productTypeId ||
-    query.trackingMode ||
     query.readiness ||
     query.stockState,
   );

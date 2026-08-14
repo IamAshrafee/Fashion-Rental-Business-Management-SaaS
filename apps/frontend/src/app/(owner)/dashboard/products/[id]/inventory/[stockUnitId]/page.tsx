@@ -11,6 +11,7 @@ import {
   History,
   Loader2,
   PackageCheck,
+  Pencil,
   Plus,
   ShieldAlert,
   Stethoscope,
@@ -44,6 +45,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { FieldTip } from '@/components/shared/field-tip';
 import { productApi } from '@/lib/api/products';
 import {
   inventoryOperationsApi,
@@ -1495,14 +1497,82 @@ function ComponentsPanel({
   );
 }
 
+function MetadataCorrectionDialog({ data, refresh }: { data: StockUnitOperations; refresh: () => Promise<void> }) {
+  const unit = data.stockUnit;
+  const [open, setOpen] = useState(false);
+  const [assetCode, setAssetCode] = useState(unit.assetCode);
+  const [barcode, setBarcode] = useState(unit.barcode || '');
+  const [condition, setCondition] = useState<StockConditionGrade>(unit.condition);
+  const [acquisitionDate, setAcquisitionDate] = useState(unit.acquisitionDate?.slice(0, 10) || '');
+  const [acquisitionCost, setAcquisitionCost] = useState(String(minorToMajorInput(unit.acquisitionCost)));
+  const [acquisitionSource, setAcquisitionSource] = useState(unit.acquisitionSource || '');
+  const [acquisitionReference, setAcquisitionReference] = useState(unit.acquisitionReference || '');
+  const [notes, setNotes] = useState(unit.notes || '');
+  const [currentValue, setCurrentValue] = useState(String(minorToMajorInput(unit.estimatedCurrentValue)));
+  const [reason, setReason] = useState('');
+  const correction = useMutation({
+    mutationFn: () => productApi.updateStockUnit(unit.id, {
+      expectedVersion: unit.version,
+      assetCode,
+      barcode,
+      condition,
+      acquisitionDate: acquisitionDate || null,
+      acquisitionCost: acquisitionCost.trim() ? majorInputToMinor(acquisitionCost) : null,
+      acquisitionSource,
+      acquisitionReference,
+      notes,
+      estimatedCurrentValue: currentValue.trim() ? majorInputToMinor(currentValue) : null,
+      reason,
+    }),
+    onSuccess: async () => {
+      setOpen(false);
+      setReason('');
+      await refresh();
+      toast.success('Physical-item metadata corrected');
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not apply the correction')),
+  });
+  const invalidMoney =
+    (acquisitionCost.trim() !== '' && majorInputToMinor(acquisitionCost) === undefined) ||
+    (currentValue.trim() !== '' && majorInputToMinor(currentValue) === undefined);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild><Button variant="outline"><Pencil className="mr-2 size-4" />Correct item metadata</Button></DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Correct physical-item metadata</DialogTitle>
+          <DialogDescription>
+            This creates an audited before-and-after record. Use transfers for location changes and
+            lifecycle or inspection commands for operational changes.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-2 sm:grid-cols-2">
+          <div className="space-y-2"><Label>Asset code <FieldTip helpKey="inventory.assetCode" /></Label><Input value={assetCode} onChange={(event) => setAssetCode(event.target.value)} /></div>
+          <div className="space-y-2"><Label>Barcode</Label><Input value={barcode} onChange={(event) => setBarcode(event.target.value)} /></div>
+          <div className="space-y-2"><Label>Condition correction <FieldTip helpKey="inventory.condition" /></Label><Select value={condition} onValueChange={(value) => setCondition(value as StockConditionGrade)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONDITIONS.map((value) => <SelectItem key={value} value={value}>{label(value)}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-2"><Label>Acquisition date</Label><Input type="date" value={acquisitionDate} onChange={(event) => setAcquisitionDate(event.target.value)} /></div>
+          <div className="space-y-2"><Label>Acquisition cost (৳) <FieldTip helpKey="inventory.acquisitionCost" /></Label><Input inputMode="decimal" value={acquisitionCost} onChange={(event) => setAcquisitionCost(event.target.value)} /></div>
+          <div className="space-y-2"><Label>Estimated current value (৳) <FieldTip helpKey="inventory.currentValue" /></Label><Input inputMode="decimal" value={currentValue} onChange={(event) => setCurrentValue(event.target.value)} /></div>
+          <div className="space-y-2"><Label>Acquisition source</Label><Input value={acquisitionSource} onChange={(event) => setAcquisitionSource(event.target.value)} /></div>
+          <div className="space-y-2"><Label>Acquisition reference</Label><Input value={acquisitionReference} onChange={(event) => setAcquisitionReference(event.target.value)} /></div>
+          <div className="space-y-2 sm:col-span-2"><Label>Internal notes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+          <div className="space-y-2 sm:col-span-2"><Label>Correction reason <FieldTip helpKey="inventory.metadataCorrection" /></Label><Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required audit explanation" /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button disabled={!assetCode.trim() || !reason.trim() || invalidMoney || correction.isPending} onClick={() => correction.mutate()}>{correction.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}Apply audited correction</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () => Promise<void> }) {
   const unit = data.stockUnit;
   const [storefrontVisible, setStorefrontVisible] = useState(unit.storefrontVisible);
   const [conditionNote, setConditionNote] = useState(unit.publicConditionNote || '');
   const [priceAdjustment, setPriceAdjustment] = useState(String(minorToMajorInput(unit.rentalPriceAdjustment)));
-  const [currentValue, setCurrentValue] = useState(
-    unit.estimatedCurrentValue == null ? '' : String(minorToMajorInput(unit.estimatedCurrentValue)),
-  );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [referenceCaption, setReferenceCaption] = useState('');
   const saveCommercial = useMutation({
@@ -1511,7 +1581,6 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
         storefrontVisible,
         publicConditionNote: conditionNote,
         rentalPriceAdjustment: Math.round((Number(priceAdjustment) || 0) * 100),
-        estimatedCurrentValue: majorInputToMinor(currentValue),
       }),
     onSuccess: async () => {
       await refresh();
@@ -1620,17 +1689,26 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
             <p>{unit.location?.name || '—'}</p>
           </div>
           <div>
-            <p className="text-muted-foreground">Purchase date</p>
-            <p>{unit.purchaseDate?.slice(0, 10) || '—'}</p>
+            <p className="text-muted-foreground">Acquisition date</p>
+            <p>{unit.acquisitionDate?.slice(0, 10) || '—'}</p>
           </div>
           <div>
-            <p className="text-muted-foreground">Purchase cost</p>
-            <p>{unit.purchasePrice == null ? '—' : formatMinorMoney(unit.purchasePrice)}</p>
+            <p className="text-muted-foreground">Acquisition cost</p>
+            <p>{unit.acquisitionCost == null ? '—' : formatMinorMoney(unit.acquisitionCost)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Acquisition source</p>
+            <p>{unit.acquisitionSource || '—'}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Acquisition reference</p>
+            <p>{unit.acquisitionReference || '—'}</p>
           </div>
           <div className="sm:col-span-2">
             <p className="text-muted-foreground">Notes</p>
             <p>{unit.notes || '—'}</p>
           </div>
+          <div className="sm:col-span-2 lg:col-span-3"><MetadataCorrectionDialog data={data} refresh={refresh} /></div>
         </CardContent>
       </Card>
       <Card>
@@ -1664,15 +1742,6 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
               onChange={(event) => setPriceAdjustment(event.target.value)}
             />
             <p className="text-xs text-muted-foreground">Use a negative value for a condition discount.</p>
-          </div>
-          <div className="space-y-2">
-            <Label>Estimated current value (৳)</Label>
-            <Input
-              type="number"
-              min={0}
-              value={currentValue}
-              onChange={(event) => setCurrentValue(event.target.value)}
-            />
           </div>
           <Button
             className="sm:col-span-2 sm:w-fit"

@@ -9,19 +9,21 @@ Controls the timing rules and shipping configuration for product rentals. Handle
 ## Extended Rental
 
 ### Purpose
+
 Allows customers to keep a product beyond the base rental duration at an agreed-upon per-day rate. Unlike late fees, extended rentals are **planned and paid upfront** (e.g., customer knows they need the dress for a destination wedding and will be traveling for 10 days).
 
 ### Configuration (Owner)
 
-| Field | Type | Required | Example |
-|---|---|---|---|
-| Extended Rental Rate | Number (৳ per day) | No | 1,500৳/day |
+| Field                | Type               | Required | Example    |
+| -------------------- | ------------------ | -------- | ---------- |
+| Extended Rental Rate | Number (৳ per day) | No       | 1,500৳/day |
 
 If not set → extended rental is not available. Customer can only book for the base duration.
 
 ### How It Works
 
 For **One-Time Rental** and **Retail Percentage** pricing modes:
+
 1. Product has a base duration (e.g., 3 days included)
 2. Customer selects a longer date range (e.g., 7 days)
 3. Extra days = 7 - 3 = 4 days
@@ -29,10 +31,12 @@ For **One-Time Rental** and **Retail Percentage** pricing modes:
 5. Total rental = Base price + Extended cost
 
 For **Per-Day** pricing mode:
+
 - Extended rental rate is NOT applicable — all days are already priced per day
 - This field is hidden when pricing mode is per-day
 
 ### Display Rules (Guest Side)
+
 - On date selection: When guest picks dates exceeding base duration, show:
   ```
   Base rental (3 days): ৳7,500
@@ -42,6 +46,7 @@ For **Per-Day** pricing mode:
   ```
 
 ### Business Rules
+
 1. Only applies to one-time and percentage pricing modes
 2. Extended rental is planned and paid at checkout
 3. No upper limit on extra days (owner can set a maximum in future)
@@ -52,6 +57,7 @@ For **Per-Day** pricing mode:
 ## Late Fees
 
 ### Purpose
+
 Penalties for returning a product after the agreed return date. Unlike extended rental, late returns are **unplanned** and punitive.
 
 ### Configuration (Owner)
@@ -60,29 +66,31 @@ Two modes available:
 
 #### Mode A: Fixed Amount Per Day
 
-| Field | Type | Required | Example |
-|---|---|---|---|
-| Late Fee Type | Selection | Yes (if enabling) | "fixed" |
-| Late Fee Per Day | Number (৳) | Yes | 1,000৳/day |
+| Field            | Type       | Required          | Example    |
+| ---------------- | ---------- | ----------------- | ---------- |
+| Late Fee Type    | Selection  | Yes (if enabling) | "fixed"    |
+| Late Fee Per Day | Number (৳) | Yes               | 1,000৳/day |
 
 #### Mode B: Percentage of Retail Price Per Day
 
-| Field | Type | Required | Example |
-|---|---|---|---|
-| Late Fee Type | Selection | Yes (if enabling) | "percentage" |
-| Late Fee Percentage | Number (%) | Yes | 5% of retail price per day |
+| Field               | Type       | Required          | Example                    |
+| ------------------- | ---------- | ----------------- | -------------------------- |
+| Late Fee Type       | Selection  | Yes (if enabling) | "percentage"               |
+| Late Fee Percentage | Number (%) | Yes               | 5% of retail price per day |
 
 If retail price = ৳45,000 → Late fee = ৳2,250/day
 
 #### Maximum Late Fee Cap (Optional)
-| Field | Type | Required | Example |
-|---|---|---|---|
-| Max Late Fee | Number (৳) | No | 20,000৳ |
+
+| Field        | Type       | Required | Example |
+| ------------ | ---------- | -------- | ------- |
+| Max Late Fee | Number (৳) | No       | 20,000৳ |
 
 If set, late fees stop accumulating after reaching this cap.
-If not set, late fees accumulate until reaching the retail/purchase price.
+If not set, late fees accumulate according to the snapshotted booking policy. An optional cap may use the catalog reference retail value; it never exposes or derives from private item acquisition cost.
 
 ### How Late Fees Are Applied
+
 1. Return date passes → order marked as **Overdue**
 2. System calculates late days
 3. Late fee accumulated daily
@@ -91,11 +99,13 @@ If not set, late fees accumulate until reaching the retail/purchase price.
 6. Deposit can be used to cover late fees (owner decision)
 
 ### Display Rules
+
 - On product detail page: "Late return fee: ৳1,000/day" (if set)
 - On booking confirmation: Reminder of return date and late fee policy
 - In order management (owner): Accumulated late fee shown on overdue orders
 
 ### Business Rules
+
 1. Late fees are calculated from the day after the return date
 2. Late fees can be manually waived or adjusted by the owner
 3. Late fees can be deducted from the security deposit
@@ -107,41 +117,46 @@ If not set, late fees accumulate until reaching the retail/purchase price.
 ## Shipping Policy
 
 ### Purpose
+
 Configure how delivery costs are handled. This is flexible because some businesses offer free shipping, some charge a flat rate, and some calculate based on customer location.
 
 ### Configuration (Owner)
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| Shipping Mode | Selection | No | How shipping cost is determined |
+| Field         | Type      | Required | Description                     |
+| ------------- | --------- | -------- | ------------------------------- |
+| Shipping Mode | Selection | No       | How shipping cost is determined |
 
 **Shipping Modes**:
 
 #### Mode 1: Free Shipping
+
 No shipping charge. Good for local businesses.
 
 #### Mode 2: Flat Rate
-| Field | Type | Example |
-|---|---|---|
-| Shipping Fee | Number (৳) | 150৳ |
+
+| Field        | Type       | Example |
+| ------------ | ---------- | ------- |
+| Shipping Fee | Number (৳) | 150৳    |
 
 Same fee regardless of location.
 
 #### Mode 3: Area-Based (Calculated Later)
+
 Shipping cost is determined after order placement based on customer's delivery area. Customer sees "Shipping: Calculated after order" at checkout.
 
 The owner manually sets the shipping cost when processing the order, or it's calculated via courier integration (see [courier-integration.md](../features/courier-integration.md)).
 
 ### Display Rules
 
-| Mode | Product Page | Checkout |
-|---|---|---|
-| Free | "Free Shipping" badge | Shipping: ৳0 |
-| Flat Rate | "Shipping: ৳150" | Shipping: ৳150 |
+| Mode       | Product Page                  | Checkout                  |
+| ---------- | ----------------------------- | ------------------------- |
+| Free       | "Free Shipping" badge         | Shipping: ৳0              |
+| Flat Rate  | "Shipping: ৳150"              | Shipping: ৳150            |
 | Area-Based | "Shipping: Based on location" | Shipping: To be confirmed |
-| Not set | Nothing shown | Nothing shown |
+| Not set    | Nothing shown                 | Nothing shown             |
 
 ### Business Rules
+
 1. Shipping policy is per product (different products can have different shipping rules)
 2. If area-based, the final total is confirmed after order review by owner
 3. Flat rate applies per product (2 products = 2× shipping fee — unless owner bundles)

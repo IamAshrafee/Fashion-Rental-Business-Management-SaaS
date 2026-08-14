@@ -50,73 +50,6 @@ export class InventoryCalendarQueryDto {
   variantSizeId?: string;
 }
 
-export class CreateStockUnitDto {
-  @IsUUID()
-  locationId!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  assetCode!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  barcode?: string;
-
-  @IsOptional()
-  @IsEnum(StockConditionGrade)
-  condition?: StockConditionGrade;
-
-  @IsOptional()
-  @IsDateString()
-  acquisitionDate?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(1_000_000_000)
-  acquisitionCost?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  acquisitionSource?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  acquisitionReference?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  notes?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  storefrontVisible?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  publicConditionNote?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(-100_000_000)
-  @Max(100_000_000)
-  rentalPriceAdjustment?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  estimatedCurrentValue?: number;
-}
-
 export class BatchStockUnitRowDto {
   @IsString()
   @IsNotEmpty()
@@ -134,14 +67,14 @@ export class BatchStockUnitRowDto {
 
   @IsOptional()
   @IsDateString()
-  acquisitionDate?: string;
+  acquisitionDate?: string | null;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(1_000_000_000)
-  acquisitionCost?: number;
+  acquisitionCost?: number | null;
 
   @IsOptional()
   @IsString()
@@ -238,6 +171,12 @@ export class RegisterStockUnitBatchDto {
 
 export class UpdateStockUnitDto {
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  expectedVersion?: number;
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -254,13 +193,13 @@ export class UpdateStockUnitDto {
 
   @IsOptional()
   @IsDateString()
-  acquisitionDate?: string;
+  acquisitionDate?: string | null;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  acquisitionCost?: number;
+  acquisitionCost?: number | null;
 
   @IsOptional()
   @IsString()
@@ -302,7 +241,7 @@ export class UpdateStockUnitDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  estimatedCurrentValue?: number;
+  estimatedCurrentValue?: number | null;
 
   @IsOptional()
   @Type(() => Number)
@@ -316,6 +255,25 @@ export class StockUnitLifecycleDto {
   @IsNotEmpty()
   @MaxLength(500)
   reason!: string;
+}
+
+export class CreateStockUnitRevenueAdjustmentDto {
+  @IsUUID()
+  assignmentId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(-1_000_000_000)
+  @Max(1_000_000_000)
+  amount!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsUUID()
+  idempotencyKey!: string;
 }
 
 export class AssignStockUnitsDto {

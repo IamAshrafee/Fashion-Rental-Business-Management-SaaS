@@ -8,34 +8,34 @@ Business owners can add staff members (e.g., salespersons, managers) who help ma
 
 ## Roles
 
-| Role | Description | Access Level |
-|---|---|---|
-| **Owner** | Business owner, full access | Everything |
-| **Manager** | Senior staff, most access | Everything except billing and dangerous settings |
-| **Staff / Salesperson** | Day-to-day operations | Orders, products (view + limited edit), customers |
+| Role                    | Description                 | Access Level                                      |
+| ----------------------- | --------------------------- | ------------------------------------------------- |
+| **Owner**               | Business owner, full access | Everything                                        |
+| **Manager**             | Senior staff, most access   | Everything except billing and dangerous settings  |
+| **Staff / Salesperson** | Day-to-day operations       | Orders, products (view + limited edit), customers |
 
 ---
 
 ## Permissions Matrix
 
-| Feature | Owner | Manager | Staff |
-|---|---|---|---|
-| **Products** - View | ✅ | ✅ | ✅ |
-| **Products** - Add/Edit | ✅ | ✅ | ❌ |
-| **Products** - Delete | ✅ | ❌ | ❌ |
-| **Products** - See internal prices (min price) | ✅ | ✅ | ✅ |
-| **Products** - See purchase price | ✅ | ✅ | ❌ |
-| **Orders** - View all | ✅ | ✅ | ✅ |
-| **Orders** - Change status | ✅ | ✅ | ✅ |
-| **Orders** - Modify prices | ✅ | ✅ | ❌ |
-| **Orders** - Process refund | ✅ | ✅ | ❌ |
-| **Customers** - View | ✅ | ✅ | ✅ |
-| **Customers** - Add notes | ✅ | ✅ | ✅ |
-| **Analytics** - View | ✅ | ✅ | ❌ |
-| **Store Settings** | ✅ | ❌ | ❌ |
-| **Payment Settings** | ✅ | ❌ | ❌ |
-| **Staff Management** | ✅ | ❌ | ❌ |
-| **Subscription/Billing** | ✅ | ❌ | ❌ |
+| Feature                                            | Owner | Manager | Staff |
+| -------------------------------------------------- | ----- | ------- | ----- |
+| **Products** - View                                | ✅    | ✅      | ✅    |
+| **Products** - Add/Edit                            | ✅    | ✅      | ❌    |
+| **Products** - Delete                              | ✅    | ❌      | ❌    |
+| **Products** - See internal prices (min price)     | ✅    | ✅      | ✅    |
+| **Inventory** - See physical-item acquisition cost | ✅    | ✅      | ❌    |
+| **Orders** - View all                              | ✅    | ✅      | ✅    |
+| **Orders** - Change status                         | ✅    | ✅      | ✅    |
+| **Orders** - Modify prices                         | ✅    | ✅      | ❌    |
+| **Orders** - Process refund                        | ✅    | ✅      | ❌    |
+| **Customers** - View                               | ✅    | ✅      | ✅    |
+| **Customers** - Add notes                          | ✅    | ✅      | ✅    |
+| **Analytics** - View                               | ✅    | ✅      | ❌    |
+| **Store Settings**                                 | ✅    | ❌      | ❌    |
+| **Payment Settings**                               | ✅    | ❌      | ❌    |
+| **Staff Management**                               | ✅    | ❌      | ❌    |
+| **Subscription/Billing**                           | ✅    | ❌      | ❌    |
 
 ---
 
@@ -56,29 +56,30 @@ Ayesha Khan  | Staff   | 01712345678     | Active
 
 ### Add Staff Form
 
-| Field | Type | Required |
-|---|---|---|
-| Name | Text | Yes |
-| Phone Number | Text | Yes |
-| Email | Text | No |
-| Role | Dropdown (Manager / Staff) | Yes |
-| Password | Text (auto-generated or manual) | Yes |
+| Field        | Type                            | Required |
+| ------------ | ------------------------------- | -------- |
+| Name         | Text                            | Yes      |
+| Phone Number | Text                            | Yes      |
+| Email        | Text                            | No       |
+| Role         | Dropdown (Manager / Staff)      | Yes      |
+| Password     | Text (auto-generated or manual) | Yes      |
 
 ### Staff Login
 
 Staff log in to the owner portal using their credentials:
+
 - Phone number or email + password
 - System determines their tenant from their user record
 - Dashboard shows only what their role permits
 
 ### Staff Actions
 
-| Action | Description |
-|---|---|
+| Action                | Description                                 |
+| --------------------- | ------------------------------------------- |
 | Activate / Deactivate | Temporarily disable access without deleting |
-| Change Role | Promote/demote staff member |
-| Reset Password | Generate new password for staff |
-| Remove | Permanently remove staff access |
+| Change Role           | Promote/demote staff member                 |
+| Reset Password        | Generate new password for staff             |
+| Remove                | Permanently remove staff access             |
 
 ---
 
@@ -92,7 +93,7 @@ A key reason for staff access is the **internal minimum price** feature:
   Minimum (internal): ৳5,000
   ```
 - This tells the salesperson: "You can negotiate down to ৳5,000 but not lower"
-- Purchase price is hidden from Staff role (only visible to Owner and Manager)
+- Physical-item acquisition cost is hidden from Staff unless their explicit inventory/financial permission permits it
 
 ---
 
@@ -100,12 +101,12 @@ A key reason for staff access is the **internal minimum price** feature:
 
 All staff actions are logged:
 
-| Log Entry | Data |
-|---|---|
-| Who | Staff member name and ID |
-| What | Action performed (e.g., "Changed order status") |
-| When | Timestamp |
-| Details | Order ID, old status → new status |
+| Log Entry | Data                                            |
+| --------- | ----------------------------------------------- |
+| Who       | Staff member name and ID                        |
+| What      | Action performed (e.g., "Changed order status") |
+| When      | Timestamp                                       |
+| Details   | Order ID, old status → new status               |
 
 Owner can review staff activity logs from the dashboard.
 

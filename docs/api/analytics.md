@@ -17,6 +17,7 @@ Full analytics summary for the dashboard.
 | `to` | date | today | Period end |
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
@@ -60,6 +61,7 @@ Revenue time series chart data.
 **Query Params**: `from`, `to`, `groupBy` (`day`, `week`, `month`)
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
@@ -83,6 +85,7 @@ Revenue breakdown by category.
 **Auth**: Bearer token — Owner, Manager
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
@@ -106,6 +109,7 @@ Most booked and highest revenue products.
 **Query Params**: `sortBy` (`bookings` or `revenue`), `limit` (default 10)
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
@@ -124,35 +128,45 @@ Most booked and highest revenue products.
 
 ---
 
-### GET `/api/v1/owner/analytics/target-recovery`
+### GET `/api/v1/owner/analytics/cost-recovery`
 
 Cost recovery tracking.
 
 **Auth**: Bearer token — Owner, Manager
 
 **Response** `200`:
+
 ```json
 {
   "success": true,
   "data": {
-    "totalInvestment": 450000,
-    "totalRecovered": 185000,
+    "totalAcquisitionCost": 450000,
+    "totalAttributedRevenue": 185000,
+    "totalRecordedServiceCost": 15000,
+    "netContribution": 170000,
     "overallRecoveryPercentage": 41.1,
-    "productsAtTarget": 8,
-    "productsBelowTarget": 77,
+    "recoveredProducts": 8,
+    "recoveringProducts": 70,
+    "incompleteProducts": 7,
     "products": [
       {
         "productId": "...",
         "name": "Royal Banarasi Saree",
-        "purchasePrice": 15000,
-        "recovered": 90000,
+        "physicalItemCount": 3,
+        "acquisitionCost": 45000,
+        "attributedRentalRevenue": 90000,
+        "recordedServiceCost": 5000,
+        "netContribution": 85000,
+        "missingAcquisitionCostCount": 0,
         "recoveryPercentage": 600,
-        "status": "exceeded"
+        "status": "recovered"
       }
     ]
   }
 }
 ```
+
+Acquisition cost comes from exact physical items. Earned rental revenue is allocated to the assignments that were actually handed out; completed service costs reduce contribution. A product with no items or missing item costs returns `recoveryPercentage: null` and `status: "incomplete"` rather than false zero-cost success.
 
 ---
 

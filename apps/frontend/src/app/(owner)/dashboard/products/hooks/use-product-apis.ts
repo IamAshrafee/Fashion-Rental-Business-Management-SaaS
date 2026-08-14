@@ -247,6 +247,7 @@ export function useUpdateProductStatus() {
       productApi.updateStatus(id, status),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['products', 'detail', variables.id] });
       const label = variables.status === 'published' ? 'Published' : variables.status === 'draft' ? 'Unpublished' : 'Archived';
       toast.success(`Product ${label}`);
     },

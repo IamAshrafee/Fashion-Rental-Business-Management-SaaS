@@ -42,6 +42,7 @@ import { fulfillmentApi, type FulfillmentRequirement } from '@/lib/api/fulfillme
 import { productApi, type ProductListItem } from '@/lib/api/products';
 import { formatMinorMoney, majorInputToMinor } from '@/lib/money';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { FieldTip } from '@/components/shared/field-tip';
 
 function humanize(value: string) {
   return value
@@ -72,7 +73,7 @@ function AssignmentPanel({
     queryKey: ['fulfillment-assignment-options', bookingId, requirement.id],
     queryFn: () =>
       fulfillmentApi.getAssignmentOptions(bookingId, requirement.bookingItemId, requirement.id),
-    enabled: requirement.variantSize?.trackingMode === 'SERIALIZED' && !!requirement.reservation,
+    enabled: !!requirement.reservation,
   });
   const remaining = Math.max(0, requirement.quantity - requirement.assignedQuantity);
   const returnedAssets = (requirement.reservation?.assignments || []).filter(
@@ -105,13 +106,6 @@ function AssignmentPanel({
     onError: (error) => toast.error(getApiErrorMessage(error, 'Could not release assignment')),
   });
 
-  if (requirement.variantSize?.trackingMode !== 'SERIALIZED') {
-    return (
-      <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-        Pooled stock is reserved by quantity; no physical asset selection is required.
-      </p>
-    );
-  }
   if (options.isLoading)
     return (
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -184,7 +178,7 @@ function AssignmentPanel({
       {remaining > 0 && requirement.preparationStatus !== 'READY' && (
         <div className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Eligible assets
+            Eligible assets <FieldTip helpKey="fulfillment.assignment" />
           </p>
           {!options.data?.eligible.length ? (
             <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
@@ -242,7 +236,6 @@ function EventDialog({
   refresh: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const handed = assignmentIdsFrom(requirement, 'HANDED_OUT');
@@ -261,14 +254,13 @@ function EventDialog({
     eventType === 'HANDED_OUT'
       ? requirement.quantity - requirement.handedOutQuantity
       : requirement.handedOutQuantity - requirement.returnedQuantity - requirement.lostQuantity;
-  const serialized = requirement.variantSize?.trackingMode === 'SERIALIZED';
   const record = useMutation({
     mutationFn: () =>
       fulfillmentApi.recordEvent(requirement.id, {
         eventType,
-        quantity: serialized ? selected.length : quantity,
+        quantity: selected.length,
         reason,
-        assignmentIds: serialized ? selected : undefined,
+        assignmentIds: selected,
         idempotencyKey: `${requirement.id}:${eventType}:${crypto.randomUUID()}`,
       }),
     onSuccess: async () => {
@@ -280,9 +272,7 @@ function EventDialog({
     },
     onError: (error) => toast.error(getApiErrorMessage(error, 'Could not record fulfillment event')),
   });
-  const validQuantity = serialized
-    ? selected.length > 0 && selected.length <= max
-    : quantity > 0 && quantity <= max;
+  const validQuantity = selected.length > 0 && selected.length <= max;
   const config =
     eventType === 'HANDED_OUT'
       ? { label: 'Hand out', icon: PackageCheck, variant: 'default' as const }
@@ -304,45 +294,43 @@ function EventDialog({
             {config.label} · {requirement.productNameSnapshot}
           </DialogTitle>
           <DialogDescription>
-            This posts an auditable inventory movement. Returned serialized items move to awaiting
-            inspection.
+            This posts an auditable movement for each selected physical item. Returned items move
+            to awaiting inspection.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          {serialized ? (
-            <div className="space-y-2">
-              <Label>Select exact assets</Label>
-              {eligibleAssignments.map((assignment) => (
-                <label
-                  key={assignment.id}
-                  className="flex cursor-pointer items-center gap-3 rounded-md border p-3"
-                >
-                  <Checkbox
-                    checked={selected.includes(assignment.id)}
-                    onCheckedChange={(checked) =>
-                      setSelected((current) =>
-                        checked
-                          ? [...current, assignment.id].slice(0, max)
-                          : current.filter((id) => id !== assignment.id),
-                      )
-                    }
-                  />
-                  <span className="font-mono text-sm">{assignment.stockUnit.assetCode}</span>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              <Label>Quantity (maximum {max})</Label>
-              <Input
-                type="number"
-                min={1}
-                max={max}
-                value={quantity}
-                onChange={(event) => setQuantity(Number(event.target.value) || 1)}
-              />
-            </div>
-          )}
+          <div className="space-y-2">
+              <Label>
+                Select exact physical items{' '}
+                <FieldTip
+                  helpKey={
+                    eventType === 'HANDED_OUT'
+                      ? 'fulfillment.handout'
+                      : eventType === 'RETURNED'
+                        ? 'fulfillment.return'
+                        : 'fulfillment.loss'
+                  }
+                />
+              </Label>
+            {eligibleAssignments.map((assignment) => (
+              <label
+                key={assignment.id}
+                className="flex cursor-pointer items-center gap-3 rounded-md border p-3"
+              >
+                <Checkbox
+                  checked={selected.includes(assignment.id)}
+                  onCheckedChange={(checked) =>
+                    setSelected((current) =>
+                      checked
+                        ? [...current, assignment.id].slice(0, max)
+                        : current.filter((id) => id !== assignment.id),
+                    )
+                  }
+                />
+                <span className="font-mono text-sm">{assignment.stockUnit.assetCode}</span>
+              </label>
+            ))}
+          </div>
           <div className="grid gap-2">
             <Label>Operational reason / note</Label>
             <Textarea
@@ -416,7 +404,7 @@ function PreparationDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2 py-2">
-          <Label>Preparation note</Label>
+          <Label>Preparation note <FieldTip helpKey="fulfillment.preparation" /></Label>
           <Textarea
             value={reason}
             onChange={(event) => setReason(event.target.value)}

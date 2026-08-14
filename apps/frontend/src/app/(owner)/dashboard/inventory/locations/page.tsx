@@ -301,7 +301,7 @@ function LocationCard({ location }: { location: InventoryLocation }) {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          {location._count?.stockUnits ?? 0} physical items · {location._count?.pools ?? 0} pooled
+          {location._count?.stockUnits ?? 0} physical items
           SKUs
         </p>
         <div className="flex flex-wrap gap-2">

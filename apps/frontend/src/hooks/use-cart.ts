@@ -12,7 +12,6 @@ export interface CartItem {
   productId: string;
   variantId?: string;
   variantSizeId: string;
-  preferredStockUnitId?: string;
   quantity: number;
   productName: string;
   categoryName?: string;
@@ -73,7 +72,6 @@ function toServerItems(items: CartItem[]): StorefrontCartItem[] {
     productId: item.productId,
     variantId: item.variantId || '',
     variantSizeId: item.variantSizeId,
-    preferredStockUnitId: item.preferredStockUnitId,
     quantity: item.quantity,
     startDate: item.startDate,
     endDate: item.endDate,
@@ -106,7 +104,6 @@ function fromServerItems(items: StorefrontCartItem[]): CartItem[] {
       productId: item.productId,
       variantId: item.variantId,
       variantSizeId: item.variantSizeId,
-      preferredStockUnitId: item.preferredStockUnitId,
       quantity: item.quantity,
       productName: typeof snapshot.productName === 'string' ? snapshot.productName : 'Rental item',
       categoryName: typeof snapshot.categoryName === 'string' ? snapshot.categoryName : undefined,

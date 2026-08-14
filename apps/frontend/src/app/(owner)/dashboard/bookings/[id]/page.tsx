@@ -131,9 +131,7 @@ export default function BookingDetailPage() {
     lateFee: item.lateFee,
     itemTotal: item.itemTotal,
     fulfillmentAdjustment: item.fulfillmentAdjustment,
-    requiresExactDamageIssue: item.fulfillmentRequirements?.some(
-      (requirement) => requirement.trackingModeSnapshot === 'SERIALIZED',
-    ) ?? false,
+    requiresExactDamageIssue: (item.fulfillmentRequirements?.length ?? 0) > 0,
     stockUnitIssues: item.stockUnitIssues,
     depositStatus: (item.depositStatus || 'pending') as BookingItem['depositStatus'],
     damageReport: item.damageReport ? {

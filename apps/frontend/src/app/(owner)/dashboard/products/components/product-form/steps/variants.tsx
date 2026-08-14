@@ -9,7 +9,6 @@ import {
   FormLabel,
   FormControl,
   FormMessage,
-  FormDescription,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -80,7 +79,7 @@ export function VariantsMediaStep({
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           {showConfiguration
-            ? 'Define every color and size combination, then choose pooled or individual-piece tracking.'
+            ? 'Define each rentable color and size SKU, and add its customer-facing images.'
             : 'Upload customer-facing images for every saved variant.'}
         </p>
       </div>
@@ -90,7 +89,6 @@ export function VariantsMediaStep({
           const mainColorId = watch(`variants.${index}.mainColorId`);
           const identicalColorIds = watch(`variants.${index}.identicalColorIds`) || [];
           const selectedSizeIds = watch(`variants.${index}.sizeInstanceIds`) || [];
-          const inventoryBySizeId = watch(`variants.${index}.inventoryBySizeId`) || {};
           const images = watch(`variants.${index}.images`) || [];
           const imageCount = images.length;
           const isImagesOpen = expandedImages[index] ?? false;
@@ -191,11 +189,6 @@ export function VariantsMediaStep({
                                       field.onChange(field.value.filter((id: string) => id !== inst.id));
                                     } else {
                                       field.onChange([...(field.value || []), inst.id]);
-                                      if (!inventoryBySizeId[inst.id]) {
-                                        setValue(`variants.${index}.inventoryBySizeId.${inst.id}`, {
-                                          trackingMode: 'POOLED',
-                                        });
-                                      }
                                     }
                                   }}
                                   className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${
@@ -210,47 +203,8 @@ export function VariantsMediaStep({
                             })}
                           </div>
                           {selectedSizeIds.length > 0 && (
-                            <div className="mt-4 space-y-3 rounded-lg border bg-muted/20 p-4">
-                              <div>
-                                <p className="text-sm font-medium">Inventory tracking</p>
-                                <p className="text-xs text-muted-foreground">
-                                  Use pooled stock for interchangeable items, or serialized stock when every physical piece needs its own asset record.
-                                </p>
-                              </div>
-                              {selectedSizeIds.map((sizeId) => {
-                                const instance = sizeInstances.find((item: any) => item.id === sizeId);
-                                const config = inventoryBySizeId[sizeId] ?? { trackingMode: 'POOLED' };
-                                return (
-                                  <div key={sizeId} className="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-[minmax(5rem,1fr)_minmax(10rem,1fr)] sm:items-end">
-                                    <div>
-                                      <p className="text-xs text-muted-foreground">Size</p>
-                                      <p className="font-medium">{instance?.displayLabel ?? 'Size'}</p>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                      <label className="text-xs font-medium">Tracking mode</label>
-                                      <Select
-                                        value={config.trackingMode}
-                                        onValueChange={(trackingMode: 'POOLED' | 'SERIALIZED') =>
-                                          setValue(`variants.${index}.inventoryBySizeId.${sizeId}`, {
-                                            trackingMode,
-                                          }, { shouldDirty: true })
-                                        }
-                                      >
-                                        <SelectTrigger><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="POOLED">Pooled quantity</SelectItem>
-                                          <SelectItem value="SERIALIZED">Individual units</SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {selectedSizeIds.length > 0 && (
                             <p className="mt-2 text-xs text-muted-foreground">
-                              Opening stock is recorded in the Inventory step after pricing.
+                              These are catalog SKUs. Register each physical rental item from Inventory after saving or publishing the product.
                             </p>
                           )}
                           <FormMessage />
@@ -380,7 +334,7 @@ export function VariantsMediaStep({
           className="w-full border-dashed min-h-[48px]"
           onClick={() => {
             const newIndex = fields.length;
-            append({ clientKey: Math.random().toString(36).slice(2), name: '', mainColorId: '', sizeInstanceIds: [], inventoryBySizeId: {}, skuIdBySizeInstanceId: {}, identicalColorIds: [], images: [] });
+            append({ clientKey: Math.random().toString(36).slice(2), name: '', mainColorId: '', sizeInstanceIds: [], skuIdBySizeInstanceId: {}, identicalColorIds: [], images: [] });
             setExpandedImages(prev => ({ ...prev, [newIndex]: true }));
           }}
         >

@@ -4,7 +4,7 @@ import {
   RevenueSeries,
   CategoryRevenue,
   TopProduct,
-  TargetRecoverySummary,
+  CostRecoverySummary,
   ApiResponse,
   StorefrontEventPayload,
   StorefrontTrafficSummary,
@@ -56,9 +56,9 @@ export const analyticsApi = {
     return data;
   },
 
-  getTargetRecovery: async () => {
-    const { data } = await apiClient.get<ApiResponse<TargetRecoverySummary>>(
-      '/owner/analytics/target-recovery',
+  getCostRecovery: async () => {
+    const { data } = await apiClient.get<ApiResponse<CostRecoverySummary>>(
+      '/owner/analytics/cost-recovery',
     );
     return data;
   },
