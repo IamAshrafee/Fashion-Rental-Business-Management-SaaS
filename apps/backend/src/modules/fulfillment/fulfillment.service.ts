@@ -429,16 +429,26 @@ export class FulfillmentService {
     });
   }
 
-  async reconcileCod(tenantId: string, id: string, dto: ReconcileCodDto, actorUserId?: string) {
+  async reconcileCod(tenantId: string, id: string, dto: ReconcileCodDto, actorUserId: string) {
+    const feeDeducted = dto.feeDeducted ?? 0;
+    const accountedAmount = dto.remittedAmount + feeDeducted;
+    const remittedAt = dto.remittedAt ? new Date(dto.remittedAt) : null;
+    if (accountedAmount > 0 && !remittedAt) {
+      throw new BadRequestException('Remittance date is required when recording an accounted amount');
+    }
+    const endOfToday = new Date();
+    endOfToday.setUTCHours(23, 59, 59, 999);
+    if (remittedAt && remittedAt > endOfToday) {
+      throw new BadRequestException('Remittance date cannot be in the future');
+    }
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM cod_remittances WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
       const current = await tx.codRemittance.findFirst({ where: { id, tenantId } });
       if (!current) throw new NotFoundException('COD remittance not found');
-      const feeDeducted = dto.feeDeducted ?? 0;
-      if (dto.remittedAmount + feeDeducted > current.expectedAmount) {
+      if (accountedAmount > current.expectedAmount) {
         throw new BadRequestException('Remitted amount plus deducted fee cannot exceed the expected COD amount');
       }
-      const fullyAccounted = dto.remittedAmount + feeDeducted === current.expectedAmount;
+      const fullyAccounted = accountedAmount === current.expectedAmount;
       const status = dto.disputed ? 'DISPUTED' : fullyAccounted ? 'RECONCILED' : dto.remittedAmount > 0 || feeDeducted > 0 ? 'PARTIAL' : 'PENDING';
       return tx.codRemittance.update({
         where: { id },
@@ -447,9 +457,9 @@ export class FulfillmentService {
           feeDeducted,
           status,
           providerReference: dto.providerReference?.trim() || null,
-          remittedAt: dto.remittedAt ? new Date(dto.remittedAt) : null,
+          remittedAt,
           reconciledAt: status === 'RECONCILED' ? new Date() : null,
-          reconciledById: status === 'RECONCILED' ? actorUserId ?? null : null,
+          reconciledById: status === 'RECONCILED' ? actorUserId : null,
           notes: dto.notes?.trim() || null,
         },
         include: { shipment: { select: { trackingNumber: true, provider: true, booking: { select: { bookingNumber: true } } } } },
@@ -863,19 +873,28 @@ export class FulfillmentService {
         include: {
           payment: { select: { id: true } },
           shipment: {
-            include: {
-              booking: {
-                include: {
-                  payments: { where: { status: 'verified' }, select: { depositAmount: true } },
-                },
-              },
+            select: {
+              bookingId: true,
+              provider: true,
+              deliveredAt: true,
             },
           },
         },
       });
       if (!remittance || remittance.expectedAmount <= 0 || remittance.payment) return;
-      const booking = remittance.shipment.booking;
-      const alreadyAllocatedDeposit = booking.payments.reduce((sum, payment) => sum + payment.depositAmount, 0);
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM bookings WHERE id = ${remittance.shipment.bookingId} AND tenant_id = ${remittance.tenantId} FOR UPDATE`,
+      );
+      const booking = await tx.booking.findFirst({
+        where: { id: remittance.shipment.bookingId, tenantId: remittance.tenantId },
+        select: { id: true, grandTotal: true, totalDeposit: true },
+      });
+      if (!booking) throw new NotFoundException('Booking not found for COD remittance');
+      const paid = await tx.payment.aggregate({
+        where: { tenantId: remittance.tenantId, bookingId: booking.id, status: 'verified' },
+        _sum: { amount: true, depositAmount: true },
+      });
+      const alreadyAllocatedDeposit = paid._sum.depositAmount ?? 0;
       const depositAmount = Math.min(remittance.expectedAmount, Math.max(0, booking.totalDeposit - alreadyAllocatedDeposit));
       const payment = await tx.payment.create({
         data: {
@@ -892,7 +911,7 @@ export class FulfillmentService {
           verifiedAt: remittance.shipment.deliveredAt ?? new Date(),
         },
       });
-      const totalPaid = booking.totalPaid + remittance.expectedAmount;
+      const totalPaid = (paid._sum.amount ?? 0) + remittance.expectedAmount;
       await tx.booking.update({
         where: { id: booking.id },
         data: { totalPaid, paymentStatus: totalPaid >= booking.grandTotal ? 'paid' : 'partial' },

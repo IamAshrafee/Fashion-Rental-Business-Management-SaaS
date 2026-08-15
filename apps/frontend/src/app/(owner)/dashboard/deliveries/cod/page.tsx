@@ -16,6 +16,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fulfillmentApi, type CodRemittance } from '@/lib/api/fulfillment';
 import { useLocale } from '@/hooks/use-locale';
+import { getApiErrorMessage } from '@/lib/api-error';
+import { majorInputToMinor, minorToMajorInput } from '@/lib/money';
 
 const FILTERS: Array<{ value?: CodRemittance['status']; label: string }> = [
   { label: 'Open' },
@@ -38,16 +40,16 @@ export default function CodReconciliationPage() {
   const reconcile = useMutation({
     mutationFn: () => {
       if (!selected) throw new Error('Select a remittance');
-      const remittedAmount = Math.round(Number(form.remittedAmount) * 100);
-      const feeDeducted = Math.round(Number(form.feeDeducted || '0') * 100);
-      if (!Number.isFinite(remittedAmount) || remittedAmount < 0 || !Number.isFinite(feeDeducted) || feeDeducted < 0) {
+      const remittedAmount = majorInputToMinor(form.remittedAmount);
+      const feeDeducted = majorInputToMinor(form.feeDeducted || '0');
+      if (remittedAmount === undefined || feeDeducted === undefined) {
         throw new Error('Enter valid non-negative amounts');
       }
       return fulfillmentApi.reconcileCod(selected.id, {
         remittedAmount,
         feeDeducted,
         providerReference: form.providerReference || undefined,
-        remittedAt: form.remittedAt ? new Date(`${form.remittedAt}T12:00:00`).toISOString() : undefined,
+        remittedAt: form.remittedAt || undefined,
         notes: form.notes || undefined,
         disputed: form.disputed,
       });
@@ -57,14 +59,14 @@ export default function CodReconciliationPage() {
       setSelected(null);
       queryClient.invalidateQueries({ queryKey: ['cod-reconciliations'] });
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Unable to update COD reconciliation')),
   });
 
   const open = (row: CodRemittance) => {
     setSelected(row);
     setForm({
-      remittedAmount: (row.remittedAmount / 100).toFixed(2),
-      feeDeducted: (row.feeDeducted / 100).toFixed(2),
+      remittedAmount: String(minorToMajorInput(row.remittedAmount)),
+      feeDeducted: String(minorToMajorInput(row.feeDeducted)),
       providerReference: row.providerReference ?? '',
       remittedAt: row.remittedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
       notes: row.notes ?? '',
@@ -117,7 +119,7 @@ export default function CodReconciliationPage() {
             <div className="space-y-2"><Label htmlFor="remitted">Cash remitted (৳)</Label><Input id="remitted" type="number" min="0" step="0.01" value={form.remittedAmount} onChange={(event) => setForm((value) => ({ ...value, remittedAmount: event.target.value }))} /></div>
             <div className="space-y-2"><Label htmlFor="fee">Courier fee deducted (৳)</Label><Input id="fee" type="number" min="0" step="0.01" value={form.feeDeducted} onChange={(event) => setForm((value) => ({ ...value, feeDeducted: event.target.value }))} /></div>
             <div className="space-y-2"><Label htmlFor="reference">Settlement reference</Label><Input id="reference" value={form.providerReference} onChange={(event) => setForm((value) => ({ ...value, providerReference: event.target.value }))} /></div>
-            <div className="space-y-2"><Label htmlFor="date">Remittance date</Label><Input id="date" type="date" value={form.remittedAt} onChange={(event) => setForm((value) => ({ ...value, remittedAt: event.target.value }))} /></div>
+            <div className="space-y-2"><Label htmlFor="date">Remittance date</Label><Input id="date" type="date" max={new Date().toISOString().slice(0, 10)} value={form.remittedAt} onChange={(event) => setForm((value) => ({ ...value, remittedAt: event.target.value }))} /></div>
             <div className="space-y-2 sm:col-span-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" value={form.notes} onChange={(event) => setForm((value) => ({ ...value, notes: event.target.value }))} /></div>
             <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={form.disputed} onChange={(event) => setForm((value) => ({ ...value, disputed: event.target.checked }))} />Mark this settlement as disputed</label>
           </div>

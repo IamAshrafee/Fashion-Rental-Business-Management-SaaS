@@ -24,10 +24,9 @@ import {
   HttpCode,
   HttpStatus,
   ParseEnumPipe,
+  ParseUUIDPipe,
   Headers,
-  Req,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { FulfillmentService } from './fulfillment.service';
 import {
   ShipOrderDto,
@@ -46,7 +45,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
-import { TenantContext } from '@closetrent/types';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthUser, TenantContext } from '@closetrent/types';
 import type { DeliveryStageGroup } from './providers/courier-provider.interface';
 
 @Controller('owner/fulfillment')
@@ -137,11 +137,11 @@ export class FulfillmentController {
   @Roles('owner', 'manager')
   reconcileCod(
     @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReconcileCodDto,
-    @Req() req: Request & { user?: { id: string } },
   ) {
-    return this.fulfillmentService.reconcileCod(tenant.id, id, dto, req.user?.id);
+    return this.fulfillmentService.reconcileCod(tenant.id, id, dto, user.id);
   }
 
   /**

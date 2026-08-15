@@ -1,7 +1,7 @@
 /**
  * Locale Formatting Utilities — ClosetRent
  *
- * All money = integers (ADR-04). Formatting is frontend-only.
+ * All money = integer minor units (paisa for BDT). Formatting is frontend-only.
  * Uses tenant locale settings for currency, date, and number formatting.
  */
 
@@ -51,9 +51,9 @@ function formatInternational(n: number): string {
 // ----------------------------------------------------------------
 
 /**
- * Format an integer amount as a price string with the tenant's currency.
+ * Format an integer minor-unit amount as a price string with the tenant's currency.
  *
- * @example formatPrice(7500, locale) → "৳7,500" or "7,500৳"
+ * @example formatPrice(7500, locale) → "৳75" or "75৳"
  */
 export function formatPrice(
   amount: number,
@@ -64,7 +64,10 @@ export function formatPrice(
   const position = locale?.currency?.symbolPosition ?? 'before';
   const numberStyle = locale?.numberFormat ?? 'south_asian';
 
-  const formatted = formatNumber(amount, numberStyle);
+  const formatted = (amount / 100).toLocaleString(
+    numberStyle === 'south_asian' ? 'en-IN' : 'en-US',
+    { minimumFractionDigits: 0, maximumFractionDigits: 2 },
+  );
 
   return position === 'before'
     ? `${symbol}${formatted}`

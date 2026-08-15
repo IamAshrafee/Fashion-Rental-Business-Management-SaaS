@@ -18,7 +18,7 @@ export function useLocale() {
   const { locale } = useTenant();
 
   return {
-    /** Format an integer amount as a price string: 7500 → "৳7,500" */
+    /** Format an integer minor-unit amount as a price string: 7500 → "৳75" */
     formatPrice: (amount: number) => fp(amount, locale),
 
     /** Format a date using tenant's date format: "28/03/2026" */

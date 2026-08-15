@@ -7,8 +7,9 @@ describe('FulfillmentService delivery dashboard', () => {
     findMany: jest.fn(),
     count: jest.fn(),
   };
+  const transaction = jest.fn();
   const service = new FulfillmentService(
-    { shipment } as unknown as PrismaService,
+    { shipment, $transaction: transaction } as unknown as PrismaService,
     {} as never,
     {} as never,
     {} as never,
@@ -19,6 +20,67 @@ describe('FulfillmentService delivery dashboard', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('requires a remittance date when money is accounted', async () => {
+    await expect(
+      service.reconcileCod(
+        'tenant-1',
+        'remittance-1',
+        { remittedAmount: 5000, feeDeducted: 0 },
+        'user-1',
+      ),
+    ).rejects.toThrow('Remittance date is required');
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a future remittance date', async () => {
+    await expect(
+      service.reconcileCod(
+        'tenant-1',
+        'remittance-1',
+        { remittedAmount: 5000, remittedAt: '2999-01-01' },
+        'user-1',
+      ),
+    ).rejects.toThrow('Remittance date cannot be in the future');
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('records a fully accounted settlement with the authenticated actor', async () => {
+    const codRemittance = {
+      findFirst: jest.fn().mockResolvedValue({ expectedAmount: 5000 }),
+      update: jest.fn().mockResolvedValue({ id: 'remittance-1', status: 'RECONCILED' }),
+    };
+    const tx = { $queryRaw: jest.fn(), codRemittance };
+    transaction.mockImplementation(async (callback: (client: typeof tx) => Promise<unknown>) =>
+      callback(tx),
+    );
+
+    await service.reconcileCod(
+      'tenant-1',
+      'remittance-1',
+      {
+        remittedAmount: 4500,
+        feeDeducted: 500,
+        remittedAt: '2026-01-01',
+        providerReference: ' SETTLEMENT-1 ',
+      },
+      'user-1',
+    );
+
+    expect(codRemittance.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'remittance-1' },
+        data: expect.objectContaining({
+          status: 'RECONCILED',
+          remittedAmount: 4500,
+          feeDeducted: 500,
+          providerReference: 'SETTLEMENT-1',
+          reconciledById: 'user-1',
+          reconciledAt: expect.any(Date),
+        }),
+      }),
+    );
   });
 
   it('returns preserved summaries and a stage for each projected delivery', async () => {
