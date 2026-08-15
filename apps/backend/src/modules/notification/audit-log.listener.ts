@@ -239,11 +239,11 @@ export class AuditLogListener {
   }
 
   @OnEvent('product.deleted')
-  async onProductDeleted(event: { tenantId: string; productId: string }) {
+  async onProductDeleted(event: { tenantId: string; productId: string; userId?: string }) {
     try {
       await this.auditLogService.record({
         tenantId: event.tenantId,
-        userId: 'system',
+        userId: event.userId ?? 'system',
         action: 'product.soft_deleted',
         entityType: 'product',
         entityId: event.productId,
@@ -254,17 +254,61 @@ export class AuditLogListener {
   }
 
   @OnEvent('product.restored')
-  async onProductRestored(event: { tenantId: string; productId: string }) {
+  async onProductRestored(event: { tenantId: string; productId: string; userId?: string }) {
     try {
       await this.auditLogService.record({
         tenantId: event.tenantId,
-        userId: 'system',
+        userId: event.userId ?? 'system',
         action: 'product.restored',
         entityType: 'product',
         entityId: event.productId,
       });
     } catch (err) {
       this.logger.error(`Audit product.restored failed: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent('product.statusChanged')
+  async onProductStatusChanged(event: {
+    tenantId: string;
+    productId: string;
+    userId?: string;
+    previousStatus: string;
+    status: string;
+  }) {
+    try {
+      await this.auditLogService.record({
+        tenantId: event.tenantId,
+        userId: event.userId ?? 'system',
+        action: 'product.status_changed',
+        entityType: 'product',
+        entityId: event.productId,
+        oldValues: { status: event.previousStatus },
+        newValues: { status: event.status },
+      });
+    } catch (err) {
+      this.logger.error(`Audit product.statusChanged failed: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent('product.permanentlyDeleted')
+  async onProductPermanentlyDeleted(event: {
+    tenantId: string;
+    productId: string;
+    userId?: string;
+    name: string;
+  }) {
+    try {
+      await this.auditLogService.record({
+        tenantId: event.tenantId,
+        userId: event.userId ?? 'system',
+        action: 'product.permanently_deleted',
+        entityType: 'product',
+        entityId: event.productId,
+        oldValues: { name: event.name },
+      });
+    } catch (err) {
+      this.logger.error(`Audit product.permanentlyDeleted failed: ${(err as Error).message}`);
     }
   }
 

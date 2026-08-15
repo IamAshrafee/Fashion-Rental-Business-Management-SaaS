@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  productApi,
   productOnboardingApi,
   type ProductDetail,
   type UploadedProductImage,
@@ -148,10 +147,6 @@ export function useUpdateProduct(
           `edit-product-pricing-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       );
       onboardingRevision.current = pricing.revision;
-
-      if (data.status !== originalProduct?.status) {
-        await productApi.updateStatus(productId, data.status);
-      }
 
       return productId;
     },

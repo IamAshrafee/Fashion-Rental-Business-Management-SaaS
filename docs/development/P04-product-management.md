@@ -187,7 +187,8 @@ GET /api/v1/categories → returns tenant's categories with subcategories
 # Product lifecycle
 POST /api/v1/owner/product-onboardings → creates a resumable draft
 PUT /api/v1/owner/product-onboardings/:id/basics → updates catalog basics
-PATCH /api/v1/owner/products/:id/status → publish/archive product
+POST /api/v1/owner/product-onboardings/:id/publish → revisioned readiness check and publication
+PATCH /api/v1/owner/products/:id/status → unpublish, archive, or restore to draft
 DELETE /api/v1/owner/products/:id → soft delete (to trash)
 POST /api/v1/owner/products/:id/restore → restore from trash
 

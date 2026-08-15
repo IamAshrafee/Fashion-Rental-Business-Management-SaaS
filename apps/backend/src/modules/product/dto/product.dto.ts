@@ -3,7 +3,6 @@ import {
   IsOptional,
   IsInt,
   IsArray,
-  IsEnum,
   ValidateNested,
   MinLength,
   Min,
@@ -55,8 +54,8 @@ export class SyncProductImagesDto extends ReorderDto {
 
 // --- Product Status DTO ---
 export class UpdateProductStatusDto {
-  @IsEnum(['draft', 'published', 'archived'])
-  status!: 'draft' | 'published' | 'archived';
+  @IsIn(['draft', 'archived'])
+  status!: 'draft' | 'archived';
 }
 
 // --- Product Query DTO ---

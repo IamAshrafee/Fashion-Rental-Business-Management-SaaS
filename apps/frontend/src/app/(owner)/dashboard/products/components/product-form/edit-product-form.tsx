@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useUpdateProductStatus } from '../../hooks/use-product-apis';
+import { usePublishProduct, useUpdateProductStatus } from '../../hooks/use-product-apis';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +32,8 @@ import { PricingServicesStep } from './steps/pricing-services';
 import { SizeDetailsStep } from './steps/size-details';
 import type { ProductFormValues } from './schema';
 import type { UploadedProductImage } from '@/lib/api/products';
+
+const REQUIRED_PUBLISH_SECTIONS = ['BASICS', 'SKUS', 'CONTENT', 'PRICING'] as const;
 
 /* ─── Validation mapping for error badges ────────────────────────────── */
 const TAB_FIELDS: Record<EditTabId, string[]> = {
@@ -116,6 +118,7 @@ export function EditProductForm({ productId }: Props) {
     },
   );
   const statusMutation = useUpdateProductStatus();
+  const publishMutation = usePublishProduct();
 
   const [activeTab, setActiveTab] = useState<EditTabId>('basic');
   const [tabErrors, setTabErrors] = useState<Record<EditTabId, boolean>>({
@@ -256,15 +259,30 @@ export function EditProductForm({ productId }: Props) {
                   </Alert>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {rawProduct.status !== 'published' ? (
+                  {rawProduct.status === 'draft' ? (
                     <Button
                       type="button"
-                      disabled={!rawProduct.readiness.ready || statusMutation.isPending}
-                      onClick={() => statusMutation.mutate({ id: productId, status: 'published' })}
+                      disabled={
+                        !rawProduct.readiness.ready
+                        || !rawProduct.onboarding
+                        || !REQUIRED_PUBLISH_SECTIONS.every((section) =>
+                          rawProduct.onboarding?.completedSections.includes(section),
+                        )
+                        || publishMutation.isPending
+                      }
+                      onClick={() => {
+                        if (rawProduct.onboarding) {
+                          publishMutation.mutate({
+                            id: productId,
+                            revision: rawProduct.onboarding.revision,
+                          });
+                        }
+                      }}
                     >
+                      {publishMutation.isPending ? <Loader2 className="animate-spin" /> : null}
                       Publish product
                     </Button>
-                  ) : (
+                  ) : rawProduct.status === 'published' ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -273,7 +291,7 @@ export function EditProductForm({ productId }: Props) {
                     >
                       Unpublish to draft
                     </Button>
-                  )}
+                  ) : null}
                   {rawProduct.status !== 'archived' ? (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -362,17 +380,19 @@ export function EditProductForm({ productId }: Props) {
   return (
     <FormProvider {...form}>
       <form onSubmit={(e) => e.preventDefault()} className="relative">
-        {rawProduct.status === 'published' && (
+        {rawProduct.status !== 'draft' && (
           <Alert className="mb-4">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-medium text-foreground">
-                  Unpublish before changing catalog structure
+                  {rawProduct.status === 'published'
+                    ? 'Unpublish before changing catalog structure'
+                    : 'Restore this archived product before editing'}
                 </p>
                 <p className="text-xs">
-                  Existing rentals remain intact. The listing stays in draft until all changes pass
-                  the publication check.
+                  Existing rentals remain intact. Catalog changes can only be saved while the
+                  listing is a draft.
                 </p>
               </div>
               <Button
@@ -382,7 +402,7 @@ export function EditProductForm({ productId }: Props) {
                 onClick={() => statusMutation.mutate({ id: productId, status: 'draft' })}
               >
                 {statusMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                Unpublish to edit
+                {rawProduct.status === 'published' ? 'Unpublish to edit' : 'Restore to edit'}
               </Button>
             </AlertDescription>
           </Alert>
@@ -403,7 +423,7 @@ export function EditProductForm({ productId }: Props) {
         <TabbedEditLayout
           onSave={handleSave}
           isSaving={isSaving}
-          saveDisabled={rawProduct.status === 'published'}
+          saveDisabled={rawProduct.status !== 'draft'}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           tabErrors={tabErrors}

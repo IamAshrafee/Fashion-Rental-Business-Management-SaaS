@@ -249,7 +249,9 @@ Soft-delete a product.
 
 ### PATCH `/api/v1/owner/products/:id/status`
 
-Quick status update.
+Move a live product back to draft, archive a product, or restore an archived product to draft.
+Publishing is deliberately excluded from this endpoint and must use the revisioned onboarding
+review command.
 
 **Auth**: Bearer token — Owner, Manager
 
@@ -257,11 +259,17 @@ Quick status update.
 
 ```json
 {
-  "status": "published"
+  "status": "draft"
 }
 ```
 
 **Response** `200`: Updated product
+
+### POST `/api/v1/owner/product-onboardings/:productId/publish`
+
+Publish a draft after all required onboarding sections and readiness checks pass. Requires the
+current onboarding revision and an `Idempotency-Key` header, so every owner screen shares one
+conflict-safe publication path.
 
 ---
 

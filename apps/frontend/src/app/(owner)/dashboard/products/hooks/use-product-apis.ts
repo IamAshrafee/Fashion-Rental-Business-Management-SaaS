@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { productApi, sizingApi } from '@/lib/api/products';
+import { productApi, productOnboardingApi, sizingApi } from '@/lib/api/products';
 import { toast } from 'sonner';
 import { getApiErrorMessage } from '@/lib/api-error';
 
@@ -219,21 +219,42 @@ export function usePermanentDeleteProduct() {
 }
 
 /**
- * Update product status (draft/published/archived).
+ * Unpublish, archive, or restore a product. Publication uses the revisioned
+ * onboarding review command below.
  */
 export function useUpdateProductStatus() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
+    mutationFn: ({ id, status }: { id: string; status: 'draft' | 'archived' }) =>
       productApi.updateStatus(id, status),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['products', 'detail', variables.id] });
-      const label = variables.status === 'published' ? 'Published' : variables.status === 'draft' ? 'Unpublished' : 'Archived';
+      const label = variables.status === 'draft' ? 'moved to draft' : 'archived';
       toast.success(`Product ${label}`);
     },
     onError: showMutationError('Failed to update status'),
+  });
+}
+
+export function usePublishProduct() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, revision }: { id: string; revision: number }) =>
+      productOnboardingApi.publish(
+        id,
+        revision,
+        globalThis.crypto?.randomUUID?.() ??
+          `publish-product-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      ),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['products', 'detail', variables.id] });
+      toast.success('Product published');
+    },
+    onError: showMutationError('Failed to publish product'),
   });
 }
 

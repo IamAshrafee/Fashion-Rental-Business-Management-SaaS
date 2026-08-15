@@ -47,9 +47,12 @@ import { OwnerListPagination } from '@/components/owner/workspace';
 import type { PaginationMeta, ProductStatus } from '@closetrent/types';
 import type { ProductListItem } from '@/lib/api/products';
 import {
+  usePublishProduct,
   useSoftDeleteProduct,
   useUpdateProductStatus,
 } from '../../hooks/use-product-apis';
+
+const REQUIRED_PUBLISH_SECTIONS = ['BASICS', 'SKUS', 'CONTENT', 'PRICING'] as const;
 
 const moneyFormatter = new Intl.NumberFormat('en-BD', {
   style: 'currency',
@@ -83,8 +86,34 @@ function ProductActions({ product }: { product: ProductListItem }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const softDelete = useSoftDeleteProduct();
   const updateStatus = useUpdateProductStatus();
+  const publishProduct = usePublishProduct();
   const isPublished = product.status === 'published';
+  const isArchived = product.status === 'archived';
+  const needsSetup = Boolean(
+    product.onboarding && !product.onboarding.completedSections.includes('REVIEW'),
+  );
+  const canPublish = Boolean(
+    product.status === 'draft'
+      && product.readiness.ready
+      && product.onboarding
+      && REQUIRED_PUBLISH_SECTIONS.every((section) =>
+        product.onboarding?.completedSections.includes(section),
+      ),
+  );
   const statusMutationPending = updateStatus.isPending && updateStatus.variables?.id === product.id;
+  const publishMutationPending = publishProduct.isPending
+    && publishProduct.variables?.id === product.id;
+  const lifecycleMutationPending = statusMutationPending || publishMutationPending;
+
+  const handleLifecycleChange = () => {
+    if (isPublished || isArchived) {
+      updateStatus.mutate({ id: product.id, status: 'draft' });
+      return;
+    }
+    if (product.onboarding) {
+      publishProduct.mutate({ id: product.id, revision: product.onboarding.revision });
+    }
+  };
 
   return (
     <>
@@ -101,11 +130,11 @@ function ProductActions({ product }: { product: ProductListItem }) {
               <Link href={`/dashboard/products/${product.id}`}><Eye data-icon="inline-start" />View product</Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link href={product.onboarding && product.status === 'draft'
+              <Link href={needsSetup && product.status === 'draft'
                 ? `/dashboard/products/new?productId=${product.id}`
                 : `/dashboard/products/${product.id}/edit`}>
                 <Pencil data-icon="inline-start" />
-                {product.onboarding && product.status === 'draft' ? 'Continue setup' : 'Edit catalog'}
+                {needsSetup && product.status === 'draft' ? 'Continue setup' : 'Edit catalog'}
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
@@ -115,20 +144,20 @@ function ProductActions({ product }: { product: ProductListItem }) {
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem
-              disabled={statusMutationPending || (!isPublished && (
-                !product.readiness.ready
-                || Boolean(product.onboarding && !product.onboarding.completedSections.includes('REVIEW'))
-              ))}
-              onClick={() => updateStatus.mutate({
-                id: product.id,
-                status: isPublished ? 'draft' : 'published',
-              })}
+              disabled={lifecycleMutationPending || (!isPublished && !isArchived && !canPublish)}
+              onClick={handleLifecycleChange}
             >
-              {statusMutationPending ? <Loader2 className="animate-spin" /> : isPublished ? <Undo2 /> : <Send />}
+              {lifecycleMutationPending
+                ? <Loader2 className="animate-spin" />
+                : isPublished || isArchived
+                  ? <Undo2 />
+                  : <Send />}
               {isPublished
                 ? 'Unpublish to draft'
-                : product.onboarding && !product.onboarding.completedSections.includes('REVIEW')
-                  ? 'Continue setup to publish'
+                : isArchived
+                  ? 'Restore to draft'
+                  : needsSetup
+                    ? 'Complete setup to publish'
                   : product.readiness.ready
                     ? 'Publish product'
                     : 'Complete setup to publish'}

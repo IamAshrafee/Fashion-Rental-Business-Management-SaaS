@@ -463,7 +463,7 @@ export const productApi = {
   /**
    * PATCH /api/v1/owner/products/:id/status
    */
-  updateStatus: async (id: string, status: string): Promise<void> => {
+  updateStatus: async (id: string, status: 'draft' | 'archived'): Promise<void> => {
     await apiClient.patch(`/owner/products/${id}/status`, { status });
   },
 

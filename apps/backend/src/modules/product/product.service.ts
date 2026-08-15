@@ -144,31 +144,27 @@ export class ProductService {
   // STATUS UPDATE
   // =========================================================================
 
-  async updateStatus(tenantId: string, productId: string, status: ProductStatus) {
+  async updateStatus(
+    tenantId: string,
+    productId: string,
+    status: 'draft' | 'archived',
+    actorUserId: string,
+  ) {
     const product = await this.findProductOrFail(tenantId, productId);
-
-    if (status === 'published') {
-      await this.assertPublishReady(tenantId, productId);
-      const onboarding = await this.prisma.productOnboarding.findFirst({
-        where: { tenantId, productId },
-        select: { completedSections: true },
-      });
-      if (onboarding && !onboarding.completedSections.includes('REVIEW')) {
-        throw new ConflictException({
-          code: 'PRODUCT_ONBOARDING_INCOMPLETE',
-          section: 'REVIEW',
-          message: 'Complete and publish this product through its onboarding workflow.',
-        });
-      }
-    }
 
     const updated = await this.prisma.product.update({
       where: { id: productId },
       data: { status },
     });
 
-    if (status === 'published' && product.status !== 'published') {
-      this.eventEmitter.emit('product.published', { tenantId, productId });
+    if (status !== product.status) {
+      this.eventEmitter.emit('product.statusChanged', {
+        tenantId,
+        productId,
+        userId: actorUserId,
+        previousStatus: product.status,
+        status,
+      });
     }
 
     return updated;
@@ -245,14 +241,18 @@ export class ProductService {
       },
     });
 
-    this.eventEmitter.emit('product.deleted', { tenantId, productId });
+    this.eventEmitter.emit('product.deleted', {
+      tenantId,
+      productId,
+      userId: deletedByUserId,
+    });
     return updated;
   }
 
   /**
    * Restore a product from trash. Resets to draft so owner can review before re-publishing.
    */
-  async restore(tenantId: string, productId: string) {
+  async restore(tenantId: string, productId: string, actorUserId: string) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId, deletedAt: { not: null } },
     });
@@ -263,7 +263,7 @@ export class ProductService {
       data: { deletedAt: null, status: 'draft', deletedByUserId: null },
     });
 
-    this.eventEmitter.emit('product.restored', { tenantId, productId });
+    this.eventEmitter.emit('product.restored', { tenantId, productId, userId: actorUserId });
     return restored;
   }
 
@@ -271,7 +271,7 @@ export class ProductService {
    * Permanently delete a product from trash.
    * Guards: will refuse if there are any active bookings still referencing it.
    */
-  async permanentDelete(tenantId: string, productId: string) {
+  async permanentDelete(tenantId: string, productId: string, actorUserId: string) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId, deletedAt: { not: null } },
     });
@@ -309,6 +309,13 @@ export class ProductService {
       }
       await tx.product.delete({ where: { id: productId } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    this.eventEmitter.emit('product.permanentlyDeleted', {
+      tenantId,
+      productId,
+      userId: actorUserId,
+      name: product.name,
+    });
 
     return { message: 'Product permanently deleted' };
   }
@@ -1340,18 +1347,6 @@ export class ProductService {
       shippingMode: delivery ? 'flat' : 'free',
       shippingFee: delivery?.config?.pricing?.amountMinor ?? 0,
     };
-  }
-
-  private async assertPublishReady(tenantId: string, productId: string): Promise<void> {
-    const readiness = await this.getReadiness(tenantId, productId);
-
-    if (!readiness.ready) {
-      throw new UnprocessableEntityException({
-        code: 'PRODUCT_NOT_READY_TO_PUBLISH',
-        message: 'Product cannot be published until every catalog blocker is resolved.',
-        blockers: readiness.blockers,
-      });
-    }
   }
 
 }

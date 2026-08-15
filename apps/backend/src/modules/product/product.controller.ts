@@ -167,10 +167,11 @@ export class ProductOwnerController {
   @Roles('owner', 'manager')
   async updateStatus(
     @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdateProductStatusDto,
   ) {
-    return this.productService.updateStatus(tenant.id, id, dto.status);
+    return this.productService.updateStatus(tenant.id, id, dto.status, user.id);
   }
 
   @Delete(':id')
@@ -186,15 +187,23 @@ export class ProductOwnerController {
 
   @Post(':id/restore')
   @Roles('owner')
-  async restoreProduct(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
-    return this.productService.restore(tenant.id, id);
+  async restoreProduct(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.productService.restore(tenant.id, id, user.id);
   }
 
   @Delete(':id/permanent')
   @Roles('owner')
   @HttpCode(HttpStatus.OK)
-  async permanentDeleteProduct(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
-    return this.productService.permanentDelete(tenant.id, id);
+  async permanentDeleteProduct(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.productService.permanentDelete(tenant.id, id, user.id);
   }
 
 }

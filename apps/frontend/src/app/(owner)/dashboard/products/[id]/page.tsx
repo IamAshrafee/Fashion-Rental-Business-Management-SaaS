@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   ChevronLeft, Edit, Copy, Trash2, Loader2,
-  Eye, EyeOff, MoreVertical, Tag, MapPin, Ruler,
+  Eye, EyeOff, MoreVertical, Tag, MapPin, Ruler, Undo2,
   HelpCircle, Info, ChevronRight, Star,
   DollarSign, Shield, Package,
   Check, X, ImageIcon, Settings, Grid3X3, Boxes, AlertCircle, History
@@ -32,12 +32,18 @@ import type {
   ProductVariantData,
   PricingProfileData,
 } from '@/lib/api/products';
-import { useSoftDeleteProduct, useUpdateProductStatus } from '../hooks/use-product-apis';
+import {
+  usePublishProduct,
+  useSoftDeleteProduct,
+  useUpdateProductStatus,
+} from '../hooks/use-product-apis';
 import { useLocale } from '@/hooks/use-locale';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { ProductTrafficCard } from './components/product-traffic-card';
+
+const REQUIRED_PUBLISH_SECTIONS = ['BASICS', 'SKUS', 'CONTENT', 'PRICING'] as const;
 
 // ─── Animation Variants ───────────────────────────────────────────────────────
 
@@ -541,6 +547,7 @@ export default function ProductDetailPage() {
 
   const softDelete = useSoftDeleteProduct();
   const updateStatus = useUpdateProductStatus();
+  const publishProduct = usePublishProduct();
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(id);
@@ -549,8 +556,13 @@ export default function ProductDetailPage() {
 
   const handleStatusToggle = () => {
     if (!product) return;
-    const newStatus = product.status === 'published' ? 'draft' : 'published';
-    updateStatus.mutate({ id, status: newStatus });
+    if (product.status === 'published' || product.status === 'archived') {
+      updateStatus.mutate({ id, status: 'draft' });
+      return;
+    }
+    if (product.onboarding) {
+      publishProduct.mutate({ id, revision: product.onboarding.revision });
+    }
   };
 
   // ── States ──
@@ -581,11 +593,23 @@ export default function ProductDetailPage() {
   }
 
   const statusConfig = getStatusConfig(product.status);
-  const editHref = product.onboarding && product.status === 'draft'
+  const needsSetup = Boolean(
+    product.onboarding && !product.onboarding.completedSections.includes('REVIEW'),
+  );
+  const editHref = needsSetup && product.status === 'draft'
     ? `/dashboard/products/new?productId=${id}`
     : `/dashboard/products/${id}/edit`;
-  const canPublish = product.status === 'published'
-    || (product.readiness.ready && (!product.onboarding || product.onboarding.completedSections.includes('REVIEW')));
+  const canPublish = Boolean(
+    product.status === 'published'
+      || product.status === 'archived'
+      || (product.status === 'draft'
+        && product.readiness.ready
+        && product.onboarding
+        && REQUIRED_PUBLISH_SECTIONS.every((section) =>
+          product.onboarding?.completedSections.includes(section),
+        )),
+  );
+  const lifecycleMutationPending = updateStatus.isPending || publishProduct.isPending;
   const effectivePrice = getEffectivePrice(product.pricing);
 
   const hasPricing = !!product.pricing;
@@ -640,21 +664,27 @@ export default function ProductDetailPage() {
             size="sm"
             className="h-7 text-xs px-2.5"
             onClick={handleStatusToggle}
-            disabled={updateStatus.isPending || !canPublish}
-            title={!canPublish ? 'Resolve the catalog blockers before publishing' : undefined}
+            disabled={lifecycleMutationPending || !canPublish}
+            title={!canPublish ? 'Complete the catalog setup before publishing' : undefined}
           >
-            {updateStatus.isPending ? (
+            {lifecycleMutationPending ? (
               <Loader2 className="h-3 w-3 mr-1 animate-spin" />
             ) : product.status === 'published' ? (
               <EyeOff className="h-3 w-3 mr-1" />
+            ) : product.status === 'archived' ? (
+              <Undo2 className="h-3 w-3 mr-1" />
             ) : (
               <Eye className="h-3 w-3 mr-1" />
             )}
-            {product.status === 'published' ? 'Unpublish' : 'Publish'}
+            {product.status === 'published'
+              ? 'Unpublish'
+              : product.status === 'archived'
+                ? 'Restore draft'
+                : 'Publish'}
           </Button>
           <Button variant="outline" size="sm" className="hidden h-7 px-2.5 text-xs md:inline-flex" asChild>
             <Link href={editHref}>
-              <Edit className="h-3 w-3 mr-1" /> {product.onboarding && product.status === 'draft' ? 'Continue setup' : 'Edit'}
+              <Edit className="h-3 w-3 mr-1" /> {needsSetup && product.status === 'draft' ? 'Continue setup' : 'Edit'}
             </Link>
           </Button>
           <Button variant="outline" size="sm" className="hidden h-7 px-2.5 text-xs md:inline-flex" asChild>
@@ -675,7 +705,7 @@ export default function ProductDetailPage() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[140px]">
               <DropdownMenuItem asChild className="text-xs md:hidden">
-                <Link href={editHref}><Edit className="h-3 w-3 mr-2" /> {product.onboarding && product.status === 'draft' ? 'Continue setup' : 'Edit'}</Link>
+                <Link href={editHref}><Edit className="h-3 w-3 mr-2" /> {needsSetup && product.status === 'draft' ? 'Continue setup' : 'Edit'}</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild className="text-xs md:hidden">
                 <Link href={`/dashboard/products/${id}/inventory`}><Package className="h-3 w-3 mr-2" /> Inventory</Link>
