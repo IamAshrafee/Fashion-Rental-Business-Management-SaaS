@@ -197,7 +197,7 @@ export function PricingServicesStep() {
       <div>
         <div className="flex items-center gap-2 mb-1">
           <DollarSign className="h-5 w-5 text-primary" />
-          <h3 className="text-lg font-semibold">Pricing Model</h3>
+          <h3 className="text-lg font-semibold">Pricing Model <FieldTip helpKey="pricing.model" /></h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
           Choose how the rental price is calculated for this product
@@ -274,7 +274,7 @@ export function PricingServicesStep() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Minimum Days</Label>
+                  <Label className="text-sm font-medium">Minimum Days <FieldTip helpKey="pricing.duration" /></Label>
                   <Input
                     type="number"
                     min={1}
@@ -304,7 +304,7 @@ export function PricingServicesStep() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Included Days</Label>
+                  <Label className="text-sm font-medium">Included Days <FieldTip helpKey="pricing.duration" /></Label>
                   <Input
                     type="number"
                     min={1}
@@ -314,7 +314,7 @@ export function PricingServicesStep() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Extra Day Rate</Label>
+                  <Label className="text-sm font-medium">Extra Day Rate <FieldTip helpKey="pricing.duration" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -341,7 +341,7 @@ export function PricingServicesStep() {
                 {pricingTiers.map((tier, i) => (
                   <div key={i} className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-muted/30 border">
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">From Day</Label>
+                      <Label className="text-xs text-muted-foreground">From Day <FieldTip helpKey="pricing.tiers" /></Label>
                       <Input
                         type="number"
                         min={1}
@@ -354,7 +354,7 @@ export function PricingServicesStep() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">To Day</Label>
+                      <Label className="text-xs text-muted-foreground">To Day <FieldTip helpKey="pricing.tiers" /></Label>
                       <Input
                         type="number"
                         placeholder="∞"
@@ -367,7 +367,7 @@ export function PricingServicesStep() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">৳/Day</Label>
+                      <Label className="text-xs text-muted-foreground">৳/Day <FieldTip helpKey="pricing.tiers" /></Label>
                       <Input
                         type="number"
                         min="0"
@@ -406,7 +406,7 @@ export function PricingServicesStep() {
             {ratePlanType === 'WEEKLY_MONTHLY' && (
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Daily Rate</Label>
+                  <Label className="text-sm font-medium">Daily Rate <FieldTip helpKey="pricing.longTermRates" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -420,7 +420,7 @@ export function PricingServicesStep() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Weekly Rate</Label>
+                  <Label className="text-sm font-medium">Weekly Rate <FieldTip helpKey="pricing.longTermRates" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -435,7 +435,7 @@ export function PricingServicesStep() {
                   <p className="text-xs text-muted-foreground">7-day bundle price</p>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Monthly Rate</Label>
+                  <Label className="text-sm font-medium">Monthly Rate <FieldTip helpKey="pricing.longTermRates" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -455,7 +455,7 @@ export function PricingServicesStep() {
             {ratePlanType === 'PERCENT_RETAIL' && (
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Rental % <FieldTip helpKey="catalog.referenceRetailValue" /></Label>
+                  <Label className="text-sm font-medium">Rental % <FieldTip helpKey="pricing.percentRetail" /></Label>
                   <div className="relative">
                     <Input
                       type="number"
@@ -469,7 +469,7 @@ export function PricingServicesStep() {
                   <p className="text-xs text-muted-foreground">Percentage of the product&apos;s reference retail value</p>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Min Price</Label>
+                  <Label className="text-sm font-medium">Min Price <FieldTip helpKey="pricing.percentRetail" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -484,7 +484,7 @@ export function PricingServicesStep() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Max Price</Label>
+                  <Label className="text-sm font-medium">Max Price <FieldTip helpKey="pricing.percentRetail" /></Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                     <Input
@@ -556,7 +556,7 @@ export function PricingServicesStep() {
                 <Sparkles className="h-4 w-4" />
               </div>
               <div>
-                <p className="font-medium text-sm">Cleaning Fee</p>
+                <p className="font-medium text-sm">Cleaning Fee <FieldTip helpKey="pricing.cleaningFee" /></p>
                 <p className="text-xs text-muted-foreground">Non-refundable service charge</p>
               </div>
             </div>
@@ -588,7 +588,7 @@ export function PricingServicesStep() {
                 <Layers className="h-4 w-4" />
               </div>
               <div>
-                <p className="font-medium text-sm">Backup Size</p>
+                <p className="font-medium text-sm">Backup Size <FieldTip helpKey="pricing.backupSize" /></p>
                 <p className="text-xs text-muted-foreground">Customer add-on for safety net</p>
               </div>
             </div>
@@ -620,7 +620,7 @@ export function PricingServicesStep() {
                 <Clock className="h-4 w-4" />
               </div>
               <div>
-                <p className="font-medium text-sm">Try-On Service</p>
+                <p className="font-medium text-sm">Try-On Service <FieldTip helpKey="pricing.tryOn" /></p>
                 <p className="text-xs text-muted-foreground">Customer add-on for trial</p>
               </div>
             </div>
@@ -653,7 +653,7 @@ export function PricingServicesStep() {
       <div>
         <div className="flex items-center gap-2 mb-1">
           <Package className="h-5 w-5 text-primary" />
-          <h3 className="text-lg font-semibold">Shipping Charges</h3>
+          <h3 className="text-lg font-semibold">Shipping Charges <FieldTip helpKey="pricing.shipping" /></h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
           How delivery costs are handled for this product
@@ -687,7 +687,7 @@ export function PricingServicesStep() {
         {watch('shippingMode') === 'flat' && (
           <div className="p-4 rounded-lg border bg-muted/20">
             <div className="space-y-2 max-w-[200px]">
-              <Label className="text-sm font-medium">Flat Shipping Fee <FieldTip helpKey="pricing.rentalRate" /></Label>
+              <Label className="text-sm font-medium">Flat Shipping Fee <FieldTip helpKey="pricing.shipping" /></Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
                 <Input
@@ -719,7 +719,7 @@ export function PricingServicesStep() {
 
         <div className="flex items-center justify-between p-4 rounded-xl border bg-card mb-3">
           <div>
-            <p className="font-medium text-sm">Enable Late Fees</p>
+            <p className="font-medium text-sm">Enable Late Fees <FieldTip helpKey="pricing.latePolicy" /></p>
             <p className="text-xs text-muted-foreground">Charge customers for overdue returns</p>
           </div>
           <Switch
@@ -792,7 +792,7 @@ export function PricingServicesStep() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-4 mb-4">
-            <Label className="text-sm font-medium whitespace-nowrap">Rental Days:</Label>
+            <Label className="text-sm font-medium whitespace-nowrap">Rental Days <FieldTip helpKey="pricing.estimate" /></Label>
             <Input
               type="number"
               min={1}

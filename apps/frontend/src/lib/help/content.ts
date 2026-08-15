@@ -141,6 +141,39 @@ export const HELP_CONTENT: Record<ContextHelpKey, ContextHelpContent> = {
     why: 'Bookings retain their quoted pricing snapshot when future rates change.',
     effect: 'Saving a published pricing change creates new pricing authority for later quotes.',
   },
+  'pricing.model': {
+    title: 'Rental pricing model',
+    meaning: 'The rule the quote engine uses to calculate the base rental charge from the booking dates.',
+    why: 'A single authoritative model prevents the storefront, checkout, manual booking, and reporting totals from disagreeing.',
+    example: 'Use Per Day for a daily rate, Flat Period for a three-day package, or Tiered Daily when later days become cheaper.',
+    effect: 'Changing the model publishes a new pricing version for future quotes. Existing bookings retain their saved pricing snapshot.',
+  },
+  'pricing.duration': {
+    title: 'Rental duration rule',
+    meaning: 'The minimum, included, or additional billable days defined by the selected pricing model.',
+    example: 'A ৳3,000 three-day package with a ৳700 extra-day rate costs ৳3,700 for four billable days before other charges.',
+    effect: 'Preparation, delivery, and return buffers affect inventory availability separately; they are not automatically billed rental days.',
+  },
+  'pricing.tiers': {
+    title: 'Tiered daily pricing',
+    meaning: 'Ordered, gap-free day ranges that can apply different daily rates as a rental gets longer.',
+    why: 'Every billable day must belong to exactly one tier so quotes remain deterministic.',
+    example: 'Days 1–3 at ৳1,000/day, days 4–7 at ৳800/day, and day 8 onward at ৳600/day.',
+    effect: 'The first tier starts at day 1 and only the final tier may have no ending day.',
+  },
+  'pricing.longTermRates': {
+    title: 'Daily, weekly, and monthly rates',
+    meaning: 'Bundle rates the quote engine combines for longer rentals, with a daily fallback for remaining days.',
+    example: 'A 10-day rental can use one weekly rate plus three daily-rate days when that is the configured decomposition.',
+    effect: 'Enter customer charges, not internal acquisition cost or a manual stock target.',
+  },
+  'pricing.percentRetail': {
+    title: 'Percentage-of-reference pricing',
+    meaning: 'Calculates the base rental charge as a percentage of the product’s reference retail value, within optional minimum and maximum limits.',
+    why: 'It keeps similar products proportionally priced while preserving each physical item’s private acquisition cost.',
+    example: '10% of a ৳40,000 reference value produces ৳4,000 before configured limits, deposits, fees, or add-ons.',
+    effect: 'A positive reference retail value is required. Changing the public-visibility switch does not change this calculation.',
+  },
   'pricing.deposit': {
     title: 'Security deposit',
     meaning:
@@ -149,10 +182,43 @@ export const HELP_CONTENT: Record<ContextHelpKey, ContextHelpContent> = {
       'A ৳5,000 deposit may be held and later refunded, partially deducted with evidence, or forfeited under policy.',
     effect: 'Deposit settlement remains auditable and cannot exceed the amount held.',
   },
+  'pricing.cleaningFee': {
+    title: 'Customer cleaning fee',
+    meaning: 'An optional non-refundable service charge added to the customer quote.',
+    why: 'It is customer pricing, not the actual internal cost of cleaning a particular returned item.',
+    example: 'Charge a flat ৳300 when every rental includes a standard cleaning service.',
+    effect: 'Actual service work and cost are recorded against each physical item after return.',
+  },
+  'pricing.backupSize': {
+    title: 'Backup-size add-on',
+    meaning: 'An optional customer charge for requesting an additional size as part of fulfillment.',
+    why: 'The fee alone does not promise capacity; the booking still needs an eligible physical item for every required SKU.',
+    example: 'A customer rents size M and adds size L as a backup for ৳500.',
+    effect: 'Selection becomes a priced fulfillment requirement and consumes real serialized inventory capacity.',
+  },
+  'pricing.tryOn': {
+    title: 'Try-on service add-on',
+    meaning: 'An optional charge for a configured try-on service associated with the rental.',
+    example: 'A store may charge ৳400 for an appointment or pre-rental try-on service.',
+    effect: 'This creates a priced add-on; scheduling and operational fulfillment still follow the store’s service process.',
+  },
+  'pricing.shipping': {
+    title: 'Product delivery charge',
+    meaning: 'Whether this product adds no delivery fee or a fixed delivery fee to new quotes.',
+    why: 'It is stored as a versioned pricing component so checkout, manual booking, and financial records use the same amount.',
+    example: 'Choose Flat Fee and ৳150 when every booking of this product has the same customer delivery charge.',
+    effect: 'Courier procurement cost and COD remittance remain separate operational and financial records.',
+  },
   'pricing.latePolicy': {
     title: 'Late-return policy',
     meaning: 'Defines grace time, late charges, and any cap after the agreed return time.',
     effect: 'Existing bookings keep their policy snapshot; edits affect new authoritative quotes.',
+  },
+  'pricing.estimate': {
+    title: 'Configuration estimate',
+    meaning: 'A planning preview calculated from the unsaved form values for a chosen number of rental days.',
+    why: 'It helps spot obvious configuration mistakes before saving.',
+    effect: 'It is not a customer quote. Checkout and booking totals always come from the backend quote engine and saved pricing version.',
   },
   'inventory.assetCode': {
     title: 'Asset code',
