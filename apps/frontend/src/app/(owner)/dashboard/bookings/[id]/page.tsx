@@ -159,7 +159,7 @@ export default function BookingDetailPage() {
     method: p.method,
     status: p.status || 'pending',
     transactionId: p.transactionId,
-    recordedBy: p.recordedBy,
+    recordedBy: p.recorder?.fullName ?? null,
     notes: p.notes,
     createdAt: p.createdAt,
   }));

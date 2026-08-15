@@ -72,13 +72,15 @@ export class PaymentService {
     const idempotencyKey = rawIdempotencyKey?.trim();
     if (!idempotencyKey) throw new BadRequestException('Idempotency-Key is required when recording a payment');
     if (idempotencyKey.length > 200) throw new BadRequestException('Idempotency-Key cannot exceed 200 characters');
+    const transactionId = dto.transactionId?.trim() || null;
+    const notes = dto.notes?.trim() || null;
     const requestHash = createHash('sha256').update(JSON.stringify({
       bookingId,
       amount: dto.amount,
       depositAmount: dto.depositAmount ?? 0,
       method: dto.method,
-      transactionId: dto.transactionId?.trim() || null,
-      notes: dto.notes?.trim() || null,
+      transactionId,
+      notes,
     })).digest('hex');
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -132,9 +134,9 @@ export class PaymentService {
           remainingRental,
         });
       }
-      if (dto.transactionId) {
-        const duplicate = await tx.payment.findFirst({ where: { tenantId, transactionId: dto.transactionId } });
-        if (duplicate) throw new ConflictException({ code: 'PAYMENT_TRANSACTION_DUPLICATE', message: `Transaction ID "${dto.transactionId}" is already recorded` });
+      if (transactionId) {
+        const duplicate = await tx.payment.findFirst({ where: { tenantId, transactionId } });
+        if (duplicate) throw new ConflictException({ code: 'PAYMENT_TRANSACTION_DUPLICATE', message: `Transaction ID "${transactionId}" is already recorded` });
       }
 
       // Create payment record (manual payments are immediately verified)
@@ -149,8 +151,8 @@ export class PaymentService {
           depositAmount,
           method: dto.method as PaymentMethod,
           status: 'verified' as TransactionStatus,
-          transactionId: dto.transactionId ?? null,
-          notes: dto.notes ?? null,
+          transactionId,
+          notes,
           recordedBy,
           verifiedAt: new Date(),
         },
@@ -875,14 +877,18 @@ export class PaymentService {
   // BOOKING NUMBER LOOKUP (for SSLCommerz redirect)
   // =========================================================================
 
-  /**
-   * Simple helper to get booking number by ID.
-   * Used by payment controller to redirect to confirmation page.
-   */
-  async getBookingNumber(bookingId: string) {
-    return this.prisma.booking.findUnique({
-      where: { id: bookingId },
-      select: { bookingNumber: true, publicTrackingToken: true },
+  /** Resolve a gateway callback only through its stored payment transaction. */
+  async getBookingConfirmationForTransaction(transactionId: string) {
+    return this.prisma.payment.findFirst({
+      where: {
+        transactionId,
+        method: 'sslcommerz',
+        status: { in: ['pending', 'verified'] },
+      },
+      select: {
+        status: true,
+        booking: { select: { bookingNumber: true, publicTrackingToken: true } },
+      },
     });
   }
 

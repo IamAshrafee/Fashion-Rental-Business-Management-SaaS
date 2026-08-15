@@ -172,7 +172,7 @@ export interface BookingCreatedResponse {
   payments: Array<{
     id: string;
     amount: number;
-    method: string;
+    method: 'cod' | 'bkash' | 'nagad';
     status: string;
   }>;
 }
@@ -327,6 +327,7 @@ export interface BookingDetailPayment {
   transactionId: string | null;
   notes: string | null;
   recordedBy: string | null;
+  recorder: { id: string; fullName: string } | null;
   createdAt: string;
 }
 

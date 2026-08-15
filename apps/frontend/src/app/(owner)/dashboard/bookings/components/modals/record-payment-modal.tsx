@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Loader2 } from 'lucide-react';
 import { bookingApi } from '@/lib/api/bookings';
 import { formatMinorMoney, majorInputToMinor, minorToMajorInput } from '@/lib/money';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 interface RecordPaymentModalProps {
   isOpen: boolean;
@@ -33,7 +34,7 @@ export function RecordPaymentModal({ isOpen, onOpenChange, bookingId, balanceDue
   const idempotencyKey = useRef(crypto.randomUUID());
   const [amount, setAmount] = useState(String(minorToMajorInput(balanceDue)));
   const [depositAmount, setDepositAmount] = useState('0');
-  const [method, setMethod] = useState('bkash');
+  const [method, setMethod] = useState<'cod' | 'bkash' | 'nagad'>('bkash');
   const [transactionId, setTransactionId] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -57,8 +58,8 @@ export function RecordPaymentModal({ isOpen, onOpenChange, bookingId, balanceDue
       idempotencyKey.current = crypto.randomUUID();
       onSuccess?.();
     },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Failed to record payment');
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Failed to record payment'));
     },
   });
 
@@ -116,21 +117,20 @@ export function RecordPaymentModal({ isOpen, onOpenChange, bookingId, balanceDue
               Method
             </Label>
             <div className="col-span-3">
-              <Select value={method} onValueChange={setMethod}>
+              <Select value={method} onValueChange={(value) => setMethod(value as typeof method)}>
                 <SelectTrigger id="method">
                   <SelectValue placeholder="Select payment method" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="bkash">bKash</SelectItem>
                   <SelectItem value="nagad">Nagad</SelectItem>
-                  <SelectItem value="cod">Cash</SelectItem>
-                  <SelectItem value="sslcommerz">Card / SSLCommerz</SelectItem>
+                  <SelectItem value="cod">Cash (recorded manually)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           
-          {(method === 'bkash' || method === 'nagad' || method === 'sslcommerz') && (
+          {(method === 'bkash' || method === 'nagad') && (
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="transactionId" className="text-right">
                 Txn ID
@@ -142,6 +142,9 @@ export function RecordPaymentModal({ isOpen, onOpenChange, bookingId, balanceDue
                 onChange={(e) => setTransactionId(e.target.value)}
                 className="col-span-3"
               />
+              <p className="col-start-2 col-span-3 text-xs text-muted-foreground">
+                Required for mobile payments so the receipt can be matched and duplicate entries are blocked.
+              </p>
             </div>
           )}
 
@@ -165,7 +168,7 @@ export function RecordPaymentModal({ isOpen, onOpenChange, bookingId, balanceDue
           </Button>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || parsedAmountMinor <= 0 || parsedAmountMinor > balanceDue || parsedDepositMinor > parsedAmountMinor || parsedDepositMinor > depositBalance || parsedAmountMinor - parsedDepositMinor > balanceDue - depositBalance}
+            disabled={mutation.isPending || parsedAmountMinor <= 0 || parsedAmountMinor > balanceDue || parsedDepositMinor > parsedAmountMinor || parsedDepositMinor > depositBalance || parsedAmountMinor - parsedDepositMinor > balanceDue - depositBalance || ((method === 'bkash' || method === 'nagad') && !transactionId.trim())}
           >
             {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Record {formatMinorMoney(parsedAmountMinor)}

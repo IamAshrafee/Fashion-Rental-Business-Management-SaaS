@@ -10,10 +10,10 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Req,
   Headers,
+  ParseUUIDPipe,
 } from '@nestjs/common';
-import { Response, Request } from 'express';
+import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { PaymentService } from './payment.service';
 import {
@@ -29,7 +29,8 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
-import { TenantContext } from '@closetrent/types';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthUser, TenantContext } from '@closetrent/types';
 
 // ============================================================================
 // GUEST CONTROLLER — SSLCommerz endpoints (public)
@@ -91,22 +92,19 @@ export class PaymentGuestController {
   async handleSuccess(@Query('tran_id') transactionId: string, @Res() res: Response) {
     const frontendUrl = this.configService.get<string>('app.frontendUrl', 'http://localhost:3000');
 
-    // Extract booking ID from tran_id format: BOOKING-{id}-{timestamp}
-    const bookingId = transactionId?.split('-').slice(1, -1).join('-') ?? '';
-
-    // Look up the booking number for the redirect
-    let bookingNumber = '';
-    let trackingToken = '';
-    try {
-      const booking = await this.paymentService.getBookingNumber(bookingId);
-      bookingNumber = booking?.bookingNumber || bookingId;
-      trackingToken = booking?.publicTrackingToken || '';
-    } catch {
-      bookingNumber = bookingId;
-    }
+    const confirmation = transactionId
+      ? await this.paymentService.getBookingConfirmationForTransaction(transactionId)
+      : null;
+    const bookingNumber = confirmation?.booking.bookingNumber ?? '';
+    const trackingToken = confirmation?.booking.publicTrackingToken ?? '';
+    const paymentState = confirmation?.status === 'verified'
+      ? 'success'
+      : confirmation
+        ? 'pending'
+        : 'unknown';
 
     return res.redirect(
-      `${frontendUrl}/booking/confirmation?number=${encodeURIComponent(bookingNumber)}&token=${encodeURIComponent(trackingToken)}&payment=success`,
+      `${frontendUrl}/booking/confirmation?number=${encodeURIComponent(bookingNumber)}&token=${encodeURIComponent(trackingToken)}&payment=${paymentState}`,
     );
   }
 
@@ -158,17 +156,16 @@ export class PaymentOwnerController {
   @HttpCode(HttpStatus.CREATED)
   async recordPayment(
     @CurrentTenant() tenant: TenantContext,
-    @Param('id') bookingId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) bookingId: string,
     @Body() dto: RecordPaymentDto,
-    @Req() req: Request & { user?: { id: string } },
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    const recordedBy = req.user?.id ?? 'unknown';
     const payment = await this.paymentService.recordPayment(
       tenant.id,
       bookingId,
       dto,
-      recordedBy,
+      user.id,
       idempotencyKey,
     );
     return { success: true, data: payment };
@@ -180,7 +177,10 @@ export class PaymentOwnerController {
    */
   @Get(':id/payments')
   @Roles('owner', 'manager', 'staff')
-  async listPayments(@CurrentTenant() tenant: TenantContext, @Param('id') bookingId: string) {
+  async listPayments(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', ParseUUIDPipe) bookingId: string,
+  ) {
     const result = await this.paymentService.getPaymentsForBooking(tenant.id, bookingId);
     return { success: true, ...result };
   }
@@ -189,17 +189,17 @@ export class PaymentOwnerController {
   @Roles('owner', 'manager')
   async reviewPaymentClaim(
     @CurrentTenant() tenant: TenantContext,
-    @Param('id') bookingId: string,
-    @Param('paymentId') paymentId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) bookingId: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
     @Body() dto: ReviewPaymentClaimDto,
-    @Req() req: Request & { user?: { id: string } },
   ) {
     const payment = await this.paymentService.reviewPaymentClaim(
       tenant.id,
       bookingId,
       paymentId,
       dto,
-      req.user?.id ?? 'unknown',
+      user.id,
     );
     return { success: true, data: payment };
   }
@@ -224,16 +224,16 @@ export class DepositController {
   @HttpCode(HttpStatus.OK)
   async settleDeposit(
     @CurrentTenant() tenant: TenantContext,
-    @Param('id') bookingItemId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) bookingItemId: string,
     @Body() dto: SettleDepositDto,
-    @Req() req: Request & { user?: { id: string } },
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     const result = await this.paymentService.settleDeposit(
       tenant.id,
       bookingItemId,
       dto,
-      req.user!.id,
+      user.id,
       idempotencyKey,
     );
     return { success: true, data: result };

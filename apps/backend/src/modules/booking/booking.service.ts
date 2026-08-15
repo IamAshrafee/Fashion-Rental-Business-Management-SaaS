@@ -2093,6 +2093,7 @@ export class BookingService {
         payments: {
           orderBy: { createdAt: 'desc' },
           take: 201,
+          include: { recorder: { select: { id: true, fullName: true } } },
         },
         fulfillmentExtensions: {
           orderBy: { createdAt: 'desc' },

@@ -12,6 +12,10 @@ import { RecordPaymentModal } from '../../components/modals/record-payment-modal
 import { formatMinorMoney } from '@/lib/money';
 import { bookingApi } from '@/lib/api/bookings';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 interface PaymentHistoryProps {
   payments: Payment[];
@@ -22,15 +26,21 @@ interface PaymentHistoryProps {
 
 export function PaymentHistory({ payments, bookingId, balanceDue, depositBalance }: PaymentHistoryProps) {
   const [showRecordModal, setShowRecordModal] = useState(false);
+  const [rejectingPayment, setRejectingPayment] = useState<Payment | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
   const queryClient = useQueryClient();
   const reviewClaim = useMutation({
-    mutationFn: ({ paymentId, approve }: { paymentId: string; approve: boolean }) =>
-      bookingApi.reviewPaymentClaim(bookingId, paymentId, { approve }),
+    mutationFn: ({ paymentId, approve, reason }: { paymentId: string; approve: boolean; reason?: string }) =>
+      bookingApi.reviewPaymentClaim(bookingId, paymentId, { approve, reason }),
     onSuccess: (_, variables) => {
       toast.success(variables.approve ? 'Payment claim verified' : 'Payment claim rejected');
       queryClient.invalidateQueries({ queryKey: ['bookings', 'detail', bookingId] });
+      if (!variables.approve) {
+        setRejectingPayment(null);
+        setRejectionReason('');
+      }
     },
-    onError: (error: Error) => toast.error(error.message || 'Could not review payment claim'),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Could not review payment claim')),
   });
 
   return (
@@ -91,7 +101,7 @@ export function PaymentHistory({ payments, bookingId, balanceDue, depositBalance
                       <Button size="sm" className="h-8" disabled={reviewClaim.isPending} onClick={() => reviewClaim.mutate({ paymentId: payment.id, approve: true })}>
                         {reviewClaim.isPending && reviewClaim.variables?.paymentId === payment.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle className="mr-1 h-3 w-3" />} Verify
                       </Button>
-                      <Button size="sm" variant="outline" className="h-8 text-destructive" disabled={reviewClaim.isPending} onClick={() => reviewClaim.mutate({ paymentId: payment.id, approve: false })}>
+                      <Button size="sm" variant="outline" className="h-8 text-destructive" disabled={reviewClaim.isPending} onClick={() => setRejectingPayment(payment)}>
                         <XCircle className="mr-1 h-3 w-3" /> Reject
                       </Button>
                     </div>
@@ -111,6 +121,38 @@ export function PaymentHistory({ payments, bookingId, balanceDue, depositBalance
         balanceDue={balanceDue}
         depositBalance={depositBalance}
       />
+
+      <Dialog open={Boolean(rejectingPayment)} onOpenChange={(open) => !open && setRejectingPayment(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject payment claim</DialogTitle>
+            <DialogDescription>
+              Explain why the submitted mobile-payment claim could not be verified. This reason is stored in the payment audit trail.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="payment-rejection-reason">Rejection reason</Label>
+            <Textarea
+              id="payment-rejection-reason"
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              placeholder="Example: The transaction ID was not found in the store's bKash statement."
+              maxLength={1000}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectingPayment(null)} disabled={reviewClaim.isPending}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={reviewClaim.isPending || !rejectionReason.trim() || !rejectingPayment}
+              onClick={() => rejectingPayment && reviewClaim.mutate({ paymentId: rejectingPayment.id, approve: false, reason: rejectionReason.trim() })}
+            >
+              {reviewClaim.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Reject claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

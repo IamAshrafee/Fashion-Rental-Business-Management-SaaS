@@ -3,7 +3,7 @@
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { CheckCircle2, ArrowRight, Loader2, MessageCircle } from 'lucide-react';
+import { CheckCircle2, ArrowRight, Loader2, MessageCircle, AlertCircle } from 'lucide-react';
 import { useTenant } from '@/hooks/use-tenant';
 import { initiateSslcommerz } from '@/lib/api/guest-booking';
 
@@ -41,14 +41,39 @@ function GuestBookingConfirmationContent() {
     <div className="flex min-h-[70vh] items-center justify-center p-4">
       <div className="mx-auto w-full max-w-lg bg-white p-8 sm:p-12 shadow-2xl border border-gray-100 text-center">
         
-        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-50 animate-in zoom-in duration-500">
-          <CheckCircle2 className="h-10 w-10 text-green-500" />
+        <div className={`mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full animate-in zoom-in duration-500 ${payment === 'unknown' ? 'bg-red-50' : 'bg-green-50'}`}>
+          {payment === 'unknown'
+            ? <AlertCircle className="h-10 w-10 text-red-500" />
+            : <CheckCircle2 className="h-10 w-10 text-green-500" />}
         </div>
         
-        <h1 className="font-display text-3xl font-bold tracking-tight text-gray-900 mb-2">Booking received</h1>
+        <h1 className="font-display text-3xl font-bold tracking-tight text-gray-900 mb-2">
+          {payment === 'unknown' ? 'Payment return not recognized' : 'Booking received'}
+        </h1>
         <p className="text-gray-500 mb-8">
-          Your request {orderNumber ? <strong className="text-black inline-block ml-1">#{orderNumber}</strong> : 'has been placed'} is pending store review.
+          {payment === 'unknown'
+            ? 'No booking details were released for this unmatched payment callback.'
+            : <>Your request {orderNumber ? <strong className="text-black inline-block ml-1">#{orderNumber}</strong> : 'has been placed'} is pending store review.</>}
         </p>
+
+        {payment === 'success' && (
+          <div className="mb-8 border border-green-200 bg-green-50 p-4 text-left text-sm text-green-900">
+            <p className="font-semibold">Secure payment verified</p>
+            <p className="mt-1">Your payment is recorded against this booking. You do not need to pay again.</p>
+          </div>
+        )}
+        {payment === 'pending' && (
+          <div className="mb-8 border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+            <p className="font-semibold">Payment verification is still in progress</p>
+            <p className="mt-1">The payment provider returned you safely. Please do not pay again while confirmation is pending.</p>
+          </div>
+        )}
+        {payment === 'unknown' && (
+          <div className="mb-8 border border-red-200 bg-red-50 p-4 text-left text-sm text-red-900">
+            <p className="font-semibold">This payment return could not be matched</p>
+            <p className="mt-1">Open your booking from its tracking link or contact the store before trying another payment.</p>
+          </div>
+        )}
 
         {payment === 'retry' && bookingId && trackingToken && (
           <div className="mb-8 border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">

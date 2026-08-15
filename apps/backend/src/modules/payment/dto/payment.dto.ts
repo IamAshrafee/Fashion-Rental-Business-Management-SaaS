@@ -17,7 +17,7 @@ import { Type } from 'class-transformer';
 // PAYMENT RECORDING
 // ============================================================================
 
-const PAYMENT_METHODS = ['cod', 'bkash', 'nagad', 'sslcommerz'] as const;
+const MANUAL_PAYMENT_METHODS = ['cod', 'bkash', 'nagad'] as const;
 
 export class RecordPaymentDto {
   @IsInt()
@@ -29,11 +29,15 @@ export class RecordPaymentDto {
   @Min(0)
   depositAmount?: number;
 
-  @IsIn(PAYMENT_METHODS)
-  method!: (typeof PAYMENT_METHODS)[number];
+  @IsIn(MANUAL_PAYMENT_METHODS)
+  method!: (typeof MANUAL_PAYMENT_METHODS)[number];
 
-  @IsOptional()
+  @ValidateIf(
+    (dto: RecordPaymentDto) =>
+      dto.method === 'bkash' || dto.method === 'nagad' || dto.transactionId !== undefined,
+  )
   @IsString()
+  @IsNotEmpty()
   @MaxLength(255)
   transactionId?: string;
 
@@ -59,8 +63,9 @@ export class ReviewPaymentClaimDto {
   @IsBoolean()
   approve!: boolean;
 
-  @IsOptional()
+  @ValidateIf((dto: ReviewPaymentClaimDto) => !dto.approve || dto.reason !== undefined)
   @IsString()
+  @IsNotEmpty()
   @MaxLength(1000)
   reason?: string;
 }
