@@ -3,7 +3,6 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -117,29 +116,6 @@ export class PricingAdminService {
    * This is designed for the "Simple Mode" admin form where each save
    * creates a new published version atomically.
    */
-  async savePricing(
-    tenantId: string,
-    productId: string,
-    input: {
-      ratePlan: { type: string; priority?: number; config: Record<string, unknown> };
-      components?: Array<{
-        type: string;
-        priority?: number;
-        visibility?: string;
-        chargeTiming?: string;
-        refundable?: boolean;
-        config: Record<string, unknown>;
-      }>;
-      lateFeePolicy?: LateFeePolicyInput;
-      presentationConfig?: Record<string, unknown>;
-    },
-    actorUserId?: string,
-  ) {
-    return this.prisma.$transaction((tx) =>
-      this.savePricingInTransaction(tx, tenantId, productId, input, actorUserId),
-    );
-  }
-
   async savePricingInTransaction(
     tx: Prisma.TransactionClient,
     tenantId: string,
@@ -256,34 +232,6 @@ export class PricingAdminService {
         policyVersionId: policyVersion.id,
         version: nextVersion,
       };
-  }
-
-  // =========================================================================
-  // DELETE PRICING PROFILE
-  // =========================================================================
-
-  async deletePricingProfile(tenantId: string, productId: string) {
-    const product = await this.prisma.product.findFirst({
-      where: { id: productId, tenantId, deletedAt: null },
-      select: { status: true, pricingProfile: { select: { id: true } } },
-    });
-
-    if (!product?.pricingProfile) {
-      throw new NotFoundException('Pricing profile not found');
-    }
-    if (product.status === 'published') {
-      throw new ConflictException({
-        code: 'PUBLISHED_PRICING_LOCKED',
-        section: 'pricing',
-        message: 'Unpublish this product before removing its pricing policy.',
-      });
-    }
-
-    await this.prisma.pricingProfile.delete({
-      where: { id: product.pricingProfile.id },
-    });
-
-    return { message: 'Pricing profile deleted' };
   }
 
   private deriveHeadline(

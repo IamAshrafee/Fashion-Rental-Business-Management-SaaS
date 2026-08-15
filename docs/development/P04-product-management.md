@@ -202,7 +202,7 @@ GET /api/v1/products?search=wedding+saree → full-text results
 GET /api/v1/products?category=:id&event=:id&sort=newest → filtered results
 
 # Pricing
-POST /api/v1/products/:id/pricing → set pricing
+PUT /api/v1/owner/product-onboardings/:id/pricing → publish a validated pricing version
 # Calculated price correct for percentage mode
 ```
 

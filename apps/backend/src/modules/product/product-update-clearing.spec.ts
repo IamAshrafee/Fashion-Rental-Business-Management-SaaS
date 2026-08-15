@@ -42,7 +42,6 @@ describe('ProductService optional field clearing', () => {
 
   it('persists explicit nulls when an owner clears optional listing fields', async () => {
     await service.update('tenant-1', 'product-1', {
-      description: null,
       subcategoryId: null,
       countryOfOrigin: null,
       referenceRetailValue: null,
@@ -52,7 +51,6 @@ describe('ProductService optional field clearing', () => {
     expect(tx.product.update).toHaveBeenCalledWith({
       where: { id: 'product-1' },
       data: {
-        description: null,
         subcategoryId: null,
         countryOfOrigin: null,
         referenceRetailValue: null,

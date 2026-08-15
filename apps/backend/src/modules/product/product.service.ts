@@ -13,11 +13,6 @@ import {
   UpdateProductDto,
   ProductQueryDto,
   OwnerProductQueryDto,
-  CreateFaqDto,
-  UpdateFaqDto,
-  CreateDetailHeaderDto,
-  UpdateDetailHeaderDto,
-  DetailEntryDto,
 } from './dto/product.dto';
 import { Prisma, ProductStatus } from '@prisma/client';
 
@@ -161,7 +156,6 @@ export class ProductService {
       data.name = dto.name;
       data.slug = await this.generateUniqueSlug(tenantId, dto.name, productId);
     }
-    if (dto.description !== undefined) data.description = dto.description?.trim() || null;
     if (dto.categoryId !== undefined) data.categoryId = dto.categoryId;
     if (dto.subcategoryId !== undefined) data.subcategoryId = dto.subcategoryId || null;
     if (dto.countryOfOrigin !== undefined) data.countryOfOrigin = dto.countryOfOrigin?.trim() || null;
@@ -210,51 +204,6 @@ export class ProductService {
         }
       }
 
-      // Replace FAQs if provided (bulk replace strategy)
-      if (dto.faqs !== undefined) {
-        await tx.productFaq.deleteMany({ where: { productId } });
-        if (dto.faqs.length) {
-          await tx.productFaq.createMany({
-            data: dto.faqs.map((faq, i) => ({
-              tenantId,
-              productId,
-              question: faq.question,
-              answer: faq.answer,
-              sequence: i,
-            })),
-          });
-        }
-      }
-
-      // Replace detail headers + entries if provided (bulk replace strategy)
-      if (dto.details !== undefined) {
-        // Delete existing headers (entries cascade via DB)
-        await tx.productDetailHeader.deleteMany({ where: { productId } });
-        if (dto.details.length) {
-          for (let i = 0; i < dto.details.length; i++) {
-            const detail = dto.details[i];
-            const header = await tx.productDetailHeader.create({
-              data: {
-                tenantId,
-                productId,
-                headerName: detail.headerName,
-                sequence: detail.sequence ?? i,
-              },
-            });
-            if (detail.entries?.length) {
-              await tx.productDetailEntry.createMany({
-                data: detail.entries.map((entry, j) => ({
-                  headerId: header.id,
-                  key: entry.key,
-                  value: entry.value,
-                  sequence: j,
-                })),
-              });
-            }
-          }
-        }
-      }
-
       // Emit update event
       this.eventEmitter.emit('product.updated', {
         tenantId,
@@ -263,153 +212,6 @@ export class ProductService {
 
       return updated;
     });
-  }
-
-  // =========================================================================
-  // PRODUCT CONTENT
-  // =========================================================================
-
-  async addFaq(tenantId: string, productId: string, dto: CreateFaqDto) {
-    await this.findProductOrFail(tenantId, productId);
-    const maxSequence = await this.prisma.productFaq.aggregate({
-      where: { productId, tenantId },
-      _max: { sequence: true },
-    });
-    return this.prisma.productFaq.create({
-      data: {
-        tenantId,
-        productId,
-        question: dto.question,
-        answer: dto.answer,
-        sequence: (maxSequence._max.sequence ?? -1) + 1,
-      },
-    });
-  }
-
-  async updateFaq(
-    tenantId: string,
-    productId: string,
-    faqId: string,
-    dto: UpdateFaqDto,
-  ) {
-    const faq = await this.prisma.productFaq.findFirst({
-      where: {
-        id: faqId,
-        productId,
-        tenantId,
-        product: { deletedAt: null },
-      },
-      select: { id: true },
-    });
-    if (!faq) throw new NotFoundException('FAQ not found');
-    return this.prisma.productFaq.update({ where: { id: faq.id }, data: dto });
-  }
-
-  async deleteFaq(tenantId: string, productId: string, faqId: string) {
-    const faq = await this.prisma.productFaq.findFirst({
-      where: {
-        id: faqId,
-        productId,
-        tenantId,
-        product: { deletedAt: null },
-      },
-      select: { id: true },
-    });
-    if (!faq) throw new NotFoundException('FAQ not found');
-    await this.prisma.productFaq.delete({ where: { id: faq.id } });
-    return { message: 'FAQ deleted' };
-  }
-
-  async addDetailHeader(
-    tenantId: string,
-    productId: string,
-    dto: CreateDetailHeaderDto,
-  ) {
-    await this.findProductOrFail(tenantId, productId);
-    return this.prisma.$transaction(async (tx) => {
-      const header = await tx.productDetailHeader.create({
-        data: {
-          tenantId,
-          productId,
-          headerName: dto.headerName,
-          sequence: dto.sequence ?? 0,
-        },
-      });
-      if (dto.entries?.length) {
-        await tx.productDetailEntry.createMany({
-          data: dto.entries.map((entry, sequence) => ({
-            headerId: header.id,
-            key: entry.key,
-            value: entry.value,
-            sequence,
-          })),
-        });
-      }
-      return tx.productDetailHeader.findUniqueOrThrow({
-        where: { id: header.id },
-        include: { entries: { orderBy: { sequence: 'asc' } } },
-      });
-    });
-  }
-
-  async updateDetailHeader(
-    tenantId: string,
-    productId: string,
-    headerId: string,
-    dto: UpdateDetailHeaderDto,
-  ) {
-    const header = await this.findDetailHeaderOrFail(tenantId, productId, headerId);
-    return this.prisma.productDetailHeader.update({ where: { id: header.id }, data: dto });
-  }
-
-  async deleteDetailHeader(tenantId: string, productId: string, headerId: string) {
-    const header = await this.findDetailHeaderOrFail(tenantId, productId, headerId);
-    await this.prisma.productDetailHeader.delete({ where: { id: header.id } });
-    return { message: 'Detail header deleted' };
-  }
-
-  async addDetailEntry(
-    tenantId: string,
-    productId: string,
-    headerId: string,
-    dto: DetailEntryDto,
-  ) {
-    await this.findDetailHeaderOrFail(tenantId, productId, headerId);
-    const maxSequence = await this.prisma.productDetailEntry.aggregate({
-      where: { headerId },
-      _max: { sequence: true },
-    });
-    return this.prisma.productDetailEntry.create({
-      data: {
-        headerId,
-        key: dto.key,
-        value: dto.value,
-        sequence: (maxSequence._max.sequence ?? -1) + 1,
-      },
-    });
-  }
-
-  async deleteDetailEntry(
-    tenantId: string,
-    productId: string,
-    headerId: string,
-    entryId: string,
-  ) {
-    const entry = await this.prisma.productDetailEntry.findFirst({
-      where: {
-        id: entryId,
-        headerId,
-        header: {
-          productId,
-          tenantId,
-          product: { deletedAt: null },
-        },
-      },
-      select: { id: true },
-    });
-    if (!entry) throw new NotFoundException('Detail entry not found');
-    await this.prisma.productDetailEntry.delete({ where: { id: entry.id } });
-    return { message: 'Detail entry deleted' };
   }
 
   // =========================================================================
@@ -1059,24 +861,6 @@ export class ProductService {
       );
     }
     return product;
-  }
-
-  private async findDetailHeaderOrFail(
-    tenantId: string,
-    productId: string,
-    headerId: string,
-  ) {
-    const header = await this.prisma.productDetailHeader.findFirst({
-      where: {
-        id: headerId,
-        productId,
-        tenantId,
-        product: { deletedAt: null },
-      },
-      select: { id: true },
-    });
-    if (!header) throw new NotFoundException('Detail header not found');
-    return header;
   }
 
   private async validateCatalogReferences(

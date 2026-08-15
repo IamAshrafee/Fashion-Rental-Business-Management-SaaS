@@ -219,7 +219,9 @@ Product onboarding saves five authoritative sections: basics/sizing, variants/SK
 
 ### PATCH `/api/v1/owner/products/:id`
 
-Update catalog content. Publication status uses the dedicated status command and is not a free-form field in the basic-information form. Structural changes are guarded when physical-item, booking, reservation, fulfilment, or movement history would be damaged.
+Update basic catalog classification and provenance fields. Description, details, FAQs, variants,
+SKUs, and pricing use the revisioned product-onboarding section commands so creation and editing
+share the same transactional rules. Publication status uses the dedicated status command.
 
 **Auth**: Bearer token — Owner, Manager
 

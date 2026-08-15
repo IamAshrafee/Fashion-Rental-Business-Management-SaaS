@@ -24,12 +24,6 @@ export class CreateFaqDto {
   @IsString() @MinLength(1) answer!: string;
 }
 
-export class UpdateFaqDto {
-  @IsOptional() @IsString() @MinLength(3) question?: string;
-  @IsOptional() @IsString() @MinLength(1) answer?: string;
-  @IsOptional() @IsInt() @Min(0) sequence?: number;
-}
-
 // --- Detail DTOs ---
 export class DetailEntryDto {
   @IsString() key!: string;
@@ -45,11 +39,6 @@ export class CreateDetailHeaderDto {
   @Type(() => DetailEntryDto)
   entries?: DetailEntryDto[];
 
-  @IsOptional() @IsInt() @Min(0) sequence?: number;
-}
-
-export class UpdateDetailHeaderDto {
-  @IsOptional() @IsString() @MinLength(2) headerName?: string;
   @IsOptional() @IsInt() @Min(0) sequence?: number;
 }
 
@@ -124,7 +113,6 @@ export class OwnerProductQueryDto extends ProductQueryDto {
 
 export class UpdateProductDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(300) name?: string;
-  @IsOptional() @IsString() description?: string | null;
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() subcategoryId?: string | null;
 
@@ -142,17 +130,6 @@ export class UpdateProductDto {
   @IsOptional() @IsString() productTypeId?: string;
   @IsOptional() @IsString() sizeSchemaOverrideId?: string | null;
 
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateFaqDto)
-  faqs?: CreateFaqDto[];
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateDetailHeaderDto)
-  details?: CreateDetailHeaderDto[];
 }
 
 // --- Storefront Showcase DTO (landing page APIs) ---

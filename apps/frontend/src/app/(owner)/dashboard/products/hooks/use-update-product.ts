@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { isPersistedProductId, syncVariantImages } from './sync-variant-images';
+import { buildPricingPayload } from '../components/product-form/pricing-payload';
 
 /**
  * Builds the flat Update DTO from form values (excluding pricing)
@@ -19,7 +20,6 @@ import { isPersistedProductId, syncVariantImages } from './sync-variant-images';
 function buildUpdatePayload(data: ProductFormValues): UpdateProductInput {
   return {
     name: data.name,
-    description: data.description?.trim() || null,
     categoryId: data.categoryId,
     subcategoryId: data.subcategoryId || null,
     eventIds: data.events,
@@ -30,19 +30,6 @@ function buildUpdatePayload(data: ProductFormValues): UpdateProductInput {
     productTypeId: data.productTypeId,
     sizeSchemaOverrideId: data.sizeSchemaOverrideId || null,
 
-    faqs: data.faqs?.map((faq) => ({
-      question: faq.question,
-      answer: faq.answer,
-    })),
-
-    details: data.details?.map((detail, idx) => ({
-      headerName: detail.header,
-      sequence: idx,
-      entries: detail.items.map((item) => ({
-        key: item.key,
-        value: item.value,
-      })),
-    })),
   };
 }
 
@@ -81,61 +68,6 @@ export function useUpdateProduct(
       toast.loading('Updating product info...', { id: 'update-product' });
       const payload = buildUpdatePayload(data);
       await productApi.updateProduct(productId, payload);
-
-      // ── 1b. Update Pricing Engine profiles ────────────────────
-      if (data.ratePlanType && data.ratePlanConfig) {
-        toast.loading('Updating pricing...', { id: 'update-product' });
-
-        const components: Array<{
-          type: string;
-          config: Record<string, unknown>;
-          chargeTiming: string;
-          refundable: boolean;
-        }> = (data.pricingComponents || []).map((comp) => ({
-          type: comp.type === 'ADDON_BACKUP' || comp.type === 'ADDON_TRYON' ? 'ADDON' : comp.type,
-          config: {
-            ...comp.config,
-            ...(comp.type === 'ADDON_BACKUP'
-              ? { purpose: 'BACKUP_SIZE', addonId: 'BACKUP_SIZE' }
-              : comp.type === 'ADDON_TRYON'
-                ? { purpose: 'TRY_ON', addonId: 'TRY_ON' }
-                : {}),
-          },
-          chargeTiming: 'AT_BOOKING',
-          refundable: comp.type === 'DEPOSIT',
-        }));
-        if (data.shippingMode === 'flat' && (data.flatShippingFee ?? 0) > 0) {
-          components.push({
-            type: 'FEE',
-            config: {
-              label: 'Delivery fee',
-              purpose: 'DELIVERY',
-              pricing: { mode: 'FLAT', amountMinor: data.flatShippingFee ?? 0 },
-            },
-            chargeTiming: 'AT_BOOKING',
-            refundable: false,
-          });
-        }
-
-        const lateFeePolicy = data.lateFeeEnabled
-          ? {
-              enabled: true,
-              graceHours: data.lateFeeGraceHours || 24,
-              mode: 'PER_DAY' as const,
-              amountMinor: data.lateFeeAmountMinor || 0,
-              totalCapMinor: data.lateFeeCapMinor || undefined,
-            }
-          : { enabled: false, graceHours: 0, mode: 'PER_DAY' as const };
-
-        await productApi.savePricing(productId, {
-          ratePlan: {
-            type: data.ratePlanType,
-            config: data.ratePlanConfig,
-          },
-          components,
-          lateFeePolicy,
-        });
-      }
 
       // ── 2. Reconcile variants and rentable SKUs atomically ───
       const formVariants = data.variants;
@@ -183,6 +115,38 @@ export function useUpdateProduct(
             checkpoints?.onImageUploaded?.(i, imageIndex, image),
         });
       }
+
+      // ── 4. Save customer-facing content atomically ───────────
+      toast.loading('Updating product details and FAQs...', { id: 'update-product' });
+      const content = await productOnboardingApi.saveContent(
+        productId,
+        {
+          expectedRevision: onboardingRevision.current,
+          description: data.description?.trim() || undefined,
+          faqs: data.faqs,
+          details: data.details?.map((detail, sequence) => ({
+            headerName: detail.header,
+            sequence,
+            entries: detail.items,
+          })),
+        },
+        globalThis.crypto?.randomUUID?.() ??
+          `edit-product-content-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
+      onboardingRevision.current = content.revision;
+
+      // ── 5. Save the active pricing version atomically ─────────
+      toast.loading('Updating pricing and fees...', { id: 'update-product' });
+      const pricing = await productOnboardingApi.savePricing(
+        productId,
+        {
+          expectedRevision: onboardingRevision.current,
+          pricing: buildPricingPayload(data),
+        },
+        globalThis.crypto?.randomUUID?.() ??
+          `edit-product-pricing-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
+      onboardingRevision.current = pricing.revision;
 
       if (data.status !== originalProduct?.status) {
         await productApi.updateStatus(productId, data.status);

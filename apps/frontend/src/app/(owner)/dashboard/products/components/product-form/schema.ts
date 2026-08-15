@@ -69,7 +69,7 @@ export const productFormSchema = z.object({
   details: z
     .array(
       z.object({
-        header: z.string().min(1, 'Header is required'),
+        header: z.string().min(2, 'Section header must be at least 2 characters'),
         items: z.array(
           z.object({
             key: z.string().min(1, 'Key is required'),
@@ -82,7 +82,7 @@ export const productFormSchema = z.object({
   faqs: z
     .array(
       z.object({
-        question: z.string().min(1),
+        question: z.string().min(3, 'Question must be at least 3 characters'),
         answer: z.string().min(1),
       })
     )

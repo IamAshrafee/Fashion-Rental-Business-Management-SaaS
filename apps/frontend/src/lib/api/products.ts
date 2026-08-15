@@ -326,7 +326,6 @@ export interface ProductListQuery {
 
 export interface UpdateProductInput {
   name?: string;
-  description?: string | null;
   categoryId?: string;
   subcategoryId?: string | null;
   eventIds?: string[];
@@ -336,12 +335,6 @@ export interface UpdateProductInput {
   referenceRetailValuePublic?: boolean;
   productTypeId?: string;
   sizeSchemaOverrideId?: string | null;
-  faqs?: Array<{ question: string; answer: string }>;
-  details?: Array<{
-    headerName: string;
-    sequence?: number;
-    entries?: Array<{ key: string; value: string }>;
-  }>;
 }
 
 export interface ProductOnboardingVariantInput {
@@ -625,14 +618,6 @@ export const productApi = {
    */
   getPricing: async (productId: string): Promise<Record<string, unknown> | null> => {
     const { data } = await apiClient.get<ApiResponse<Record<string, unknown> | null>>(`/products/${productId}/pricing`);
-    return data.data;
-  },
-
-  /**
-   * POST /api/products/:productId/pricing
-   */
-  savePricing: async (productId: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(`/products/${productId}/pricing`, payload);
     return data.data;
   },
 

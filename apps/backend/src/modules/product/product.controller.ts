@@ -19,12 +19,6 @@ import {
   ProductQueryDto,
   OwnerProductQueryDto,
   StorefrontShowcaseQueryDto,
-  ReorderDto,
-  CreateFaqDto,
-  UpdateFaqDto,
-  CreateDetailHeaderDto,
-  UpdateDetailHeaderDto,
-  DetailEntryDto,
 } from './dto/product.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -214,97 +208,4 @@ export class ProductOwnerController {
     return this.productService.permanentDelete(tenant.id, id);
   }
 
-  // --- FAQs ---
-
-  @Post(':id/faqs')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async addFaq(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') productId: string,
-    @Body() dto: CreateFaqDto,
-  ) {
-    return this.productService.addFaq(tenant.id, productId, dto);
-  }
-
-  @Patch(':productId/faqs/:faqId')
-  @Roles('owner', 'manager')
-  async updateFaq(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('faqId') faqId: string,
-    @Body() dto: UpdateFaqDto,
-  ) {
-    return this.productService.updateFaq(tenant.id, productId, faqId, dto);
-  }
-
-  @Delete(':productId/faqs/:faqId')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async deleteFaq(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('faqId') faqId: string,
-  ) {
-    return this.productService.deleteFaq(tenant.id, productId, faqId);
-  }
-
-  // --- Detail Headers ---
-
-  @Post(':id/details')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async addDetailHeader(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') productId: string,
-    @Body() dto: CreateDetailHeaderDto,
-  ) {
-    return this.productService.addDetailHeader(tenant.id, productId, dto);
-  }
-
-  @Patch(':productId/details/:headerId')
-  @Roles('owner', 'manager')
-  async updateDetailHeader(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('headerId') headerId: string,
-    @Body() dto: UpdateDetailHeaderDto,
-  ) {
-    return this.productService.updateDetailHeader(tenant.id, productId, headerId, dto);
-  }
-
-  @Delete(':productId/details/:headerId')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async deleteDetailHeader(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('headerId') headerId: string,
-  ) {
-    return this.productService.deleteDetailHeader(tenant.id, productId, headerId);
-  }
-
-  @Post(':productId/details/:headerId/entries')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async addDetailEntry(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('headerId') headerId: string,
-    @Body() dto: DetailEntryDto,
-  ) {
-    return this.productService.addDetailEntry(tenant.id, productId, headerId, dto);
-  }
-
-  @Delete(':productId/details/:headerId/entries/:entryId')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async deleteDetailEntry(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('headerId') headerId: string,
-    @Param('entryId') entryId: string,
-  ) {
-    return this.productService.deleteDetailEntry(tenant.id, productId, headerId, entryId);
-  }
 }

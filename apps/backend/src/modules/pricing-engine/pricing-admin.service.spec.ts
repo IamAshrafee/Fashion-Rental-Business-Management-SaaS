@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingAdminService } from './pricing-admin.service';
 
@@ -35,7 +36,7 @@ describe('PricingAdminService configuration authority', () => {
   });
 
   it('rejects a rate plan that can produce a zero rental price before version writes', async () => {
-    await expect(service.savePricing('tenant-1', 'product-1', {
+    await expect(service.savePricingInTransaction(tx as unknown as Prisma.TransactionClient, 'tenant-1', 'product-1', {
       ratePlan: { type: 'PER_DAY', config: { unitPriceMinor: 0, minDays: 1 } },
     })).rejects.toMatchObject({
       response: expect.objectContaining({
@@ -47,7 +48,7 @@ describe('PricingAdminService configuration authority', () => {
   });
 
   it('rejects tier gaps and overlapping open-ended tiers', async () => {
-    await expect(service.savePricing('tenant-1', 'product-1', {
+    await expect(service.savePricingInTransaction(tx as unknown as Prisma.TransactionClient, 'tenant-1', 'product-1', {
       ratePlan: {
         type: 'TIERED_DAILY',
         config: {
@@ -65,7 +66,7 @@ describe('PricingAdminService configuration authority', () => {
   it('requires acquisition value for percentage-of-retail pricing', async () => {
     tx.product.findFirst.mockResolvedValue({ id: 'product-1', referenceRetailValue: null });
 
-    await expect(service.savePricing('tenant-1', 'product-1', {
+    await expect(service.savePricingInTransaction(tx as unknown as Prisma.TransactionClient, 'tenant-1', 'product-1', {
       ratePlan: {
         type: 'PERCENT_RETAIL',
         config: { percent: 10, basis: 'PER_RENTAL', minPriceMinor: 50_000 },
@@ -76,7 +77,7 @@ describe('PricingAdminService configuration authority', () => {
   });
 
   it('enforces refundable deposit semantics', async () => {
-    await expect(service.savePricing('tenant-1', 'product-1', {
+    await expect(service.savePricingInTransaction(tx as unknown as Prisma.TransactionClient, 'tenant-1', 'product-1', {
       ratePlan: { type: 'PER_DAY', config: { unitPriceMinor: 100_000, minDays: 1 } },
       components: [{
         type: 'DEPOSIT',
@@ -89,7 +90,7 @@ describe('PricingAdminService configuration authority', () => {
   });
 
   it('publishes a validated immutable version and updates the storefront headline', async () => {
-    const result = await service.savePricing('tenant-1', 'product-1', {
+    const result = await service.savePricingInTransaction(tx as unknown as Prisma.TransactionClient, 'tenant-1', 'product-1', {
       ratePlan: { type: 'FLAT_PERIOD', config: { flatPriceMinor: 400_000, includedDays: 3, extraDayPriceMinor: 90_000 } },
       components: [{
         type: 'DEPOSIT',
@@ -113,15 +114,4 @@ describe('PricingAdminService configuration authority', () => {
     });
   });
 
-  it('does not allow pricing removal to invalidate a published product', async () => {
-    prisma.product.findFirst.mockResolvedValue({
-      status: 'published',
-      pricingProfile: { id: 'profile-1' },
-    });
-
-    await expect(service.deletePricingProfile('tenant-1', 'product-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PUBLISHED_PRICING_LOCKED' }),
-    });
-    expect(prisma.pricingProfile.delete).not.toHaveBeenCalled();
-  });
 });
