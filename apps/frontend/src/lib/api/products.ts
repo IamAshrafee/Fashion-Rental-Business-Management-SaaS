@@ -565,6 +565,18 @@ export const productApi = {
     await apiClient.delete(`/owner/upload/product-image/${imageId}`);
   },
 
+  reorderImages: async (
+    variantId: string,
+    imageIds: string[],
+    featuredImageId: string,
+  ): Promise<void> => {
+    await apiClient.patch('/owner/upload/product-images/reorder', {
+      variantId,
+      ids: imageIds,
+      featuredImageId,
+    });
+  },
+
   // ─── Category CRUD ──────────────────────────────────────────────────────────
 
   createCategory: async (payload: { name: string; icon?: string; displayOrder?: number }): Promise<OwnerCategory> => {

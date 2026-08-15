@@ -47,11 +47,35 @@ describe('UploadService product media safety', () => {
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(2);
 
-    await expect(service.reorderImages('tenant-1', 'variant-1', [
+    await expect(service.reorderImages(
+      'tenant-1',
+      'variant-1',
+      [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
       '11111111-1111-4111-8111-111111111111',
-      '22222222-2222-4222-8222-222222222222',
-    ])).rejects.toThrow('The reorder request must contain every image from this variant exactly once');
+    )).rejects.toThrow('The reorder request must contain every image from this variant exactly once');
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('persists image order and exactly one featured image together', async () => {
+    const firstId = '11111111-1111-4111-8111-111111111111';
+    const secondId = '22222222-2222-4222-8222-222222222222';
+    prisma.productVariant.findFirst.mockResolvedValue({ id: 'variant-1' });
+    prisma.productImage.count.mockResolvedValueOnce(2).mockResolvedValueOnce(2);
+    prisma.$transaction.mockResolvedValue([]);
+
+    await service.reorderImages('tenant-1', 'variant-1', [secondId, firstId], firstId);
+
+    expect(prisma.productImage.update).toHaveBeenNthCalledWith(1, {
+      where: { id: secondId },
+      data: { sequence: 0, isFeatured: false },
+    });
+    expect(prisma.productImage.update).toHaveBeenNthCalledWith(2, {
+      where: { id: firstId },
+      data: { sequence: 1, isFeatured: true },
+    });
   });
 
   it('protects the final image of a published variant', async () => {

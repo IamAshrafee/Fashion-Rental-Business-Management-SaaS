@@ -23,7 +23,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
-import { ReorderDto } from '../product/dto/product.dto';
+import { ReorderProductImagesDto } from '../product/dto/product.dto';
+import { RequirePermission } from '../../common/decorators/permissions.decorator';
 
 @Controller('owner/upload')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
@@ -32,6 +33,7 @@ export class UploadController {
 
   @Post('product-image')
   @Roles('owner', 'manager')
+  @RequirePermission('manage_products')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))
   async uploadProductImage(
@@ -50,6 +52,7 @@ export class UploadController {
 
   @Post('product-images')
   @Roles('owner', 'manager')
+  @RequirePermission('manage_products')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadProductImages(
@@ -62,6 +65,7 @@ export class UploadController {
 
   @Delete('product-image/:imageId')
   @Roles('owner', 'manager')
+  @RequirePermission('manage_products')
   @HttpCode(HttpStatus.OK)
   async deleteProductImage(
     @CurrentTenant() tenant: TenantContext,
@@ -72,12 +76,17 @@ export class UploadController {
 
   @Patch('product-images/reorder')
   @Roles('owner', 'manager')
+  @RequirePermission('manage_products')
   async reorderImages(
     @CurrentTenant() tenant: TenantContext,
-    @Body('variantId', new ParseUUIDPipe({ version: '4' })) variantId: string,
-    @Body() dto: ReorderDto,
+    @Body() dto: ReorderProductImagesDto,
   ) {
-    return this.uploadService.reorderImages(tenant.id, variantId, dto.ids);
+    return this.uploadService.reorderImages(
+      tenant.id,
+      dto.variantId,
+      dto.ids,
+      dto.featuredImageId,
+    );
   }
 
   @Post('logo')

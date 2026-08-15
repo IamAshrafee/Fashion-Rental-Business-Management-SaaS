@@ -250,10 +250,18 @@ export class UploadService {
   /**
    * Reorder images within a variant.
    */
-  async reorderImages(tenantId: string, variantId: string, imageIds: string[]) {
+  async reorderImages(
+    tenantId: string,
+    variantId: string,
+    imageIds: string[],
+    featuredImageId: string,
+  ) {
     const uniqueIds = [...new Set(imageIds)];
     if (uniqueIds.length !== imageIds.length) {
       throw new BadRequestException('An image can only appear once in the reorder request');
+    }
+    if (!uniqueIds.includes(featuredImageId)) {
+      throw new BadRequestException('The featured image must belong to the reordered image set');
     }
     const variant = await this.prisma.productVariant.findFirst({
       where: { id: variantId, tenantId },
@@ -272,7 +280,10 @@ export class UploadService {
 
     await this.prisma.$transaction(
       uniqueIds.map((id, sequence) =>
-        this.prisma.productImage.update({ where: { id }, data: { sequence } }),
+        this.prisma.productImage.update({
+          where: { id },
+          data: { sequence, isFeatured: id === featuredImageId },
+        }),
       ),
     );
     return { message: 'Images reordered' };

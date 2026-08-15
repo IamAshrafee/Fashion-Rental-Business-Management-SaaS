@@ -52,7 +52,7 @@ export function VariantsMediaStep({
     queryKey: ['product-types'],
     queryFn: sizingApi.listProductTypes,
   });
-  const selectedType = productTypes.find((t: any) => t.id === productTypeId);
+  const selectedType = productTypes.find((type) => type.id === productTypeId);
   const activeSchemaId = sizeSchemaOverrideId || selectedType?.defaultSizeSchema?.id;
   const { data: activeSchema } = useQuery({
     queryKey: ['size-schema-detail', activeSchemaId],
@@ -93,7 +93,7 @@ export function VariantsMediaStep({
           const imageCount = images.length;
           const isImagesOpen = expandedImages[index] ?? false;
           const variantName = watch(`variants.${index}.name`);
-          const mainColor = COLORS.find((c: any) => c.id === mainColorId);
+          const mainColor = COLORS.find((color) => color.id === mainColorId);
 
           return (
             <Card key={field.id} className="relative border-primary/20">
@@ -155,7 +155,7 @@ export function VariantsMediaStep({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className="max-h-[300px]">
-                            {COLORS.map((c: any) => (
+                            {COLORS.map((c) => (
                               <SelectItem key={c.id} value={c.id}>
                                 <div className="flex items-center gap-2">
                                   <div className="h-3 w-3 rounded-full border border-border" style={{ backgroundColor: c.hexCode || '#E5E7EB' }} />
@@ -178,7 +178,7 @@ export function VariantsMediaStep({
                         <FormItem className="sm:col-span-2">
                           <FormLabel>Sizes <FieldTip tip="Select all sizes available for this color variant." /></FormLabel>
                           <div className="flex flex-wrap gap-2">
-                            {sizeInstances.map((inst: any) => {
+                            {sizeInstances.map((inst) => {
                               const isSelected = field.value?.includes(inst.id);
                               return (
                                 <button
@@ -234,7 +234,7 @@ export function VariantsMediaStep({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className="max-h-[300px]">
-                            {COLORS.filter((c: any) => !field.value.includes(c.id)).map((c: any) => (
+                            {COLORS.filter((c) => !field.value.includes(c.id)).map((c) => (
                               <SelectItem key={c.id} value={c.id}>
                                 <div className="flex items-center gap-2">
                                   <div className="h-3 w-3 rounded-full border border-border" style={{ backgroundColor: c.hexCode || '#E5E7EB' }} />
@@ -242,7 +242,7 @@ export function VariantsMediaStep({
                                 </div>
                               </SelectItem>
                             ))}
-                            {COLORS.filter((c: any) => !field.value.includes(c.id)).length === 0 && (
+                            {COLORS.filter((c) => !field.value.includes(c.id)).length === 0 && (
                               <div className="p-2 text-sm text-muted-foreground text-center">All colors added</div>
                             )}
                           </SelectContent>

@@ -1,13 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { productApi } from '@/lib/api/products';
+import { productApi, type ProductDetail } from '@/lib/api/products';
 import { ProductFormValues } from '../components/product-form/schema';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
-
-interface OriginalVariant {
-  id: string;
-  images?: Array<{ id: string }>;
-}
+import { getApiErrorMessage } from '@/lib/api-error';
 
 /**
  * Builds the flat Update DTO from form values (excluding pricing)
@@ -53,8 +49,7 @@ function isRealId(id?: string): boolean {
 
 export function useUpdateProduct(
   productId: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  originalProduct: any | null | undefined,
+  originalProduct: Pick<ProductDetail, 'variants' | 'status'> | null | undefined,
 ) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -122,7 +117,7 @@ export function useUpdateProduct(
       }
 
       // ── 2. Variant diffing ────────────────────────────────────
-      const originalVariants: OriginalVariant[] = originalProduct?.variants ?? [];
+      const originalVariants = originalProduct?.variants ?? [];
       const originalVariantIds = new Set(originalVariants.map((v) => v.id));
       const formVariants = data.variants;
       const formVariantIds = new Set(
@@ -185,15 +180,39 @@ export function useUpdateProduct(
           }
         }
 
-        // 3b. Upload new images
+        // 3b. Upload new images and build the final persisted order.
         const newImages = formImages.filter((img) => img.file);
-        for (let j = 0; j < newImages.length; j++) {
-          const img = newImages[j];
-          toast.loading(
-            `Uploading image ${j + 1}/${newImages.length} for variant ${i + 1}...`,
-            { id: 'update-product' },
+        const finalImageIds: string[] = [];
+        let featuredImageId: string | undefined;
+        let uploadIndex = 0;
+        for (const image of formImages) {
+          let persistedImageId: string;
+          if (image.file) {
+            uploadIndex += 1;
+            toast.loading(
+              `Uploading image ${uploadIndex}/${newImages.length} for variant ${i + 1}...`,
+              { id: 'update-product' },
+            );
+            const uploaded = await productApi.uploadImage(
+              variantId,
+              image.file,
+              image.isFeatured,
+            );
+            persistedImageId = uploaded.id;
+          } else if (isRealId(image.id)) {
+            persistedImageId = image.id;
+          } else {
+            continue;
+          }
+          finalImageIds.push(persistedImageId);
+          if (image.isFeatured) featuredImageId = persistedImageId;
+        }
+        if (finalImageIds.length > 0) {
+          await productApi.reorderImages(
+            variantId,
+            finalImageIds,
+            featuredImageId ?? finalImageIds[0],
           );
-          await productApi.uploadImage(variantId, img.file, img.isFeatured);
         }
       }
 
@@ -209,10 +228,10 @@ export function useUpdateProduct(
       queryClient.invalidateQueries({ queryKey: ['owner-products'] });
       router.push(`/dashboard/products/${productId}`);
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error('Update error:', error);
       toast.error(
-        error.response?.data?.message || 'Failed to update product',
+        getApiErrorMessage(error, 'Failed to update product'),
         { id: 'update-product' },
       );
     },

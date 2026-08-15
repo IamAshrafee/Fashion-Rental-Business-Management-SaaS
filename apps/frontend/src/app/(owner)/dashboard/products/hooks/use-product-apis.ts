@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, sizingApi } from '@/lib/api/products';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/api-error';
+
+const showMutationError = (fallback: string) => (error: unknown) => {
+  toast.error(getApiErrorMessage(error, fallback));
+};
 
 export function useCategories() {
   return useQuery({
@@ -42,9 +47,7 @@ export function useCategoryMutations() {
       toast.success('Category created');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to create category');
-    },
+    onError: showMutationError('Failed to create category'),
   });
 
   const updateCategory = useMutation({
@@ -53,8 +56,8 @@ export function useCategoryMutations() {
     onSuccess: () => {
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to update category');
+    onError: (error: unknown) => {
+      showMutationError('Failed to update category')(error);
       invalidate(); // revert optimistic UI
     },
   });
@@ -65,9 +68,7 @@ export function useCategoryMutations() {
       toast.success('Category deleted');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to delete category');
-    },
+    onError: showMutationError('Failed to delete category'),
   });
 
   const createSubcategory = useMutation({
@@ -77,9 +78,7 @@ export function useCategoryMutations() {
       toast.success('Subcategory created');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to create subcategory');
-    },
+    onError: showMutationError('Failed to create subcategory'),
   });
 
   const updateSubcategory = useMutation({
@@ -88,8 +87,8 @@ export function useCategoryMutations() {
     onSuccess: () => {
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to update subcategory');
+    onError: (error: unknown) => {
+      showMutationError('Failed to update subcategory')(error);
       invalidate();
     },
   });
@@ -100,9 +99,7 @@ export function useCategoryMutations() {
       toast.success('Subcategory deleted');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to delete subcategory');
-    },
+    onError: showMutationError('Failed to delete subcategory'),
   });
 
   return {
@@ -140,9 +137,7 @@ export function useEventMutations() {
       toast.success('Event created');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to create event');
-    },
+    onError: showMutationError('Failed to create event'),
   });
 
   const updateEvent = useMutation({
@@ -151,8 +146,8 @@ export function useEventMutations() {
     onSuccess: () => {
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to update event');
+    onError: (error: unknown) => {
+      showMutationError('Failed to update event')(error);
       invalidate();
     },
   });
@@ -163,9 +158,7 @@ export function useEventMutations() {
       toast.success('Event deleted');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to delete event');
-    },
+    onError: showMutationError('Failed to delete event'),
   });
 
   return { createEvent, updateEvent, deleteEvent };
@@ -187,11 +180,7 @@ export function useSoftDeleteProduct() {
       queryClient.invalidateQueries({ queryKey: ['products', 'trash'] });
       toast.success('Product moved to trash');
     },
-    onError: (err: any) => {
-      const message =
-        err.response?.data?.message || 'Failed to move product to trash';
-      toast.error(message);
-    },
+    onError: showMutationError('Failed to move product to trash'),
   });
 }
 
@@ -208,10 +197,7 @@ export function useRestoreProduct() {
       queryClient.invalidateQueries({ queryKey: ['products', 'list'] });
       toast.success('Product restored to Draft — review and publish when ready');
     },
-    onError: (err: any) => {
-      const message = err.response?.data?.message || 'Failed to restore product';
-      toast.error(message);
-    },
+    onError: showMutationError('Failed to restore product'),
   });
 }
 
@@ -228,11 +214,7 @@ export function usePermanentDeleteProduct() {
       queryClient.invalidateQueries({ queryKey: ['products', 'trash'] });
       toast.success('Product permanently deleted');
     },
-    onError: (err: any) => {
-      const message =
-        err.response?.data?.message || 'Failed to permanently delete product';
-      toast.error(message);
-    },
+    onError: showMutationError('Failed to permanently delete product'),
   });
 }
 
@@ -251,10 +233,7 @@ export function useUpdateProductStatus() {
       const label = variables.status === 'published' ? 'Published' : variables.status === 'draft' ? 'Unpublished' : 'Archived';
       toast.success(`Product ${label}`);
     },
-    onError: (err: any) => {
-      const message = err.response?.data?.message || 'Failed to update status';
-      toast.error(message);
-    },
+    onError: showMutationError('Failed to update status'),
   });
 }
 
@@ -282,9 +261,7 @@ export function useProductTypeMutations() {
       toast.success('Product Type created');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to create Product Type');
-    },
+    onError: showMutationError('Failed to create Product Type'),
   });
 
   const updateProductType = useMutation({
@@ -294,9 +271,7 @@ export function useProductTypeMutations() {
       toast.success('Product Type updated');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to update Product Type');
-    },
+    onError: showMutationError('Failed to update Product Type'),
   });
 
   const deleteProductType = useMutation({
@@ -305,9 +280,7 @@ export function useProductTypeMutations() {
       toast.success('Product Type deleted');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to delete Product Type');
-    },
+    onError: showMutationError('Failed to delete Product Type'),
   });
 
   return { createProductType, updateProductType, deleteProductType };
@@ -329,27 +302,23 @@ export function useSizeSchemaMutations() {
   };
 
   const createSchema = useMutation({
-    mutationFn: (payload: { code: string; name: string; description?: string; schemaType?: string; definition: any; instances?: any[] }) =>
+    mutationFn: (payload: Parameters<typeof sizingApi.createSchema>[0]) =>
       sizingApi.createSchema(payload),
     onSuccess: () => {
       toast.success('Size Schema created');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to create Size Schema');
-    },
+    onError: showMutationError('Failed to create Size Schema'),
   });
 
   const updateSchema = useMutation({
-    mutationFn: ({ id, ...payload }: { id: string; name?: string; description?: string; status?: string; definition?: any }) =>
+    mutationFn: ({ id, ...payload }: { id: string } & Parameters<typeof sizingApi.updateSchema>[1]) =>
       sizingApi.updateSchema(id, payload),
     onSuccess: () => {
       toast.success('Size Schema updated');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to update Size Schema');
-    },
+    onError: showMutationError('Failed to update Size Schema'),
   });
 
   const activateSchema = useMutation({
@@ -358,9 +327,7 @@ export function useSizeSchemaMutations() {
       toast.success('Size Schema activated (Now available for product types)');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to activate Size Schema');
-    },
+    onError: showMutationError('Failed to activate Size Schema'),
   });
 
   const deprecateSchema = useMutation({
@@ -369,9 +336,7 @@ export function useSizeSchemaMutations() {
       toast.success('Size Schema deprecated (Hidden from new product types)');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to deprecate Size Schema');
-    },
+    onError: showMutationError('Failed to deprecate Size Schema'),
   });
 
   const deleteSchema = useMutation({
@@ -380,9 +345,7 @@ export function useSizeSchemaMutations() {
       toast.success('Size Schema deleted');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to delete Size Schema');
-    },
+    onError: showMutationError('Failed to delete Size Schema'),
   });
 
   return { createSchema, updateSchema, activateSchema, deprecateSchema, deleteSchema };
@@ -406,15 +369,13 @@ export function useSizeChartMutations() {
   };
 
   const createChart = useMutation({
-    mutationFn: (payload: { sizeSchemaId: string; productId?: string; title?: string; rows?: any[] }) =>
+    mutationFn: (payload: Parameters<typeof sizingApi.createSizeChart>[0]) =>
       sizingApi.createSizeChart(payload),
     onSuccess: () => {
       toast.success('Size Guide saved successfully');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to save Size Guide');
-    },
+    onError: showMutationError('Failed to save Size Guide'),
   });
 
   const deleteChart = useMutation({
@@ -423,9 +384,7 @@ export function useSizeChartMutations() {
       toast.success('Size Guide deleted');
       invalidate();
     },
-    onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to delete Size Guide');
-    },
+    onError: showMutationError('Failed to delete Size Guide'),
   });
 
   return { createChart, deleteChart };

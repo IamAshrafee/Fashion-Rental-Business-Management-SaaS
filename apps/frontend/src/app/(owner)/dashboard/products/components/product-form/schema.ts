@@ -35,7 +35,7 @@ export const productFormSchema = z.object({
               url: z.string(),
               isFeatured: z.boolean().default(false),
               sequence: z.number().int().optional(),
-              file: z.any().optional(), // The actual File object before upload
+              file: z.custom<File>().optional(), // The actual File object before upload
             })
           )
           .default([]),

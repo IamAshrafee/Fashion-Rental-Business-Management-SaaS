@@ -103,20 +103,22 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
   // Resolve names
   const categoryName = categories?.find((c) => c.id === data.categoryId)?.name || 'Not set';
   const currentCategory = categories?.find((c) => c.id === data.categoryId);
-  const subcategoryName = currentCategory?.subcategories?.find((s: any) => s.id === data.subcategoryId)?.name;
+  const subcategoryName = currentCategory?.subcategories?.find((subcategory) => subcategory.id === data.subcategoryId)?.name;
   const selectedEvents = events?.filter((e) => data.events?.includes(e.id)).map((e) => e.name) || [];
   const totalImages = data.variants?.reduce((acc, v) => acc + (v.images?.length || 0), 0) || 0;
 
   // Pricing label
   const pricingLabel = (() => {
     if (!data.ratePlanType || !data.ratePlanConfig) return 'Not configured';
-    const config = data.ratePlanConfig as any;
+    const config = data.ratePlanConfig;
+    const numeric = (value: unknown, fallback = 0) =>
+      typeof value === 'number' && Number.isFinite(value) ? value : fallback;
     switch (data.ratePlanType) {
-      case 'FLAT_PERIOD': return `${formatMinorMoney(config.flatPriceMinor)} for ${config.includedDays || '?'} days`;
-      case 'PER_DAY': return `${formatMinorMoney(config.unitPriceMinor)}/day (min ${config.minDays || 1}d)`;
-      case 'TIERED_DAILY': return `Tiered (${config.tiers?.length || 0} tiers)`;
+      case 'FLAT_PERIOD': return `${formatMinorMoney(config.flatPriceMinor)} for ${numeric(config.includedDays) || '?'} days`;
+      case 'PER_DAY': return `${formatMinorMoney(config.unitPriceMinor)}/day (min ${numeric(config.minDays, 1)}d)`;
+      case 'TIERED_DAILY': return `Tiered (${Array.isArray(config.tiers) ? config.tiers.length : 0} tiers)`;
       case 'WEEKLY_MONTHLY': return `${formatMinorMoney(config.dailyPriceMinor)}/d | ${formatMinorMoney(config.weeklyPriceMinor)}/w`;
-      case 'PERCENT_RETAIL': return `${config.percent || 0}% of retail`;
+      case 'PERCENT_RETAIL': return `${numeric(config.percent)}% of retail`;
     }
     return data.ratePlanType;
   })();
@@ -151,7 +153,7 @@ export function ReviewStep({ onGoToStep }: ReviewStepProps) {
       <div>
         <h2 className="text-xl font-semibold">Review & Publish</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Review your product before publishing. Click "Edit" on any section to make changes.
+          Review your product before publishing. Use Edit on any section to make changes.
         </p>
       </div>
 

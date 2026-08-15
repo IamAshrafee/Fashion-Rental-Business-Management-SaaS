@@ -104,6 +104,14 @@ export class ReorderDto {
   ids!: string[];
 }
 
+export class ReorderProductImagesDto extends ReorderDto {
+  @IsUUID('4')
+  variantId!: string;
+
+  @IsUUID('4')
+  featuredImageId!: string;
+}
+
 // --- Product Status DTO ---
 export class UpdateProductStatusDto {
   @IsEnum(['draft', 'published', 'archived'])

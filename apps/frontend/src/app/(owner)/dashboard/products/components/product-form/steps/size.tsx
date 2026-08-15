@@ -37,7 +37,7 @@ export function SizeStep() {
   });
 
   // Resolve the selected product type to get its schema + instances
-  const selectedType = productTypes.find((t: any) => t.id === productTypeId);
+  const selectedType = productTypes.find((type) => type.id === productTypeId);
   const activeSchemaId = sizeSchemaOverrideId || selectedType?.defaultSizeSchema?.id;
 
   // Load active schema details (instances)
@@ -79,7 +79,7 @@ export function SizeStep() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {productTypes.map((type: any) => (
+            {productTypes.map((type) => (
               <button
                 key={type.id}
                 type="button"
@@ -122,7 +122,7 @@ export function SizeStep() {
                 <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  {schemas.map((schema: any) => (
+                  {schemas.map((schema) => (
                     <button
                       key={schema.id}
                       type="button"
@@ -165,7 +165,7 @@ export function SizeStep() {
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {instances.map((inst: any) => (
+              {instances.map((inst) => (
                 <div
                   key={inst.id}
                   className="flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700"
@@ -182,7 +182,7 @@ export function SizeStep() {
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
                 Size Guide
               </h4>
-              {sizeCharts.map((chart: any) => (
+              {sizeCharts.map((chart) => (
                 <div key={chart.id} className="overflow-hidden rounded-lg border border-gray-200">
                   <div className="bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-600">
                     {chart.title}
@@ -200,10 +200,10 @@ export function SizeStep() {
                         </tr>
                       </thead>
                       <tbody>
-                        {chart.rows.map((row: any) => (
+                        {chart.rows.map((row) => (
                           <tr key={row.id} className="border-b last:border-0">
                             <td className="px-3 py-2 font-semibold text-gray-800">{row.sizeLabel}</td>
-                            {Object.values(row.measurements || {}).map((val: any, idx: number) => (
+                            {Object.values(row.measurements || {}).map((val, idx) => (
                               <td key={idx} className="px-3 py-2 text-gray-600">{String(val)}</td>
                             ))}
                           </tr>
