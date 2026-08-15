@@ -138,7 +138,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                   )}
                   
                   {/* Manage Deposit Button */}
-                  {item.depositAmount > 0 && (
+                  {item.depositAmount > 0 && (item.depositSettlement || bookingStatus === 'inspected') && (
                     <div className="flex items-center gap-2 mt-3">
                       <Button
                         variant="outline"
@@ -147,7 +147,7 @@ export function BookingItems({ items, bookingId, bookingStatus }: BookingItemsPr
                         onClick={() => setDepositModal({ open: true, item })}
                       >
                         <ShieldAlert className="h-3 w-3 mr-1" />
-                        {item.depositSettlement ? 'View Settlement' : 'Settle Deposit'}
+                        {item.depositSettlement ? 'View settlement' : 'Settle deposit'}
                       </Button>
                     </div>
                   )}

@@ -14,67 +14,15 @@ import { PaymentHistory } from './components/payment-history';
 import { StatusTimeline } from './components/status-timeline';
 import { DeliveryTrackingCard } from './components/delivery-tracking-card';
 import { InventoryAssignments } from './components/inventory-assignments';
+import { BookingWorkflowCard } from './components/booking-workflow-card';
 import { bookingApi } from '@/lib/api/bookings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import type { BookingStatus, BookingTimelineEvent, BookingItem, Payment, Booking, DamageLevel } from '../types';
 import { formatMinorMoney } from '@/lib/money';
-
-const bookingWorkflowGuidance: Record<BookingStatus, {
-  title: string;
-  description: string;
-  actionLabel?: string;
-  actionHref?: string;
-}> = {
-  pending: {
-    title: 'New request — review it first',
-    description: 'This customer has submitted a rental request. Item assignment, preparation, and payment collection begin only after you approve it, so they are not blockers yet.',
-    actionLabel: 'Review and confirm booking',
-    actionHref: '#booking-actions',
-  },
-  confirmed: {
-    title: 'Prepare the rental for handoff',
-    description: 'Assign the exact physical items, mark each requirement ready, then record the handout before starting the rental.',
-    actionLabel: 'Open fulfillment workspace',
-    actionHref: '#fulfillment-workspace',
-  },
-  delivered: {
-    title: 'Rental is active',
-    description: 'When the items come back, record each physical item as returned or lost before finalizing the return.',
-    actionLabel: 'Open fulfillment workspace',
-    actionHref: '#fulfillment-workspace',
-  },
-  overdue: {
-    title: 'Return is overdue',
-    description: 'Arrange the return with the customer, then record each physical item as returned or lost.',
-    actionLabel: 'Open fulfillment workspace',
-    actionHref: '#fulfillment-workspace',
-  },
-  returned: {
-    title: 'Inspect the returned physical items',
-    description: 'Complete the return inspection for every item before closing this stage.',
-    actionLabel: 'Open fulfillment workspace',
-    actionHref: '#fulfillment-workspace',
-  },
-  inspected: {
-    title: 'Finish the commercial closeout',
-    description: 'Resolve any return issues, settle deposits, collect any remaining balance, then complete the booking.',
-    actionLabel: 'Open booking actions',
-    actionHref: '#booking-actions',
-  },
-  completed: {
-    title: 'Booking completed',
-    description: 'All rental operations and commercial closeout steps are complete.',
-  },
-  cancelled: {
-    title: 'Booking cancelled',
-    description: 'This request is closed. Its history remains available for reference.',
-  },
-};
 
 // ── Copy-to-clipboard hook ───────────────────────────────────────────────────
 function useCopyToClipboard() {
@@ -274,9 +222,6 @@ export default function BookingDetailPage() {
       }, new Date(0))
     : null;
   const daysUntilReturn = latestEndDate ? differenceInDays(latestEndDate, new Date()) : null;
-  const workflowGuidance = bookingWorkflowGuidance[booking.status as BookingStatus];
-
-
   return (
     <div className="space-y-6">
       {/* Header Area */}
@@ -308,7 +253,9 @@ export default function BookingDetailPage() {
             </h1>
           </div>
           <p className="text-muted-foreground ml-10 flex items-center gap-3">
-            <span>Placed on {format(parseISO(booking.createdAt), 'MMM d, yyyy h:mm a')}</span>
+            <span>{customerName}</span>
+            <span aria-hidden="true">·</span>
+            <span>Placed {format(parseISO(booking.createdAt), 'MMM d, yyyy h:mm a')}</span>
           </p>
         </div>
         
@@ -339,19 +286,7 @@ export default function BookingDetailPage() {
         </Alert>
       )}
 
-      <Card className="border-primary/20 bg-primary/5 shadow-none">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">{workflowGuidance.title}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 pt-0 sm:flex-row sm:items-center sm:justify-between">
-          <p className="max-w-3xl text-sm text-muted-foreground">{workflowGuidance.description}</p>
-          {workflowGuidance.actionHref && workflowGuidance.actionLabel && (
-            <Button variant="outline" size="sm" className="shrink-0" asChild>
-              <Link href={workflowGuidance.actionHref}>{workflowGuidance.actionLabel}</Link>
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+      <BookingWorkflowCard status={booking.status as BookingStatus} />
 
       <OrderActions bookingId={booking.id} status={booking.status as BookingStatus} returnMethod={booking.returnMethod} />
 
@@ -360,7 +295,7 @@ export default function BookingDetailPage() {
         {/* Main Content: Left Column (Takes up 2/3) */}
         <div className="md:col-span-2 space-y-6">
           {booking.rentalStartDate && booking.rentalEndDate && (
-            <Card className="shadow-none border">
+            <Card id="rental-plan" className="scroll-mt-6 shadow-none border">
               <CardHeader className="pb-3 bg-muted/30">
                 <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                   Rental & Fulfillment Plan
@@ -403,10 +338,20 @@ export default function BookingDetailPage() {
               )}
             </Card>
           )}
-          <Card className="shadow-none border">
+          <section id="rental-items" className="scroll-mt-6">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold tracking-tight">Rental items</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                The exact products, dates, rental charges, and deposit position for this booking.
+              </p>
+            </div>
+            <BookingItems items={mappedItems} bookingId={booking.id} bookingStatus={booking.status} />
+          </section>
+
+          <Card id="customer-delivery" className="scroll-mt-6 shadow-none border">
             <CardHeader className="pb-3 bg-muted/30">
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Customer Information
+                Customer and delivery details
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4 grid sm:grid-cols-2 gap-4">
@@ -479,14 +424,18 @@ export default function BookingDetailPage() {
 
           <DeliveryTrackingCard booking={booking} />
 
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight mb-4">Rented Items</h2>
-            <BookingItems items={mappedItems} bookingId={booking.id} bookingStatus={booking.status} />
-          </div>
-
-          <InventoryAssignments bookingId={booking.id} bookingStatus={booking.status} />
+          {booking.status !== 'pending' && booking.status !== 'cancelled' && (
+            <InventoryAssignments bookingId={booking.id} bookingStatus={booking.status} />
+          )}
           
-          <div className="grid sm:grid-cols-2 gap-6">
+          <section id="financials" className="scroll-mt-6">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold tracking-tight">Payments and charges</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Record, verify, and reconcile money separately from the physical rental workflow.
+              </p>
+            </div>
+          <div className="grid gap-6 sm:grid-cols-2">
             <PaymentHistory
               payments={mappedPayments}
               bookingId={booking.id}
@@ -495,9 +444,9 @@ export default function BookingDetailPage() {
             />
             <PriceBreakdown booking={bookingForBreakdown} />
           </div>
+          </section>
 
-          {/* Fix #4: Notes section — always visible with Add Note button */}
-          <Card className="shadow-none border">
+          <Card id="booking-notes" className="scroll-mt-6 shadow-none border">
             <CardHeader className="pb-3 bg-muted/30 flex-row items-center justify-between space-y-0">
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 Notes
@@ -566,70 +515,9 @@ export default function BookingDetailPage() {
           </Card>
         </div>
 
-        {/* Fix #11: Sidebar — Timeline + Quick Info */}
-        <div className="md:col-span-1 space-y-6">
+        <aside id="booking-history" className="scroll-mt-6 md:col-span-1">
           <StatusTimeline events={timelineEvents} truncated={booking.operationalTimeline.truncated} />
-
-          {/* Quick info card */}
-          <Card className="shadow-none border">
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Quick Info
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <BookingStatusBadge status={booking.status as BookingStatus} />
-              </div>
-              <Separator />
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Grand Total</span>
-                <span className="font-semibold">{formatMinorMoney(booking.grandTotal)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Paid</span>
-                <span className="font-medium text-green-600">{formatMinorMoney(booking.totalPaid)}</span>
-              </div>
-              {booking.grandTotal - booking.totalPaid > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Balance Due</span>
-                  <span className="font-semibold text-red-600">{formatMinorMoney(booking.grandTotal - booking.totalPaid)}</span>
-                </div>
-              )}
-              <Separator />
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Items</span>
-                <span className="font-medium">{mappedItems.length}</span>
-              </div>
-              {latestEndDate && !['completed', 'cancelled'].includes(booking.status) && (
-                <>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Return By</span>
-                    <span className="font-medium">{format(latestEndDate, 'MMM d, yyyy')}</span>
-                  </div>
-                  {daysUntilReturn !== null && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Days Remaining</span>
-                      <span className={`font-semibold ${daysUntilReturn < 0 ? 'text-red-600' : daysUntilReturn <= 2 ? 'text-amber-600' : 'text-green-600'}`}>
-                        {daysUntilReturn < 0 ? `${Math.abs(daysUntilReturn)} days overdue` : `${daysUntilReturn} days`}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-              {booking.cancellationReason && (
-                <>
-                  <Separator />
-                  <div>
-                    <span className="text-muted-foreground text-xs block mb-1">Cancellation Reason</span>
-                    <span className="text-sm italic">&quot;{booking.cancellationReason}&quot;</span>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        </aside>
       </div>
     </div>
   );
