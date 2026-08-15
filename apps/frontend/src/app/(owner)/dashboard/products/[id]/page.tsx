@@ -49,6 +49,7 @@ import {
   getProductReadinessFixHref,
   getProductReadinessGuidance,
 } from '../components/product-readiness-guidance';
+import { getPricingConfigDisplayEntries } from '../components/product-pricing-display';
 
 const REQUIRED_PUBLISH_SECTIONS = ['BASICS', 'SKUS', 'CONTENT', 'PRICING'] as const;
 
@@ -281,17 +282,19 @@ function PricingTab({ pricing }: { pricing: PricingProfileData | null }) {
     return <p className="text-sm text-muted-foreground py-6 text-center">No pricing configured.</p>;
   }
 
-  const configEntries = Object.entries(pricing.ratePlanConfig).filter(
-    ([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean',
-  );
+  const configEntries = getPricingConfigDisplayEntries(pricing.ratePlanConfig);
 
   return (
     <motion.div className="space-y-5" variants={stagger} initial="hidden" animate="visible">
       <motion.div variants={fadeUp} custom={0}>
         <SectionLabel icon={DollarSign}>{getPricingModeLabel(pricing.ratePlanType)}</SectionLabel>
         <div className="space-y-0.5">
-          {configEntries.map(([key, value]) => (
-            <Row key={key} label={key.replace(/([A-Z])/g, ' $1')} value={String(value)} />
+          {configEntries.map((entry) => (
+            <Row
+              key={entry.key}
+              label={entry.label}
+              value={entry.isMoney ? <PriceDisplay amount={Number(entry.value)} /> : String(entry.value)}
+            />
           ))}
         </div>
       </motion.div>
