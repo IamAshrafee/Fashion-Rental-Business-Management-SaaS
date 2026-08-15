@@ -1,10 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  InventoryItemsQueryDto,
-  InventorySkusQueryDto,
-} from './dto/inventory-foundation.dto';
+import { InventoryItemsQueryDto, InventorySkusQueryDto } from './dto/inventory-foundation.dto';
 
 @Injectable()
 export class InventoryDashboardService {
@@ -128,9 +125,17 @@ export class InventoryDashboardService {
         ...(search
           ? {
               OR: [
-                { variant: { product: { name: { contains: search, mode: 'insensitive' as const } } } },
+                {
+                  variant: {
+                    product: { name: { contains: search, mode: 'insensitive' as const } },
+                  },
+                },
                 { variant: { variantName: { contains: search, mode: 'insensitive' as const } } },
-                { sizeInstance: { displayLabel: { contains: search, mode: 'insensitive' as const } } },
+                {
+                  sizeInstance: {
+                    displayLabel: { contains: search, mode: 'insensitive' as const },
+                  },
+                },
               ],
             }
           : {}),
@@ -170,54 +175,69 @@ export class InventoryDashboardService {
       },
     });
 
-    const rows = skus.map((sku) => {
-      const physicalItemCount = sku.stockUnits.length;
-      const activeItemCount = sku.stockUnits.filter((unit) => unit.disposition === 'ACTIVE').length;
-      const operationallyAvailableCount = sku.stockUnits.filter(
-        (unit) => unit.disposition === 'ACTIVE' && unit.operationalState === 'AVAILABLE',
-      ).length;
-      const reservedQuantity = sku.inventoryReservations.reduce(
-        (sum, row) => sum + row.quantity,
-        0,
-      );
-      const availableQuantity = Math.max(0, operationallyAvailableCount - reservedQuantity);
-      const inventoryState = physicalItemCount === 0
-        ? 'UNCONFIGURED'
-        : availableQuantity === 0
-          ? 'UNAVAILABLE'
-          : 'AVAILABLE';
-      return {
-        id: sku.id,
-        productId: sku.variant.product.id,
-        productName: sku.variant.product.name,
-        productStatus: sku.variant.product.status,
-        variantId: sku.variant.id,
-        variantName: sku.variant.variantName,
-        sizeLabel: sku.sizeInstance.displayLabel,
-        physicalItemCount,
-        activeItemCount,
-        operationallyAvailableCount,
-        onHandQuantity: activeItemCount,
-        reservedQuantity,
-        availableQuantity,
-        inventoryState,
-      };
-    }).filter((row) => !query.stockState || row.inventoryState === query.stockState);
+    const rows = skus
+      .map((sku) => {
+        const physicalItemCount = sku.stockUnits.length;
+        const activeItemCount = sku.stockUnits.filter(
+          (unit) => unit.disposition === 'ACTIVE',
+        ).length;
+        const operationallyAvailableCount = sku.stockUnits.filter(
+          (unit) => unit.disposition === 'ACTIVE' && unit.operationalState === 'AVAILABLE',
+        ).length;
+        const reservedQuantity = sku.inventoryReservations.reduce(
+          (sum, row) => sum + row.quantity,
+          0,
+        );
+        const availableQuantity = Math.max(0, operationallyAvailableCount - reservedQuantity);
+        const inventoryState =
+          physicalItemCount === 0
+            ? 'UNCONFIGURED'
+            : availableQuantity === 0
+              ? 'UNAVAILABLE'
+              : 'AVAILABLE';
+        return {
+          id: sku.id,
+          productId: sku.variant.product.id,
+          productName: sku.variant.product.name,
+          productStatus: sku.variant.product.status,
+          variantId: sku.variant.id,
+          variantName: sku.variant.variantName,
+          sizeLabel: sku.sizeInstance.displayLabel,
+          physicalItemCount,
+          activeItemCount,
+          operationallyAvailableCount,
+          onHandQuantity: activeItemCount,
+          reservedQuantity,
+          availableQuantity,
+          inventoryState,
+        };
+      })
+      .filter((row) => !query.stockState || row.inventoryState === query.stockState);
 
     const key = query.sort ?? 'PRODUCT';
     const direction = query.order === 'desc' ? -1 : 1;
     rows.sort((left, right) => {
-      const leftValue = key === 'PRODUCT' ? left.productName
-        : key === 'ON_HAND' ? left.onHandQuantity
-          : key === 'AVAILABLE' ? left.availableQuantity
-            : left.reservedQuantity;
-      const rightValue = key === 'PRODUCT' ? right.productName
-        : key === 'ON_HAND' ? right.onHandQuantity
-          : key === 'AVAILABLE' ? right.availableQuantity
-            : right.reservedQuantity;
-      return (typeof leftValue === 'string'
-        ? leftValue.localeCompare(String(rightValue))
-        : Number(leftValue) - Number(rightValue)) * direction;
+      const leftValue =
+        key === 'PRODUCT'
+          ? left.productName
+          : key === 'ON_HAND'
+            ? left.onHandQuantity
+            : key === 'AVAILABLE'
+              ? left.availableQuantity
+              : left.reservedQuantity;
+      const rightValue =
+        key === 'PRODUCT'
+          ? right.productName
+          : key === 'ON_HAND'
+            ? right.onHandQuantity
+            : key === 'AVAILABLE'
+              ? right.availableQuantity
+              : right.reservedQuantity;
+      return (
+        (typeof leftValue === 'string'
+          ? leftValue.localeCompare(String(rightValue))
+          : Number(leftValue) - Number(rightValue)) * direction
+      );
     });
     const total = rows.length;
     const start = (query.page - 1) * query.limit;
@@ -241,27 +261,40 @@ export class InventoryDashboardService {
     if (availableFrom && availableTo && availableFrom > availableTo) {
       throw new BadRequestException('availableFrom must be on or before availableTo');
     }
-    const attentionWhere: Prisma.StockUnitWhereInput | null = query.attention === 'OPEN_ISSUE'
-      ? { issues: { some: { status: { in: ['OPEN', 'IN_SERVICE'] } } } }
-      : query.attention === 'OPEN_SERVICE'
-        ? { serviceOrders: { some: { status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] } } } }
-        : query.attention === 'INCOMPLETE_SET'
-          ? { componentStates: { some: { setComponentDefinition: { isActive: true, absenceBlocksRental: true }, presence: { in: ['MISSING', 'DAMAGED'] } } } }
-          : null;
-    const dateEligibility: Prisma.StockUnitWhereInput | null = availableFrom && availableTo
-      ? {
-          disposition: 'ACTIVE',
-          operationalState: 'AVAILABLE',
-          blocks: { none: { startDate: { lte: availableTo }, endDate: { gte: availableFrom } } },
-          assignments: {
-            none: {
-              releasedAt: null,
-              blockedStartDate: { lte: availableTo },
-              blockedEndDate: { gte: availableFrom },
+    const attentionWhere: Prisma.StockUnitWhereInput | null =
+      query.attention === 'OPEN_ISSUE'
+        ? { issues: { some: { status: { in: ['OPEN', 'IN_SERVICE'] } } } }
+        : query.attention === 'OPEN_SERVICE'
+          ? {
+              serviceOrders: {
+                some: { status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] } },
+              },
+            }
+          : query.attention === 'INCOMPLETE_SET'
+            ? {
+                componentStates: {
+                  some: {
+                    setComponentDefinition: { isActive: true, absenceBlocksRental: true },
+                    presence: { in: ['MISSING', 'DAMAGED'] },
+                  },
+                },
+              }
+            : null;
+    const dateEligibility: Prisma.StockUnitWhereInput | null =
+      availableFrom && availableTo
+        ? {
+            disposition: 'ACTIVE',
+            operationalState: 'AVAILABLE',
+            blocks: { none: { startDate: { lte: availableTo }, endDate: { gte: availableFrom } } },
+            assignments: {
+              none: {
+                releasedAt: null,
+                blockedStartDate: { lte: availableTo },
+                blockedEndDate: { gte: availableFrom },
+              },
             },
-          },
-        }
-      : null;
+          }
+        : null;
     const where: Prisma.StockUnitWhereInput = {
       tenantId,
       deletedAt: null,
@@ -280,7 +313,13 @@ export class InventoryDashboardService {
             OR: [
               { assetCode: { contains: query.search.trim(), mode: 'insensitive' } },
               { barcode: { contains: query.search.trim(), mode: 'insensitive' } },
-              { variantSize: { variant: { product: { name: { contains: query.search.trim(), mode: 'insensitive' } } } } },
+              {
+                variantSize: {
+                  variant: {
+                    product: { name: { contains: query.search.trim(), mode: 'insensitive' } },
+                  },
+                },
+              },
             ],
           }
         : {}),
@@ -307,7 +346,9 @@ export class InventoryDashboardService {
             select: {
               inspections: true,
               issues: { where: { status: { in: ['OPEN', 'IN_SERVICE'] } } },
-              serviceOrders: { where: { status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] } } },
+              serviceOrders: {
+                where: { status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] } },
+              },
             },
           },
           componentStates: {
@@ -324,10 +365,36 @@ export class InventoryDashboardService {
       }),
       this.prisma.stockUnit.count({ where }),
     ]);
+    const metrics =
+      data.length === 0
+        ? []
+        : await this.prisma.$queryRaw<
+            Array<{ stock_unit_id: string; completed_rentals: bigint; total_rental_days: bigint }>
+          >(Prisma.sql`
+        SELECT
+          sua.stock_unit_id,
+          COUNT(*)::bigint AS completed_rentals,
+          COALESCE(SUM(bi.rental_days), 0)::bigint AS total_rental_days
+        FROM stock_unit_assignments sua
+        JOIN inventory_reservations ir ON ir.id = sua.reservation_id
+        JOIN booking_items bi ON bi.id = ir.booking_item_id
+        JOIN bookings b ON b.id = ir.booking_id
+        WHERE sua.tenant_id = ${tenantId}
+          AND sua.stock_unit_id IN (${Prisma.join(data.map((item) => item.id))})
+          AND b.status = 'completed'
+        GROUP BY sua.stock_unit_id
+      `);
+    const metricsByStockUnitId = new Map(metrics.map((metric) => [metric.stock_unit_id, metric]));
     return {
       data: data.map((item) => ({
         ...item,
         componentComplete: item.componentStates.length === 0,
+        rentalMetrics: {
+          completedRentals: Number(metricsByStockUnitId.get(item.id)?.completed_rentals ?? 0),
+          totalRentalDays: Number(metricsByStockUnitId.get(item.id)?.total_rental_days ?? 0),
+        },
+        lastRental: null,
+        nextRental: null,
       })),
       meta: {
         page: query.page,
