@@ -324,19 +324,6 @@ export interface ProductListQuery {
   order?: 'asc' | 'desc';
 }
 
-export interface UpdateProductInput {
-  name?: string;
-  categoryId?: string;
-  subcategoryId?: string | null;
-  eventIds?: string[];
-  countryOfOrigin?: string | null;
-  countryOfOriginPublic?: boolean;
-  referenceRetailValue?: number | null;
-  referenceRetailValuePublic?: boolean;
-  productTypeId?: string;
-  sizeSchemaOverrideId?: string | null;
-}
-
 export interface ProductOnboardingVariantInput {
   id?: string;
   clientKey: string;
@@ -533,14 +520,6 @@ export const productApi = {
         'Content-Type': 'multipart/form-data',
       },
     });
-    return data.data;
-  },
-
-  /**
-   * PATCH /api/v1/owner/products/:id  (update product)
-   */
-  updateProduct: async (id: string, payload: UpdateProductInput): Promise<Record<string, unknown>> => {
-    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(`/owner/products/${id}`, payload);
     return data.data;
   },
 

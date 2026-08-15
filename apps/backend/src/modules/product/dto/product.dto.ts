@@ -4,10 +4,8 @@ import {
   IsInt,
   IsArray,
   IsEnum,
-  IsBoolean,
   ValidateNested,
   MinLength,
-  MaxLength,
   Min,
   Max,
   IsIn,
@@ -16,7 +14,6 @@ import {
   IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { StorefrontItemVisibilityMode } from '@prisma/client';
 
 // --- FAQ DTOs ---
 export class CreateFaqDto {
@@ -109,27 +106,6 @@ export class OwnerProductQueryDto extends ProductQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   order?: 'asc' | 'desc';
-}
-
-export class UpdateProductDto {
-  @IsOptional() @IsString() @MinLength(2) @MaxLength(300) name?: string;
-  @IsOptional() @IsString() categoryId?: string;
-  @IsOptional() @IsString() subcategoryId?: string | null;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  eventIds?: string[];
-
-  @IsOptional() @IsString() @MaxLength(100) countryOfOrigin?: string | null;
-  @IsOptional() @IsBoolean() countryOfOriginPublic?: boolean;
-  @IsOptional() @IsInt() @Min(0) referenceRetailValue?: number | null;
-  @IsOptional() @IsBoolean() referenceRetailValuePublic?: boolean;
-  @IsOptional() @IsEnum(StorefrontItemVisibilityMode) storefrontItemMode?: StorefrontItemVisibilityMode;
-
-  @IsOptional() @IsString() productTypeId?: string;
-  @IsOptional() @IsString() sizeSchemaOverrideId?: string | null;
-
 }
 
 // --- Storefront Showcase DTO (landing page APIs) ---

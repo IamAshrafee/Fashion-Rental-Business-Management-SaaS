@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, ProductOnboardingSection } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingAdminService } from '../pricing-engine/pricing-admin.service';
@@ -38,6 +39,7 @@ export class ProductOnboardingService {
     private readonly prisma: PrismaService,
     private readonly products: ProductService,
     private readonly pricing: PricingAdminService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     this.subscriptions = new SubscriptionService(prisma);
   }
@@ -409,7 +411,7 @@ export class ProductOnboardingService {
   ) {
     const commandKey = this.requireIdempotencyKey(idempotencyKey);
     const requestHash = this.hash({ section, productId, input });
-    await this.withSerializableRetry(async (tx) => {
+    const changed = await this.withSerializableRetry(async (tx) => {
       const replay = await this.findReplay(
         tx,
         tenantId,
@@ -418,7 +420,7 @@ export class ProductOnboardingService {
         section,
         productId,
       );
-      if (replay) return;
+      if (replay) return false;
 
       const found = await tx.productOnboarding.findFirst({
         where: { tenantId, productId, product: { deletedAt: null, status: 'draft' } },
@@ -442,7 +444,7 @@ export class ProductOnboardingService {
         section,
         productId,
       );
-      if (lockedReplay) return;
+      if (lockedReplay) return false;
       if (onboarding.revision !== expectedRevision) {
         throw new ConflictException({
           code: 'STALE_PRODUCT_ONBOARDING',
@@ -482,7 +484,18 @@ export class ProductOnboardingService {
           actorUserId,
         },
       });
+      return true;
     });
+
+    if (changed) {
+      this.eventEmitter.emit(section === 'REVIEW' ? 'product.published' : 'product.updated', {
+        tenantId,
+        productId,
+        userId: actorUserId,
+        section,
+      });
+    }
+
     return this.get(tenantId, productId);
   }
 

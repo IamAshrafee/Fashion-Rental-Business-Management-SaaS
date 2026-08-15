@@ -217,11 +217,12 @@ Product onboarding saves five authoritative sections: basics/sizing, variants/SK
 
 ---
 
-### PATCH `/api/v1/owner/products/:id`
+### PUT `/api/v1/owner/product-onboardings/:productId/basics`
 
-Update basic catalog classification and provenance fields. Description, details, FAQs, variants,
-SKUs, and pricing use the revisioned product-onboarding section commands so creation and editing
-share the same transactional rules. Publication status uses the dedicated status command.
+Create or edit basic catalog classification, sizing authority, events, provenance, and reference
+value through the same revisioned command. Description, details, FAQs, variants, SKUs, and pricing
+use their corresponding product-onboarding section commands. Publication status uses the dedicated
+status command.
 
 **Auth**: Bearer token — Owner, Manager
 

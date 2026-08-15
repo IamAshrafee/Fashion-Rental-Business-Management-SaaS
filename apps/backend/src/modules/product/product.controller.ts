@@ -14,7 +14,6 @@ import {
 import { ProductService } from './product.service';
 import { SearchService } from './search.service';
 import {
-  UpdateProductDto,
   UpdateProductStatusDto,
   ProductQueryDto,
   OwnerProductQueryDto,
@@ -162,16 +161,6 @@ export class ProductOwnerController {
   @Roles('owner', 'manager', 'staff')
   async getReadiness(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.productService.getReadiness(tenant.id, id);
-  }
-
-  @Patch(':id')
-  @Roles('owner', 'manager')
-  async updateProduct(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-    @Body() dto: UpdateProductDto,
-  ) {
-    return this.productService.update(tenant.id, id, dto);
   }
 
   @Patch(':id/status')

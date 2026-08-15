@@ -5,7 +5,6 @@ import {
   productOnboardingApi,
   type ProductDetail,
   type UploadedProductImage,
-  type UpdateProductInput,
 } from '@/lib/api/products';
 import { ProductFormValues } from '../components/product-form/schema';
 import { toast } from 'sonner';
@@ -14,28 +13,12 @@ import { getApiErrorMessage } from '@/lib/api-error';
 import { isPersistedProductId, syncVariantImages } from './sync-variant-images';
 import { buildPricingPayload } from '../components/product-form/pricing-payload';
 
-/**
- * Builds the flat Update DTO from form values (excluding pricing)
- */
-function buildUpdatePayload(data: ProductFormValues): UpdateProductInput {
-  return {
-    name: data.name,
-    categoryId: data.categoryId,
-    subcategoryId: data.subcategoryId || null,
-    eventIds: data.events,
-    countryOfOrigin: data.countryOfOrigin?.trim() || null,
-    countryOfOriginPublic: data.countryOfOriginPublic,
-    referenceRetailValue: data.referenceRetailValue ?? null,
-    referenceRetailValuePublic: data.referenceRetailValuePublic,
-    productTypeId: data.productTypeId,
-    sizeSchemaOverrideId: data.sizeSchemaOverrideId || null,
-
-  };
-}
-
 export function useUpdateProduct(
   productId: string,
-  originalProduct: Pick<ProductDetail, 'onboarding' | 'status'> | null | undefined,
+  originalProduct:
+    | Pick<ProductDetail, 'onboarding' | 'status' | 'storefrontItemMode'>
+    | null
+    | undefined,
   checkpoints?: {
     onVariantSaved?: (variantIndex: number, variantId: string) => void;
     onImageUploaded?: (
@@ -64,10 +47,28 @@ export function useUpdateProduct(
         );
       }
 
-      // ── 1. Update core product fields ─────────────────────────
+      // ── 1. Save catalog basics through the revisioned workflow ──
       toast.loading('Updating product info...', { id: 'update-product' });
-      const payload = buildUpdatePayload(data);
-      await productApi.updateProduct(productId, payload);
+      const basics = await productOnboardingApi.saveBasics(
+        productId,
+        {
+          expectedRevision,
+          name: data.name,
+          categoryId: data.categoryId,
+          subcategoryId: data.subcategoryId || undefined,
+          productTypeId: data.productTypeId,
+          sizeSchemaOverrideId: data.sizeSchemaOverrideId || undefined,
+          eventIds: data.events,
+          countryOfOrigin: data.countryOfOrigin?.trim() || undefined,
+          countryOfOriginPublic: data.countryOfOriginPublic,
+          referenceRetailValue: data.referenceRetailValue,
+          referenceRetailValuePublic: data.referenceRetailValuePublic,
+          storefrontItemMode: originalProduct?.storefrontItemMode ?? 'INTERNAL_ONLY',
+        },
+        globalThis.crypto?.randomUUID?.() ??
+          `edit-product-basics-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
+      onboardingRevision.current = basics.revision;
 
       // ── 2. Reconcile variants and rentable SKUs atomically ───
       const formVariants = data.variants;
@@ -75,7 +76,7 @@ export function useUpdateProduct(
       const synchronized = await productOnboardingApi.saveSkus(
         productId,
         {
-          expectedRevision,
+          expectedRevision: onboardingRevision.current,
           variants: formVariants.map((variant) => ({
             ...(isPersistedProductId(variant.id) ? { id: variant.id } : {}),
             clientKey: variant.clientKey,

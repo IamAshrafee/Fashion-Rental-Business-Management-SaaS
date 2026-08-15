@@ -197,14 +197,20 @@ export class AuditLogListener {
   // --------------------------------------------------------------------------
 
   @OnEvent('product.published')
-  async onProductPublished(event: { tenantId: string; productId: string }) {
+  async onProductPublished(event: {
+    tenantId: string;
+    productId: string;
+    userId?: string;
+    section?: string;
+  }) {
     try {
       await this.auditLogService.record({
         tenantId: event.tenantId,
-        userId: 'system',
+        userId: event.userId ?? 'system',
         action: 'product.published',
         entityType: 'product',
         entityId: event.productId,
+        newValues: event.section ? { section: event.section } : undefined,
       });
     } catch (err) {
       this.logger.error(`Audit product.published failed: ${(err as Error).message}`);
@@ -212,14 +218,20 @@ export class AuditLogListener {
   }
 
   @OnEvent('product.updated')
-  async onProductUpdated(event: { tenantId: string; productId: string }) {
+  async onProductUpdated(event: {
+    tenantId: string;
+    productId: string;
+    userId?: string;
+    section?: string;
+  }) {
     try {
       await this.auditLogService.record({
         tenantId: event.tenantId,
-        userId: 'system',
+        userId: event.userId ?? 'system',
         action: 'product.updated',
         entityType: 'product',
         entityId: event.productId,
+        newValues: event.section ? { section: event.section } : undefined,
       });
     } catch (err) {
       this.logger.error(`Audit product.updated failed: ${(err as Error).message}`);
