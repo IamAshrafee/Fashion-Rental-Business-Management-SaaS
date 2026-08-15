@@ -4,6 +4,7 @@ import {
   Patch,
   Delete,
   Param,
+  ParseUUIDPipe,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -12,8 +13,10 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { NotificationService } from './notification.service';
 import { NotificationQueryDto } from './dto/notification.dto';
+import type { AuthUser } from '@closetrent/types';
 
 @Controller('owner/notifications')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
@@ -28,9 +31,10 @@ export class NotificationController {
   @Get()
   async list(
     @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: AuthUser,
     @Query() query: NotificationQueryDto,
   ) {
-    const result = await this.notificationService.list(tenant.id, query);
+    const result = await this.notificationService.list(tenant.id, user.id, query);
     return {
       success: true,
       data: result.data,
@@ -43,8 +47,8 @@ export class NotificationController {
    * Quick badge count
    */
   @Get('unread-count')
-  async unreadCount(@CurrentTenant() tenant: { id: string }) {
-    const count = await this.notificationService.unreadCount(tenant.id);
+  async unreadCount(@CurrentTenant() tenant: { id: string }, @CurrentUser() user: AuthUser) {
+    const count = await this.notificationService.unreadCount(tenant.id, user.id);
     return { success: true, data: { unreadCount: count } };
   }
 
@@ -53,8 +57,8 @@ export class NotificationController {
    * Mark all notifications as read
    */
   @Patch('read-all')
-  async markAllRead(@CurrentTenant() tenant: { id: string }) {
-    const result = await this.notificationService.markAllRead(tenant.id);
+  async markAllRead(@CurrentTenant() tenant: { id: string }, @CurrentUser() user: AuthUser) {
+    const result = await this.notificationService.markAllRead(tenant.id, user.id);
     return { success: true, data: result };
   }
 
@@ -65,9 +69,10 @@ export class NotificationController {
   @Patch(':id/read')
   async markRead(
     @CurrentTenant() tenant: { id: string },
-    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const result = await this.notificationService.markRead(tenant.id, id);
+    const result = await this.notificationService.markRead(tenant.id, user.id, id);
     return { success: true, data: result };
   }
 
@@ -78,9 +83,10 @@ export class NotificationController {
   @Delete(':id')
   async dismiss(
     @CurrentTenant() tenant: { id: string },
-    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
-    await this.notificationService.deleteById(tenant.id, id);
+    await this.notificationService.deleteById(tenant.id, user.id, id);
     return { success: true, message: 'Notification dismissed' };
   }
 }

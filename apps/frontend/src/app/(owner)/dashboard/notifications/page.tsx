@@ -6,7 +6,6 @@ import { notificationApi, type Notification } from '@/lib/api/notifications';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Bell,
   BellOff,
   Check,
   CheckCheck,
@@ -15,7 +14,6 @@ import {
   Filter,
   Loader2,
   Trash2,
-  X,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
@@ -25,6 +23,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 // ─── Notification type labels + icons ───────────────────────────────────────
 
@@ -77,7 +77,9 @@ export default function NotificationsPage() {
     mutationFn: () => notificationApi.markAllRead(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
+      toast.success('All visible notifications marked as read');
     },
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Unable to mark notifications as read')),
   });
 
   const markReadMutation = useMutation({
@@ -85,13 +87,16 @@ export default function NotificationsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     },
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Unable to mark notification as read')),
   });
 
   const dismissMutation = useMutation({
     mutationFn: (id: string) => notificationApi.dismiss(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
+      toast.success('Notification dismissed');
     },
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Unable to dismiss notification')),
   });
 
   return (
@@ -226,6 +231,7 @@ export default function NotificationsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-primary"
+                            aria-label={`Mark ${note.title} as read`}
                             onClick={() => markReadMutation.mutate(note.id)}
                           >
                             <Check className="h-4 w-4" />
@@ -242,6 +248,7 @@ export default function NotificationsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          aria-label={`Dismiss ${note.title}`}
                           onClick={() => dismissMutation.mutate(note.id)}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -268,6 +275,8 @@ export default function NotificationsPage() {
               variant="outline"
               size="icon"
               className="h-8 w-8"
+              aria-label="Previous notification page"
+              title="Previous page of notifications"
               disabled={meta.page <= 1}
               onClick={() => setPage((p) => p - 1)}
             >
@@ -280,6 +289,8 @@ export default function NotificationsPage() {
               variant="outline"
               size="icon"
               className="h-8 w-8"
+              aria-label="Next notification page"
+              title="Next page of notifications"
               disabled={meta.page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >

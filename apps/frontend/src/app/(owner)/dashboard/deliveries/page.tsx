@@ -35,6 +35,7 @@ import { format } from 'date-fns';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 // ─── Status Config ────────────────────────────────────────────────────────────
 
@@ -95,7 +96,9 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
   const sendPickupMutation = useMutation({
     mutationFn: (id: string) => fulfillmentApi.sendPickup(id),
     onSuccess: () => { toast.success('Pickup request sent'); invalidate(); },
-    onError: (err: any) => { toast.error(err.message || 'Failed to send pickup request'); },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Failed to send pickup request'));
+    },
   });
 
   const updateStageMutation = useMutation({
@@ -105,7 +108,9 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
       toast.success(`Delivery marked as ${vars.stage.replace(/_/g, ' ')}`);
       invalidate();
     },
-    onError: (err: any) => { toast.error(err.message || 'Failed to update stage'); },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Failed to update stage'));
+    },
   });
 
   const isBusy = sendPickupMutation.isPending || updateStageMutation.isPending;
@@ -133,7 +138,6 @@ function DeliveryRow({ delivery, activeStage }: { delivery: DeliveryItem; active
              {delivery.scheduledPickupAt && (
                <span className="text-muted-foreground">Scheduled: <span className="font-medium text-foreground">{format(new Date(delivery.scheduledPickupAt), 'MMM d, ha')}</span></span>
              )}
-             <span className="text-muted-foreground">Lead: {delivery.deliveryLeadDays} days</span>
            </div>
         ) : (
           <div>

@@ -23,12 +23,13 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T> {
           return data;
         }
 
-        // If it's a paginated response native structure from services
+        // Keep the complete service envelope for paginated responses. Some
+        // endpoints add contextual fields such as summaries or category data
+        // alongside `data` and `meta`.
         if (data && typeof data === 'object' && 'data' in data && 'meta' in data) {
           return {
             success: true,
-            data: data.data,
-            meta: data.meta,
+            ...data,
           };
         }
 

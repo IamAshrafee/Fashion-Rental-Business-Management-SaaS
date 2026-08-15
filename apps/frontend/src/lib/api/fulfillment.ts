@@ -22,7 +22,6 @@ export interface DeliveryItem {
   trackingNumber: string | null;
   pickupRequestedAt: string | null;
   scheduledPickupAt: string | null;
-  deliveryLeadDays: number | null;
   courierErrorReason: string | null;
   deliveredAt: string | null;
   deliveryName: string;
@@ -33,6 +32,7 @@ export interface DeliveryItem {
 }
 
 export interface DeliveryDashboardResponse {
+  success: true;
   summary: Record<string, number>;
   stageSummary: Record<DeliveryStage, number>;
   data: DeliveryItem[];

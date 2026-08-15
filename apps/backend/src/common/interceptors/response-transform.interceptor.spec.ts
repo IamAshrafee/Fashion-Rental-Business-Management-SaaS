@@ -24,6 +24,28 @@ describe('ResponseTransformInterceptor', () => {
     });
   });
 
+  it('preserves contextual fields on paginated service responses', async () => {
+    const result = await firstValueFrom(
+      interceptor.intercept(context, {
+        handle: () =>
+          of({
+            summary: { total: 2 },
+            stageSummary: { pending: 1, delivered: 1 },
+            data: [{ id: 'delivery-1' }, { id: 'delivery-2' }],
+            meta: { page: 1, limit: 25, total: 2, totalPages: 1 },
+          }),
+      } as CallHandler),
+    );
+
+    expect(result).toEqual({
+      success: true,
+      summary: { total: 2 },
+      stageSummary: { pending: 1, delivered: 1 },
+      data: [{ id: 'delivery-1' }, { id: 'delivery-2' }],
+      meta: { page: 1, limit: 25, total: 2, totalPages: 1 },
+    });
+  });
+
   it('wraps ordinary values inside the data field', async () => {
     const result = await firstValueFrom(
       interceptor.intercept(context, {

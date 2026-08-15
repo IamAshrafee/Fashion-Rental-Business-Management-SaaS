@@ -72,7 +72,11 @@ export class NotificationService {
         data: { ...input, channel: 'sms' },
       });
     } catch (error) {
-      if (input.dedupeKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (
+        input.dedupeKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
         return this.prisma.notificationDelivery.findUniqueOrThrow({
           where: { tenantId_dedupeKey: { tenantId: input.tenantId, dedupeKey: input.dedupeKey } },
         });
@@ -129,13 +133,13 @@ export class NotificationService {
   /**
    * List notifications for a tenant (paginated, unread first).
    */
-  async list(tenantId: string, query: NotificationQueryDto) {
+  async list(tenantId: string, userId: string, query: NotificationQueryDto) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const skip = (page - 1) * limit;
 
     const where: Prisma.NotificationWhereInput = {
-      tenantId,
+      ...this.visibleToUser(tenantId, userId),
       ...(query.unreadOnly ? { isRead: false } : {}),
     };
 
@@ -147,7 +151,9 @@ export class NotificationService {
         orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }],
       }),
       this.prisma.notification.count({ where }),
-      this.prisma.notification.count({ where: { tenantId, isRead: false } }),
+      this.prisma.notification.count({
+        where: { ...this.visibleToUser(tenantId, userId), isRead: false },
+      }),
     ]);
 
     return {
@@ -165,18 +171,18 @@ export class NotificationService {
   /**
    * Get unread notification count (for badge display).
    */
-  async unreadCount(tenantId: string): Promise<number> {
+  async unreadCount(tenantId: string, userId: string): Promise<number> {
     return this.prisma.notification.count({
-      where: { tenantId, isRead: false },
+      where: { ...this.visibleToUser(tenantId, userId), isRead: false },
     });
   }
 
   /**
    * Mark a single notification as read.
    */
-  async markRead(tenantId: string, notificationId: string) {
+  async markRead(tenantId: string, userId: string, notificationId: string) {
     const notification = await this.prisma.notification.findFirst({
-      where: { id: notificationId, tenantId },
+      where: { id: notificationId, ...this.visibleToUser(tenantId, userId) },
     });
 
     if (!notification) {
@@ -193,9 +199,9 @@ export class NotificationService {
   /**
    * Mark all notifications as read for a tenant.
    */
-  async markAllRead(tenantId: string) {
+  async markAllRead(tenantId: string, userId: string) {
     const result = await this.prisma.notification.updateMany({
-      where: { tenantId, isRead: false },
+      where: { ...this.visibleToUser(tenantId, userId), isRead: false },
       data: { isRead: true, readAt: new Date() },
     });
 
@@ -205,9 +211,9 @@ export class NotificationService {
   /**
    * Delete (dismiss) a single notification.
    */
-  async deleteById(tenantId: string, notificationId: string): Promise<void> {
+  async deleteById(tenantId: string, userId: string, notificationId: string): Promise<void> {
     const notification = await this.prisma.notification.findFirst({
-      where: { id: notificationId, tenantId },
+      where: { id: notificationId, ...this.visibleToUser(tenantId, userId) },
     });
 
     if (!notification) {
@@ -215,6 +221,13 @@ export class NotificationService {
     }
 
     await this.prisma.notification.delete({ where: { id: notificationId } });
+  }
+
+  private visibleToUser(tenantId: string, userId: string): Prisma.NotificationWhereInput {
+    return {
+      tenantId,
+      OR: [{ userId: null }, { userId }],
+    };
   }
 
   /**

@@ -7,8 +7,12 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import {
+  Booking,
+  BookingItem,
   CodReconciliationStatus,
   Prisma,
+  Shipment,
+  ShipmentEvent,
   ShipmentProvider,
   ShipmentStatus,
 } from '@prisma/client';
@@ -75,6 +79,31 @@ const PROVIDER_PROGRESS_RANK: Partial<Record<ShipmentStatus, number>> = {
   delivered: 100,
   cancelled: 100,
 };
+
+type DeliveryProjectionShipment = Pick<
+  Shipment,
+  | 'id'
+  | 'direction'
+  | 'provider'
+  | 'providerReference'
+  | 'status'
+  | 'failedReason'
+  | 'trackingNumber'
+  | 'pickupRequestedAt'
+  | 'scheduledPickupAt'
+  | 'deliveredAt'
+> & { events?: Array<Pick<ShipmentEvent, 'status' | 'label' | 'occurredAt' | 'source'>> };
+
+type DeliveryProjectionBooking = Pick<
+  Booking,
+  | 'id'
+  | 'bookingNumber'
+  | 'status'
+  | 'deliveryName'
+  | 'deliveryPhone'
+  | 'deliveryCity'
+  | 'grandTotal'
+> & { items: Array<Pick<BookingItem, 'productName' | 'startDate' | 'endDate'>> };
 
 @Injectable()
 export class FulfillmentService {
@@ -625,6 +654,7 @@ export class FulfillmentService {
       stageSummary[COURIER_STATUS_TO_STAGE[count.status]] += count._count;
     }
     return {
+      success: true,
       summary,
       stageSummary,
       data: shipments.map((shipment) => this.toDeliveryProjection(shipment, shipment.booking)),
@@ -950,8 +980,11 @@ export class FulfillmentService {
     return this.courierConnections.getSettings(tenantId);
   }
 
-  private toDeliveryProjection(shipment: any, booking: any) {
-    const events = (shipment.events ?? []).map((event: any) => ({
+  private toDeliveryProjection(
+    shipment: DeliveryProjectionShipment,
+    booking: DeliveryProjectionBooking,
+  ) {
+    const events = (shipment.events ?? []).map((event) => ({
       status: event.status,
       label: event.label,
       timestamp: event.occurredAt,
@@ -963,6 +996,7 @@ export class FulfillmentService {
       direction: shipment.direction,
       bookingNumber: booking.bookingNumber,
       status: booking.status,
+      deliveryStage: COURIER_STATUS_TO_STAGE[shipment.status],
       courierProvider: shipment.provider,
       courierConsignmentId: shipment.providerReference,
       courierStatus: shipment.status,

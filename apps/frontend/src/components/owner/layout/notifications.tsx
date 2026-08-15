@@ -20,6 +20,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationApi, type Notification } from '@/lib/api/notifications';
+import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 const POLL_INTERVAL = 30_000; // 30 seconds
 
@@ -69,6 +71,8 @@ export function TopBarNotifications() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     },
+    onError: (error: unknown) =>
+      toast.error(getApiErrorMessage(error, 'Unable to mark notifications as read')),
   });
 
   // Mark single read
@@ -77,6 +81,8 @@ export function TopBarNotifications() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     },
+    onError: (error: unknown) =>
+      toast.error(getApiErrorMessage(error, 'Unable to mark notification as read')),
   });
 
   // Dismiss
@@ -85,12 +91,20 @@ export function TopBarNotifications() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     },
+    onError: (error: unknown) =>
+      toast.error(getApiErrorMessage(error, 'Unable to dismiss notification')),
   });
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          aria-label={`Open notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+          title="Open notifications and review recent store activity"
+        >
           <Bell className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
           {unreadCount > 0 && (
             <Badge
@@ -132,9 +146,7 @@ export function TopBarNotifications() {
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : notifications.length === 0 ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            No notifications
-          </div>
+          <div className="py-8 text-center text-sm text-muted-foreground">No notifications</div>
         ) : (
           <div className="max-h-80 overflow-y-auto">
             {notifications.map((note) => (
@@ -158,13 +170,13 @@ export function TopBarNotifications() {
                     <span className="font-medium text-sm truncate">{note.title}</span>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                    <span className="text-xs text-muted-foreground">
-                      {timeAgo(note.createdAt)}
-                    </span>
+                    <span className="text-xs text-muted-foreground">{timeAgo(note.createdAt)}</span>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                      aria-label={`Dismiss ${note.title}`}
+                      title="Dismiss this notification from the shared activity list"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
