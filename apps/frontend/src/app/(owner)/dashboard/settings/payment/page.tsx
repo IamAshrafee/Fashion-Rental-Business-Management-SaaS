@@ -18,6 +18,17 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useStoreSettings, useUpdatePaymentSettings } from '../hooks/use-settings';
 import { Separator } from '@/components/ui/separator';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 const paymentSchema = z.object({
   bkashNumber: z.string().max(20).optional(),
@@ -41,7 +52,7 @@ export default function PaymentSettingsPage() {
       bkashNumber: settingsData.bkashNumber || '',
       nagadNumber: settingsData.nagadNumber || '',
       sslcommerzStoreId: settingsData.sslcommerzStoreId || '',
-      sslcommerzStorePass: settingsData.sslcommerzStorePass || '',
+      sslcommerzStorePass: '',
       sslcommerzSandbox: settingsData.sslcommerzSandbox ?? true,
     } : undefined,
     defaultValues: {
@@ -54,7 +65,13 @@ export default function PaymentSettingsPage() {
   });
 
   const onSubmit = (data: PaymentValues) => {
-    updatePayment.mutate(data);
+    const password = data.sslcommerzStorePass?.trim();
+    updatePayment.mutate({
+      ...data,
+      sslcommerzStorePass: password || undefined,
+    }, {
+      onSuccess: () => form.setValue('sslcommerzStorePass', ''),
+    });
   };
 
   if (isLoading) {
@@ -139,12 +156,56 @@ export default function PaymentSettingsPage() {
                   <FormItem>
                     <FormLabel>Store Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••••••" {...field} />
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={settingsData?.sslcommerzConfigured
+                          ? 'Leave blank to keep the current password'
+                          : 'Enter the SSLCommerz store password'}
+                        {...field}
+                      />
                     </FormControl>
+                    <FormDescription>
+                      {settingsData?.sslcommerzConfigured
+                        ? 'A password is securely stored. Enter a new value only when rotating it.'
+                        : 'The Store ID and password are both required before online payments can be used.'}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+              {settingsData?.sslcommerzConfigured && (
+                <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+                  <div>
+                    <p className="font-medium">SSLCommerz credentials configured</p>
+                    <p className="text-sm text-muted-foreground">
+                      Removing them immediately disables new SSLCommerz checkout sessions.
+                    </p>
+                  </div>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button type="button" variant="destructive">Remove credentials</Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove SSLCommerz credentials?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Customers will no longer be able to start online card payments until new credentials are saved.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep credentials</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => updatePayment.mutate({ clearSslcommerzCredentials: true })}
+                        >
+                          Remove credentials
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              )}
               
               <FormField
                 control={form.control}

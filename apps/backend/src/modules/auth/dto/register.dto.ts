@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsEmail,
-  IsOptional,
-  MinLength,
-  MaxLength,
-  Matches,
-} from 'class-validator';
+import { IsString, IsEmail, IsOptional, MinLength, MaxLength, Matches } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class RegisterDto {
@@ -15,11 +8,14 @@ export class RegisterDto {
   fullName!: string;
 
   @IsOptional()
-  @Transform(({ value }) => value || undefined)
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : undefined,
+  )
   @IsEmail()
   email?: string;
 
   @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @Matches(/^01[3-9]\d{8}$/, {
     message: 'Phone must be a valid BD number (01X-XXXX-XXXX)',
   })
@@ -38,6 +34,7 @@ export class RegisterDto {
   businessName!: string;
 
   @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
   @MinLength(3)
   @MaxLength(30)
   @Matches(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, {

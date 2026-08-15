@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import type { DashboardStats } from '@/hooks/use-booking-stats';
+import { formatMinorMoney } from '@/lib/money';
 
 export function DashboardRecentBookings({ bookings }: { bookings: DashboardStats['recentBookings'] }) {
   if (!bookings || bookings.length === 0) {
@@ -45,14 +46,6 @@ export function DashboardRecentBookings({ bookings }: { bookings: DashboardStats
     }
   };
 
-  const formatPrice = (amount: number) => {
-    return new Intl.NumberFormat('en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
-
   return (
     <div className="rounded-md border bg-card overflow-x-auto">
       <Table>
@@ -80,7 +73,7 @@ export function DashboardRecentBookings({ bookings }: { bookings: DashboardStats
               </TableCell>
               <TableCell>{getStatusBadge(booking.status)}</TableCell>
               <TableCell className="text-right font-medium">
-                {formatPrice(booking.grandTotal)}
+                {formatMinorMoney(booking.grandTotal)}
               </TableCell>
               <TableCell>
                 <Link 

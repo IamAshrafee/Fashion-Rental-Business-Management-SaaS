@@ -7,14 +7,7 @@
  * Exports `useAuth()` hook for consuming auth state.
  */
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import type { AuthState, AuthUserInfo, LoginCredentials } from '@/types';
 import {
   refreshAccessToken,
@@ -73,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }>('/auth/me');
 
         if (!cancelled) {
-          const fetchedUser = response.data.data as any;
+          const fetchedUser = response.data.data;
           const extractedTid = fetchedUser.currentTenant?.id || fetchedUser.tenantId || null;
           setTenantIdLocal(extractedTid);
           setState({
@@ -126,10 +119,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         success: boolean;
         data: AuthUserInfo;
       }>('/auth/me');
-      const fetchedUser = response.data.data as any;
+      const fetchedUser = response.data.data;
       const extractedTid = fetchedUser.currentTenant?.id || fetchedUser.tenantId || null;
       setTenantIdLocal(extractedTid);
-      
+
       setState((s) => ({
         ...s,
         user: fetchedUser,

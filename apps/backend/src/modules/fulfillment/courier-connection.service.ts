@@ -1,8 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Prisma, ShipmentProvider } from '@prisma/client';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SensitiveDataService } from '../../common/security/sensitive-data.service';
 import { UpsertCourierConnectionDto } from './dto/fulfillment.dto';
 import { CourierSettings } from './providers/courier-provider.interface';
 import { PathaoAdapter } from './providers/pathao.adapter';
@@ -13,8 +12,8 @@ type CredentialMap = Record<string, string>;
 export class CourierConnectionService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
     private readonly pathaoAdapter: PathaoAdapter,
+    private readonly sensitiveData: SensitiveDataService,
   ) {}
 
   async list(tenantId: string) {
@@ -33,7 +32,7 @@ export class CourierConnectionService {
       where: { tenantId_provider: { tenantId, provider } },
     });
     const previousCredentials = existing?.credentialsEncrypted
-      ? this.decrypt(existing.credentialsEncrypted)
+      ? this.sensitiveData.decryptJson<CredentialMap>(existing.credentialsEncrypted)
       : {};
     const submitted = this.credentialsFor(provider, dto);
     const credentials = { ...previousCredentials, ...submitted };
@@ -53,7 +52,7 @@ export class CourierConnectionService {
           isEnabled: dto.isEnabled,
           isDefault: dto.isDefault,
           config,
-          credentialsEncrypted: Object.keys(credentials).length ? this.encrypt(credentials) : null,
+          credentialsEncrypted: Object.keys(credentials).length ? this.sensitiveData.encryptJson(credentials) : null,
           healthStatus: 'not_tested',
           lastHealthCheckAt: null,
           lastHealthError: null,
@@ -64,7 +63,7 @@ export class CourierConnectionService {
           isEnabled: dto.isEnabled ?? provider === 'manual',
           isDefault: dto.isDefault ?? provider === 'manual',
           config,
-          credentialsEncrypted: Object.keys(credentials).length ? this.encrypt(credentials) : null,
+          credentialsEncrypted: Object.keys(credentials).length ? this.sensitiveData.encryptJson(credentials) : null,
         },
       });
       return this.project(row);
@@ -82,7 +81,7 @@ export class CourierConnectionService {
         if (!settings.pathao?.enabled) throw new BadRequestException('Pathao credentials are incomplete');
         await this.pathaoAdapter.fetchToken(settings.pathao);
       } else if (provider === 'steadfast') {
-        const credentials = row.credentialsEncrypted ? this.decrypt(row.credentialsEncrypted) : {};
+        const credentials = row.credentialsEncrypted ? this.sensitiveData.decryptJson<CredentialMap>(row.credentialsEncrypted) : {};
         if (!credentials.apiKey || !credentials.secretKey) throw new BadRequestException('Steadfast credentials are incomplete');
       }
       const updated = await this.prisma.courierConnection.update({
@@ -119,7 +118,7 @@ export class CourierConnectionService {
     for (const row of rows) {
       if (row.isDefault) result.defaultProvider = row.provider;
       const config = this.jsonObject(row.config);
-      const credentials = row.credentialsEncrypted ? this.decrypt(row.credentialsEncrypted) : {};
+      const credentials = row.credentialsEncrypted ? this.sensitiveData.decryptJson<CredentialMap>(row.credentialsEncrypted) : {};
       if (row.provider === 'pathao') {
         result.pathao = {
           enabled: Boolean(credentials.clientId && credentials.clientSecret && credentials.username && credentials.password && config.storeId),
@@ -184,31 +183,6 @@ export class CourierConnectionService {
       lastHealthError: row.lastHealthError,
       updatedAt: row.updatedAt,
     };
-  }
-
-  private encryptionKey() {
-    const configured = this.config.get<string>('security.courierCredentialsKey');
-    const nodeEnv = this.config.get<string>('nodeEnv', 'development');
-    if (!configured && nodeEnv === 'production') {
-      throw new Error('COURIER_CREDENTIALS_ENCRYPTION_KEY is required in production');
-    }
-    const material = configured || this.config.get<string>('jwt.secret', 'development-only-courier-key');
-    return createHash('sha256').update(material).digest();
-  }
-
-  private encrypt(credentials: CredentialMap) {
-    const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', this.encryptionKey(), iv);
-    const encrypted = Buffer.concat([cipher.update(JSON.stringify(credentials), 'utf8'), cipher.final()]);
-    return ['v1', iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), encrypted.toString('base64url')].join('.');
-  }
-
-  private decrypt(value: string): CredentialMap {
-    const [version, iv, tag, encrypted] = value.split('.');
-    if (version !== 'v1' || !iv || !tag || !encrypted) throw new Error('Unsupported courier credential format');
-    const decipher = createDecipheriv('aes-256-gcm', this.encryptionKey(), Buffer.from(iv, 'base64url'));
-    decipher.setAuthTag(Buffer.from(tag, 'base64url'));
-    return JSON.parse(Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64url')), decipher.final()]).toString('utf8')) as CredentialMap;
   }
 
   private jsonObject(value: Prisma.JsonValue | Prisma.InputJsonValue | undefined): Prisma.JsonObject {

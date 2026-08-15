@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { format, parseISO } from 'date-fns';
+import { formatMinorMoney } from '@/lib/money';
 
 interface DashboardRevenueChartProps {
   data: Array<{ date: string; revenue: number }>;
@@ -14,8 +15,8 @@ export function DashboardRevenueChart({ data, className }: DashboardRevenueChart
     return (
       <Card className={className}>
         <CardHeader>
-          <CardTitle>Revenue Output</CardTitle>
-          <CardDescription>Last 30 days of booking revenue</CardDescription>
+          <CardTitle>Booked rental value</CardTitle>
+          <CardDescription>Confirmed booking value excluding refundable deposits, last 30 days</CardDescription>
         </CardHeader>
         <CardContent className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
           No data available
@@ -25,19 +26,23 @@ export function DashboardRevenueChart({ data, className }: DashboardRevenueChart
   }
 
   // Format datetimes for the tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({
+    active,
+    payload,
+    label,
+  }: {
+    active?: boolean;
+    payload?: Array<{ value?: number }>;
+    label?: string;
+  }) => {
     if (active && payload && payload.length) {
       return (
         <div className="rounded-lg border bg-background p-3 shadow-md">
           <p className="mb-1 text-sm text-muted-foreground">
-            {format(parseISO(label), 'MMM dd, yyyy')}
+            {format(parseISO(label ?? ''), 'MMM dd, yyyy')}
           </p>
           <p className="font-semibold text-emerald-600">
-            {new Intl.NumberFormat('en-BD', {
-              style: 'currency',
-              currency: 'BDT',
-              minimumFractionDigits: 0,
-            }).format(payload[0].value)}
+            {formatMinorMoney(payload[0].value)}
           </p>
         </div>
       );
@@ -48,8 +53,8 @@ export function DashboardRevenueChart({ data, className }: DashboardRevenueChart
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>Revenue Output</CardTitle>
-        <CardDescription>Last 30 days of booking revenue</CardDescription>
+        <CardTitle>Booked rental value</CardTitle>
+        <CardDescription>Confirmed booking value excluding refundable deposits, last 30 days</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="h-[300px] w-full">
@@ -75,7 +80,7 @@ export function DashboardRevenueChart({ data, className }: DashboardRevenueChart
                 minTickGap={30}
               />
               <YAxis 
-                tickFormatter={(val) => `৳${val / 1000}k`}
+                tickFormatter={(value) => formatMinorMoney(value)}
                 tickLine={false}
                 axisLine={false}
                 tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}

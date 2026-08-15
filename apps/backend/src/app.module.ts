@@ -37,6 +37,7 @@ import { ProductTypeModule } from './modules/product-type/product-type.module';
 import { PricingEngineModule } from './modules/pricing-engine/pricing-engine.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { HealthModule } from './modules/health/health.module';
+import { SecurityModule } from './common/security/security.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { HealthModule } from './modules/health/health.module';
 
     // Database
     PrismaModule,
+    SecurityModule,
 
     // Resource Governance & Metering (replaces ThrottlerModule)
     // Global — MeteringService available everywhere without re-importing

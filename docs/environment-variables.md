@@ -41,7 +41,7 @@ The container listens on 5432. Local applications connect through the published 
 
 ## Authentication and encryption
 
-`JWT_SECRET`, `JWT_REFRESH_SECRET`, and `COURIER_CREDENTIALS_ENCRYPTION_KEY` are independent secrets. Each must contain at least 32 characters; production validation rejects the documented development values. `JWT_ACCESS_EXPIRY`, `JWT_REFRESH_EXPIRY`, and `BCRYPT_SALT_ROUNDS` control token and password-hash policy.
+`JWT_SECRET`, `JWT_REFRESH_SECRET`, and `CREDENTIALS_ENCRYPTION_KEY` are independent secrets. Each must contain at least 32 characters; production validation rejects the documented development values. `COURIER_CREDENTIALS_ENCRYPTION_KEY` remains a supported legacy alias for the credentials key. `JWT_ACCESS_EXPIRY`, `JWT_REFRESH_EXPIRY`, and `BCRYPT_SALT_ROUNDS` control token and password-hash policy.
 
 ## Notifications and operations
 

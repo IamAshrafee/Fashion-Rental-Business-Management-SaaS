@@ -170,6 +170,10 @@ export class UpdatePaymentSettingsDto {
 
   @IsOptional()
   @IsBoolean()
+  clearSslcommerzCredentials?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   sslcommerzSandbox?: boolean;
 }
 

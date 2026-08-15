@@ -183,6 +183,7 @@ export interface SubscriptionPlan {
   displayOrder: number;
   createdAt: string;
   updatedAt: string;
+  _count?: { tenants: number };
 }
 
 export interface PlatformStats {
@@ -242,7 +243,7 @@ export interface AdminTenantDetails {
     email: string | null;
     phone: string | null;
   };
-  storeSettings: any;
+  storeSettings: import('./settings').StoreSettings | null;
   _count: {
     products: number;
     bookings: number;
@@ -267,6 +268,12 @@ export interface SubscriptionPayment {
   recordedBy: string;
   createdAt: string;
   recorder?: { fullName: string };
+}
+
+export interface GlobalSubscriptionPayment extends SubscriptionPayment {
+  tenant: { id: string; businessName: string; subdomain: string };
+  recorder: { id: string; fullName: string; email: string | null };
+  invoice: { id: string; invoiceNo: string; status: string } | null;
 }
 
 export interface InvoiceLineItem {

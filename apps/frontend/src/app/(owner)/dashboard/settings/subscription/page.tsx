@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { BillingHistoryTable } from './billing-history';
+import { formatMinorMoney } from '@/lib/money';
 
 export default function SubscriptionSettingsPage() {
   const { data: response, isLoading } = useSubscription();
@@ -40,9 +41,8 @@ export default function SubscriptionSettingsPage() {
     );
   }
 
-  // Parse priceMonthly (Prisma Decimal comes as string)
-  const priceMonthly = currentPlan.priceMonthly ? Number(currentPlan.priceMonthly) : 0;
-  const priceAnnual = currentPlan.priceAnnual ? Number(currentPlan.priceAnnual) : null;
+  const priceMonthly = currentPlan.priceMonthly;
+  const priceAnnual = currentPlan.priceAnnual;
 
   // Compute resource usage percentages
   const productUsage = usage?.products;
@@ -77,10 +77,10 @@ export default function SubscriptionSettingsPage() {
             </span>
           </CardTitle>
           <CardDescription>
-            {priceMonthly === 0 ? 'Free tier' : `৳${priceMonthly.toLocaleString()} / month`}
+            {priceMonthly === 0 ? 'Free tier' : `${formatMinorMoney(priceMonthly)} / month`}
             {priceAnnual !== null && priceMonthly > 0 && (
               <span className="ml-2 text-xs text-muted-foreground">
-                (৳{priceAnnual.toLocaleString()} / year)
+                ({formatMinorMoney(priceAnnual)} / year)
               </span>
             )}
           </CardDescription>

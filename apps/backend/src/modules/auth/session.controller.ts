@@ -39,10 +39,7 @@ export class SessionController {
   @Delete('others')
   @HttpCode(HttpStatus.OK)
   async revokeAllOtherSessions(@CurrentUser() user: AuthUser) {
-    const count = await this.sessionService.revokeAllOtherSessions(
-      user.id,
-      user.sessionId,
-    );
+    const count = await this.sessionService.revokeAllOtherSessions(user.id, user.sessionId);
     return { message: `Revoked ${count} session(s)`, revokedCount: count };
   }
 
@@ -52,10 +49,7 @@ export class SessionController {
    */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  async revokeSession(
-    @Param('id') sessionId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async revokeSession(@Param('id') sessionId: string, @CurrentUser() user: AuthUser) {
     await this.sessionService.revokeSession(sessionId, user.id, user.id);
     return { message: 'Session revoked' };
   }
@@ -70,11 +64,7 @@ export class SessionController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.sessionService.getLoginHistory(
-      user.id,
-      page || 1,
-      limit || 20,
-    );
+    return this.sessionService.getLoginHistory(user.id, page || 1, limit || 20);
   }
 
   /**

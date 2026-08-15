@@ -65,8 +65,8 @@ const SUBSCRIPTION_PLANS = [
       'Full analytics',
     ],
     badge: 'Most Popular',
-    priceMonthly: 2500,
-    priceAnnual: 25000,
+    priceMonthly: 250_000,
+    priceAnnual: 2_500_000,
     trialDays: 14,
     maxProducts: null, // unlimited
     maxOrders: null,
@@ -93,8 +93,8 @@ const SUBSCRIPTION_PLANS = [
       'Remove branding',
     ],
     badge: 'Best Value',
-    priceMonthly: 7500,
-    priceAnnual: 75000,
+    priceMonthly: 750_000,
+    priceAnnual: 7_500_000,
     trialDays: 14,
     maxProducts: null, // unlimited
     maxOrders: null,
@@ -247,7 +247,7 @@ async function main() {
         displayOrder: plan.displayOrder,
       },
     });
-    console.log(`   ✅ Plan: ${plan.name} (৳${plan.priceMonthly}/mo)`);
+    console.log(`   ✅ Plan: ${plan.name} (৳${plan.priceMonthly / 100}/mo)`);
   }
   console.log('');
 

@@ -5,12 +5,14 @@ import {
   ConflictException,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { v4 as uuidv4 } from 'uuid';
+import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantService } from '../tenant/tenant.service';
 import { RegisterDto } from './dto/register.dto';
@@ -118,6 +120,7 @@ export class AuthService {
   private readonly bcryptSaltRounds: number;
   private readonly jwtRefreshSecret: string;
   private readonly jwtRefreshExpiry: string;
+  private readonly jwtAccessExpirySeconds: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -132,6 +135,10 @@ export class AuthService {
       'dev-refresh-secret-change-in-production',
     );
     this.jwtRefreshExpiry = this.configService.get<string>('jwt.refreshExpiry', '7d');
+    this.jwtAccessExpirySeconds = this.expirySeconds(
+      this.configService.get<string>('jwt.accessExpiry', '15m'),
+      900,
+    );
   }
 
   // =========================================================================
@@ -154,6 +161,13 @@ export class AuthService {
       if (existingUser) {
         throw new ConflictException('Email is already registered');
       }
+    }
+    const existingPhone = await this.prisma.user.findUnique({
+      where: { phone: dto.phone },
+      select: { id: true },
+    });
+    if (existingPhone) {
+      throw new ConflictException('Phone is already registered');
     }
 
     // Hash password
@@ -335,6 +349,7 @@ export class AuthService {
       },
       accessToken,
       refreshToken,
+      expiresIn: this.jwtAccessExpirySeconds,
     };
   }
 
@@ -357,6 +372,8 @@ export class AuthService {
                 id: true,
                 businessName: true,
                 subdomain: true,
+                customDomain: true,
+                logoUrl: true,
                 status: true,
                 statusReason: true,
               },
@@ -401,13 +418,19 @@ export class AuthService {
         businessName: tu.tenant.businessName,
         subdomain: tu.tenant.subdomain,
         role: tu.role,
+        permissions: tu.permissions,
       }));
 
     // Use the first ACTIVE tenant for session — suspended/cancelled tenants excluded.
     // If user belongs to tenants but none are active, they get a tenant-less session
     // and the frontend will show a "store suspended" state.
     const activeTenantUsers = user.tenantUsers.filter((tu) => tu.tenant.status === 'active');
-    const primaryTenantUser = activeTenantUsers[0] || null;
+    const primaryTenantUser = dto.tenantSlug
+      ? activeTenantUsers.find((tenantUser) => tenantUser.tenant.subdomain === dto.tenantSlug)
+      : activeTenantUsers[0];
+    if (dto.tenantSlug && !primaryTenantUser) {
+      throw new ForbiddenException('You do not have active access to this store');
+    }
     const tenantId = primaryTenantUser?.tenantId || null;
     const role = primaryTenantUser?.role || user.role;
 
@@ -453,12 +476,30 @@ export class AuthService {
       user: {
         id: user.id,
         fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
         role: primaryTenantUser?.role || user.role,
+        tenantId,
+        permissions: primaryTenantUser?.permissions ?? [],
+        currentTenant: primaryTenantUser
+          ? {
+              id: primaryTenantUser.tenant.id,
+              businessName: primaryTenantUser.tenant.businessName,
+              subdomain: primaryTenantUser.tenant.subdomain,
+              customDomain: primaryTenantUser.tenant.customDomain,
+              status: primaryTenantUser.tenant.status,
+              logoUrl: primaryTenantUser.tenant.logoUrl,
+              role: primaryTenantUser.role,
+              permissions: primaryTenantUser.permissions,
+            }
+          : null,
       },
       tenants,
       suspendedTenants,
       accessToken,
       refreshToken,
+      expiresIn: this.jwtAccessExpirySeconds,
+      tenantId,
     };
   }
 
@@ -487,10 +528,17 @@ export class AuthService {
       where: {
         id: payload.sessionId,
       },
+      include: {
+        user: { select: { isActive: true, role: true } },
+      },
     });
 
     if (!session || session.userId !== payload.sub) {
       throw new UnauthorizedException('Session not found or revoked');
+    }
+    if (!session.user.isActive) {
+      await this.prisma.session.delete({ where: { id: session.id } });
+      throw new UnauthorizedException('Account has been deactivated');
     }
 
     // 3. Verify the token against the securely stored hash
@@ -507,27 +555,33 @@ export class AuthService {
       throw new UnauthorizedException('Session has expired');
     }
 
-    // Re-resolve tenantId if the current JWT has null — the tenant may have
-    // been reactivated since the user logged in during suspension.
-    let resolvedTenantId = payload.tenantId;
-    let resolvedRole = payload.role;
-
-    if (!resolvedTenantId) {
-      const activeTenantUser = await this.prisma.tenantUser.findFirst({
-        where: {
-          userId: payload.sub,
-          isActive: true,
-          tenant: { status: 'active' },
-        },
-        include: {
-          tenant: { select: { id: true } },
-        },
-      });
-
-      if (activeTenantUser) {
-        resolvedTenantId = activeTenantUser.tenant.id;
-        resolvedRole = activeTenantUser.role as JwtPayload['role'];
-        this.logger.log(`Tenant re-resolved for user ${payload.sub}: ${resolvedTenantId}`);
+    let resolvedTenantId: string | null = null;
+    let resolvedRole = session.user.role as JwtPayload['role'];
+    if (session.user.role !== 'saas_admin') {
+      const preferredTenantId = session.tenantId ?? payload.tenantId;
+      const preferredMembership = preferredTenantId
+        ? await this.prisma.tenantUser.findUnique({
+            where: {
+              tenantId_userId: { tenantId: preferredTenantId, userId: payload.sub },
+            },
+            include: { tenant: { select: { id: true, status: true } } },
+          })
+        : null;
+      const activeMembership =
+        preferredMembership?.isActive && preferredMembership.tenant.status === 'active'
+          ? preferredMembership
+          : await this.prisma.tenantUser.findFirst({
+              where: {
+                userId: payload.sub,
+                isActive: true,
+                tenant: { status: 'active' },
+              },
+              include: { tenant: { select: { id: true, status: true } } },
+              orderBy: { createdAt: 'asc' },
+            });
+      if (activeMembership) {
+        resolvedTenantId = activeMembership.tenant.id;
+        resolvedRole = activeMembership.role as JwtPayload['role'];
       }
     }
 
@@ -553,7 +607,7 @@ export class AuthService {
       data: {
         refreshTokenHash: newRefreshHash,
         lastActiveAt: new Date(),
-        ...(resolvedTenantId !== payload.tenantId ? { tenantId: resolvedTenantId } : {}),
+        tenantId: resolvedTenantId,
       },
     });
 
@@ -566,6 +620,9 @@ export class AuthService {
     return {
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
+      tenantId: resolvedTenantId,
+      role: resolvedRole,
+      expiresIn: this.jwtAccessExpirySeconds,
     };
   }
 
@@ -602,29 +659,36 @@ export class AuthService {
       return { message: 'If an account exists, a reset link has been sent', expiresIn: 3600 };
     }
 
-    // Generate reset token
-    const resetToken = uuidv4();
-    const resetTokenHash = await bcrypt.hash(resetToken, 10);
+    const resetToken = randomBytes(32).toString('base64url');
+    const tokenDigest = this.tokenDigest(resetToken);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    // Store reset token (using metadata in a simple way)
-    // In production, use a dedicated password_resets table or Redis
+    await this.prisma.$transaction(async (tx) => {
+      await tx.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await tx.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenDigest,
+          expiresAt,
+        },
+      });
+    });
+
     await this.prisma.loginHistory.create({
       data: {
         userId: user.id,
-        eventType: 'login_failed', // Reuse as "password_reset_requested"
-        metadata: {
-          type: 'password_reset',
-          tokenHash: resetTokenHash,
-          expiresAt: expiresAt.toISOString(),
-        },
+        eventType: 'session_revoked',
+        metadata: { reason: 'password_reset_requested', expiresAt: expiresAt.toISOString() },
       },
     });
 
     // Emit event for notification module to send OTP/email
     this.eventEmitter.emit('auth.passwordResetRequested', {
       userId: user.id,
-      resetToken, // The plain token — NotificationModule will send this
+      resetToken,
       expiresAt,
     });
 
@@ -644,47 +708,43 @@ export class AuthService {
       throw new BadRequestException('Invalid reset request');
     }
 
-    // Find the most recent reset token in login history
-    const resetEntry = await this.prisma.loginHistory.findFirst({
-      where: {
-        userId: user.id,
-        eventType: 'login_failed',
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!resetEntry?.metadata) {
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    const metadata = resetEntry.metadata as Record<string, unknown>;
-    if (metadata.type !== 'password_reset') {
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    // Check expiry
-    const expiresAt = new Date(metadata.expiresAt as string);
-    if (new Date() > expiresAt) {
-      throw new BadRequestException('Reset token has expired');
-    }
-
-    // Verify token
-    const tokenValid = await bcrypt.compare(dto.token, metadata.tokenHash as string);
-    if (!tokenValid) {
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    // Update password
     const passwordHash = await bcrypt.hash(dto.newPassword, this.bcryptSaltRounds);
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash },
-    });
-
-    // Revoke all sessions for this user (force re-login)
-    await this.prisma.session.deleteMany({
-      where: { userId: user.id },
-    });
+    const tokenDigest = this.tokenDigest(dto.token);
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`
+          SELECT id
+          FROM password_reset_tokens
+          WHERE token_digest = ${tokenDigest}
+          FOR UPDATE
+        `;
+        const token = await tx.passwordResetToken.findFirst({
+          where: {
+            userId: user.id,
+            tokenDigest,
+            usedAt: null,
+            expiresAt: { gt: new Date() },
+          },
+          select: { id: true },
+        });
+        if (!token) {
+          throw new BadRequestException('Invalid or expired reset token');
+        }
+        const consumed = await tx.passwordResetToken.updateMany({
+          where: { id: token.id, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+        if (consumed.count !== 1) {
+          throw new BadRequestException('Invalid or expired reset token');
+        }
+        await tx.user.update({
+          where: { id: user.id },
+          data: { passwordHash },
+        });
+        await tx.session.deleteMany({ where: { userId: user.id } });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     this.eventEmitter.emit('auth.passwordReset', { userId: user.id });
 
@@ -740,12 +800,16 @@ export class AuthService {
         currentTenant = {
           ...tenantUser.tenant,
           role: tenantUser.role,
+          permissions: tenantUser.permissions,
         };
       }
     }
 
     return {
       ...user,
+      tenantId,
+      role: currentTenant?.role ?? user.role,
+      permissions: tenantId && currentTenant ? currentTenant.permissions : [],
       currentTenant,
     };
   }
@@ -828,6 +892,19 @@ export class AuthService {
 
   private async hashToken(token: string): Promise<string> {
     return bcrypt.hash(token, 10);
+  }
+
+  private tokenDigest(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private expirySeconds(value: string, fallback: number): number {
+    const match = /^(\d+)(s|m|h|d)$/.exec(value.trim());
+    if (!match) return fallback;
+    const amount = Number(match[1]);
+    const multiplier =
+      match[2] === 's' ? 1 : match[2] === 'm' ? 60 : match[2] === 'h' ? 3600 : 86400;
+    return amount * multiplier;
   }
 
   /**

@@ -46,7 +46,7 @@ const SESSION_COOKIE = 'closetrent_session';
 const ROLE_COOKIE = 'closetrent_role';
 
 /** Routes that should redirect authenticated users away */
-const AUTH_ONLY_PATHS = ['/login', '/register'];
+const AUTH_ONLY_PATHS = ['/login', '/register', '/forgot-password', '/reset-password'];
 
 /** Reserved subdomains that are NOT tenant stores */
 const RESERVED_SUBDOMAINS = ['admin', 'www', 'api', 'cdn', 'mail'];
@@ -59,6 +59,8 @@ const BARE_DOMAIN_ALLOWED_PATHS = [
   '/landing',
   '/login',
   '/register',
+  '/forgot-password',
+  '/reset-password',
   '/admin',
 ];
 

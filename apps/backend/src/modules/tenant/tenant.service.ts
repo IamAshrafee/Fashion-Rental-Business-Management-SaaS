@@ -9,6 +9,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantContext } from '@closetrent/types';
+import { SensitiveDataService } from '../../common/security/sensitive-data.service';
 import {
   UpdateStoreSettingsDto,
   UpdateLocaleSettingsDto,
@@ -29,6 +30,7 @@ export class TenantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly sensitiveData: SensitiveDataService,
   ) {}
 
   // =========================================================================
@@ -209,7 +211,7 @@ export class TenantService {
             bkashNumber: true,
             nagadNumber: true,
             sslcommerzStoreId: true,
-            // sslcommerzStorePass: EXCLUDED — secret
+            sslcommerzStorePass: true,
             sslcommerzSandbox: true,
             pickupAddress: true,
             pickupCity: true,
@@ -230,9 +232,16 @@ export class TenantService {
 
     // Flatten: spread storeSettings fields at root level
     const { storeSettings, ...tenantFields } = tenant;
+    const sslcommerzConfigured = Boolean(
+      storeSettings?.sslcommerzStoreId && storeSettings.sslcommerzStorePass,
+    );
+    const safeSettings = storeSettings
+      ? (({ sslcommerzStorePass: _secret, ...settings }) => settings)(storeSettings)
+      : {};
     return {
       ...tenantFields,
-      ...storeSettings,
+      ...safeSettings,
+      sslcommerzConfigured,
     };
   }
 
@@ -387,12 +396,51 @@ export class TenantService {
    * Update payment configuration (bKash, Nagad, SSLCommerz).
    */
   async updatePaymentSettings(tenantId: string, dto: UpdatePaymentSettingsDto) {
-    const settings = await this.prisma.storeSettings.upsert({
+    const existing = await this.prisma.storeSettings.findUnique({
       where: { tenantId },
-      update: dto,
+      select: { sslcommerzStoreId: true, sslcommerzStorePass: true },
+    });
+    const {
+      sslcommerzStorePass,
+      sslcommerzStoreId,
+      clearSslcommerzCredentials,
+      ...ordinarySettings
+    } = dto;
+    const submittedId = sslcommerzStoreId?.trim();
+    const submittedPassword = sslcommerzStorePass?.trim();
+    if (clearSslcommerzCredentials && (submittedId || submittedPassword)) {
+      throw new BadRequestException(
+        'Cannot replace and clear SSLCommerz credentials in the same request',
+      );
+    }
+    const nextId = clearSslcommerzCredentials
+      ? null
+      : submittedId !== undefined
+        ? submittedId || null
+        : existing?.sslcommerzStoreId ?? null;
+    const nextPassword = clearSslcommerzCredentials
+      ? null
+      : submittedPassword
+        ? this.sensitiveData.encrypt(submittedPassword)
+        : existing?.sslcommerzStorePass ?? null;
+    if (Boolean(nextId) !== Boolean(nextPassword)) {
+      throw new BadRequestException(
+        'SSLCommerz Store ID and Store Password must be configured together',
+      );
+    }
+
+    await this.prisma.storeSettings.upsert({
+      where: { tenantId },
+      update: {
+        ...ordinarySettings,
+        sslcommerzStoreId: nextId,
+        sslcommerzStorePass: nextPassword,
+      },
       create: {
         tenantId,
-        ...dto,
+        ...ordinarySettings,
+        sslcommerzStoreId: nextId,
+        sslcommerzStorePass: nextPassword,
       },
     });
 
@@ -401,7 +449,7 @@ export class TenantService {
       section: 'payment',
     });
 
-    return settings;
+    return this.getStoreSettings(tenantId);
   }
 
   /**

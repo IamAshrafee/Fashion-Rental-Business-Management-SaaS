@@ -3,17 +3,18 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayload, AuthUser } from '@closetrent/types';
+import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>(
-        'jwt.secret',
-        'dev-jwt-secret-change-in-production',
-      ),
+      secretOrKey: configService.get<string>('jwt.secret', 'dev-jwt-secret-change-in-production'),
     });
   }
 
@@ -21,21 +22,69 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * Called by Passport after successfully verifying the JWT.
    * The returned value is attached to `req.user`.
    *
-   * Note: We do NOT check the session against the DB here.
-   * Access tokens are stateless (15 min TTL). Session validation
-   * only happens on refresh. This is per ADR/authentication.md.
+   * Session, account, tenant, and membership state are revalidated here so
+   * manual revocation, staff deactivation, and store suspension take effect
+   * immediately instead of waiting for access-token expiry.
    */
-  validate(payload: JwtPayload): AuthUser {
-    if (!payload.sub) {
+  async validate(payload: JwtPayload): Promise<AuthUser> {
+    if (!payload.sub || !payload.sessionId) {
       throw new UnauthorizedException('Invalid token payload');
+    }
+
+    const session = await this.prisma.session.findFirst({
+      where: {
+        id: payload.sessionId,
+        userId: payload.sub,
+        expiresAt: { gt: new Date() },
+        user: { isActive: true },
+      },
+      select: {
+        tenantId: true,
+        user: { select: { role: true } },
+      },
+    });
+    if (!session) {
+      throw new UnauthorizedException('Session has expired or been revoked');
+    }
+
+    if (session.user.role === 'saas_admin') {
+      return {
+        id: payload.sub,
+        email: null,
+        phone: null,
+        role: 'saas_admin',
+        tenantId: null,
+        sessionId: payload.sessionId,
+      };
+    }
+
+    if (session.tenantId !== payload.tenantId) {
+      throw new UnauthorizedException('Session store context changed; refresh and retry');
+    }
+
+    let role = session.user.role;
+    if (session.tenantId) {
+      const membership = await this.prisma.tenantUser.findUnique({
+        where: {
+          tenantId_userId: {
+            tenantId: session.tenantId,
+            userId: payload.sub,
+          },
+        },
+        include: { tenant: { select: { status: true } } },
+      });
+      if (!membership?.isActive || membership.tenant.status !== 'active') {
+        throw new UnauthorizedException('Store access has been revoked or suspended');
+      }
+      role = membership.role;
     }
 
     return {
       id: payload.sub,
       email: null, // Not in JWT — load from DB if needed
       phone: null,
-      role: payload.role,
-      tenantId: payload.tenantId,
+      role,
+      tenantId: session.tenantId,
       sessionId: payload.sessionId,
     };
   }

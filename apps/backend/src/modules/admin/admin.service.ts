@@ -175,6 +175,17 @@ export class AdminService {
 
     if (!tenant) throw new NotFoundException('Tenant not found');
 
+    const sslcommerzConfigured = Boolean(
+      tenant.storeSettings?.sslcommerzStoreId
+      && tenant.storeSettings.sslcommerzStorePass,
+    );
+    const safeStoreSettings = tenant.storeSettings
+      ? (({ sslcommerzStorePass: _secret, ...settings }) => ({
+          ...settings,
+          sslcommerzConfigured,
+        }))(tenant.storeSettings)
+      : null;
+
     // Compute subscription status and days remaining for the frontend
     let subscription = null;
     if (tenant.subscription) {
@@ -211,6 +222,7 @@ export class AdminService {
       success: true,
       data: {
         ...tenant,
+        storeSettings: safeStoreSettings,
         subscription,
       },
     };

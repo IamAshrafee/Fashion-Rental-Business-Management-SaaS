@@ -9,6 +9,8 @@ import { SessionController } from './session.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuthListener } from './auth.listener';
 import { TenantModule } from '../tenant/tenant.module';
+import { NotificationModule } from '../notification/notification.module';
+import { AuthNotificationListener } from './auth-notification.listener';
 
 @Module({
   imports: [
@@ -17,19 +19,17 @@ import { TenantModule } from '../tenant/tenant.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>(
-          'jwt.secret',
-          'dev-jwt-secret-change-in-production',
-        ),
+        secret: configService.get<string>('jwt.secret', 'dev-jwt-secret-change-in-production'),
         signOptions: {
           expiresIn: configService.get<string>('jwt.accessExpiry', '15m'),
         },
       }),
     }),
     TenantModule,
+    NotificationModule,
   ],
   controllers: [AuthController, SessionController],
-  providers: [AuthService, SessionService, JwtStrategy, AuthListener],
+  providers: [AuthService, SessionService, JwtStrategy, AuthListener, AuthNotificationListener],
   exports: [AuthService, SessionService, JwtStrategy],
 })
 export class AuthModule {}

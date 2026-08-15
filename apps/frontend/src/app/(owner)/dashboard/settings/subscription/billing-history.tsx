@@ -7,8 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { Banknote, FileText } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Banknote } from 'lucide-react';
+import { formatMinorMoney } from '@/lib/money';
 
 export function BillingHistoryTable() {
   const { data: historyRes, isLoading } = useQuery({
@@ -52,13 +52,13 @@ export function BillingHistoryTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {payments.map((payment: any) => (
+            {payments.map((payment) => (
               <TableRow key={payment.id}>
                 <TableCell className="pl-6 font-medium whitespace-nowrap">
                   {format(new Date(payment.createdAt), 'MMM dd, yyyy')}
                 </TableCell>
                 <TableCell>
-                  ৳{(payment.amount).toLocaleString()}
+                  {formatMinorMoney(payment.amount)}
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline" className="capitalize text-xs font-normal">
@@ -74,9 +74,7 @@ export function BillingHistoryTable() {
                        <Badge variant={payment.invoice.status === 'paid' ? 'default' : 'secondary'} className="text-[10px]">
                         {payment.invoice.status}
                       </Badge>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50">
-                        <FileText className="h-4 w-4" />
-                      </Button>
+                      <span className="text-xs font-medium">{payment.invoice.invoiceNo}</span>
                     </div>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>

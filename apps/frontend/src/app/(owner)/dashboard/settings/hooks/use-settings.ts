@@ -16,6 +16,7 @@ import {
   SetCustomDomainDto,
 } from '@closetrent/types';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 // ==========================================
 // STORE SETTINGS HOOKS
@@ -37,8 +38,7 @@ export const useUpdateStoreSettings = () => {
       toast.success('Settings updated successfully');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update settings');
+      toast.error(getApiErrorMessage(error, 'Failed to update settings'));
     },
   });
 };
@@ -52,8 +52,7 @@ export const useUpdateLocaleSettings = () => {
       toast.success('Locale settings updated');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update locale');
+      toast.error(getApiErrorMessage(error, 'Failed to update locale'));
     },
   });
 };
@@ -67,8 +66,7 @@ export const useUpdatePaymentSettings = () => {
       toast.success('Payment configuration updated');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update payment settings');
+      toast.error(getApiErrorMessage(error, 'Failed to update payment settings'));
     },
   });
 };
@@ -82,8 +80,7 @@ export const useUpdateDeliverySettings = () => {
       toast.success('Delivery operations updated');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update delivery settings');
+      toast.error(getApiErrorMessage(error, 'Failed to update delivery settings'));
     },
   });
 };
@@ -129,8 +126,7 @@ export const useUpdateOperationalSettings = () => {
       toast.success('Operational settings updated');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update operational settings');
+      toast.error(getApiErrorMessage(error, 'Failed to update operational settings'));
     },
   });
 };
@@ -145,8 +141,7 @@ export const useManageCustomDomain = () => {
       toast.success('Domain configured successfully');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to configure domain');
+      toast.error(getApiErrorMessage(error, 'Failed to configure domain'));
     },
   });
 
@@ -157,11 +152,10 @@ export const useManageCustomDomain = () => {
       toast.success('Domain verified successfully');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(
-        err.response?.data?.message ||
-          'DNS verification failed. Please check your records and try again later.',
-      );
+      toast.error(getApiErrorMessage(
+        error,
+        'DNS verification failed. Please check your records and try again later.',
+      ));
     },
   });
 
@@ -172,8 +166,7 @@ export const useManageCustomDomain = () => {
       toast.success('Custom domain removed');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to remove domain');
+      toast.error(getApiErrorMessage(error, 'Failed to remove domain'));
     },
   });
 
@@ -205,8 +198,7 @@ export const useUploadLogo = () => {
       return response;
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to upload logo');
+      toast.error(getApiErrorMessage(error, 'Failed to upload logo'));
     },
   });
 };
@@ -239,8 +231,7 @@ export const useInviteStaff = () => {
       toast.success('Staff member invited successfully');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to invite staff');
+      toast.error(getApiErrorMessage(error, 'Failed to invite staff'));
     },
   });
 };
@@ -261,8 +252,7 @@ export const useRevokeStaffInvitation = () => {
       toast.success('Invitation revoked');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to revoke invitation');
+      toast.error(getApiErrorMessage(error, 'Failed to revoke invitation'));
     },
   });
 };
@@ -276,8 +266,7 @@ export const useUpdateStaff = (id: string) => {
       toast.success('Staff role updated');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update staff');
+      toast.error(getApiErrorMessage(error, 'Failed to update staff'));
     },
   });
 };
@@ -291,8 +280,7 @@ export const useRemoveStaff = () => {
       toast.success('Staff member removed');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to remove staff member');
+      toast.error(getApiErrorMessage(error, 'Failed to remove staff member'));
     },
   });
 };
@@ -325,8 +313,7 @@ export const useRevokeSession = () => {
       toast.success('Session revoked successfully');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to revoke session');
+      toast.error(getApiErrorMessage(error, 'Failed to revoke session'));
     },
   });
 };
@@ -340,8 +327,7 @@ export const useRevokeAllOtherSessions = () => {
       toast.success(res.data?.message || 'All other sessions revoked');
     },
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to revoke sessions');
+      toast.error(getApiErrorMessage(error, 'Failed to revoke sessions'));
     },
   });
 };

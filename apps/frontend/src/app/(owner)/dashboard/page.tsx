@@ -11,9 +11,13 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 import { DashboardRevenueChart } from './components/dashboard-chart';
 import { DashboardTopProducts } from './components/top-products';
+import { useAuth } from '@/providers/auth-provider';
+import { hasTenantPermission } from '@/lib/permissions';
 
 export default function DashboardPage() {
   const { data: stats, isLoading, isError, error } = useBookingStats();
+  const { user } = useAuth();
+  const canManageBookings = hasTenantPermission(user, 'manage_bookings');
 
   return (
     <div className="space-y-6">
@@ -25,9 +29,19 @@ export default function DashboardPage() {
         <DashboardQuickActions />
       </div>
 
-      <DashboardSetupWizard />
+      {stats && user?.role === 'owner' && (
+        <DashboardSetupWizard readiness={stats.setupReadiness} />
+      )}
 
-      {isLoading ? (
+      {!canManageBookings ? (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Focused workspace access</AlertTitle>
+          <AlertDescription>
+            Booking metrics are hidden because this account does not have booking access. Use the navigation to open an assigned workspace.
+          </AlertDescription>
+        </Alert>
+      ) : isLoading ? (
         <div className="flex h-64 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
         </div>
@@ -45,7 +59,7 @@ export default function DashboardPage() {
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
             {/* Revenue Chart */}
-            <DashboardRevenueChart data={stats.revenueChart} className="col-span-1 lg:col-span-4" />
+            <DashboardRevenueChart data={stats.bookingValueChart} className="col-span-1 lg:col-span-4" />
             
             {/* Top Products */}
             <DashboardTopProducts products={stats.topProducts} className="col-span-1 lg:col-span-3" />

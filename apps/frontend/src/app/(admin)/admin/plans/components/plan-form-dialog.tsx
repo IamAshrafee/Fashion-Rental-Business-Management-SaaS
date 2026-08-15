@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -65,8 +65,8 @@ export function PlanFormDialog({
       ? {
           name: plan.name,
           slug: plan.slug,
-          priceMonthly: plan.priceMonthly,
-          priceAnnual: plan.priceAnnual,
+          priceMonthly: plan.priceMonthly / 100,
+          priceAnnual: plan.priceAnnual === null ? null : plan.priceAnnual / 100,
           maxProducts: plan.maxProducts,
           maxStaff: plan.maxStaff,
           customDomain: plan.customDomain,
@@ -100,8 +100,8 @@ export function PlanFormDialog({
           ? {
               name: plan.name,
               slug: plan.slug,
-              priceMonthly: plan.priceMonthly,
-              priceAnnual: plan.priceAnnual,
+              priceMonthly: plan.priceMonthly / 100,
+              priceAnnual: plan.priceAnnual === null ? null : plan.priceAnnual / 100,
               maxProducts: plan.maxProducts,
               maxStaff: plan.maxStaff,
               customDomain: plan.customDomain,
@@ -147,7 +147,13 @@ export function PlanFormDialog({
   });
 
   const onSubmit = (values: PlanFormValues) => {
-    mutation.mutate(values);
+    mutation.mutate({
+      ...values,
+      priceMonthly: Math.round(values.priceMonthly * 100),
+      priceAnnual: values.priceAnnual === null
+        ? null
+        : Math.round(values.priceAnnual * 100),
+    });
   };
 
   return (
@@ -204,6 +210,7 @@ export function PlanFormDialog({
                       <Input type="number" {...field} />
                     </FormControl>
                     <FormMessage />
+                    <FormDescription>Enter taka; it is stored as integer paisa.</FormDescription>
                   </FormItem>
                 )}
               />
@@ -225,6 +232,7 @@ export function PlanFormDialog({
                       />
                     </FormControl>
                     <FormMessage />
+                    <FormDescription>Leave blank when annual billing is not offered.</FormDescription>
                   </FormItem>
                 )}
               />

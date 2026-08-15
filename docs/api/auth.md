@@ -59,28 +59,31 @@ Register a new business owner + create tenant.
 ```json
 {
   "identifier": "hana@example.com",
-  "password": "securePassword123"
+  "password": "securePassword123",
+  "tenantSlug": "hanasboutique"
 }
 ```
 
-`identifier` can be email or phone number.
+`identifier` can be an email or the account's unique phone number. `tenantSlug` optionally selects a specific active store membership.
 
 **Response** `200`:
 ```json
 {
   "success": true,
   "data": {
-    "user": { "id": "...", "fullName": "...", "role": "owner" },
+    "user": { "id": "...", "fullName": "...", "role": "owner", "tenantId": "...", "permissions": [] },
     "tenants": [
       { "id": "...", "businessName": "Hana's Boutique", "subdomain": "hanasboutique", "role": "owner" }
     ],
     "accessToken": "eyJhbG...",
-    "refreshToken": "eyJhbG..."
+    "refreshToken": "eyJhbG...",
+    "tenantId": "...",
+    "expiresIn": 900
   }
 }
 ```
 
-If user belongs to multiple tenants, client shows a tenant selector.
+The returned `tenantId` and `currentTenant` are the authoritative selected context. A supplied `tenantSlug` is rejected unless the user has active access to that store.
 
 **Errors**:
 - `401 UNAUTHORIZED` — Invalid credentials
@@ -105,7 +108,10 @@ If user belongs to multiple tenants, client shows a tenant selector.
   "success": true,
   "data": {
     "accessToken": "eyJhbG...",
-    "refreshToken": "eyJhbG..."
+    "refreshToken": "eyJhbG...",
+    "tenantId": "...",
+    "role": "owner",
+    "expiresIn": 900
   }
 }
 ```
@@ -142,13 +148,13 @@ Invalidates the refresh token.
 }
 ```
 
-Sends OTP via SMS (or email if email provided).
+Creates a random, one-hour, single-use reset token and stores only its digest. The current delivery integration sends a reset link by SMS. The response does not reveal whether the account exists.
 
 **Response** `200`:
 ```json
 {
   "success": true,
-  "data": { "message": "OTP sent", "expiresIn": 300 }
+    "data": { "message": "If an account exists, a reset link has been sent", "expiresIn": 3600 }
 }
 ```
 
@@ -162,10 +168,12 @@ Sends OTP via SMS (or email if email provided).
 ```json
 {
   "identifier": "01712345678",
-  "otp": "123456",
+  "token": "opaque-one-time-token",
   "newPassword": "newSecurePassword123"
 }
 ```
+
+A successful reset consumes the token atomically and revokes every active session for the account.
 
 **Response** `200`:
 ```json
@@ -191,11 +199,14 @@ Sends OTP via SMS (or email if email provided).
     "email": "hana@example.com",
     "phone": "01712345678",
     "role": "owner",
+    "tenantId": "...",
+    "permissions": [],
     "currentTenant": {
       "id": "...",
       "businessName": "Hana's Boutique",
       "subdomain": "hanasboutique",
-      "role": "owner"
+      "role": "owner",
+      "permissions": []
     }
   }
 }

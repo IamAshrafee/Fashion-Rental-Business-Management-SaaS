@@ -4,6 +4,7 @@
  * Types shared with backend live in @closetrent/types.
  * These are UI-only / layout-only types.
  */
+import type { TenantPermission } from '@closetrent/types';
 
 // ----------------------------------------------------------------
 // Tenant Locale (from StoreSettings, used for formatting)
@@ -70,6 +71,17 @@ export interface AuthUserInfo {
   phone: string | null;
   role: string;
   tenantId: string | null;
+  permissions: TenantPermission[];
+  currentTenant?: {
+    id: string;
+    businessName: string;
+    subdomain: string;
+    customDomain: string | null;
+    status: string;
+    logoUrl: string | null;
+    role: string;
+    permissions: TenantPermission[];
+  } | null;
   /** The tenant's subdomain — used for post-login redirect to the correct store URL */
   subdomain?: string | null;
   suspendedTenants?: Array<{
@@ -98,6 +110,8 @@ export interface RegisterPayload {
 export interface AuthTokens {
   accessToken: string;
   expiresIn: number;
+  tenantId?: string | null;
+  role?: string;
 }
 
 // ----------------------------------------------------------------

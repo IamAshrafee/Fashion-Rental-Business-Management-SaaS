@@ -30,6 +30,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api-admin';
 import { SubscriptionPlan } from '@closetrent/types';
 import { useToast } from '@/hooks/use-toast';
+import { formatMinorMoney } from '@/lib/money';
 
 const changePlanSchema = z.object({
   planId: z.string().min(1, 'Please select a plan'),
@@ -104,7 +105,7 @@ function ChangePlanForm({
                   <SelectContent>
                     {plans.filter((p) => p.isActive).map((plan) => (
                       <SelectItem key={plan.id} value={plan.id}>
-                        {plan.name} (৳{plan.priceMonthly}/mo)
+                        {plan.name} ({formatMinorMoney(plan.priceMonthly)}/mo)
                       </SelectItem>
                     ))}
                   </SelectContent>

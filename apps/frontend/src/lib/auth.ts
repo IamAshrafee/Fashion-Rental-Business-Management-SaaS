@@ -94,15 +94,23 @@ export async function refreshAccessToken(): Promise<string | null> {
       }>('/auth/refresh', {}, { withCredentials: true });
 
       if (response.data.success) {
-        const { accessToken: newToken, expiresIn = 900 } = response.data.data as AuthTokens & { user?: { tenantId?: string } };
-        setAccessToken(newToken, expiresIn);
+        const {
+          accessToken: newToken,
+          expiresIn = 900,
+          tenantId: refreshedTenantId = null,
+          role,
+        } = response.data.data;
+        setAccessToken(newToken, expiresIn, refreshedTenantId);
         // Extend marker cookie so middleware stays in sync (7 days)
         if (typeof document !== 'undefined') {
           const REFRESH_MAX_AGE = 7 * 24 * 60 * 60;
-          const domainStr = window.location.hostname.includes('localhost') 
+          const domainStr = window.location.hostname.includes('localhost')
             ? ''
             : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
           document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
+          if (role) {
+            document.cookie = `closetrent_role=${role}; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
+          }
         }
         return newToken;
       }
@@ -132,15 +140,18 @@ export async function loginWithCredentials(
     data: {
       user: AuthUserInfo;
       tenants: Array<{ id: string; subdomain: string; businessName: string; role: string }>;
-      suspendedTenants?: Array<{ id: string; businessName: string; subdomain: string; status: string; statusReason: string | null }>;
+      suspendedTenants?: Array<{
+        id: string;
+        businessName: string;
+        subdomain: string;
+        status: string;
+        statusReason: string | null;
+      }>;
       accessToken: string;
       expiresIn: number;
+      tenantId: string | null;
     };
-  }>(
-    '/auth/login',
-    { identifier: emailOrPhone, password, tenantSlug },
-    { withCredentials: true },
-  );
+  }>('/auth/login', { identifier: emailOrPhone, password, tenantSlug }, { withCredentials: true });
 
   const {
     user,
@@ -148,9 +159,11 @@ export async function loginWithCredentials(
     suspendedTenants = [],
     accessToken: token,
     expiresIn = 900,
+    tenantId: selectedTenantId,
   } = response.data.data;
-  const primaryTenantId = tenants?.[0]?.id || null;
-  const primarySubdomain = tenants?.[0]?.subdomain || null;
+  const selectedTenant = tenants.find((tenant) => tenant.id === selectedTenantId);
+  const primaryTenantId = selectedTenantId ?? user.tenantId ?? null;
+  const primarySubdomain = selectedTenant?.subdomain ?? user.currentTenant?.subdomain ?? null;
 
   setAccessToken(token, expiresIn, primaryTenantId);
 
@@ -158,12 +171,12 @@ export async function loginWithCredentials(
   // NOTE: These match the refresh token lifespan (7 days), NOT the short-lived access token.
   if (typeof document !== 'undefined') {
     const REFRESH_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
-    
+
     // Allow cookies to span subdomains
-    const domainStr = window.location.hostname.includes('localhost') 
+    const domainStr = window.location.hostname.includes('localhost')
       ? '' // Chrome rejects domain=localhost when on a subdomain. Omit for dev.
       : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
-      
+
     document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
     document.cookie = `closetrent_role=${user.role}; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
   }

@@ -26,7 +26,8 @@ export type SmsTemplate =
   | 'booking_completed'
   | 'booking_overdue'
   | 'new_booking_owner'
-  | 'subscription_expiring';
+  | 'subscription_expiring'
+  | 'password_reset';
 
 export interface SmsTemplateData {
   booking_placed: {
@@ -72,5 +73,9 @@ export interface SmsTemplateData {
   subscription_expiring: {
     daysLeft: number;
     storeName: string;
+  };
+  password_reset: {
+    resetUrl: string;
+    expiresMinutes: number;
   };
 }

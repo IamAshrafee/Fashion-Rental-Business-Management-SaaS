@@ -11,6 +11,9 @@ import {
   SetCustomDomainDto,
   StoreSettings,
   ApiResponse,
+  SubscriptionView,
+  ResourceUsageView,
+  SubscriptionPaymentView,
 } from '@closetrent/types';
 
 export const settingsApi = {
@@ -78,17 +81,17 @@ export const settingsApi = {
   
   // Subscription Info
   getSubscription: async () => {
-    const { data } = await apiClient.get<ApiResponse<any>>('/tenant/subscription');
+    const { data } = await apiClient.get<ApiResponse<SubscriptionView>>('/tenant/subscription');
     return data;
   },
 
   getResourceUsage: async () => {
-    const { data } = await apiClient.get<ApiResponse<any>>('/tenant/resource-usage');
+    const { data } = await apiClient.get<ApiResponse<ResourceUsageView>>('/tenant/resource-usage');
     return data;
   },
 
   getBillingHistory: async () => {
-    const { data } = await apiClient.get<ApiResponse<any>>('/tenant/billing-history');
+    const { data } = await apiClient.get<ApiResponse<SubscriptionPaymentView[]>>('/tenant/billing-history');
     return data;
   },
 

@@ -1,14 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
+import { hasTenantPermission } from '@/lib/permissions';
 
 export interface DashboardStats {
   pendingCount: number;
   overdueCount: number;
   todayDeliveries: number;
   totalActive: number;
-  revenueThisMonth: number;
-  revenueChart: Array<{
+  bookedRentalValueThisMonth: number;
+  bookedValueChangePercent: number | null;
+  bookingValueChart: Array<{
     date: string;
     revenue: number;
   }>;
@@ -26,14 +28,23 @@ export interface DashboardStats {
     deliveryName: string;
     createdAt: string;
   }>;
+  setupReadiness: {
+    branding: boolean;
+    category: boolean;
+    publishedProduct: boolean;
+    physicalInventory: boolean;
+    payment: boolean;
+    delivery: boolean;
+  };
 }
 
 export function useBookingStats() {
-  const { tenantId } = useAuth();
+  const { tenantId, user } = useAuth();
+  const canManageBookings = hasTenantPermission(user, 'manage_bookings');
   
   return useQuery({
     queryKey: ['owner', 'bookings', 'stats', tenantId],
-    enabled: !!tenantId,
+    enabled: Boolean(tenantId && canManageBookings),
     queryFn: async () => {
       const response = await apiClient.get<{ success: boolean; data: DashboardStats }>('/owner/bookings/stats');
       return response.data.data;

@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Banknote, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { formatMinorMoney } from '@/lib/money';
 
 export default function GlobalRevenuePage() {
   const { data: res, isLoading } = useQuery({
@@ -51,7 +52,7 @@ export default function GlobalRevenuePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {payments.map((payment: any) => (
+                {payments.map((payment) => (
                   <TableRow key={payment.id} className="cursor-default hover:bg-muted/30">
                     <TableCell className="pl-6 whitespace-nowrap text-sm">
                       {format(new Date(payment.createdAt), 'MMM dd, yyyy HH:mm')}
@@ -63,7 +64,7 @@ export default function GlobalRevenuePage() {
                       <span className="text-xs text-muted-foreground font-mono">{payment.tenant.subdomain}</span>
                     </TableCell>
                     <TableCell className="font-medium text-green-700 dark:text-green-400 font-mono text-sm">
-                      ৳{(payment.amount / 100).toLocaleString()}
+                      {formatMinorMoney(payment.amount)}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col items-start gap-1">

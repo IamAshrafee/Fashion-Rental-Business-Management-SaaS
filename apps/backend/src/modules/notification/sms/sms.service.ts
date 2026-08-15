@@ -99,6 +99,12 @@ export class SmsService {
           `Please renew to avoid service interruption. — ${data.storeName}`
         );
 
+      case 'password_reset':
+        return (
+          `Reset your ClosetRent password within ${data.expiresMinutes} minutes: ` +
+          `${data.resetUrl} If you did not request this, ignore this message.`
+        );
+
       default:
         return '';
     }

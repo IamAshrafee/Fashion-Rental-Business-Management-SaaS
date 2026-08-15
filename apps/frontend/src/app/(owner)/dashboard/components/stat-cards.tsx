@@ -6,18 +6,15 @@ import {
   CardHeader, 
   CardTitle 
 } from '@/components/ui/card';
-import { ClipboardList, Filter, Package, AlertTriangle, TrendingUp } from 'lucide-react';
+import { ClipboardList, Package, AlertTriangle, TrendingUp } from 'lucide-react';
 import type { DashboardStats } from '@/hooks/use-booking-stats';
 import Link from 'next/link';
+import { formatMinorMoney } from '@/lib/money';
 
 export function DashboardStatCards({ stats }: { stats: DashboardStats }) {
   // Safe parsing/formatting
-  const formattedRevenue = new Intl.NumberFormat('en-BD', {
-    style: 'currency',
-    currency: 'BDT',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(stats.revenueThisMonth || 0);
+  const formattedValue = formatMinorMoney(stats.bookedRentalValueThisMonth);
+  const change = stats.bookedValueChangePercent;
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -41,13 +38,15 @@ export function DashboardStatCards({ stats }: { stats: DashboardStats }) {
       <Link href="/dashboard/analytics">
         <Card className="hover:bg-muted/50 transition-colors cursor-pointer h-full">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Revenue (MTD)</CardTitle>
+            <CardTitle className="text-sm font-medium">Booked rental value (MTD)</CardTitle>
             <TrendingUp className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formattedRevenue}</div>
-            <p className="text-xs text-emerald-500 font-medium mt-1">
-              +15% from last month
+            <div className="text-2xl font-bold">{formattedValue}</div>
+            <p className="text-xs text-muted-foreground font-medium mt-1">
+              {change === null
+                ? 'No prior-period comparison'
+                : `${change > 0 ? '+' : ''}${change}% vs same period last month`}
             </p>
           </CardContent>
         </Card>

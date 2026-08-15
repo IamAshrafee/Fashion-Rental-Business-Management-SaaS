@@ -311,6 +311,6 @@ export class SubscriptionService {
       },
     });
 
-    return { success: true, data: payments };
+    return payments;
   }
 }

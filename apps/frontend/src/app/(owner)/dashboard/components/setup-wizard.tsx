@@ -1,132 +1,74 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
+import Link from 'next/link';
+import { ArrowRight, CheckCircle2, CircleDashed, Target } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Target } from 'lucide-react';
+import type { DashboardStats } from '@/hooks/use-booking-stats';
 
-const WIZARD_STEPS = [
-  { id: 'logo', label: 'Upload store logo' },
-  { id: 'colors', label: 'Set store colors' },
-  { id: 'category', label: 'Add first category' },
-  { id: 'product', label: 'Add first product' },
-  { id: 'payment', label: 'Set payment method' },
-  { id: 'delivery', label: 'Set delivery area' },
+type Readiness = DashboardStats['setupReadiness'];
+type ReadinessKey = keyof Readiness;
+
+const STEPS: Array<{
+  id: ReadinessKey;
+  label: string;
+  description: string;
+  href: string;
+}> = [
+  { id: 'branding', label: 'Add your store logo', description: 'Gives the storefront and customer communications a recognizable identity.', href: '/dashboard/settings/branding' },
+  { id: 'category', label: 'Create a product category', description: 'Organizes products so staff and customers can find them consistently.', href: '/dashboard/products/categories' },
+  { id: 'publishedProduct', label: 'Publish a rentable product', description: 'Only published products are available to storefront customers.', href: '/dashboard/products/new' },
+  { id: 'physicalInventory', label: 'Register a physical item', description: 'Every rentable garment needs its own asset identity and lifecycle record.', href: '/dashboard/inventory/items/register' },
+  { id: 'payment', label: 'Configure a payment method', description: 'Add bKash, Nagad, or complete SSLCommerz credentials for checkout.', href: '/dashboard/settings/payment' },
+  { id: 'delivery', label: 'Configure pickup operations', description: 'A pickup address and city are required for reliable handoff and delivery planning.', href: '/dashboard/settings/delivery' },
 ];
 
-const STORAGE_KEY = 'closetrent_onboarding_progress';
-
-export function DashboardSetupWizard() {
-  const [mounted, setMounted] = useState(false);
-  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
-  const [isDismissed, setIsDismissed] = useState(false);
-
-  // Hydrate from localStorage
-  useEffect(() => {
-    setMounted(true);
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setCompletedSteps(parsed.steps || []);
-        setIsDismissed(parsed.dismissed || false);
-      }
-    } catch {
-      console.error('Failed to parse onboarding progress');
-    }
-  }, []);
-
-  // Sync to localStorage
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        steps: completedSteps,
-        dismissed: isDismissed
-      }));
-    } catch {
-      // ignore
-    }
-  }, [completedSteps, isDismissed, mounted]);
-
-  const toggleStep = (id: string, checked: boolean) => {
-    setCompletedSteps(prev => 
-      checked ? [...prev, id] : prev.filter(step => step !== id)
-    );
-  };
-
-  if (!mounted || isDismissed) return null;
-
-  const progress = Math.round((completedSteps.length / WIZARD_STEPS.length) * 100);
-  const isAllComplete = completedSteps.length === WIZARD_STEPS.length;
+export function DashboardSetupWizard({ readiness }: { readiness: Readiness }) {
+  const completed = STEPS.filter((step) => readiness[step.id]).length;
+  if (completed === STEPS.length) return null;
+  const progress = Math.round((completed / STEPS.length) * 100);
 
   return (
-    <Card className="border-primary/20 bg-primary/5 relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-1 bg-primary h-full" />
+    <Card className="relative overflow-hidden border-primary/20 bg-primary/5">
+      <div className="absolute inset-y-0 left-0 w-1 bg-primary" />
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Target className="h-5 w-5 text-primary" />
-              Getting Started
+              Store readiness
             </CardTitle>
             <CardDescription className="mt-1">
-              Complete these steps to set up your storefront
+              This checklist is calculated from your live store configuration—not manually checked boxes.
             </CardDescription>
           </div>
-          <div className="text-right">
-            <span className="text-sm font-semibold text-primary">{progress}%</span>
-          </div>
+          <span className="text-sm font-semibold text-primary">{completed}/{STEPS.length}</span>
         </div>
-        <Progress value={progress} className="h-2 mt-2 bg-primary/20" />
+        <Progress value={progress} className="mt-2 h-2 bg-primary/20" />
       </CardHeader>
-      
+
       <CardContent>
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-          {WIZARD_STEPS.map((step) => {
-            const isChecked = completedSteps.includes(step.id);
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {STEPS.map((step) => {
+            const isComplete = readiness[step.id];
             return (
-              <div 
-                key={step.id}
-                className="flex items-center space-x-2 rounded-md border bg-card p-3 shadow-sm transition-all hover:border-primary/50"
-              >
-                <Checkbox 
-                  id={step.id} 
-                  checked={isChecked}
-                  onCheckedChange={(checked) => toggleStep(step.id, checked === true)}
-                />
-                <Label 
-                  htmlFor={step.id}
-                  className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer ${isChecked ? 'text-muted-foreground line-through decoration-primary/50' : ''}`}
-                >
-                  {step.label}
-                </Label>
-              </div>
+              <Link key={step.id} href={step.href} className="group flex gap-3 rounded-md border bg-card p-3 shadow-sm transition-colors hover:border-primary/50 hover:bg-muted/30">
+                {isComplete
+                  ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+                  : <CircleDashed className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                    {step.label}
+                    <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    {isComplete ? 'Complete. ' : ''}{step.description}
+                  </span>
+                </span>
+              </Link>
             );
           })}
         </div>
-        
-        {isAllComplete && (
-          <div className="mt-6 flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in duration-500">
-            <div className="rounded-full bg-emerald-100 p-3 text-emerald-600 mb-3">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h4 className="font-semibold text-lg mb-1">You&apos;re all set!</h4>
-            <p className="text-sm text-muted-foreground mb-4 max-w-[300px]">
-              Your store is fully configured and ready to accept bookings.
-            </p>
-            <button 
-              onClick={() => setIsDismissed(true)}
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Dismiss Setup Checklist
-            </button>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

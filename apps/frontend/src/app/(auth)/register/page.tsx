@@ -1,32 +1,30 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Loader2, Gift, Sparkles } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-sm text-muted-foreground">Loading registration…</div>}>
+    <Suspense
+      fallback={
+        <div className="p-8 text-center text-sm text-muted-foreground">Loading registration…</div>
+      }
+    >
       <RegisterPageContent />
     </Suspense>
   );
 }
 
 function RegisterPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   // Marketing URL params: /register?plan=pro&promo=LAUNCH2026&ref=facebook
@@ -48,6 +46,9 @@ function RegisterPageContent() {
   const [isSubdomainEdited, setIsSubdomainEdited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPromo, setShowPromo] = useState(!!urlPromo);
+  const [subdomainState, setSubdomainState] = useState<'idle' | 'checking' | 'available' | 'taken'>(
+    'idle',
+  );
 
   function update(field: string, value: string) {
     setFormData((prev) => {
@@ -65,6 +66,7 @@ function RegisterPageContent() {
 
       if (field === 'subdomain') {
         setIsSubdomainEdited(true);
+        setSubdomainState('idle');
         newData.subdomain = value.toLowerCase().replace(/[^a-z0-9-]/g, '');
       }
 
@@ -72,10 +74,34 @@ function RegisterPageContent() {
     });
   }
 
+  async function checkSubdomain() {
+    if (formData.subdomain.length < 3) return;
+    setSubdomainState('checking');
+    try {
+      const response = await apiClient.post<{
+        success: boolean;
+        data: { available: boolean };
+      }>('/auth/check-subdomain', { subdomain: formData.subdomain });
+      setSubdomainState(response.data.data.available ? 'available' : 'taken');
+    } catch {
+      setSubdomainState('idle');
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!formData.fullName || !formData.password || !formData.businessName || !formData.subdomain) {
+    if (
+      !formData.fullName ||
+      !formData.phone ||
+      !formData.password ||
+      !formData.businessName ||
+      !formData.subdomain
+    ) {
       toast.error('Please fill in all required fields');
+      return;
+    }
+    if (subdomainState === 'taken') {
+      toast.error('Choose an available store URL');
       return;
     }
 
@@ -111,10 +137,7 @@ function RegisterPageContent() {
         window.location.href = `${window.location.protocol}//${subdomain}.${baseDomain}/login`;
       }
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? 'Registration failed';
-      toast.error(message);
+      toast.error(getApiErrorMessage(err, 'Registration failed'));
     } finally {
       setIsLoading(false);
     }
@@ -124,9 +147,7 @@ function RegisterPageContent() {
     <Card>
       <CardHeader className="text-center">
         <CardTitle className="text-xl">Create Account</CardTitle>
-        <CardDescription>
-          Start managing your fashion rental business
-        </CardDescription>
+        <CardDescription>Start managing your fashion rental business</CardDescription>
         {/* Show marketing badges from URL params */}
         {(urlPlan || urlPromo) && (
           <div className="flex items-center justify-center gap-2 mt-2">
@@ -176,13 +197,26 @@ function RegisterPageContent() {
                 placeholder="your-store"
                 value={formData.subdomain}
                 onChange={(e) => update('subdomain', e.target.value)}
+                onBlur={checkSubdomain}
                 disabled={isLoading}
                 className="text-right"
+                required
               />
-              <span className="text-muted-foreground text-sm whitespace-nowrap">.closetrent.com</span>
+              <span className="text-muted-foreground text-sm whitespace-nowrap">
+                .closetrent.com
+              </span>
             </div>
+            {subdomainState === 'checking' && (
+              <p className="text-xs text-muted-foreground">Checking availability…</p>
+            )}
+            {subdomainState === 'available' && (
+              <p className="text-xs text-emerald-600">This store URL is available.</p>
+            )}
+            {subdomainState === 'taken' && (
+              <p className="text-xs text-destructive">This store URL is already taken.</p>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -195,7 +229,7 @@ function RegisterPageContent() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone</Label>
+              <Label htmlFor="phone">Phone *</Label>
               <Input
                 id="phone"
                 type="tel"
@@ -203,6 +237,8 @@ function RegisterPageContent() {
                 value={formData.phone}
                 onChange={(e) => update('phone', e.target.value)}
                 disabled={isLoading}
+                required
+                autoComplete="tel"
               />
             </div>
           </div>
@@ -245,17 +281,18 @@ function RegisterPageContent() {
             </div>
           )}
 
-          <Button type="submit" className="w-full" disabled={isLoading}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isLoading || subdomainState === 'checking' || subdomainState === 'taken'}
+          >
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Account
           </Button>
         </form>
         <div className="mt-4 text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <a
-            href="/login"
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
+          <a href="/login" className="font-medium text-primary underline-offset-2 hover:underline">
             Sign In
           </a>
         </div>

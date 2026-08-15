@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api-admin';
 import { PageHeader } from '@/components/shared';
 import { AlertCircle } from 'lucide-react';
+import { formatMinorMoney } from '@/lib/money';
 
 export default function AdminDashboardPage() {
   const { data: statsRes, isLoading, error } = useQuery({
@@ -12,14 +13,6 @@ export default function AdminDashboardPage() {
   });
 
   const stats = statsRes?.data;
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'BDT',
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   return (
     <div className="space-y-6">
@@ -74,7 +67,7 @@ export default function AdminDashboardPage() {
             <div className="rounded-lg border bg-card p-6 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Expected MRR</p>
               <p className="mt-2 text-3xl font-bold tracking-tight text-card-foreground">
-                {formatCurrency(stats.expectedMrr || stats.mrr || 0)}
+                {formatMinorMoney(stats.expectedMrr || stats.mrr || 0)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">From active subscriptions</p>
             </div>
@@ -82,15 +75,15 @@ export default function AdminDashboardPage() {
             <div className="rounded-lg border bg-card p-6 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Actual Revenue (30d)</p>
               <p className="mt-2 text-3xl font-bold tracking-tight text-card-foreground">
-                {formatCurrency((stats.actualMrr || 0) / 100)}
+                {formatMinorMoney(stats.actualMrr || 0)}
               </p>
               <p className={`mt-1 text-xs ${
-                (stats.actualMrr || 0) / 100 >= (stats.expectedMrr || stats.mrr || 1)
+                (stats.actualMrr || 0) >= (stats.expectedMrr || stats.mrr || 1)
                   ? 'text-green-600 dark:text-green-400'
                   : 'text-amber-600 dark:text-amber-400'
               }`}>
                 {stats.expectedMrr || stats.mrr
-                  ? `${Math.round(((stats.actualMrr || 0) / 100 / (stats.expectedMrr || stats.mrr)) * 100)}% of expected`
+                  ? `${Math.round(((stats.actualMrr || 0) / (stats.expectedMrr || stats.mrr)) * 100)}% of expected`
                   : 'From subscription payments'}
               </p>
             </div>
@@ -108,7 +101,7 @@ export default function AdminDashboardPage() {
             <div className="rounded-lg border bg-card p-6 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Gross Merchandise Value</p>
               <p className="mt-2 text-2xl font-bold tracking-tight text-card-foreground">
-                {formatCurrency(stats.gmv || 0)}
+                {formatMinorMoney(stats.gmv || 0)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">Total verified payments across all tenants</p>
             </div>

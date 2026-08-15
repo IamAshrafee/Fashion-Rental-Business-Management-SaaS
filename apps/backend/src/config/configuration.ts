@@ -38,7 +38,9 @@ export default () => ({
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
   security: {
-    courierCredentialsKey: process.env.COURIER_CREDENTIALS_ENCRYPTION_KEY,
+    credentialsKey:
+      process.env.CREDENTIALS_ENCRYPTION_KEY
+      || process.env.COURIER_CREDENTIALS_ENCRYPTION_KEY,
   },
   sms: {
     providerUrl: process.env.SMS_PROVIDER_URL,

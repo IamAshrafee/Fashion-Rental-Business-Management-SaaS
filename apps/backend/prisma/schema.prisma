@@ -617,7 +617,7 @@ model User {
   id           String    @id @default(uuid())
   fullName     String    @map("full_name")
   email        String?   @unique
-  phone        String?
+  phone        String?   @unique
   passwordHash String    @map("password_hash")
   role         UserRole  @default(owner)
   isActive     Boolean   @default(true) @map("is_active")
@@ -630,6 +630,7 @@ model User {
   auditLogs                    AuditLog[]
   sessions                     Session[]
   loginHistory                 LoginHistory[]
+  passwordResetTokens          PasswordResetToken[]
   damageReports                DamageReport[]
   deletedProducts              Product[]                       @relation("ProductDeletedBy")
   createdProductOnboardings    ProductOnboarding[]             @relation("ProductOnboardingCreator")
@@ -668,7 +669,6 @@ model User {
   reconciledCodRemittances     CodRemittance[]                 @relation("CodRemittanceReconciler")
   createdStaffInvitations      StaffInvitation[]               @relation("StaffInvitationCreator")
 
-  @@index([phone])
   @@map("users")
 }
 
@@ -1054,6 +1054,20 @@ model LoginHistory {
   @@index([userId])
   @@index([tenantId])
   @@map("login_history")
+}
+
+model PasswordResetToken {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  tokenDigest String    @unique @map("token_digest")
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt, expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // ============================================================================

@@ -7,6 +7,7 @@ import { PlanFormDialog } from './components/plan-form-dialog';
 import { useState } from 'react';
 import { SubscriptionPlan } from '@closetrent/types';
 import { AlertCircle } from 'lucide-react';
+import { formatMinorMoney } from '@/lib/money';
 
 export default function SubscriptionPlansPage() {
   const { data: res, isLoading, error } = useQuery({
@@ -89,13 +90,13 @@ export default function SubscriptionPlansPage() {
 
               <div className="mt-4 border-t border-border pt-4 flex-1">
                 <p className="text-sm font-medium text-card-foreground">
-                  <span className="text-2xl font-bold tracking-tight">৳{plan.priceMonthly}</span>
+                  <span className="text-2xl font-bold tracking-tight">{formatMinorMoney(plan.priceMonthly)}</span>
                   <span className="text-muted-foreground"> /mo</span>
                 </p>
 
-                {(plan as any)._count?.tenants !== undefined && (
+                {plan._count?.tenants !== undefined && (
                   <p className="mt-1 text-sm text-muted-foreground">
-                    <span className="font-semibold text-card-foreground">{(plan as any)._count.tenants}</span> tenant{(plan as any)._count.tenants !== 1 ? 's' : ''}
+                    <span className="font-semibold text-card-foreground">{plan._count.tenants}</span> tenant{plan._count.tenants !== 1 ? 's' : ''}
                   </p>
                 )}
 

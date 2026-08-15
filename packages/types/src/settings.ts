@@ -38,6 +38,7 @@ export interface UpdatePaymentSettingsDto {
   nagadNumber?: string;
   sslcommerzStoreId?: string;
   sslcommerzStorePass?: string;
+  clearSslcommerzCredentials?: boolean;
   sslcommerzSandbox?: boolean;
 }
 
@@ -93,25 +94,25 @@ export interface StoreSettings {
   tenantId: string;
 
   // General & Contact
-  businessName?: string;
-  tagline?: string;
-  about?: string;
-  phone?: string;
-  whatsapp?: string;
-  email?: string;
-  address?: string;
+  businessName: string;
+  tagline: string | null;
+  about: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  address: string | null;
 
   // Branding
   primaryColor: string;
   secondaryColor: string;
-  logoUrl?: string;
-  faviconUrl?: string;
+  logoUrl: string | null;
+  faviconUrl: string | null;
 
   // Social
-  facebookUrl?: string;
-  instagramUrl?: string;
-  tiktokUrl?: string;
-  youtubeUrl?: string;
+  facebookUrl: string | null;
+  instagramUrl: string | null;
+  tiktokUrl: string | null;
+  youtubeUrl: string | null;
 
   // Locale
   defaultLanguage: string;
@@ -126,15 +127,15 @@ export interface StoreSettings {
   weekStart: 'saturday' | 'sunday' | 'monday';
 
   // Payment
-  bkashNumber?: string;
-  nagadNumber?: string;
-  sslcommerzStoreId?: string;
-  sslcommerzStorePass?: string;
+  bkashNumber: string | null;
+  nagadNumber: string | null;
+  sslcommerzStoreId: string | null;
+  sslcommerzConfigured: boolean;
   sslcommerzSandbox: boolean;
 
   // Delivery operations
-  pickupAddress?: string;
-  pickupCity?: string;
+  pickupAddress: string | null;
+  pickupCity: string | null;
 
   // Pickup scheduling
   pickupLeadDays?: number;
@@ -147,6 +148,69 @@ export interface StoreSettings {
 
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SubscriptionPlanView {
+  id: string;
+  name: string;
+  slug: string;
+  priceMonthly: number;
+  priceAnnual: number | null;
+  maxProducts: number | null;
+  maxOrders: number | null;
+  maxStaff: number;
+  customDomain: boolean;
+  smsEnabled: boolean;
+  analyticsFull: boolean;
+  removeBranding: boolean;
+}
+
+export interface SubscriptionView {
+  id: string;
+  planId: string;
+  plan: SubscriptionPlanView;
+  status: string;
+  billingCycle: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  trialEndsAt: string | null;
+  cancelledAt: string | null;
+  computed: {
+    isActive: boolean;
+    isInTrial: boolean;
+    isInGracePeriod: boolean;
+    isExpired: boolean;
+    daysRemaining: number;
+    status: string;
+  };
+}
+
+export interface PlanResourceUsage {
+  allowed: boolean;
+  current: number;
+  limit: number | null;
+}
+
+export interface ResourceUsageView {
+  products: PlanResourceUsage;
+  staff: PlanResourceUsage;
+  orders: PlanResourceUsage;
+}
+
+export interface SubscriptionPaymentView {
+  id: string;
+  amount: number;
+  method: string;
+  reference: string | null;
+  notes: string | null;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: string;
+  invoice: {
+    id: string;
+    invoiceNo: string;
+    status: string;
+  } | null;
 }
 
 // =========================================================================
@@ -175,7 +239,7 @@ export interface UpdateStaffDto {
   permissions?: StaffPermission[];
 }
 
-export type StaffPermission =
+export type TenantPermission =
   | 'manage_products'
   | 'manage_inventory'
   | 'manage_bookings'
@@ -183,7 +247,15 @@ export type StaffPermission =
   | 'view_customers'
   | 'manage_customers'
   | 'view_analytics'
-  | 'manage_finance';
+  | 'manage_finance'
+  | 'manage_settings'
+  | 'manage_staff'
+  | 'manage_billing';
+
+export type StaffPermission = Exclude<
+  TenantPermission,
+  'manage_settings' | 'manage_staff' | 'manage_billing'
+>;
 
 export interface Staff {
   id: string;

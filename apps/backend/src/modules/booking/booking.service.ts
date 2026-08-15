@@ -2589,6 +2589,15 @@ export class BookingService {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const firstDayOfPreviousMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const previousPeriodEndCandidate = new Date(
+      today.getFullYear(),
+      today.getMonth() - 1,
+      today.getDate() + 1,
+    );
+    const previousPeriodEnd = previousPeriodEndCandidate > firstDayOfMonth
+      ? firstDayOfMonth
+      : previousPeriodEndCandidate;
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
 
@@ -2601,9 +2610,14 @@ export class BookingService {
       todayDeliveries,
       totalActive,
       recentBookings,
-      revenueAgg,
+      bookedValueAgg,
+      previousBookedValueAgg,
       topProductsRaw,
       recentRevenueBookings,
+      setupTenant,
+      setupCategoryCount,
+      setupPublishedProductCount,
+      setupStockUnitCount,
     ] = await Promise.all([
       this.prisma.booking.count({
         where: { tenantId, status: 'pending', deletedAt: null },
@@ -2685,12 +2699,21 @@ export class BookingService {
         },
       }),
       this.prisma.booking.aggregate({
-        _sum: { grandTotal: true, totalDeposit: true }, // M2 FIX: also sum deposits to exclude from revenue
+        _sum: { grandTotal: true, totalDeposit: true },
         where: {
           tenantId,
           deletedAt: null,
           status: { notIn: ['pending', 'cancelled'] },
           createdAt: { gte: firstDayOfMonth },
+        },
+      }),
+      this.prisma.booking.aggregate({
+        _sum: { grandTotal: true, totalDeposit: true },
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { notIn: ['pending', 'cancelled'] },
+          createdAt: { gte: firstDayOfPreviousMonth, lt: previousPeriodEnd },
         },
       }),
       this.prisma.bookingItem.groupBy({
@@ -2710,7 +2733,30 @@ export class BookingService {
           status: { notIn: ['pending', 'cancelled'] },
           createdAt: { gte: thirtyDaysAgo },
         },
-        select: { createdAt: true, grandTotal: true },
+        select: { createdAt: true, grandTotal: true, totalDeposit: true },
+      }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          logoUrl: true,
+          storeSettings: {
+            select: {
+              bkashNumber: true,
+              nagadNumber: true,
+              sslcommerzStoreId: true,
+              sslcommerzStorePass: true,
+              pickupAddress: true,
+              pickupCity: true,
+            },
+          },
+        },
+      }),
+      this.prisma.category.count({ where: { tenantId, isActive: true } }),
+      this.prisma.product.count({
+        where: { tenantId, status: 'published', deletedAt: null },
+      }),
+      this.prisma.stockUnit.count({
+        where: { tenantId, disposition: 'ACTIVE', deletedAt: null },
       }),
     ]);
 
@@ -2724,7 +2770,10 @@ export class BookingService {
     for (const b of recentRevenueBookings) {
       const dateStr = b.createdAt.toISOString().split('T')[0];
       if (revenueMap.has(dateStr)) {
-        revenueMap.set(dateStr, revenueMap.get(dateStr)! + b.grandTotal);
+        revenueMap.set(
+          dateStr,
+          revenueMap.get(dateStr)! + Math.max(0, b.grandTotal - b.totalDeposit),
+        );
       }
     }
     const revenueChart = Array.from(revenueMap.entries()).map(([date, revenue]) => ({
@@ -2778,6 +2827,23 @@ export class BookingService {
       Object.entries(queueCountRow ?? {}).map(([queue, count]) => [queue, Number(count)]),
     );
 
+    const bookedRentalValueThisMonth = Math.max(
+      0,
+      (bookedValueAgg._sum.grandTotal || 0) - (bookedValueAgg._sum.totalDeposit || 0),
+    );
+    const previousBookedRentalValue = Math.max(
+      0,
+      (previousBookedValueAgg._sum.grandTotal || 0)
+        - (previousBookedValueAgg._sum.totalDeposit || 0),
+    );
+    const bookedValueChangePercent = previousBookedRentalValue > 0
+      ? Math.round(
+        ((bookedRentalValueThisMonth - previousBookedRentalValue)
+          / previousBookedRentalValue) * 100,
+      )
+      : null;
+    const setupSettings = setupTenant?.storeSettings;
+
     return {
       pendingCount,
       overdueCount,
@@ -2788,12 +2854,22 @@ export class BookingService {
       totalActive,
       queueCounts,
       recentBookings,
-      revenueThisMonth: Math.max(
-        0,
-        (revenueAgg._sum.grandTotal || 0) - (revenueAgg._sum.totalDeposit || 0),
-      ),
-      revenueChart,
+      bookedRentalValueThisMonth,
+      bookedValueChangePercent,
+      bookingValueChart: revenueChart,
       topProducts,
+      setupReadiness: {
+        branding: Boolean(setupTenant?.logoUrl),
+        category: setupCategoryCount > 0,
+        publishedProduct: setupPublishedProductCount > 0,
+        physicalInventory: setupStockUnitCount > 0,
+        payment: Boolean(
+          setupSettings?.bkashNumber
+          || setupSettings?.nagadNumber
+          || (setupSettings?.sslcommerzStoreId && setupSettings.sslcommerzStorePass),
+        ),
+        delivery: Boolean(setupSettings?.pickupAddress && setupSettings.pickupCity),
+      },
     };
   }
 

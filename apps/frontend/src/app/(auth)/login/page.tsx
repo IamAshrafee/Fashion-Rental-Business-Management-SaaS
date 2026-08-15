@@ -6,13 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { loginWithCredentials } from '@/lib/auth';
@@ -99,7 +93,12 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       // Call login directly so we get the user object back with their role
-      const user = await loginWithCredentials(emailOrPhone, password);
+      const currentTenantSlug = extractSubdomain(window.location.host);
+      const user = await loginWithCredentials(
+        emailOrPhone.trim(),
+        password,
+        currentTenantSlug ?? undefined,
+      );
 
       // Scenario B: all tenants are suspended → redirect BEFORE syncing auth
       // context. If we call refreshUser() first, it sets isAuthenticated=true
@@ -128,8 +127,8 @@ export default function LoginPage() {
       }
     } catch (err: unknown) {
       const message =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? 'Invalid credentials';
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message ?? 'Invalid credentials';
       toast.error(message);
     } finally {
       setIsLoading(false);
@@ -148,9 +147,7 @@ export default function LoginPage() {
     <Card>
       <CardHeader className="text-center">
         <CardTitle className="text-xl">Sign In</CardTitle>
-        <CardDescription>
-          Enter your credentials to access your dashboard
-        </CardDescription>
+        <CardDescription>Enter your credentials to access your dashboard</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -177,14 +174,18 @@ export default function LoginPage() {
               disabled={isLoading}
             />
           </div>
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={isLoading}
-          >
+          <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Sign In
           </Button>
+          <div className="text-right">
+            <a
+              href="/forgot-password"
+              className="text-sm font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Forgot password?
+            </a>
+          </div>
         </form>
         <div className="mt-4 text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{' '}

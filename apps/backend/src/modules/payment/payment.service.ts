@@ -21,6 +21,7 @@ import {
   SettleDepositDto,
 } from './dto/payment.dto';
 import { createHash } from 'crypto';
+import { SensitiveDataService } from '../../common/security/sensitive-data.service';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -49,6 +50,7 @@ export class PaymentService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
+    private readonly sensitiveData: SensitiveDataService,
   ) {}
 
   // =========================================================================
@@ -434,9 +436,10 @@ export class PaymentService {
     const baseUrl = this.configService.get<string>('app.backendUrl', 'http://localhost:4000');
 
 
+    const storePassword = this.sensitiveData.decrypt(storeSettings.sslcommerzStorePass);
     const payload = new URLSearchParams({
       store_id: storeSettings.sslcommerzStoreId,
-      store_passwd: storeSettings.sslcommerzStorePass,
+      store_passwd: storePassword,
       total_amount: (remainingAmount / 100).toFixed(2),
       currency: storeSettings.currencyCode || 'BDT',
       tran_id: transactionId,
@@ -586,7 +589,7 @@ export class PaymentService {
       const validation = await this.validateSslcommerzTransaction({
         validationId,
         storeId: storeSettings.sslcommerzStoreId,
-        storePassword: storeSettings.sslcommerzStorePass,
+        storePassword: this.sensitiveData.decrypt(storeSettings.sslcommerzStorePass),
         sandbox: storeSettings.sslcommerzSandbox,
       });
       if (

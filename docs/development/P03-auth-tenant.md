@@ -79,7 +79,8 @@ export class TenantMiddleware implements NestMiddleware {
 
 **Token refresh** (`POST /auth/refresh`):
 - Validate refresh token
-- Check session still active (not revoked)
+- Check the session still exists, is unexpired, and belongs to an active user
+- Resolve the current tenant membership and role from the database
 - Issue new access + refresh tokens
 - Rotate session token
 
@@ -88,8 +89,9 @@ export class TenantMiddleware implements NestMiddleware {
 - Clear refresh token
 
 **Password reset** (`POST /auth/forgot-password`, `POST /auth/reset-password`):
-- Generate reset token (UUID, 1-hour expiry)
-- Validate token and set new password
+- Generate a random opaque reset token (1-hour expiry) and persist only its digest
+- Deliver a generic reset link without revealing account existence
+- Consume the token once, set the new password, and revoke every session atomically
 
 ### 3. JWT Strategy (Passport)
 
@@ -97,8 +99,8 @@ export class TenantMiddleware implements NestMiddleware {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   // Extract JWT from Authorization header
-  // Validate: check session exists and is active
-  // Attach user context to request: { userId, tenantId, sessionId, role }
+  // Validate the live session, user, tenant, and membership on every request
+  // Attach the current database role instead of trusting a stale role claim
 }
 ```
 
@@ -123,7 +125,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 export class TenantGuard implements CanActivate {
   // Ensures the authenticated user belongs to the current tenant
   // Compares JWT.tenantId with request.tenant.id
-  // Returns 403 if mismatch
+  // Returns 403 if the token is tenantless or the tenant IDs mismatch
 }
 ```
 
@@ -159,19 +161,9 @@ export class RolesGuard implements CanActivate {
 - Track: IP, device, browser, OS, location, timestamp, success/failure
 - `GET /auth/login-history` — paginated list
 
-### 9. Prisma Middleware for Tenant Isolation
+### 9. Tenant-Qualified Data Access
 
-```typescript
-// Ensure every tenant-scoped query includes tenant_id
-prisma.$use(async (params, next) => {
-  const tenantModels = ['Product', 'Booking', 'Customer', ...];
-  if (tenantModels.includes(params.model)) {
-    // Auto-inject tenantId filter on findMany, findFirst, update, delete
-    // Auto-inject tenantId on create
-  }
-  return next(params);
-});
-```
+Tenant isolation is explicit in service/repository queries and enforced at the HTTP boundary by tenant resolution plus `TenantGuard`. Writes use tenant-qualified lookups and compound identifiers where available. Do not rely on a global Prisma query-rewriting middleware.
 
 ### 10. Global Exception Filter
 
@@ -215,7 +207,7 @@ app.useGlobalPipes(new ValidationPipe({
 | 9 | Role guard with `@Roles()` decorator | Endpoint-level role checks |
 | 10 | Session management CRUD | List, revoke, revoke-all |
 | 11 | Login history | Recorded and queryable |
-| 12 | Prisma tenant isolation middleware | Auto-scoping queries |
+| 12 | Tenant-qualified data access | Service queries and isolation tests |
 | 13 | Global exception filter | Consistent error responses |
 | 14 | Global validation pipe | DTO validation on all endpoints |
 
@@ -261,5 +253,5 @@ DELETE /auth/sessions/:id → revokes session, token becomes invalid
 | `@CurrentTenant()` decorator — extracts tenant from request | P04–P10 |
 | Auth endpoints (register, login, refresh, logout) | P11, P12, P17–P19 |
 | Session management API | P16 |
-| Prisma tenant isolation middleware | P04–P10 |
+| Tenant-qualified service/repository access | P04–P10 |
 | Global error response format | All packages |

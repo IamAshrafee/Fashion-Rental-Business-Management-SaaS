@@ -1,10 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button';
+import { useAuth } from '@/providers/auth-provider';
+import { hasTenantPermission } from '@/lib/permissions';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 
 const settingsNavItems = [
   {
@@ -56,6 +60,17 @@ const settingsNavItems = [
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
+  const canManageSettings = hasTenantPermission(user, 'manage_settings');
+
+  useEffect(() => {
+    if (!isLoading && user && !canManageSettings) router.replace('/dashboard');
+  }, [canManageSettings, isLoading, router, user]);
+
+  if (isLoading || !canManageSettings) {
+    return <div className="flex min-h-[320px] items-center justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  }
 
   return (
     <div className="flex-1 space-y-6 max-w-7xl mx-auto w-full px-4 py-8 md:px-8">

@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { AuthUser } from '@closetrent/types';
@@ -50,10 +45,8 @@ export class TenantGuard implements CanActivate {
     if (user.role === 'saas_admin') return true;
 
     // Ensure user's tenantId matches the resolved tenant
-    if (user.tenantId && user.tenantId !== tenant.id) {
-      throw new ForbiddenException(
-        'You do not have access to this store',
-      );
+    if (!user.tenantId || user.tenantId !== tenant.id) {
+      throw new ForbiddenException('You do not have access to this store');
     }
 
     return true;

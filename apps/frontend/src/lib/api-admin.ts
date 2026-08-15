@@ -9,6 +9,7 @@ import {
   PlatformInvoice,
   PromoCode,
   SubscriptionHistoryEntry,
+  GlobalSubscriptionPayment,
   TenantStatus,
   BillingCycle,
 } from '@closetrent/types';
@@ -185,7 +186,7 @@ export const adminApi = {
     return res.data;
   },
 
-  async getGlobalPayments(params?: { page?: number; limit?: number }): Promise<PaginatedResponse<SubscriptionPayment>> {
+  async getGlobalPayments(params?: { page?: number; limit?: number }): Promise<ApiResponse<GlobalSubscriptionPayment[]>> {
     const res = await admin.get('/admin/revenue/payments', { params });
     return res.data;
   },
@@ -294,4 +295,3 @@ export const adminApi = {
     return { success: true, data: { processed: results.filter(Boolean).length } };
   },
 };
-

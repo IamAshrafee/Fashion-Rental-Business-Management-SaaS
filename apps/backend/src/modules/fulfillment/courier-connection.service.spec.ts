@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CourierConnectionService } from './courier-connection.service';
+import { SensitiveDataService } from '../../common/security/sensitive-data.service';
 
 const row = {
   id: 'connection-1',
@@ -33,7 +34,7 @@ describe('CourierConnectionService', () => {
     const config = {
       get: jest.fn((key: string, fallback?: string) => {
         if (key === 'nodeEnv') return overrides?.nodeEnv ?? 'test';
-        if (key === 'security.courierCredentialsKey') return overrides?.encryptionKey ?? 'unit-test-courier-key';
+        if (key === 'security.credentialsKey') return overrides?.encryptionKey ?? 'unit-test-courier-key';
         if (key === 'jwt.secret') return 'unit-test-jwt-key';
         return fallback;
       }),
@@ -41,7 +42,11 @@ describe('CourierConnectionService', () => {
     return {
       prisma,
       tx,
-      service: new CourierConnectionService(prisma as never, config as never, {} as never),
+      service: new CourierConnectionService(
+        prisma as never,
+        {} as never,
+        new SensitiveDataService(config as never),
+      ),
     };
   }
 

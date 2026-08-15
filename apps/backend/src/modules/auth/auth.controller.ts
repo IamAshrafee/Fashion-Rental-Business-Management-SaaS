@@ -40,15 +40,20 @@ export class AuthController {
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  async register(@Body() dto: RegisterDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async register(
+    @Body() dto: RegisterDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const ua = parseUserAgent(req.headers['user-agent']);
     const ip = extractIpAddress(req);
 
     const result = await this.authService.register(dto, { ua, ip });
 
-    const cookieDomain = process.env.NODE_ENV === 'production' 
-      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : undefined;
+    const cookieDomain =
+      process.env.NODE_ENV === 'production'
+        ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+        : undefined;
 
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
@@ -69,15 +74,20 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const ua = parseUserAgent(req.headers['user-agent']);
     const ip = extractIpAddress(req);
 
     const result = await this.authService.login(dto, { ua, ip });
 
-    const cookieDomain = process.env.NODE_ENV === 'production' 
-      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : undefined;
+    const cookieDomain =
+      process.env.NODE_ENV === 'production'
+        ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+        : undefined;
 
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
@@ -98,16 +108,21 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body() dto: RefreshTokenDto) {
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body() dto: RefreshTokenDto,
+  ) {
     // Read from body (fallback) or HTTP-only cookie
     const token = dto.refreshToken || req.cookies?.closetrent_refresh;
     if (!token) throw new UnauthorizedException('No refresh token provided');
 
     const result = await this.authService.refreshTokens(token);
 
-    const cookieDomain = process.env.NODE_ENV === 'production' 
-      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : undefined;
+    const cookieDomain =
+      process.env.NODE_ENV === 'production'
+        ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+        : undefined;
 
     res.cookie('closetrent_refresh', result.refreshToken, {
       httpOnly: true,
@@ -130,11 +145,12 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(@CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
     await this.authService.logout(user.sessionId, user.id);
-    const cookieDomain = process.env.NODE_ENV === 'production' 
-      ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
-      : undefined;
-      
-    res.clearCookie('closetrent_refresh', { 
+    const cookieDomain =
+      process.env.NODE_ENV === 'production'
+        ? `.${process.env.BASE_DOMAIN || 'closetrent.com'}`
+        : undefined;
+
+    res.clearCookie('closetrent_refresh', {
       path: '/api/v1/auth/refresh',
       domain: cookieDomain,
     });

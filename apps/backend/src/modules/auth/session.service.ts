@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -46,11 +41,7 @@ export class SessionService {
   /**
    * Revoke a specific session.
    */
-  async revokeSession(
-    sessionId: string,
-    userId: string,
-    revokedBy: string,
-  ): Promise<void> {
+  async revokeSession(sessionId: string, userId: string, revokedBy: string): Promise<void> {
     const session = await this.prisma.session.findFirst({
       where: { id: sessionId, userId },
     });
@@ -74,10 +65,7 @@ export class SessionService {
   /**
    * Revoke all sessions except the current one.
    */
-  async revokeAllOtherSessions(
-    userId: string,
-    currentSessionId: string,
-  ): Promise<number> {
+  async revokeAllOtherSessions(userId: string, currentSessionId: string): Promise<number> {
     const sessions = await this.prisma.session.findMany({
       where: {
         userId,
@@ -111,11 +99,7 @@ export class SessionService {
   /**
    * Get login history for a user (paginated).
    */
-  async getLoginHistory(
-    userId: string,
-    page: number = 1,
-    limit: number = 20,
-  ) {
+  async getLoginHistory(userId: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
     const take = Math.min(limit, 100);
 
