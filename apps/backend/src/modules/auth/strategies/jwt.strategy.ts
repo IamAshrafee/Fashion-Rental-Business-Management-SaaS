@@ -40,11 +40,29 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       },
       select: {
         tenantId: true,
+        isImpersonation: true,
+        impersonatorId: true,
         user: { select: { role: true } },
+        impersonator: { select: { role: true, isActive: true } },
       },
     });
     if (!session) {
       throw new UnauthorizedException('Session has expired or been revoked');
+    }
+
+    if (payload.isImpersonation) {
+      if (
+        !session.isImpersonation
+        || !session.impersonatorId
+        || session.impersonatorId !== payload.impersonatorId
+        || session.impersonator?.role !== 'saas_admin'
+        || !session.impersonator.isActive
+        || session.tenantId !== payload.tenantId
+      ) {
+        throw new UnauthorizedException('Invalid impersonation session');
+      }
+    } else if (session.isImpersonation) {
+      throw new UnauthorizedException('Invalid impersonation token');
     }
 
     if (session.user.role === 'saas_admin') {
@@ -86,6 +104,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role,
       tenantId: session.tenantId,
       sessionId: payload.sessionId,
+      ...(payload.isImpersonation
+        ? { isImpersonation: true, impersonatorId: session.impersonatorId ?? undefined }
+        : {}),
     };
   }
 }

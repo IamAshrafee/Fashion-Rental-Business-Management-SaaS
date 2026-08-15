@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { TenantStatus } from '@prisma/client';
 
 export class UpdateTenantStatusDto {
@@ -8,5 +8,6 @@ export class UpdateTenantStatusDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   reason?: string;
 }

@@ -1,4 +1,4 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class RecordPaymentDto {
   @IsInt()
@@ -7,6 +7,7 @@ export class RecordPaymentDto {
 
   @IsString()
   @IsNotEmpty()
+  @IsIn(['bkash', 'nagad', 'bank_transfer', 'cash', 'other'])
   method!: string; // 'bkash', 'nagad', 'bank_transfer', 'cash'
 
   @IsOptional()
@@ -22,5 +23,6 @@ export class RecordPaymentDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(24)
   extendMonths?: number; // Auto-extend subscription by N months (default 1)
 }

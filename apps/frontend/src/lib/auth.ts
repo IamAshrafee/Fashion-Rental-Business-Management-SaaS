@@ -31,6 +31,10 @@ export function getAccessToken(): string | null {
 export function getTenantId(): string | null {
   if (tenantId) return tenantId;
   if (typeof window !== 'undefined') {
+    if (isImpersonationActive()) {
+      tenantId = sessionStorage.getItem('closetrent_impersonation_tenant');
+      return tenantId;
+    }
     tenantId = localStorage.getItem('closetrent_tenant_id');
     return tenantId;
   }
@@ -49,6 +53,11 @@ export function setAccessToken(token: string, expiresIn: number, tid: string | n
 export function setTenantIdLocal(tid: string | null): void {
   tenantId = tid;
   if (typeof window !== 'undefined') {
+    if (isImpersonationActive()) {
+      if (tid) sessionStorage.setItem('closetrent_impersonation_tenant', tid);
+      else sessionStorage.removeItem('closetrent_impersonation_tenant');
+      return;
+    }
     if (tid) {
       localStorage.setItem('closetrent_tenant_id', tid);
     } else {
@@ -70,6 +79,41 @@ export function clearAccessToken(): void {
     document.cookie = `closetrent_session=; Max-Age=0; path=/${domainStr}`;
     document.cookie = `closetrent_role=; Max-Age=0; path=/${domainStr}`;
   }
+}
+
+export function isImpersonationActive(): boolean {
+  return typeof window !== 'undefined'
+    && sessionStorage.getItem('closetrent_is_impersonation') === 'true';
+}
+
+export function clearImpersonationClientState(): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem('closetrent_is_impersonation');
+  sessionStorage.removeItem('closetrent_impersonation_token');
+  sessionStorage.removeItem('closetrent_impersonation_tenant');
+  sessionStorage.removeItem('closetrent_impersonation_expires');
+  clearAccessToken();
+
+  // Remove only the dashboard-scoped impersonation role. The administrator's
+  // root-path session and role cookies remain the source of truth.
+  document.cookie = 'closetrent_role=; Max-Age=0; path=/dashboard; SameSite=Lax';
+
+  const maxAge = 7 * 24 * 60 * 60;
+  const domainStr = window.location.hostname.includes('localhost')
+    ? ''
+    : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
+  document.cookie = `closetrent_session=1; Max-Age=${maxAge}; path=/; SameSite=Lax${domainStr}`;
+  document.cookie = `closetrent_role=saas_admin; Max-Age=${maxAge}; path=/; SameSite=Lax${domainStr}`;
+}
+
+export function getAdminPortalUrl(): string {
+  if (typeof window === 'undefined') return '/admin';
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    return `${window.location.protocol}//localhost${window.location.port ? `:${window.location.port}` : ''}/admin`;
+  }
+  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com';
+  return `${window.location.protocol}//admin.${baseDomain}/admin`;
 }
 
 // ----------------------------------------------------------------

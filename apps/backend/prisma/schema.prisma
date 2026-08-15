@@ -629,6 +629,7 @@ model User {
   tenantUsers                  TenantUser[]
   auditLogs                    AuditLog[]
   sessions                     Session[]
+  impersonatedSessions         Session[]                       @relation("SessionImpersonator")
   loginHistory                 LoginHistory[]
   passwordResetTokens          PasswordResetToken[]
   damageReports                DamageReport[]
@@ -1027,13 +1028,17 @@ model Session {
   lastActiveAt     DateTime   @map("last_active_at")
   createdAt        DateTime   @default(now()) @map("created_at")
   expiresAt        DateTime   @map("expires_at")
+  isImpersonation  Boolean    @default(false) @map("is_impersonation")
+  impersonatorId   String?    @map("impersonator_id")
 
-  tenant Tenant? @relation(fields: [tenantId], references: [id])
-  user   User    @relation(fields: [userId], references: [id])
+  tenant       Tenant? @relation(fields: [tenantId], references: [id])
+  user         User    @relation(fields: [userId], references: [id])
+  impersonator User?   @relation("SessionImpersonator", fields: [impersonatorId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([tenantId])
   @@index([refreshTokenHash])
+  @@index([impersonatorId, expiresAt])
   @@map("sessions")
 }
 

@@ -99,6 +99,8 @@ export interface AuthUser {
   role: UserRole;
   tenantId: string | null;
   sessionId: string;
+  isImpersonation?: boolean;
+  impersonatorId?: string;
 }
 
 export interface JwtPayload {
@@ -327,6 +329,93 @@ export interface SubscriptionHistoryEntry {
   oldPlan?: { name: string; slug: string } | null;
   newPlan?: { name: string; slug: string };
   actor?: { fullName: string };
+}
+
+// --- SaaS administration & observability ---
+
+export interface AdminActivityLogEntry {
+  id: string;
+  tenantId: string;
+  userId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  oldValues: Record<string, unknown> | null;
+  newValues: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  user: { fullName: string; email: string | null } | null;
+}
+
+export type ResourceAlertLevel = 'green' | 'yellow' | 'red';
+
+export interface AdminTenantResourceMetrics {
+  tenantId: string;
+  businessName: string;
+  subdomain: string;
+  logoUrl: string | null;
+  plan: { name: string; slug: string } | null;
+  live: {
+    apiCallsToday: number;
+    avgLatencyMs: number;
+    errorsToday: number;
+    currentRpm: number;
+    bandwidthKbToday: number;
+  };
+  resources: {
+    productCount: number;
+    bookingCount: number;
+    customerCount: number;
+    staffCount: number;
+    storageUsedMb: number;
+  };
+  limits: {
+    maxApiCallsDaily: number | null;
+    maxStorageMb: number | null;
+    maxRpm: number;
+  };
+  utilization: {
+    apiPct: number;
+    storagePct: number;
+    rpmPct: number;
+    overallPct: number;
+  };
+  alertLevel: ResourceAlertLevel;
+}
+
+export interface AdminResourceMonitorOverview {
+  tenants: AdminTenantResourceMetrics[];
+  summary: {
+    totalActiveTenants: number;
+    alertCount: number;
+    redCount: number;
+    yellowCount: number;
+  };
+}
+
+export interface TenantUsageSnapshot {
+  id: string;
+  tenantId: string;
+  snapshotDate: string;
+  apiCalls: number;
+  avgLatencyMs: number;
+  errorCount: number;
+  bandwidthKb: number;
+  productCount: number;
+  bookingCount: number;
+  customerCount: number;
+  staffCount: number;
+  storageUsedMb: number;
+  createdAt: string;
+}
+
+export interface TenantLiveMetrics {
+  apiCallsToday: number;
+  avgLatencyMs: number;
+  errorsToday: number;
+  currentRpm: number;
+  bandwidthKbToday: number;
 }
 
 // --- Analytics ---

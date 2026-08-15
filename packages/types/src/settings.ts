@@ -293,13 +293,17 @@ export interface CreatedStaffInvitation extends StaffInvitation {
 export interface Session {
   id: string;
   userId: string;
+  userName?: string;
   deviceType: DeviceType;
+  deviceName?: string;
   browser?: string;
   os?: string;
   ipAddress?: string;
   location?: string;
   lastActiveAt: string;
   isCurrent: boolean;
+  isImpersonation?: boolean;
+  impersonatorName?: string;
 }
 
 export interface LoginEvent {

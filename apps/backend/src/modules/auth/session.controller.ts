@@ -73,8 +73,11 @@ export class SessionController {
    */
   @Get('tenant')
   @Roles('owner')
-  async listTenantSessions(@CurrentTenant() tenant: TenantContext) {
-    return this.sessionService.listTenantSessions(tenant.id);
+  async listTenantSessions(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.sessionService.listTenantSessions(tenant.id, user.sessionId);
   }
 
   /**

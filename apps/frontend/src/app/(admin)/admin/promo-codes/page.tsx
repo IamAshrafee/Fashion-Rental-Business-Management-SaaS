@@ -19,8 +19,9 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/api-error';
 import {
-  Plus, Copy, Gift, Users, Calendar, Percent, Link2,
+  Plus, Copy, Gift, Users, Calendar, Link2,
   Loader2, ToggleLeft, ToggleRight,
 } from 'lucide-react';
 
@@ -69,8 +70,8 @@ export default function PromoCodesPage() {
       setDialogOpen(false);
       setForm({ code: '', linkedPlanId: '', trialDays: '', maxUses: '', expiresAt: '', isActive: true });
       loadData();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Failed to create promo code');
+    } catch (error: unknown) {
+      toast.error(getApiErrorMessage(error, 'Failed to create promo code'));
     } finally { setSaving(false); }
   }
 
@@ -197,7 +198,7 @@ export default function PromoCodesPage() {
                 {promo.linkedPlan && (
                   <CardDescription className="flex items-center gap-1">
                     <Link2 className="h-3 w-3" />
-                    → {(promo.linkedPlan as any).name} Plan
+                    → {promo.linkedPlan.name} Plan
                   </CardDescription>
                 )}
               </CardHeader>

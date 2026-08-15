@@ -27,6 +27,10 @@ export default function ActivityLogPage() {
       case 'admin.tenant_status_changed': return 'Status Change';
       case 'admin.tenant_plan_changed': return 'Plan Change';
       case 'admin.tenant_deleted': return 'Tenant Deleted';
+      case 'admin.impersonated_post': return 'Impersonated Create';
+      case 'admin.impersonated_patch': return 'Impersonated Update';
+      case 'admin.impersonated_put': return 'Impersonated Replace';
+      case 'admin.impersonated_delete': return 'Impersonated Delete';
       default: return action;
     }
   };
@@ -78,7 +82,7 @@ export default function ActivityLogPage() {
               ) : logs.length === 0 ? (
                 <tr><td colSpan={5} className="p-6 text-center text-sm text-muted-foreground">No admin activity recorded yet.</td></tr>
               ) : (
-                logs.map((log: any) => (
+                logs.map((log) => (
                   <tr key={log.id} className="hover:bg-muted/50 transition-colors">
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-muted-foreground">
                       {formatDate(log.createdAt)}
@@ -92,11 +96,11 @@ export default function ActivityLogPage() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-muted-foreground">
-                      {log.entityType} — <span className="font-mono text-xs">{log.entityId?.slice(0, 8)}...</span>
+                      {log.entityType} — <span className="font-mono text-xs">{log.entityId ? `${log.entityId.slice(0, 20)}${log.entityId.length > 20 ? '…' : ''}` : '—'}</span>
                     </td>
                     <td className="px-6 py-4 text-sm text-muted-foreground max-w-xs truncate">
                       {log.newValues && typeof log.newValues === 'object'
-                        ? Object.entries(log.newValues as Record<string, unknown>).map(([k, v]) => `${k}: ${v}`).join(', ')
+                        ? Object.entries(log.newValues).map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).join(', ')
                         : '—'}
                     </td>
                   </tr>

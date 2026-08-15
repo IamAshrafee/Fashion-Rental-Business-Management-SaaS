@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { setAccessToken, setTenantIdLocal } from '@/lib/auth';
+import { clearImpersonationClientState, setAccessToken, setTenantIdLocal } from '@/lib/auth';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -60,7 +60,7 @@ export function ImpersonationBoot() {
       // Check if expired
       const expiresAt = Number(storedExpires) || 0;
       if (Date.now() >= expiresAt) {
-        clearImpersonationStorage();
+        clearImpersonationClientState();
         return;
       }
 
@@ -79,27 +79,20 @@ export function ImpersonationBoot() {
  * Sets in-memory token, localStorage tenant, cookies, and sessionStorage persistence.
  */
 function applyImpersonation(token: string, tenantId: string, expiresInSeconds: number) {
-  // 1. Set in-memory access token + tenant
+  // Mark this tab first so tenant context is kept in sessionStorage instead of
+  // leaking into the administrator's other same-origin tabs.
+  sessionStorage.setItem('closetrent_is_impersonation', 'true');
+
+  // 1. Set in-memory access token + tab-scoped tenant
   setAccessToken(token, expiresInSeconds, tenantId);
   setTenantIdLocal(tenantId);
 
-  // 2. Write cookies so middleware allows /dashboard navigation
-  document.cookie = `closetrent_session=1; Max-Age=${expiresInSeconds}; path=/; SameSite=Lax`;
-  document.cookie = `closetrent_role=owner; Max-Age=${expiresInSeconds}; path=/; SameSite=Lax`;
+  // 2. Scope the owner marker to the dashboard. The administrator's root-path
+  // role cookie remains intact in the original tab and for /admin routes.
+  document.cookie = `closetrent_role=owner; Max-Age=${expiresInSeconds}; path=/dashboard; SameSite=Lax`;
 
-  // 3. Mark session as impersonation (for OwnerGuard + Banner)
-  sessionStorage.setItem('closetrent_is_impersonation', 'true');
-
-  // 4. Persist token in sessionStorage so it survives page refresh (Option B)
+  // 3. Persist token in sessionStorage so it survives page refresh.
   sessionStorage.setItem('closetrent_impersonation_token', token);
   sessionStorage.setItem('closetrent_impersonation_tenant', tenantId);
   sessionStorage.setItem('closetrent_impersonation_expires', String(Date.now() + expiresInSeconds * 1000));
-}
-
-/** Clear all impersonation sessionStorage keys */
-function clearImpersonationStorage() {
-  sessionStorage.removeItem('closetrent_is_impersonation');
-  sessionStorage.removeItem('closetrent_impersonation_token');
-  sessionStorage.removeItem('closetrent_impersonation_tenant');
-  sessionStorage.removeItem('closetrent_impersonation_expires');
 }

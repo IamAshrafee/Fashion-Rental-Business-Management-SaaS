@@ -2,7 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { adminApi } from '@/lib/api-admin';
-import { SubscriptionPayment, PlatformInvoice, SubscriptionHistoryEntry } from '@closetrent/types';
+import type {
+  InvoiceStatus,
+  PaymentMethod_Platform,
+  PlatformInvoice,
+  SubscriptionHistoryEntry,
+  SubscriptionPayment,
+} from '@closetrent/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,9 +28,10 @@ import {
 } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/api-error';
 import {
   CreditCard, FileText, History, Plus, Loader2,
-  ArrowUpRight, CalendarPlus, Download, Check,
+  ArrowUpRight, CalendarPlus, Check, AlertCircle,
 } from 'lucide-react';
 
 /** Money formatter — converts paisa to human-readable BDT */
@@ -48,7 +55,7 @@ interface BillingTabProps {
   onSubscriptionUpdated: () => void;
 }
 
-const PAYMENT_METHODS = [
+const PAYMENT_METHODS: Array<{ value: PaymentMethod_Platform; label: string }> = [
   { value: 'bkash', label: 'bKash' },
   { value: 'nagad', label: 'Nagad' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
@@ -67,12 +74,13 @@ export function BillingTab({
   const [invoices, setInvoices] = useState<PlatformInvoice[]>([]);
   const [history, setHistory] = useState<SubscriptionHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
-    amount: '', method: 'bkash', reference: '', notes: '', extendMonths: '1',
+    amount: '', method: 'bkash' as PaymentMethod_Platform, reference: '', notes: '', extendMonths: '1',
   });
 
   // Invoice dialog
@@ -89,6 +97,7 @@ export function BillingTab({
 
   const loadTab = useCallback(async (tab: string) => {
     setLoading(true);
+    setLoadError(null);
     try {
       if (tab === 'payments') {
         const res = await adminApi.getPaymentHistory(tenantId, { limit: 20 });
@@ -100,8 +109,11 @@ export function BillingTab({
         const res = await adminApi.getSubscriptionHistory(tenantId, { limit: 20 });
         setHistory(res.data);
       }
-    } catch { /* ignore */ }
-    setLoading(false);
+    } catch (error: unknown) {
+      setLoadError(getApiErrorMessage(error, 'Could not load billing records.'));
+    } finally {
+      setLoading(false);
+    }
   }, [tenantId]);
 
   useEffect(() => { loadTab(activeTab); }, [activeTab, loadTab]);
@@ -124,8 +136,8 @@ export function BillingTab({
       setPaymentForm({ amount: '', method: 'bkash', reference: '', notes: '', extendMonths: '1' });
       loadTab('payments');
       onSubscriptionUpdated();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Failed to record payment');
+    } catch (error: unknown) {
+      toast.error(getApiErrorMessage(error, 'Failed to record payment'));
     } finally { setPaymentSaving(false); }
   }
 
@@ -151,8 +163,8 @@ export function BillingTab({
       setInvoiceOpen(false);
       setInvoiceForm({ description: '', amount: '', dueDate: '', notes: '' });
       loadTab('invoices');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Failed to generate invoice');
+    } catch (error: unknown) {
+      toast.error(getApiErrorMessage(error, 'Failed to generate invoice'));
     } finally { setInvoiceSaving(false); }
   }
 
@@ -169,13 +181,13 @@ export function BillingTab({
       setExtendForm({ months: '1', reason: '' });
       onSubscriptionUpdated();
       loadTab('history');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Failed to extend');
+    } catch (error: unknown) {
+      toast.error(getApiErrorMessage(error, 'Failed to extend'));
     } finally { setExtendSaving(false); }
   }
 
   // --- Mark Invoice Paid/Void ---
-  async function updateInvoiceStatus(id: string, status: string) {
+  async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
     try {
       await adminApi.updateInvoiceStatus(id, { status });
       toast.success(`Invoice marked as ${status}`);
@@ -275,6 +287,12 @@ export function BillingTab({
       </Card>
 
       {/* Billing Tabs */}
+      {loadError && (
+        <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {loadError}
+        </div>
+      )}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="flex items-center justify-between">
           <TabsList>
@@ -312,7 +330,7 @@ export function BillingTab({
                       <div className="space-y-2">
                         <Label>Method *</Label>
                         <Select value={paymentForm.method}
-                          onValueChange={v => setPaymentForm(p => ({ ...p, method: v }))}>
+                          onValueChange={(value: PaymentMethod_Platform) => setPaymentForm(p => ({ ...p, method: value }))}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {PAYMENT_METHODS.map(m => (

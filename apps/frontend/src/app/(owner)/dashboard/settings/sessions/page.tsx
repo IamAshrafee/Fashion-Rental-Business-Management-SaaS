@@ -81,6 +81,7 @@ export default function SessionsSettingsPage() {
                       {session.browser || 'Unknown Client'} / {session.os || 'Unknown OS'}
                     </h4>
                     {session.isCurrent && <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">Current Device</Badge>}
+                    {session.isImpersonation && <Badge variant="secondary">SaaS support access</Badge>}
                     {!isMe && <Badge variant="outline">{session.userId.slice(-6)} (Staff)</Badge>}
                   </div>
                   <div className="text-sm text-muted-foreground mt-0.5 space-x-2">
@@ -90,6 +91,11 @@ export default function SessionsSettingsPage() {
                   <div className="text-xs text-muted-foreground mt-1">
                     Last activity {formatDistanceToNow(new Date(session.lastActiveAt || Date.now()), { addSuffix: true })}
                   </div>
+                  {session.isImpersonation && (
+                    <div className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                      Impersonated by {session.impersonatorName || 'a SaaS administrator'}
+                    </div>
+                  )}
                 </div>
               </div>
 

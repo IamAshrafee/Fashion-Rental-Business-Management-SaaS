@@ -43,4 +43,41 @@ describe('JwtStrategy live session validation', () => {
     );
     await expect(strategy.validate(payload)).rejects.toBeInstanceOf(UnauthorizedException);
   });
+
+  it('accepts an impersonation token only when its live admin-backed session matches', async () => {
+    const { strategy } = makeStrategy(
+      {
+        tenantId: 'tenant-1',
+        isImpersonation: true,
+        impersonatorId: 'admin-1',
+        impersonator: { role: 'saas_admin', isActive: true },
+        user: { role: 'owner' },
+      },
+      { isActive: true, role: 'owner', tenant: { status: 'active' } },
+    );
+    await expect(strategy.validate({
+      ...payload,
+      isImpersonation: true,
+      impersonatorId: 'admin-1',
+    })).resolves.toMatchObject({
+      isImpersonation: true,
+      impersonatorId: 'admin-1',
+      tenantId: 'tenant-1',
+    });
+  });
+
+  it('rejects fabricated or stale impersonation metadata', async () => {
+    const { strategy } = makeStrategy({
+      tenantId: 'tenant-1',
+      isImpersonation: true,
+      impersonatorId: 'admin-1',
+      impersonator: { role: 'saas_admin', isActive: false },
+      user: { role: 'owner' },
+    });
+    await expect(strategy.validate({
+      ...payload,
+      isImpersonation: true,
+      impersonatorId: 'admin-1',
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+  });
 });

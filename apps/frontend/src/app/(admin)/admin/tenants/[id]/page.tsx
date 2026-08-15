@@ -69,7 +69,7 @@ export default function TenantDetailPage() {
   const impersonate = useMutation({
     mutationFn: () => adminApi.impersonateTenant(id),
     onSuccess: (data) => {
-      const { impersonationToken, tenantId: tid, subdomain, expiresIn } = data.data;
+      const { impersonationToken, tenantId: tid, expiresIn } = data.data;
 
       // Store impersonation token in localStorage for the target domain to pick up
       const impersonationData = JSON.stringify({

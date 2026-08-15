@@ -53,7 +53,7 @@ export default function ResourceMonitorPage() {
         </div>
       ) : (
         <div className="grid gap-6">
-          {tenants.map((tenant: any) => (
+          {tenants.map((tenant) => (
             <div
               key={tenant.tenantId}
               className={`rounded-lg border bg-card p-6 shadow-sm transition-all ${

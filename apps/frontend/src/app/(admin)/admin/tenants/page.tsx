@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import type { TenantStatus } from '@closetrent/types';
+import { formatMinorMoney } from '@/lib/money';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,9 +62,9 @@ export default function TenantsPage() {
 
   // Bulk status mutation
   const bulkMutation = useMutation({
-    mutationFn: async ({ ids, status }: { ids: string[]; status: string }) => {
+    mutationFn: async ({ ids, status }: { ids: string[]; status: TenantStatus }) => {
       const results = await Promise.allSettled(
-        ids.map(id => adminApi.updateTenantStatus(id, status as any))
+        ids.map(id => adminApi.updateTenantStatus(id, status))
       );
       const failed = results.filter(r => r.status === 'rejected').length;
       return { total: ids.length, failed };
@@ -109,13 +111,6 @@ export default function TenantsPage() {
       default: return status;
     }
   };
-
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'BDT',
-      maximumFractionDigits: 0,
-    }).format(amount);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -314,7 +309,7 @@ export default function TenantsPage() {
                       {t.productCount}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-muted-foreground text-right">
-                      {formatCurrency(t.totalRevenue)}
+                      {formatMinorMoney(t.totalRevenue)}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-right">
                       <Link href={`/admin/tenants/${t.id}`} className="text-primary hover:text-primary/80 transition-colors">
@@ -398,7 +393,7 @@ export default function TenantsPage() {
                 if (bulkAction) {
                   bulkMutation.mutate({
                     ids: Array.from(selectedIds),
-                    status: bulkAction === 'suspend' ? 'suspended' : 'active',
+          status: bulkAction === 'suspend' ? 'suspended' : 'active',
                   });
                 }
               }}

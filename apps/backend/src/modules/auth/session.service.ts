@@ -29,11 +29,15 @@ export class SessionService {
         lastActiveAt: true,
         createdAt: true,
         expiresAt: true,
+        isImpersonation: true,
+        impersonator: { select: { fullName: true } },
       },
     });
 
     return sessions.map((session) => ({
       ...session,
+      impersonatorName: session.impersonator?.fullName,
+      impersonator: undefined,
       isCurrent: session.id === currentSessionId,
     }));
   }
@@ -139,7 +143,7 @@ export class SessionService {
   /**
    * List all sessions for a tenant (owner oversight).
    */
-  async listTenantSessions(tenantId: string) {
+  async listTenantSessions(tenantId: string, currentSessionId: string) {
     const sessions = await this.prisma.session.findMany({
       where: { tenantId },
       orderBy: { lastActiveAt: 'desc' },
@@ -150,6 +154,7 @@ export class SessionService {
             fullName: true,
           },
         },
+        impersonator: { select: { fullName: true } },
       },
     });
 
@@ -165,6 +170,9 @@ export class SessionService {
       location: session.location,
       lastActiveAt: session.lastActiveAt,
       createdAt: session.createdAt,
+      isCurrent: session.id === currentSessionId,
+      isImpersonation: session.isImpersonation,
+      impersonatorName: session.impersonator?.fullName,
     }));
   }
 

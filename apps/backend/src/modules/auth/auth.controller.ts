@@ -9,6 +9,7 @@ import {
   HttpStatus,
   UseGuards,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -155,6 +156,18 @@ export class AuthController {
       domain: cookieDomain,
     });
     return { message: 'Logged out successfully' };
+  }
+
+  /** Revoke an access-only admin impersonation session without clearing the admin refresh cookie. */
+  @UseGuards(JwtAuthGuard)
+  @Post('impersonation/logout')
+  @HttpCode(HttpStatus.OK)
+  async logoutImpersonation(@CurrentUser() user: AuthUser) {
+    if (!user.isImpersonation || !user.impersonatorId) {
+      throw new ForbiddenException('No impersonation session is active');
+    }
+    await this.authService.logout(user.sessionId, user.id);
+    return { message: 'Impersonation session ended' };
   }
 
   /**

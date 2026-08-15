@@ -464,6 +464,8 @@ CREATE TABLE "sessions" (
     "last_active_at" TIMESTAMP(3) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expires_at" TIMESTAMP(3) NOT NULL,
+    "is_impersonation" BOOLEAN NOT NULL DEFAULT false,
+    "impersonator_id" TEXT,
 
     CONSTRAINT "sessions_pkey" PRIMARY KEY ("id")
 );
@@ -2367,6 +2369,8 @@ CREATE INDEX "sessions_tenant_id_idx" ON "sessions"("tenant_id");
 -- CreateIndex
 CREATE INDEX "sessions_refresh_token_hash_idx" ON "sessions"("refresh_token_hash");
 
+CREATE INDEX "sessions_impersonator_id_expires_at_idx" ON "sessions"("impersonator_id", "expires_at");
+
 -- CreateIndex
 CREATE INDEX "login_history_user_id_idx" ON "login_history"("user_id");
 
@@ -3365,6 +3369,8 @@ ALTER TABLE "sessions" ADD CONSTRAINT "sessions_tenant_id_fkey" FOREIGN KEY ("te
 
 -- AddForeignKey
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_impersonator_id_fkey" FOREIGN KEY ("impersonator_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "login_history" ADD CONSTRAINT "login_history_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { ShieldAlert, X } from 'lucide-react';
+import apiClient from '@/lib/api-client';
+import { clearImpersonationClientState, getAdminPortalUrl } from '@/lib/auth';
 
 /**
  * ImpersonationBanner — displays a sticky amber banner when an admin
@@ -21,25 +23,16 @@ export function ImpersonationBanner() {
     }
   }, []);
 
-  const handleExit = () => {
-    // Clear impersonation markers
-    sessionStorage.removeItem('closetrent_is_impersonation');
-    sessionStorage.removeItem('closetrent_impersonation_token');
-    sessionStorage.removeItem('closetrent_impersonation_tenant');
-    sessionStorage.removeItem('closetrent_impersonation_expires');
-
-    // Restore admin role cookie so middleware routes correctly
-    const REFRESH_MAX_AGE = 7 * 24 * 60 * 60;
-    document.cookie = `closetrent_role=saas_admin; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax`;
-
-    setIsImpersonating(false);
-
-    // Try to close tab (works when opened via window.open)
-    // Fallback: redirect to admin portal after a short delay
-    window.close();
-    setTimeout(() => {
-      window.location.href = '/admin';
-    }, 500);
+  const handleExit = async () => {
+    try {
+      await apiClient.post('/auth/impersonation/logout');
+    } finally {
+      clearImpersonationClientState();
+      setIsImpersonating(false);
+      const fallback = getAdminPortalUrl();
+      window.close();
+      setTimeout(() => { window.location.href = fallback; }, 500);
+    }
   };
 
   if (!isImpersonating) return null;

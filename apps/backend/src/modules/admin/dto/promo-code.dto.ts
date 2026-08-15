@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
 export class CreatePromoCodeDto {
   @IsString()
@@ -16,16 +16,19 @@ export class CreatePromoCodeDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(365)
   trialDays?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(100)
   discountPct?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(1_000_000)
   maxUses?: number; // null = unlimited
 
   @IsOptional()
@@ -45,16 +48,19 @@ export class UpdatePromoCodeDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(365)
   trialDays?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(100)
   discountPct?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(1_000_000)
   maxUses?: number;
 
   @IsOptional()

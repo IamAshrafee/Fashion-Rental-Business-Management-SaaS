@@ -12,7 +12,15 @@ import {
   GlobalSubscriptionPayment,
   TenantStatus,
   BillingCycle,
+  InvoiceStatus,
+  PaymentMethod_Platform,
+  AdminActivityLogEntry,
+  AdminResourceMonitorOverview,
+  AdminTenantResourceMetrics,
+  TenantUsageSnapshot,
+  TenantLiveMetrics,
 } from '@closetrent/types';
+import type { AxiosRequestConfig } from 'axios';
 import apiClient from './api-client';
 
 /**
@@ -21,22 +29,22 @@ import apiClient from './api-client';
  */
 function adminRequest() {
   return {
-    get: <T = any>(url: string, config?: any) =>
+    get: <T>(url: string, config?: AxiosRequestConfig) =>
       apiClient.get<T>(url, {
         ...config,
         headers: { ...config?.headers, 'x-tenant-id': undefined },
       }),
-    post: <T = any>(url: string, data?: any, config?: any) =>
+    post: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
       apiClient.post<T>(url, data, {
         ...config,
         headers: { ...config?.headers, 'x-tenant-id': undefined },
       }),
-    patch: <T = any>(url: string, data?: any, config?: any) =>
+    patch: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
       apiClient.patch<T>(url, data, {
         ...config,
         headers: { ...config?.headers, 'x-tenant-id': undefined },
       }),
-    delete: <T = any>(url: string, config?: any) =>
+    delete: <T>(url: string, config?: AxiosRequestConfig) =>
       apiClient.delete<T>(url, {
         ...config,
         headers: { ...config?.headers, 'x-tenant-id': undefined },
@@ -57,12 +65,12 @@ export const adminApi = {
     limit?: number;
     sort?: string;
   }): Promise<PaginatedResponse<AdminTenantSummary>> {
-    const res = await admin.get('/admin/tenants', { params });
+    const res = await admin.get<PaginatedResponse<AdminTenantSummary>>('/admin/tenants', { params });
     return res.data;
   },
 
   async getTenant(id: string): Promise<ApiResponse<AdminTenantDetails>> {
-    const res = await admin.get(`/admin/tenants/${id}`);
+    const res = await admin.get<ApiResponse<AdminTenantDetails>>(`/admin/tenants/${id}`);
     return res.data;
   },
 
@@ -71,7 +79,7 @@ export const adminApi = {
     status: TenantStatus,
     reason?: string
   ): Promise<ApiResponse<AdminTenantDetails>> {
-    const res = await admin.patch(`/admin/tenants/${id}/status`, {
+    const res = await admin.patch<ApiResponse<AdminTenantDetails>>(`/admin/tenants/${id}/status`, {
       status,
       reason,
     });
@@ -82,8 +90,8 @@ export const adminApi = {
     id: string,
     planId: string,
     billingCycle: BillingCycle
-  ): Promise<ApiResponse<any>> {
-    const res = await admin.patch(`/admin/tenants/${id}/plan`, {
+  ): Promise<ApiResponse<unknown>> {
+    const res = await admin.patch<ApiResponse<unknown>>(`/admin/tenants/${id}/plan`, {
       planId,
       billingCycle,
     });
@@ -99,42 +107,48 @@ export const adminApi = {
       expiresIn: number;
     }>
   > {
-    const res = await admin.post(`/admin/tenants/${id}/impersonate`);
+    const res = await admin.post<ApiResponse<{
+      impersonationToken: string;
+      tenantId: string;
+      businessName: string;
+      subdomain: string;
+      expiresIn: number;
+    }>>(`/admin/tenants/${id}/impersonate`);
     return res.data;
   },
 
-  async deleteTenant(id: string): Promise<ApiResponse<any>> {
-    const res = await admin.delete(`/admin/tenants/${id}`);
+  async deleteTenant(id: string): Promise<ApiResponse<unknown>> {
+    const res = await admin.delete<ApiResponse<unknown>>(`/admin/tenants/${id}`);
     return res.data;
   },
 
   // --- Analytics ---
   async getPlatformAnalytics(): Promise<ApiResponse<PlatformStats>> {
-    const res = await admin.get('/admin/analytics/platform');
+    const res = await admin.get<ApiResponse<PlatformStats>>('/admin/analytics/platform');
     return res.data;
   },
 
   // --- Resource Monitor ---
-  async getResourceMonitorOverview(): Promise<ApiResponse<any>> {
-    const res = await admin.get('/admin/resource-monitor');
+  async getResourceMonitorOverview(): Promise<ApiResponse<AdminResourceMonitorOverview>> {
+    const res = await admin.get<ApiResponse<AdminResourceMonitorOverview>>('/admin/resource-monitor');
     return res.data;
   },
 
-  async getResourceAlerts(): Promise<ApiResponse<any>> {
-    const res = await admin.get('/admin/resource-monitor/alerts');
+  async getResourceAlerts(): Promise<ApiResponse<AdminTenantResourceMetrics[]>> {
+    const res = await admin.get<ApiResponse<AdminTenantResourceMetrics[]>>('/admin/resource-monitor/alerts');
     return res.data;
   },
 
   async getTenantResourceHistory(
     id: string,
     params?: { from?: string; to?: string; limit?: number }
-  ): Promise<ApiResponse<any>> {
-    const res = await admin.get(`/admin/tenants/${id}/resource-history`, { params });
+  ): Promise<ApiResponse<TenantUsageSnapshot[]>> {
+    const res = await admin.get<ApiResponse<TenantUsageSnapshot[]>>(`/admin/tenants/${id}/resource-history`, { params });
     return res.data;
   },
 
-  async getTenantLiveMetrics(id: string): Promise<ApiResponse<any>> {
-    const res = await admin.get(`/admin/tenants/${id}/live-metrics`);
+  async getTenantLiveMetrics(id: string): Promise<ApiResponse<TenantLiveMetrics>> {
+    const res = await admin.get<ApiResponse<TenantLiveMetrics>>(`/admin/tenants/${id}/live-metrics`);
     return res.data;
   },
 
@@ -142,24 +156,24 @@ export const adminApi = {
   async getActivityLog(params?: {
     page?: number;
     limit?: number;
-  }): Promise<PaginatedResponse<any>> {
-    const res = await admin.get('/admin/activity-log', { params });
+  }): Promise<PaginatedResponse<AdminActivityLogEntry>> {
+    const res = await admin.get<PaginatedResponse<AdminActivityLogEntry>>('/admin/activity-log', { params });
     return res.data;
   },
 
   // --- Plans ---
   async getPlans(): Promise<ApiResponse<SubscriptionPlan[]>> {
-    const res = await admin.get('/admin/plans');
+    const res = await admin.get<ApiResponse<SubscriptionPlan[]>>('/admin/plans');
     return res.data;
   },
 
   async createPlan(data: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
-    const res = await admin.post('/admin/plans', data);
+    const res = await admin.post<ApiResponse<SubscriptionPlan>>('/admin/plans', data);
     return res.data;
   },
 
   async updatePlan(id: string, data: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
-    const res = await admin.patch(`/admin/plans/${id}`, data);
+    const res = await admin.patch<ApiResponse<SubscriptionPlan>>(`/admin/plans/${id}`, data);
     return res.data;
   },
 
@@ -168,13 +182,13 @@ export const adminApi = {
     tenantId: string,
     data: {
       amount: number;
-      method: string;
+      method: PaymentMethod_Platform;
       reference?: string;
       notes?: string;
       extendMonths?: number;
     }
   ): Promise<ApiResponse<SubscriptionPayment>> {
-    const res = await admin.post(`/admin/tenants/${tenantId}/payments`, data);
+    const res = await admin.post<ApiResponse<SubscriptionPayment>>(`/admin/tenants/${tenantId}/payments`, data);
     return res.data;
   },
 
@@ -182,12 +196,12 @@ export const adminApi = {
     tenantId: string,
     params?: { page?: number; limit?: number }
   ): Promise<PaginatedResponse<SubscriptionPayment>> {
-    const res = await admin.get(`/admin/tenants/${tenantId}/payments`, { params });
+    const res = await admin.get<PaginatedResponse<SubscriptionPayment>>(`/admin/tenants/${tenantId}/payments`, { params });
     return res.data;
   },
 
   async getGlobalPayments(params?: { page?: number; limit?: number }): Promise<ApiResponse<GlobalSubscriptionPayment[]>> {
-    const res = await admin.get('/admin/revenue/payments', { params });
+    const res = await admin.get<ApiResponse<GlobalSubscriptionPayment[]>>('/admin/revenue/payments', { params });
     return res.data;
   },
 
@@ -201,7 +215,7 @@ export const adminApi = {
       notes?: string;
     }
   ): Promise<ApiResponse<PlatformInvoice>> {
-    const res = await admin.post(`/admin/tenants/${tenantId}/invoices`, data);
+    const res = await admin.post<ApiResponse<PlatformInvoice>>(`/admin/tenants/${tenantId}/invoices`, data);
     return res.data;
   },
 
@@ -209,15 +223,15 @@ export const adminApi = {
     tenantId: string,
     params?: { page?: number; limit?: number }
   ): Promise<PaginatedResponse<PlatformInvoice>> {
-    const res = await admin.get(`/admin/tenants/${tenantId}/invoices`, { params });
+    const res = await admin.get<PaginatedResponse<PlatformInvoice>>(`/admin/tenants/${tenantId}/invoices`, { params });
     return res.data;
   },
 
   async updateInvoiceStatus(
     invoiceId: string,
-    data: { status: string; paymentId?: string }
+    data: { status: InvoiceStatus; paymentId?: string }
   ): Promise<ApiResponse<PlatformInvoice>> {
-    const res = await admin.patch(`/admin/invoices/${invoiceId}`, data);
+    const res = await admin.patch<ApiResponse<PlatformInvoice>>(`/admin/invoices/${invoiceId}`, data);
     return res.data;
   },
 
@@ -226,7 +240,7 @@ export const adminApi = {
     tenantId: string,
     data: { months?: number; reason?: string }
   ): Promise<ApiResponse<{ newPeriodEnd: string; months: number }>> {
-    const res = await admin.patch(`/admin/tenants/${tenantId}/subscription/extend`, data);
+    const res = await admin.patch<ApiResponse<{ newPeriodEnd: string; months: number }>>(`/admin/tenants/${tenantId}/subscription/extend`, data);
     return res.data;
   },
 
@@ -235,7 +249,7 @@ export const adminApi = {
     tenantId: string,
     params?: { page?: number; limit?: number }
   ): Promise<PaginatedResponse<SubscriptionHistoryEntry>> {
-    const res = await admin.get(`/admin/tenants/${tenantId}/subscription/history`, { params });
+    const res = await admin.get<PaginatedResponse<SubscriptionHistoryEntry>>(`/admin/tenants/${tenantId}/subscription/history`, { params });
     return res.data;
   },
 
@@ -244,7 +258,7 @@ export const adminApi = {
     page?: number;
     limit?: number;
   }): Promise<PaginatedResponse<PromoCode>> {
-    const res = await admin.get('/admin/promo-codes', { params });
+    const res = await admin.get<PaginatedResponse<PromoCode>>('/admin/promo-codes', { params });
     return res.data;
   },
 
@@ -257,15 +271,15 @@ export const adminApi = {
     expiresAt?: string;
     isActive?: boolean;
   }): Promise<ApiResponse<PromoCode>> {
-    const res = await admin.post('/admin/promo-codes', data);
+    const res = await admin.post<ApiResponse<PromoCode>>('/admin/promo-codes', data);
     return res.data;
   },
 
   async updatePromoCode(
     id: string,
-    data: Partial<PromoCode>
+    data: Partial<Pick<PromoCode, 'linkedPlanId' | 'trialDays' | 'discountPct' | 'maxUses' | 'expiresAt' | 'isActive'>>
   ): Promise<ApiResponse<PromoCode>> {
-    const res = await admin.patch(`/admin/promo-codes/${id}`, data);
+    const res = await admin.patch<ApiResponse<PromoCode>>(`/admin/promo-codes/${id}`, data);
     return res.data;
   },
 

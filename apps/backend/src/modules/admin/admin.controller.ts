@@ -9,8 +9,12 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
+  ParseUUIDPipe,
   DefaultValuePipe,
+  Req,
+  SetMetadata,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { AdminService } from './admin.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -26,7 +30,8 @@ import { CreateInvoiceDto, UpdateInvoiceStatusDto } from './dto/invoice.dto';
 import { ExtendSubscriptionDto } from './dto/extend-subscription.dto';
 import { CreatePromoCodeDto, UpdatePromoCodeDto } from './dto/promo-code.dto';
 import { SKIP_RATE_LIMIT_KEY } from '../../common/guards/tenant-rate-limit.guard';
-import { SetMetadata } from '@nestjs/common';
+import { parseUserAgent } from '../../common/utils/user-agent';
+import { extractIpAddress } from '../../common/utils/ip';
 
 /** Skip tenant rate limiting on admin routes — they have their own auth layer */
 const SkipTenantRateLimit = () => SetMetadata(SKIP_RATE_LIMIT_KEY, true);
@@ -60,14 +65,14 @@ export class AdminController {
   }
 
   @Get('tenants/:id')
-  async getTenantDetail(@Param('id') id: string) {
+  async getTenantDetail(@Param('id', ParseUUIDPipe) id: string) {
     return this.adminService.getTenant(id);
   }
 
   /** Point 5: Pass adminUserId for audit trail */
   @Patch('tenants/:id/status')
   async updateTenantStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTenantStatusDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -77,7 +82,7 @@ export class AdminController {
   /** Pass adminUserId for audit trail */
   @Patch('tenants/:id/plan')
   async updateTenantPlan(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTenantPlanDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -85,13 +90,20 @@ export class AdminController {
   }
 
   @Post('tenants/:id/impersonate')
-  async impersonateTenant(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.adminService.impersonateTenant(user.id, id);
+  async impersonateTenant(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Req() request: Request,
+  ) {
+    return this.adminService.impersonateTenant(user.id, id, {
+      ip: extractIpAddress(request),
+      ua: parseUserAgent(request.headers['user-agent']),
+    });
   }
 
   /** Point 19: Soft-delete tenant */
   @Delete('tenants/:id')
-  async deleteTenant(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async deleteTenant(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
     return this.adminService.deleteTenant(id, user.id);
   }
 
@@ -131,7 +143,7 @@ export class AdminController {
   }
 
   @Patch('plans/:id')
-  async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto) {
+  async updatePlan(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdatePlanDto) {
     return this.adminService.updatePlan(id, dto);
   }
 
@@ -146,7 +158,7 @@ export class AdminController {
 
   @Post('tenants/:id/payments')
   async recordPayment(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RecordPaymentDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -155,7 +167,7 @@ export class AdminController {
 
   @Get('tenants/:id/payments')
   async getPaymentHistory(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
   ) {
@@ -168,7 +180,7 @@ export class AdminController {
 
   @Post('tenants/:id/invoices')
   async generateInvoice(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateInvoiceDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -177,7 +189,7 @@ export class AdminController {
 
   @Get('tenants/:id/invoices')
   async getInvoices(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
   ) {
@@ -186,7 +198,7 @@ export class AdminController {
 
   @Patch('invoices/:id')
   async updateInvoiceStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateInvoiceStatusDto,
   ) {
     return this.adminService.updateInvoiceStatus(id, dto);
@@ -198,7 +210,7 @@ export class AdminController {
 
   @Patch('tenants/:id/subscription/extend')
   async extendSubscription(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ExtendSubscriptionDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -211,7 +223,7 @@ export class AdminController {
 
   @Get('tenants/:id/subscription/history')
   async getSubscriptionHistory(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
   ) {
@@ -240,7 +252,7 @@ export class AdminController {
 
   @Patch('promo-codes/:id')
   async updatePromoCode(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePromoCodeDto,
   ) {
     return this.adminService.updatePromoCode(id, dto);
@@ -280,7 +292,7 @@ export class AdminController {
   @Get('tenants/:id/resource-history')
   @SkipTenantRateLimit()
   async getTenantResourceHistory(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit?: number,
@@ -294,7 +306,7 @@ export class AdminController {
    */
   @Get('tenants/:id/live-metrics')
   @SkipTenantRateLimit()
-  async getTenantLiveMetrics(@Param('id') id: string) {
+  async getTenantLiveMetrics(@Param('id', ParseUUIDPipe) id: string) {
     return this.adminService.getTenantLiveMetrics(id);
   }
 }

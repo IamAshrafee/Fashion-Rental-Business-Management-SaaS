@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -12,10 +11,21 @@ import { RecordPaymentDto } from './dto/record-payment.dto';
 import { CreateInvoiceDto, UpdateInvoiceStatusDto } from './dto/invoice.dto';
 import { ExtendSubscriptionDto } from './dto/extend-subscription.dto';
 import { CreatePromoCodeDto, UpdatePromoCodeDto } from './dto/promo-code.dto';
+import { Prisma, TenantStatus } from '@prisma/client';
+import { createHash, randomBytes } from 'crypto';
+import type { ParsedUserAgent } from '../../common/utils/user-agent';
 
 /** Allowed sort columns for tenant listing — prevents sort-parameter injection */
 const ALLOWED_SORT_FIELDS = ['createdAt', 'businessName', 'subdomain', 'status', 'updatedAt'] as const;
 type AllowedSortField = typeof ALLOWED_SORT_FIELDS[number];
+const PAYMENT_STATUSES = ['paid', 'overdue', 'never_paid'] as const;
+
+function normalizePagination(page: number, limit: number, maxLimit = 100) {
+  return {
+    page: Math.max(1, page),
+    limit: Math.min(Math.max(1, limit), maxLimit),
+  };
+}
 
 @Injectable()
 export class AdminService {
@@ -39,10 +49,19 @@ export class AdminService {
    * Point 11: handles orphaned tenants with null owner gracefully.
    */
   async getTenants(params: { status?: string; plan?: string; paymentStatus?: string; search?: string; page: number; limit: number; sort?: string }) {
-    const { status, plan, paymentStatus, search, page, limit, sort } = params;
+    const { status, plan, paymentStatus, search, sort } = params;
+    const { page, limit } = normalizePagination(params.page, params.limit);
 
-    const where: any = {};
-    if (status) where.status = status;
+    const where: Prisma.TenantWhereInput = {};
+    if (status) {
+      if (!Object.values(TenantStatus).includes(status as TenantStatus)) {
+        throw new BadRequestException('Invalid tenant status filter');
+      }
+      where.status = status as TenantStatus;
+    }
+    if (paymentStatus && !PAYMENT_STATUSES.includes(paymentStatus as typeof PAYMENT_STATUSES[number])) {
+      throw new BadRequestException('Invalid payment status filter');
+    }
     if (plan) where.plan = { slug: plan };
     if (search) {
       where.OR = [
@@ -52,7 +71,7 @@ export class AdminService {
     }
 
     // Point 6: Validate sort field against allowlist
-    let orderBy: any = { createdAt: 'desc' };
+    let orderBy: Prisma.TenantOrderByWithRelationInput = { createdAt: 'desc' };
     if (sort && ALLOWED_SORT_FIELDS.includes(sort as AllowedSortField)) {
       orderBy = { [sort]: 'desc' };
     }
@@ -236,64 +255,74 @@ export class AdminService {
    * - Emits 'tenant.suspended' for notification system
    */
   async updateTenantStatus(id: string, dto: UpdateTenantStatusDto, adminUserId: string) {
-    const existing = await this.prisma.tenant.findUnique({
-      where: { id },
-      select: { status: true, businessName: true, planId: true },
-    });
-
-    if (!existing) throw new NotFoundException('Tenant not found');
-
-    // Validate status transition
-    if (existing.status === dto.status) {
-      throw new BadRequestException(`Tenant is already ${dto.status}`);
-    }
-    if (existing.status === 'cancelled' && dto.status === 'suspended') {
-      throw new BadRequestException('Cannot suspend a cancelled tenant. Reactivate it first.');
-    }
-
-    const tenant = await this.prisma.tenant.update({
-      where: { id },
-      data: {
-        status: dto.status,
-        statusReason: dto.status === 'suspended'
-          ? (dto.reason || 'Suspended by platform administrator')
-          : dto.status === 'active'
-            ? null  // Clear reason when reactivating
-            : undefined,  // Don't touch for other transitions
-      },
-    });
-
-    // Invalidate all sessions for this tenant when suspending or cancelling
-    if (dto.status === 'suspended' || dto.status === 'cancelled') {
-      const deleted = await this.prisma.session.deleteMany({ where: { tenantId: id } });
-      if (deleted.count > 0) {
-        this.logger.log(`Invalidated ${deleted.count} session(s) for tenant ${id}`);
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(hashtext(${`tenant-status:${id}`}))
+      `);
+      const existing = await tx.tenant.findUnique({
+        where: { id },
+        select: { status: true, businessName: true, planId: true },
+      });
+      if (!existing) throw new NotFoundException('Tenant not found');
+      if (existing.status === dto.status) {
+        throw new BadRequestException(`Tenant is already ${dto.status}`);
       }
-    }
+      if (existing.status === 'cancelled' && dto.status === 'suspended') {
+        throw new BadRequestException('Cannot suspend a cancelled tenant. Reactivate it first.');
+      }
 
-    // If reactivating from cancelled, also restore the subscription
-    if (existing.status === 'cancelled' && dto.status === 'active' && existing.planId) {
-      const now = new Date();
-      const periodEnd = new Date(now);
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
-
-      await this.prisma.subscription.upsert({
-        where: { tenantId: id },
-        create: {
-          tenantId: id,
-          planId: existing.planId,
-          billingCycle: 'monthly',
-          currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
-          status: 'active',
-        },
-        update: {
-          status: 'active',
-          cancelledAt: null,
-          currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
+      const tenant = await tx.tenant.update({
+        where: { id },
+        data: {
+          status: dto.status,
+          statusReason: dto.status === 'suspended'
+            ? (dto.reason || 'Suspended by platform administrator')
+            : dto.status === 'active'
+              ? null
+              : dto.reason,
         },
       });
+
+      let invalidatedSessions = 0;
+      if (dto.status === 'suspended' || dto.status === 'cancelled') {
+        invalidatedSessions = (await tx.session.deleteMany({ where: { tenantId: id } })).count;
+      }
+
+      if (dto.status === 'cancelled') {
+        await tx.subscription.updateMany({
+          where: { tenantId: id, status: { not: 'cancelled' } },
+          data: { status: 'cancelled', cancelledAt: new Date() },
+        });
+      } else if (existing.status === 'cancelled' && existing.planId) {
+        const now = new Date();
+        const periodEnd = new Date(now);
+        periodEnd.setMonth(periodEnd.getMonth() + 1);
+        await tx.subscription.upsert({
+          where: { tenantId: id },
+          create: {
+            tenantId: id,
+            planId: existing.planId,
+            billingCycle: 'monthly',
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            status: 'active',
+          },
+          update: {
+            planId: existing.planId,
+            status: 'active',
+            cancelledAt: null,
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+          },
+        });
+      }
+
+      return { tenant, existing, invalidatedSessions };
+    });
+
+    const { tenant, existing, invalidatedSessions } = result;
+    if (invalidatedSessions > 0) {
+      this.logger.log(`Invalidated ${invalidatedSessions} session(s) for tenant ${id}`);
     }
 
     // Emit audit event
@@ -552,29 +581,65 @@ export class AdminService {
    * Point 1: Token includes isImpersonation + impersonatorId.
    * Point 2: Emits 'admin.tenantImpersonated' audit event.
    */
-  async impersonateTenant(adminUserId: string, tenantId: string) {
+  async impersonateTenant(
+    adminUserId: string,
+    tenantId: string,
+    sessionInfo: { ip: string; ua: ParsedUserAgent },
+  ) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       include: { owner: true }
     });
 
     if (!tenant) throw new NotFoundException('Tenant not found');
+    if (tenant.status !== 'active') {
+      throw new BadRequestException('Only active tenants can be impersonated');
+    }
+    if (!tenant.owner.isActive) {
+      throw new BadRequestException('The tenant owner account is inactive');
+    }
+    const membership = await this.prisma.tenantUser.findUnique({
+      where: { tenantId_userId: { tenantId: tenant.id, userId: tenant.owner.id } },
+      select: { role: true, isActive: true },
+    });
+    if (!membership?.isActive || membership.role !== 'owner') {
+      throw new BadRequestException('The tenant has no active owner membership');
+    }
 
-    // Point 1: Include impersonation metadata in the JWT
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    const unusableRefreshHash = createHash('sha256').update(randomBytes(32)).digest('hex');
+    const session = await this.prisma.session.create({
+      data: {
+        tenantId: tenant.id,
+        userId: tenant.owner.id,
+        refreshTokenHash: unusableRefreshHash,
+        deviceName: `SaaS admin impersonation · ${sessionInfo.ua.deviceName}`,
+        deviceType: sessionInfo.ua.deviceType,
+        browser: sessionInfo.ua.browser,
+        os: sessionInfo.ua.os,
+        ipAddress: sessionInfo.ip,
+        lastActiveAt: new Date(),
+        expiresAt,
+        isImpersonation: true,
+        impersonatorId: adminUserId,
+      },
+    });
+
     const impersonationToken = this.jwtService.sign({
       sub: tenant.owner.id,
       tenantId: tenant.id,
       role: 'owner',
-      sessionId: `impersonation_${Date.now()}`,
+      sessionId: session.id,
       isImpersonation: true,
       impersonatorId: adminUserId,
-    });
+    }, { expiresIn: '1h' });
 
     // Point 2: Emit audit event
     this.eventEmitter.emit('admin.tenantImpersonated', {
       adminUserId,
       tenantId: tenant.id,
       ownerUserId: tenant.owner.id,
+      impersonationSessionId: session.id,
       businessName: tenant.businessName,
       timestamp: new Date().toISOString(),
     });
@@ -666,41 +731,11 @@ export class AdminService {
    * Point 19: Soft-delete a tenant by setting status to 'cancelled'.
    */
   async deleteTenant(id: string, adminUserId: string) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id },
-      select: { id: true, status: true, businessName: true },
-    });
-
-    if (!tenant) throw new NotFoundException('Tenant not found');
-
-    if (tenant.status === 'cancelled') {
-      throw new BadRequestException('Tenant is already cancelled');
-    }
-
-    const updated = await this.prisma.tenant.update({
-      where: { id },
-      data: { status: 'cancelled' },
-    });
-
-    // Also cancel the subscription if active
-    await this.prisma.subscription.updateMany({
-      where: { tenantId: id, status: { not: 'cancelled' } },
-      data: { status: 'cancelled', cancelledAt: new Date() },
-    });
-
-    this.eventEmitter.emit('admin.tenantStatusChanged', {
+    return this.updateTenantStatus(
+      id,
+      { status: 'cancelled', reason: 'Deleted by admin' },
       adminUserId,
-      tenantId: id,
-      businessName: tenant.businessName,
-      oldStatus: tenant.status,
-      newStatus: 'cancelled',
-      reason: 'Deleted by admin',
-      timestamp: new Date().toISOString(),
-    });
-
-    this.logger.warn(`Admin ${adminUserId} soft-deleted tenant ${id} (${tenant.businessName})`);
-
-    return { success: true, data: updated };
+    );
   }
 
   // =========================================================================
@@ -712,7 +747,7 @@ export class AdminService {
    * Queries the AuditLog table for admin-level actions.
    */
   async getActivityLog(params: { page: number; limit: number }) {
-    const { page, limit } = params;
+    const { page, limit } = normalizePagination(params.page, params.limit);
     const skip = (page - 1) * limit;
 
     // Query audit logs where the action starts with 'admin.'
@@ -752,6 +787,10 @@ export class AdminService {
       include: { subscription: true },
     });
     if (!tenant) throw new NotFoundException('Tenant not found');
+    const planId = tenant.subscription?.planId ?? tenant.planId;
+    if (!planId) {
+      throw new BadRequestException('Assign a subscription plan before recording a payment');
+    }
 
     const months = dto.extendMonths || 1;
     const sub = tenant.subscription;
@@ -790,21 +829,16 @@ export class AdminService {
         });
       } else {
         // Create subscription if none exists
-        const plan = await tx.subscriptionPlan.findFirst({
-          where: { id: tenant.planId || undefined },
+        await tx.subscription.create({
+          data: {
+            tenantId,
+            planId,
+            billingCycle: 'monthly',
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+            status: 'active',
+          },
         });
-        if (plan) {
-          await tx.subscription.create({
-            data: {
-              tenantId,
-              planId: plan.id,
-              billingCycle: 'monthly',
-              currentPeriodStart: periodStart,
-              currentPeriodEnd: periodEnd,
-              status: 'active',
-            },
-          });
-        }
       }
 
       // 3. Ensure tenant is active
@@ -819,8 +853,8 @@ export class AdminService {
       await tx.subscriptionHistory.create({
         data: {
           tenantId,
-          oldPlanId: tenant.planId,
-          newPlanId: tenant.planId || '',
+          oldPlanId: planId,
+          newPlanId: planId,
           action: 'renewed',
           reason: `Payment recorded: ${dto.method} — ${dto.reference || 'no ref'}`,
           performedBy: adminUserId,
@@ -869,7 +903,7 @@ export class AdminService {
    * Get payment history for a tenant.
    */
   async getPaymentHistory(tenantId: string, params: { page: number; limit: number }) {
-    const { page, limit } = params;
+    const { page, limit } = normalizePagination(params.page, params.limit);
     const skip = (page - 1) * limit;
 
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
@@ -909,36 +943,51 @@ export class AdminService {
       select: { id: true, businessName: true },
     });
     if (!tenant) throw new NotFoundException('Tenant not found');
-
-    // Generate sequential invoice number
-    const year = new Date().getFullYear();
-    const lastInvoice = await this.prisma.invoice.findFirst({
-      where: {
-        invoiceNo: { startsWith: `INV-${year}-` },
-      },
-      orderBy: { invoiceNo: 'desc' },
-      select: { invoiceNo: true },
-    });
-
-    let nextNum = 1;
-    if (lastInvoice) {
-      const parts = lastInvoice.invoiceNo.split('-');
-      nextNum = parseInt(parts[2], 10) + 1;
+    for (const [index, line] of dto.lineItems.entries()) {
+      if (line.amount !== line.quantity * line.rate) {
+        throw new BadRequestException(
+          `Invoice line ${index + 1} amount must equal quantity × rate`,
+        );
+      }
     }
-    const invoiceNo = `INV-${year}-${String(nextNum).padStart(4, '0')}`;
+    const lineItemTotal = dto.lineItems.reduce((sum, line) => sum + line.amount, 0);
+    if (lineItemTotal !== dto.amount) {
+      throw new BadRequestException('Invoice amount must equal the sum of line items');
+    }
+    const dueDate = new Date(dto.dueDate);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    if (dueDate < startOfToday) {
+      throw new BadRequestException('Invoice due date cannot be in the past');
+    }
 
-    const invoice = await this.prisma.invoice.create({
-      data: {
-        tenantId,
-        invoiceNo,
-        amount: dto.amount,
-        dueDate: new Date(dto.dueDate),
-        lineItems: dto.lineItems as any,
-        notes: dto.notes,
-      },
+    const year = new Date().getFullYear();
+    const invoice = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(hashtext(${`invoice-number:${year}`}))
+      `);
+      const lastInvoice = await tx.invoice.findFirst({
+        where: { invoiceNo: { startsWith: `INV-${year}-` } },
+        orderBy: { invoiceNo: 'desc' },
+        select: { invoiceNo: true },
+      });
+      const previous = lastInvoice
+        ? Number.parseInt(lastInvoice.invoiceNo.split('-')[2] ?? '0', 10)
+        : 0;
+      const invoiceNo = `INV-${year}-${String(previous + 1).padStart(4, '0')}`;
+      return tx.invoice.create({
+        data: {
+          tenantId,
+          invoiceNo,
+          amount: dto.amount,
+          dueDate,
+          lineItems: dto.lineItems as unknown as Prisma.InputJsonValue,
+          notes: dto.notes,
+        },
+      });
     });
 
-    this.logger.log(`Admin ${adminUserId} generated invoice ${invoiceNo} for tenant ${tenantId}`);
+    this.logger.log(`Admin ${adminUserId} generated invoice ${invoice.invoiceNo} for tenant ${tenantId}`);
 
     return { success: true, data: invoice };
   }
@@ -947,7 +996,7 @@ export class AdminService {
    * Get invoices for a tenant.
    */
   async getInvoices(tenantId: string, params: { page: number; limit: number }) {
-    const { page, limit } = params;
+    const { page, limit } = normalizePagination(params.page, params.limit);
     const skip = (page - 1) * limit;
 
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
@@ -980,16 +1029,29 @@ export class AdminService {
     const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) throw new NotFoundException('Invoice not found');
 
-    if (!['paid', 'void', 'unpaid'].includes(dto.status)) {
-      throw new BadRequestException('Invalid status. Must be: paid, void, or unpaid');
+    if (dto.paymentId && dto.status !== 'paid') {
+      throw new BadRequestException('A payment can only be linked to a paid invoice');
+    }
+    if (dto.paymentId) {
+      const payment = await this.prisma.subscriptionPayment.findFirst({
+        where: { id: dto.paymentId, tenantId: invoice.tenantId },
+        select: { amount: true, invoice: { select: { id: true } } },
+      });
+      if (!payment) throw new BadRequestException('Payment does not belong to this tenant');
+      if (payment.invoice && payment.invoice.id !== invoice.id) {
+        throw new ConflictException('Payment is already linked to another invoice');
+      }
+      if (payment.amount !== invoice.amount) {
+        throw new BadRequestException('Payment amount must match the invoice amount');
+      }
     }
 
     const updated = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
         status: dto.status,
-        paidAt: dto.status === 'paid' ? new Date() : null,
-        paymentId: dto.paymentId || null,
+        paidAt: dto.status === 'paid' ? invoice.paidAt ?? new Date() : null,
+        paymentId: dto.status === 'paid' ? dto.paymentId ?? invoice.paymentId : null,
       },
     });
 
@@ -1072,7 +1134,7 @@ export class AdminService {
    * List all promo codes with usage stats.
    */
   async getPromoCodes(params: { page: number; limit: number }) {
-    const { page, limit } = params;
+    const { page, limit } = normalizePagination(params.page, params.limit);
     const skip = (page - 1) * limit;
 
     const [codes, total] = await Promise.all([
@@ -1175,7 +1237,7 @@ export class AdminService {
    * Get subscription change history for a tenant.
    */
   async getSubscriptionHistory(tenantId: string, params: { page: number; limit: number }) {
-    const { page, limit } = params;
+    const { page, limit } = normalizePagination(params.page, params.limit);
     const skip = (page - 1) * limit;
 
     const [entries, total] = await Promise.all([
@@ -1245,7 +1307,7 @@ export class AdminService {
 
     const [liveMetricsMap, snapshots] = await Promise.all([
       this.meteringService.getAllTenantsLiveMetrics(tenantIds),
-      (this.prisma as any).tenantUsageSnapshot.findMany({
+      this.prisma.tenantUsageSnapshot.findMany({
         where: {
           tenantId: { in: tenantIds },
           snapshotDate: today,
@@ -1262,10 +1324,7 @@ export class AdminService {
     ]);
 
     // Index snapshots by tenantId for O(1) lookup
-    const snapshotMap = new Map<string, any>();
-    for (const snap of snapshots) {
-      snapshotMap.set(snap.tenantId, snap);
-    }
+    const snapshotMap = new Map(snapshots.map((snapshot) => [snapshot.tenantId, snapshot]));
 
     const rows = tenants.map((tenant) => {
       const live = liveMetricsMap.get(tenant.id);
@@ -1354,16 +1413,28 @@ export class AdminService {
     tenantId: string,
     params: { from?: string; to?: string; limit?: number },
   ) {
-    const { from, to, limit = 30 } = params;
+    const limit = Math.min(Math.max(1, params.limit ?? 30), 365);
+    const { from, to } = params;
 
-    const where: any = { tenantId };
+    const where: Prisma.TenantUsageSnapshotWhereInput = { tenantId };
     if (from || to) {
       where.snapshotDate = {};
-      if (from) where.snapshotDate.gte = new Date(from);
-      if (to) where.snapshotDate.lte = new Date(to);
+      const fromDate = from ? new Date(from) : null;
+      const toDate = to ? new Date(to) : null;
+      if (fromDate && Number.isNaN(fromDate.getTime())) {
+        throw new BadRequestException('Invalid resource history start date');
+      }
+      if (toDate && Number.isNaN(toDate.getTime())) {
+        throw new BadRequestException('Invalid resource history end date');
+      }
+      if (fromDate && toDate && fromDate > toDate) {
+        throw new BadRequestException('Resource history start date must be before end date');
+      }
+      if (fromDate) where.snapshotDate.gte = fromDate;
+      if (toDate) where.snapshotDate.lte = toDate;
     }
 
-    const snapshots = await (this.prisma as any).tenantUsageSnapshot.findMany({
+    const snapshots = await this.prisma.tenantUsageSnapshot.findMany({
       where,
       orderBy: { snapshotDate: 'desc' },
       take: limit,
@@ -1386,7 +1457,7 @@ export class AdminService {
    */
   async getResourceAlerts() {
     const overview = await this.getResourceMonitorOverview();
-    const alerts = (overview.data.tenants as any[]).filter(
+    const alerts = overview.data.tenants.filter(
       (t) => t.alertLevel !== 'green',
     );
     return { success: true, data: alerts };

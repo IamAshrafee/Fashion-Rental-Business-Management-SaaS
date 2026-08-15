@@ -38,6 +38,7 @@ import { PricingEngineModule } from './modules/pricing-engine/pricing-engine.mod
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { HealthModule } from './modules/health/health.module';
 import { SecurityModule } from './common/security/security.module';
+import { ImpersonationAuditInterceptor } from './common/interceptors/impersonation-audit.interceptor';
 
 @Module({
   imports: [
@@ -91,6 +92,10 @@ import { SecurityModule } from './common/security/security.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: MeteringInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ImpersonationAuditInterceptor,
     },
     // Global per-tenant rate limiter — replaces ThrottlerModule.
     // Plan-aware: Free=60rpm, Pro=180rpm, Enterprise=600rpm.

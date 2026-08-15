@@ -9,7 +9,15 @@
  */
 
 import axios from 'axios';
-import { getAccessToken, refreshAccessToken, clearAccessToken, getTenantId } from './auth';
+import {
+  getAccessToken,
+  refreshAccessToken,
+  clearAccessToken,
+  getTenantId,
+  isImpersonationActive,
+  clearImpersonationClientState,
+  getAdminPortalUrl,
+} from './auth';
 import { getApiProblem } from './api-error';
 
 // ----------------------------------------------------------------
@@ -110,6 +118,12 @@ apiClient.interceptors.response.use(
     }
 
     const originalRequest = error.config;
+
+    if (error.response?.status === 401 && isImpersonationActive()) {
+      clearImpersonationClientState();
+      if (typeof window !== 'undefined') window.location.href = getAdminPortalUrl();
+      return Promise.reject(error);
+    }
 
     // If 401 and we haven't already retried, try to refresh
     if (
