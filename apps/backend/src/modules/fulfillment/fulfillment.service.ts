@@ -499,8 +499,8 @@ export class FulfillmentService {
     return { bookingId, shipmentId: shipment.id, courierStatus: status, bookingStatus };
   }
 
-  @OnEvent('booking.confirmed')
-  async onBookingConfirmed(payload: { tenantId: string; bookingId: string; bookingNumber: string }) {
+  @OnEvent('booking.handoffReady')
+  async onBookingHandoffReady(payload: { tenantId: string; bookingId: string }) {
     try {
       const booking = await this.getShippableBooking(payload.tenantId, payload.bookingId);
       if (booking.handoverMethod === 'CUSTOMER_PICKUP') return;
@@ -512,13 +512,13 @@ export class FulfillmentService {
         this.eventEmitter.emit('fulfillment.schedulePickup', {
           tenantId: payload.tenantId,
           bookingId: payload.bookingId,
-          bookingNumber: payload.bookingNumber,
+          bookingNumber: booking.bookingNumber,
           scheduledAt: pickupDate.toISOString(),
           delayMs: Math.max(0, pickupDate.getTime() - Date.now()),
         });
       }
     } catch (cause) {
-      this.logger.error(`Could not prepare shipment for ${payload.bookingNumber}: ${cause instanceof Error ? cause.message : cause}`);
+      this.logger.error(`Could not prepare shipment for ${payload.bookingId}: ${cause instanceof Error ? cause.message : cause}`);
     }
   }
 

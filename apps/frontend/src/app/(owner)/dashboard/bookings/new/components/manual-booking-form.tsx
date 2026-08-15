@@ -31,7 +31,7 @@ import { Switch } from '@/components/ui/switch';
 import {
   PackageSearch, CheckCircle, Loader2, Plus, Trash2,
   UserCheck, AlertCircle, Calendar, ShoppingBag, ImageIcon,
-  Pencil, Ruler, Tag, CreditCard, Zap,
+  Pencil, Ruler, Tag, CreditCard,
   Percent, DollarSign, Truck,
 } from 'lucide-react';
 import { customerApi } from '@/lib/api/customers';
@@ -194,7 +194,6 @@ const schema = z.object({
   customerNotes: z.string().optional(),
   internalNotes: z.string().optional(),
   // Auto-confirm
-  autoConfirm: z.boolean().optional(),
   // Discount
   discountEnabled: z.boolean().optional(),
   discountType: z.enum(['flat', 'percentage']).optional(),
@@ -299,7 +298,6 @@ export function ManualBookingForm() {
       deliveryName: '',
       deliveryPhone: '',
       deliveryAltPhone: '',
-      autoConfirm: false,
       discountEnabled: false,
       discountType: 'flat',
       discountValue: 0,
@@ -316,7 +314,6 @@ export function ManualBookingForm() {
 
   const watchPaymentMethod = form.watch('paymentMethod');
   const watchDeliveryDiffers = form.watch('deliveryDiffers');
-  const watchAutoConfirm = form.watch('autoConfirm');
   const watchDiscountEnabled = form.watch('discountEnabled');
   const watchDiscountType = form.watch('discountType');
   const watchDiscountValue = form.watch('discountValue') || 0;
@@ -878,7 +875,6 @@ export function ManualBookingForm() {
       paymentMethod: values.paymentMethod,
       customerNotes: values.customerNotes || undefined,
       internalNotes: values.internalNotes || undefined,
-      autoConfirm: values.autoConfirm || undefined,
     };
 
     // Discount
@@ -1846,26 +1842,6 @@ export function ManualBookingForm() {
 
                 <Separator />
 
-                {/* ── Auto-confirm Toggle ── */}
-                <FormField control={form.control} name="autoConfirm" render={({ field }) => (
-                  <div className="rounded-md border p-3">
-                    <FormItem className="flex items-center justify-between gap-2">
-                      <div>
-                        <FormLabel className="text-sm font-medium flex items-center gap-2">
-                          <Zap className="h-4 w-4 text-yellow-500" />
-                          Create & Confirm Immediately
-                        </FormLabel>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Skip the pending state — booking will be confirmed on creation.
-                        </p>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
-                      </FormControl>
-                    </FormItem>
-                  </div>
-                )} />
-
                 {/* Back button */}
                 <div className="flex justify-start pt-2">
                   <Button type="button" variant="outline" onClick={() => setStep(3)}>
@@ -1985,12 +1961,6 @@ export function ManualBookingForm() {
                         Items validated; authoritative quote still required
                       </div>
                     ) : null}
-                    {watchAutoConfirm && (
-                      <div className="flex items-center gap-1.5 text-xs text-yellow-600">
-                        <Zap className="h-3 w-3" />
-                        Will be confirmed immediately
-                      </div>
-                    )}
                   </div>
                 </>
               )}
@@ -2004,11 +1974,7 @@ export function ManualBookingForm() {
                 >
                   {mutation.isPending ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</>
-                  ) : watchAutoConfirm ? (
-                    <><Zap className="mr-2 h-4 w-4" /> Create & Confirm</>
-                  ) : (
-                    'Create Booking'
-                  )}
+                  ) : 'Create booking for review'}
                 </Button>
               )}
             </CardContent>
@@ -2064,12 +2030,6 @@ export function ManualBookingForm() {
                     <span className="text-muted-foreground">Payment</span>
                     <span className="uppercase">{form.getValues('paymentMethod')}</span>
                   </div>
-                  {watchAutoConfirm && (
-                    <div className="flex items-center gap-1.5 text-xs text-yellow-600 pt-1">
-                      <Zap className="h-3 w-3" />
-                      Will be confirmed immediately
-                    </div>
-                  )}
                 </div>
               </div>
             </AlertDialogDescription>
@@ -2077,7 +2037,7 @@ export function ManualBookingForm() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmSubmit}>
-              {watchAutoConfirm ? 'Confirm & Create' : 'Create Booking'}
+              Create booking for review
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

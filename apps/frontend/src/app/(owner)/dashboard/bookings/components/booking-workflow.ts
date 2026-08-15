@@ -23,16 +23,16 @@ export function getBookingWorkflowState(status: BookingStatus): BookingWorkflowS
     case 'pending':
       return {
         currentStage: 0,
-        title: 'Review this new rental request',
-        description: 'Check the customer, rental dates, delivery plan, and payment arrangement. Physical-item work starts only after you confirm the booking.',
-        actionLabel: 'Review and confirm',
-        actionHref: '#booking-actions',
+        title: 'Review and reserve this rental request',
+        description: 'Check the customer, rental dates, delivery plan, and payment arrangement. Assign every exact physical item before approving the rental.',
+        actionLabel: 'Open review workspace',
+        actionHref: '#fulfillment-workspace',
       };
     case 'confirmed':
       return {
         currentStage: 1,
         title: 'Prepare the rental for handoff',
-        description: 'Assign the exact physical items, mark each component ready, then record the handout.',
+        description: 'The exact physical items are reserved. Prepare each component, then record the real handout.',
         actionLabel: 'Open fulfillment workspace',
         actionHref: '#fulfillment-workspace',
       };

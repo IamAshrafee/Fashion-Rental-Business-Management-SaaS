@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { getBookingWorkflowState } from './booking-workflow';
 
 describe('booking workflow guidance', () => {
-  it('keeps a new booking in review before fulfillment work begins', () => {
+  it('keeps a new booking in review and reserve before approval', () => {
     expect(getBookingWorkflowState('pending')).toMatchObject({
       currentStage: 0,
-      title: 'Review this new rental request',
-      actionHref: '#booking-actions',
+      title: 'Review and reserve this rental request',
+      actionHref: '#fulfillment-workspace',
     });
   });
 

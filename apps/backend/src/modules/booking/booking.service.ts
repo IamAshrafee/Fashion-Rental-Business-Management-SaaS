@@ -774,7 +774,6 @@ export class BookingService {
     cartToken?: string,
   ) {
     if (
-      dto.autoConfirm ||
       dto.initialPayment ||
       dto.discount ||
       dto.internalNotes ||
@@ -828,9 +827,9 @@ export class BookingService {
    * 3. Generate booking number
    * 4. Apply discount if provided (flat or percentage)
    * 5. Create Booking + BookingItems + inventory reservations in one transaction
-   * 6. Optionally auto-confirm (skip pending state)
+   * 6. Create a review-stage request with a short-lived capacity hold
    * 7. Optionally record initial payment
-   * 8. Emit booking.created (and booking.confirmed) event
+   * 8. Emit booking.created
    */
   async createBooking(
     tenantId: string,
@@ -903,9 +902,7 @@ export class BookingService {
         });
       }
     }
-    const pendingReservationExpiresAt = dto.autoConfirm
-      ? null
-      : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const pendingReservationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     // Step 1: Find or create customer (outside transaction — idempotent)
     const customer = await this.customerService.findOrCreateByPhone(tenantId, dto.customer.phone, {
       fullName: dto.customer.fullName,
@@ -1211,8 +1208,9 @@ export class BookingService {
         const deliveryPhone = dto.delivery.deliveryPhone || dto.customer.phone;
         const deliveryAltPhone = dto.delivery.deliveryAltPhone || dto.customer.altPhone || null;
 
-        // Determine initial status (auto-confirm power-up)
-        const initialStatus = dto.autoConfirm ? 'confirmed' : 'pending';
+        // Every booking starts as a review-stage request. Exact physical-item
+        // allocation is required before an owner or manager can confirm it.
+        const initialStatus = 'pending';
         const now = new Date();
         const storefrontStartDate = manualDto
           ? manualDto.plan.startDate
@@ -1268,8 +1266,6 @@ export class BookingService {
             deliveryExtra: Object.keys(deliveryExtra).length > 0 ? deliveryExtra : Prisma.DbNull,
             customerNotes: dto.customerNotes ?? null,
             internalNotes: dto.internalNotes ?? null,
-            // Set confirmedAt when auto-confirming
-            ...(dto.autoConfirm ? { confirmedAt: now } : {}),
           },
         });
 
@@ -1324,7 +1320,7 @@ export class BookingService {
             bookingItemId: bookingItem.id,
             startDate: cartItem.startDate,
             endDate: cartItem.endDate,
-            reservationStatus: dto.autoConfirm ? 'CONFIRMED' : 'PENDING',
+            reservationStatus: 'PENDING',
             expiresAt: pendingReservationExpiresAt,
             proposals: fulfillmentProposals[itemIndex],
             itemRevenue: adjustedItemTotal,
@@ -1487,19 +1483,8 @@ export class BookingService {
       grandTotal: booking.grandTotal,
     });
 
-    // If auto-confirmed, also emit the confirmed event
-    if (dto.autoConfirm) {
-      this.eventEmitter.emit('booking.confirmed', {
-        tenantId,
-        bookingId: booking.id,
-        bookingNumber: booking.bookingNumber,
-        customerId: booking.customerId,
-      });
-    }
-
     this.logger.log(
       `Booking created: ${booking.bookingNumber} (tenant: ${tenantId})` +
-        `${dto.autoConfirm ? ' [auto-confirmed]' : ''}` +
         `${dto.discount ? ` [discount: ${dto.discount.type} ${dto.discount.value}]` : ''}` +
         `${dto.initialPayment ? ` [initial payment: ${dto.initialPayment.amount} minor BDT]` : ''}`,
     );

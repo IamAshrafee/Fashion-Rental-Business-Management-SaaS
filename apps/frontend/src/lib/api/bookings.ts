@@ -71,8 +71,6 @@ export interface CreateManualBookingPayload {
   // ── Manual booking power-ups ──
   /** Internal notes visible only to tenant staff */
   internalNotes?: string;
-  /** Skip pending → create as confirmed immediately */
-  autoConfirm?: boolean;
   /** Record an upfront payment atomically with the booking */
   initialPayment?: {
     amount: number;

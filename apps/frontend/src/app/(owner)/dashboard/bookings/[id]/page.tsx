@@ -291,7 +291,12 @@ export default function BookingDetailPage() {
         blockers={booking.operations.blockers}
       />
 
-      <OrderActions bookingId={booking.id} status={booking.status as BookingStatus} returnMethod={booking.returnMethod} />
+      <OrderActions
+        bookingId={booking.id}
+        status={booking.status as BookingStatus}
+        returnMethod={booking.returnMethod}
+        blockers={booking.operations.blockers}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
@@ -427,7 +432,7 @@ export default function BookingDetailPage() {
 
           <DeliveryTrackingCard booking={booking} />
 
-          {booking.status !== 'pending' && booking.status !== 'cancelled' && (
+          {booking.status !== 'cancelled' && (
             <InventoryAssignments bookingId={booking.id} bookingStatus={booking.status} />
           )}
           

@@ -4,7 +4,7 @@ import { useCallback, useMemo, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { BookingListQuery } from '@/lib/api/bookings';
 
-const QUEUES = new Set(['REQUEST', 'ASSIGNMENT', 'PREPARATION', 'HANDOFF', 'ACTIVE', 'RETURN_DUE', 'RETURN_INTAKE', 'INSPECTION', 'EXCEPTION', 'CLOSED']);
+const QUEUES = new Set(['REQUEST', 'PREPARATION', 'HANDOFF', 'ACTIVE', 'RETURN_DUE', 'RETURN_INTAKE', 'INSPECTION', 'EXCEPTION', 'CLOSED']);
 const PAYMENTS = new Set(['unpaid', 'partial', 'paid']);
 const SORTS = new Set(['createdAt', 'grandTotal']);
 const ORDERS = new Set(['asc', 'desc']);

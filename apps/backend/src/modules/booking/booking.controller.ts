@@ -21,7 +21,6 @@ import {
   CreateManualBookingDto,
   CreateManualBookingQuoteDto,
   ValidateCartDto,
-  UpdateBookingStatusDto,
   CancelBookingDto,
   AddNoteDto,
   CreateDamageReportDto,
@@ -38,7 +37,6 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
-import { BookingStatus } from '@prisma/client';
 import { StorefrontCartService } from './storefront-cart.service';
 
 // ============================================================================
@@ -238,20 +236,6 @@ export class BookingOwnerController {
   @Roles('owner', 'manager', 'staff')
   async getBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.bookingService.getBookingById(tenant.id, id);
-  }
-
-  /**
-   * PATCH /api/v1/owner/bookings/:id/status
-   * Status transition (general purpose).
-   */
-  @Patch(':id/status')
-  @Roles('owner', 'manager', 'staff')
-  async updateStatus(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') id: string,
-    @Body() dto: UpdateBookingStatusDto,
-  ) {
-    return this.bookingService.updateStatus(tenant.id, id, dto.status as BookingStatus);
   }
 
   /**

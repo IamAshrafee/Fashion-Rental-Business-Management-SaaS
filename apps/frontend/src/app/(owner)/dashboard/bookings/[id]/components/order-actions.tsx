@@ -25,9 +25,10 @@ interface OrderActionsProps {
   bookingId: string;
   status: BookingStatus;
   returnMethod?: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN' | null;
+  blockers?: string[];
 }
 
-export function OrderActions({ bookingId, status, returnMethod }: OrderActionsProps) {
+export function OrderActions({ bookingId, status, returnMethod, blockers = [] }: OrderActionsProps) {
   const queryClient = useQueryClient();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -167,8 +168,9 @@ export function OrderActions({ bookingId, status, returnMethod }: OrderActionsPr
               onClick={() => confirmMutation.mutate()}
               isPending={confirmMutation.isPending}
               icon={CheckCircle}
-              label="Confirm Booking"
+              label="Approve rental"
               className="bg-blue-600 hover:bg-blue-700"
+              allowed={blockers.length === 0}
             />
             <Button
               variant="outline"
@@ -253,11 +255,16 @@ export function OrderActions({ bookingId, status, returnMethod }: OrderActionsPr
         )}
       </div>
 
-      {status === 'confirmed' && !handoffReady && (
+        {status === 'confirmed' && !handoffReady && (
         <p className="mt-2 text-xs text-muted-foreground">
           Record every component handout in the fulfillment workspace before finalizing delivery.
         </p>
-      )}
+        )}
+        {status === 'pending' && blockers.length > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Reserve the exact physical items in the review workspace before approving this rental.
+          </p>
+        )}
       {(status === 'delivered' || status === 'overdue') && !returnReady && (
         <p className="mt-2 text-xs text-muted-foreground">
           Record every component as returned or lost before finalizing the return.

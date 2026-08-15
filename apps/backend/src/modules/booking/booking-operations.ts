@@ -70,7 +70,8 @@ export function buildBookingOperations(booking: BookingOperationsInput) {
     (item) => item.depositAmount > 0 && !item.depositSettlement,
   ).length;
   const balanceDue = Math.max(0, booking.grandTotal - booking.totalPaid);
-  const needsAssignment = booking.status === 'confirmed' && physicalItemAssigned < physicalItemRequired;
+  const needsAssignment = ['pending', 'confirmed'].includes(booking.status)
+    && physicalItemAssigned < physicalItemRequired;
   const unpreparedRequirementCount = requirements.filter(
     (item) => item.preparationStatus !== 'READY',
   ).length;
@@ -105,10 +106,10 @@ export function buildBookingOperations(booking: BookingOperationsInput) {
                     : 'COMPLETE'
               : 'NONE';
   const blockers = [
-    ...(booking.status === 'confirmed' && inventoryShortages > 0
+    ...(['pending', 'confirmed'].includes(booking.status) && inventoryShortages > 0
       ? [`${inventoryShortages} inventory requirement${inventoryShortages === 1 ? '' : 's'} have no capacity`]
       : []),
-    ...(booking.status === 'confirmed' && needsAssignment
+    ...(['pending', 'confirmed'].includes(booking.status) && needsAssignment
       ? [`${physicalItemRequired - physicalItemAssigned} physical-item assignment${physicalItemRequired - physicalItemAssigned === 1 ? '' : 's'} missing`]
       : []),
     ...(booking.status === 'confirmed' && unpreparedRequirementCount > 0

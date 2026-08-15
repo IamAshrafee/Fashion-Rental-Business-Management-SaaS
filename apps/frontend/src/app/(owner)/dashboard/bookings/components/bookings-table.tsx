@@ -51,8 +51,7 @@ export function BookingStatusBadge({ status }: { status: BookingStatus }) {
 
 const queues: Array<{ value: string; label: string }> = [
   { value: 'all', label: 'All' },
-  { value: 'REQUEST', label: 'Requests' },
-  { value: 'ASSIGNMENT', label: 'Assign items' },
+  { value: 'REQUEST', label: 'Review & reserve' },
   { value: 'PREPARATION', label: 'Preparation' },
   { value: 'HANDOFF', label: 'Handoff' },
   { value: 'ACTIVE', label: 'Active rentals' },
@@ -90,9 +89,9 @@ function BookingOperationalProgress({ booking }: { booking: BookingListItem }) {
   if (booking.status === 'pending') {
     return (
       <div className="space-y-1 text-sm">
-        <Badge variant="secondary">Awaiting your review</Badge>
+        <Badge variant="secondary">Review & reserve</Badge>
         <p className="max-w-xs text-xs text-muted-foreground">
-          Review the request before assigning or preparing physical items.
+          Review the request and reserve every exact physical item before approving it.
         </p>
       </div>
     );

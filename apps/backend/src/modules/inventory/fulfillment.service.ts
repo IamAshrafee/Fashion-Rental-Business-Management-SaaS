@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
 import {
   CompositionPricingBehavior,
@@ -97,6 +98,7 @@ export class FulfillmentService {
     private readonly availability: InventoryAvailabilityService,
     private readonly reservations: InventoryReservationService,
     private readonly lifecycle: StockUnitLifecycleService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async expandProposal(tx: Transaction, input: ExpandInput): Promise<RequirementProposal[]> {
@@ -509,6 +511,27 @@ export class FulfillmentService {
     if (bookingStatus === 'confirmed') {
       const unresolved = requirements.find((item) => !item.variantSizeId || !['RESERVED', 'PARTIALLY_ASSIGNED', 'ASSIGNED'].includes(item.status));
       if (unresolved) throw new ConflictException('Every required component must be resolved and reserved before confirmation');
+      const assignments = await tx.stockUnitAssignment.findMany({
+        where: { tenantId, reservation: { bookingId }, releasedAt: null },
+        select: { reservation: { select: { fulfillmentRequirementId: true } } },
+      });
+      const assignedByRequirement = new Map<string, number>();
+      for (const assignment of assignments) {
+        const requirementId = assignment.reservation.fulfillmentRequirementId;
+        assignedByRequirement.set(requirementId, (assignedByRequirement.get(requirementId) ?? 0) + 1);
+      }
+      const unassigned = requirements.find(
+        (item) => (assignedByRequirement.get(item.id) ?? 0) !== item.quantity,
+      );
+      if (unassigned) {
+        throw new ConflictException({
+          code: 'EXACT_ASSIGNMENT_REQUIRED',
+          message: 'Assign every exact physical item before confirming this rental',
+          requirementId: unassigned.id,
+          requiredQuantity: unassigned.quantity,
+          assignedQuantity: assignedByRequirement.get(unassigned.id) ?? 0,
+        });
+      }
       return;
     }
     if (bookingStatus === 'delivered') {
@@ -1053,7 +1076,7 @@ export class FulfillmentService {
       reason: dto.reason.trim(),
     });
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.fulfillmentRequirementEvent.findFirst({
         where: { tenantId, idempotencyKey: dto.idempotencyKey },
       });
@@ -1144,6 +1167,24 @@ export class FulfillmentService {
       });
       return updated;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    if (targetStatus === FulfillmentPreparationStatus.READY) {
+      const remainingPreparation = await this.prisma.fulfillmentRequirement.count({
+        where: {
+          tenantId,
+          bookingId: updated.bookingId,
+          status: { notIn: ['CANCELLED', 'SUPERSEDED'] },
+          preparationStatus: { not: FulfillmentPreparationStatus.READY },
+        },
+      });
+      if (remainingPreparation === 0) {
+        this.eventEmitter.emit('booking.handoffReady', {
+          tenantId,
+          bookingId: updated.bookingId,
+        });
+      }
+    }
+    return updated;
   }
 
   private async expandProductRules(

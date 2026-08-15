@@ -375,11 +375,6 @@ export class CreateBookingDto {
   @MaxLength(2000)
   internalNotes?: string;
 
-  /** Skip pending → create as confirmed immediately */
-  @IsOptional()
-  @IsBoolean()
-  autoConfirm?: boolean;
-
   /** Record an upfront payment atomically with the booking */
   @IsOptional()
   @ValidateNested()
