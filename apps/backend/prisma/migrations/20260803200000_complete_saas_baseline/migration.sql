@@ -299,6 +299,7 @@ CREATE TABLE "tenants" (
     "business_name" TEXT NOT NULL,
     "subdomain" TEXT NOT NULL,
     "custom_domain" TEXT,
+    "custom_domain_verified_at" TIMESTAMP(3),
     "owner_user_id" TEXT NOT NULL,
     "status" "TenantStatus" NOT NULL DEFAULT 'active',
     "status_reason" TEXT,

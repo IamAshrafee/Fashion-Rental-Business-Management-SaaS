@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { SensitiveDataService } from '../../common/security/sensitive-data.service';
 import { TenantService } from './tenant.service';
 
@@ -75,5 +75,66 @@ describe('TenantService payment settings', () => {
         sslcommerzStorePass: null,
       }),
     }));
+  });
+});
+
+describe('TenantService custom-domain lifecycle', () => {
+  function build(prisma: Record<string, unknown>) {
+    return new TenantService(
+      prisma as never,
+      { emit: jest.fn() } as never,
+      {} as never,
+    );
+  }
+
+  it('never resolves an unverified custom domain for storefront traffic', async () => {
+    const prisma = { tenant: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const service = build(prisma);
+
+    await expect(service.resolveByCustomDomain('shop.example.com')).resolves.toBeNull();
+    expect(prisma.tenant.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        customDomain: 'shop.example.com',
+        customDomainVerifiedAt: { not: null },
+      },
+    }));
+  });
+
+  it('enforces the plan entitlement before accepting a custom domain', async () => {
+    const prisma = {
+      tenant: {
+        findUnique: jest.fn().mockResolvedValue({
+          plan: { customDomain: false },
+          subscription: null,
+        }),
+      },
+    };
+    const service = build(prisma);
+
+    await expect(service.setCustomDomain('tenant-1', 'shop.example.com'))
+      .rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('marks a newly configured domain as pending verification', async () => {
+    const prisma = {
+      tenant: {
+        findUnique: jest.fn()
+          .mockResolvedValueOnce({ plan: { customDomain: true }, subscription: null })
+          .mockResolvedValueOnce(null),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const service = build(prisma);
+
+    const result = await service.setCustomDomain('tenant-1', 'Shop.Example.com.');
+
+    expect(prisma.tenant.update).toHaveBeenCalledWith({
+      where: { id: 'tenant-1' },
+      data: {
+        customDomain: 'shop.example.com',
+        customDomainVerifiedAt: null,
+      },
+    });
+    expect(result.status).toBe('pending_verification');
   });
 });

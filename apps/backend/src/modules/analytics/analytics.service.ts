@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AnalyticsExportType,
@@ -41,6 +41,10 @@ export class AnalyticsService {
     // Best practice to align 'from' to start of day if it was provided as a string
     if (query.from && query.from.length <= 10) {
       from.setUTCHours(0, 0, 0, 0);
+    }
+
+    if (from > to) {
+      throw new BadRequestException('Analytics start date must be before end date');
     }
 
     return { from, to };
@@ -340,7 +344,10 @@ export class AnalyticsService {
       totalBookingsCount === 0
         ? 0
         : Number(((cancelledCount / totalBookingsCount) * 100).toFixed(1));
-    const averageOrderValue = completedCount === 0 ? 0 : Math.round(totalRevenue / completedCount);
+    const bookedCount = currentBookings.filter(
+      (booking) => !['cancelled', 'pending'].includes(booking.status),
+    ).length;
+    const averageOrderValue = bookedCount === 0 ? 0 : Math.round(totalRevenue / bookedCount);
 
     // Better way to do active customers in range:
     // We can count how many of these active customers were created in this period
@@ -444,19 +451,34 @@ export class AnalyticsService {
     return { series, total };
   }
 
-  async getRevenueByCategory(tenantId: string): Promise<CategoryRevenue[]> {
-    // In v1, we can compute this using Product.totalRevenue and Product.categoryId
-    const products = await this.prisma.product.findMany({
-      where: { tenantId, deletedAt: null },
-      select: { totalRevenue: true, category: { select: { name: true } } },
+  async getRevenueByCategory(
+    tenantId: string,
+    query: AnalyticsQueryDto,
+  ): Promise<CategoryRevenue[]> {
+    const { from, to } = this.getDateRange(query);
+    const items = await this.prisma.bookingItem.findMany({
+      where: {
+        tenantId,
+        productId: { not: null },
+        booking: {
+          createdAt: { gte: from, lte: to },
+          status: { notIn: ['cancelled', 'pending'] },
+          deletedAt: null,
+        },
+      },
+      select: {
+        baseRental: true,
+        extendedCost: true,
+        product: { select: { category: { select: { name: true } } } },
+      },
     });
 
     let totalAll = 0;
     const catMap = new Map<string, number>();
 
-    for (const p of products) {
-      const catName = p.category.name;
-      const rev = p.totalRevenue;
+    for (const item of items) {
+      const catName = item.product?.category.name ?? 'Uncategorized';
+      const rev = item.baseRental + item.extendedCost;
       if (rev > 0) {
         catMap.set(catName, (catMap.get(catName) || 0) + rev);
         totalAll += rev;
@@ -476,40 +498,73 @@ export class AnalyticsService {
   async getTopProducts(tenantId: string, query: TopProductsQueryDto): Promise<TopProduct[]> {
     const sortBy = query.sortBy || 'bookings';
     const limit = query.limit || 10;
-
-    const products = await this.prisma.product.findMany({
-      where: { tenantId, deletedAt: null },
-      orderBy: sortBy === 'bookings' ? { totalBookings: 'desc' } : { totalRevenue: 'desc' },
-      take: limit,
-      include: {
-        variants: {
-          include: { images: { where: { isFeatured: true }, take: 1 } },
-          take: 1,
+    const { from, to } = this.getDateRange(query);
+    const items = await this.prisma.bookingItem.findMany({
+      where: {
+        tenantId,
+        productId: { not: null },
+        booking: {
+          createdAt: { gte: from, lte: to },
+          status: { notIn: ['cancelled', 'pending'] },
+          deletedAt: null,
+        },
+      },
+      select: {
+        bookingId: true,
+        productId: true,
+        productName: true,
+        baseRental: true,
+        extendedCost: true,
+        product: {
+          select: {
+            name: true,
+            variants: {
+              select: { images: { where: { isFeatured: true }, select: { thumbnailUrl: true }, take: 1 } },
+              take: 1,
+            },
+          },
         },
       },
     });
 
-    const utilizationFrom = new Date(Date.now() - 30 * 86_400_000);
-    const utilizationTo = new Date();
-    return Promise.all(
-      products.map(async (p) => {
-        let thumb = null;
-        if (p.variants.length > 0 && p.variants[0].images.length > 0) {
-          thumb = p.variants[0].images[0].thumbnailUrl;
-        }
+    const grouped = new Map<string, {
+      name: string;
+      bookingIds: Set<string>;
+      totalRevenue: number;
+      thumbnailUrl: string | null;
+    }>();
+    for (const item of items) {
+      if (!item.productId) continue;
+      const existing = grouped.get(item.productId) ?? {
+        name: item.product?.name ?? item.productName,
+        bookingIds: new Set<string>(),
+        totalRevenue: 0,
+        thumbnailUrl: item.product?.variants[0]?.images[0]?.thumbnailUrl ?? null,
+      };
+      existing.bookingIds.add(item.bookingId);
+      existing.totalRevenue += item.baseRental + item.extendedCost;
+      grouped.set(item.productId, existing);
+    }
+    const ranked = Array.from(grouped.entries())
+      .sort((left, right) => sortBy === 'bookings'
+        ? right[1].bookingIds.size - left[1].bookingIds.size
+        : right[1].totalRevenue - left[1].totalRevenue)
+      .slice(0, limit);
 
+    return Promise.all(
+      ranked.map(async ([productId, product]) => {
         return {
-          productId: p.id,
-          name: p.name,
-          totalBookings: p.totalBookings,
-          totalRevenue: p.totalRevenue,
+          productId,
+          name: product.name,
+          totalBookings: product.bookingIds.size,
+          totalRevenue: product.totalRevenue,
           utilizationRate: await this.calculateUtilization(
             tenantId,
-            utilizationFrom,
-            utilizationTo,
-            p.id,
+            from,
+            to,
+            productId,
           ),
-          thumbnailUrl: thumb,
+          thumbnailUrl: product.thumbnailUrl,
         };
       }),
     );

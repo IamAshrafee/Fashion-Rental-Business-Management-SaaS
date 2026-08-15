@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Logger } from '@nestjs/common';
 import { StorefrontEventPayload } from '@closetrent/types';
+import { Prisma } from '@prisma/client';
 
 @Processor('analytics-events')
 export class AnalyticsProcessor {
@@ -22,7 +23,7 @@ export class AnalyticsProcessor {
           eventType,
           productId,
           variantId,
-          metadata: metadata || {},
+          metadata: (metadata || {}) as Prisma.InputJsonValue,
           ipAddress,
           userAgent,
         },
@@ -35,13 +36,16 @@ export class AnalyticsProcessor {
         await this.prisma.product.update({
           where: { id: productId },
           data: { popularityScore: { increment } },
-        }).catch((err) => {
+        }).catch((error: unknown) => {
           // Non-critical — don't fail the event if the product doesn't exist
-          this.logger.warn(`Failed to increment popularity for product ${productId}: ${err?.message}`);
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          this.logger.warn(`Failed to increment popularity for product ${productId}: ${message}`);
         });
       }
-    } catch (error: any) {
-      this.logger.error(`Failed to ingest analytics event: ${error?.message}`, error?.stack);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Failed to ingest analytics event: ${message}`, stack);
       // We don't necessarily want to retry endlessly for analytics
       throw error;
     }

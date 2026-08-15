@@ -226,6 +226,7 @@ export interface AdminTenantDetails {
   businessName: string;
   subdomain: string;
   customDomain: string | null;
+  customDomainVerifiedAt: string | null;
   status: TenantStatus;
   plan: SubscriptionPlan | null;
   referralSource: string | null;

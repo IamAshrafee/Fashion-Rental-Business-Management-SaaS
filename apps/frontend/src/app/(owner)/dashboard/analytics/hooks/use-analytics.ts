@@ -3,11 +3,11 @@ import { analyticsApi } from '@/lib/api/analytics';
 
 export const analyticsKeys = {
   all: ['analytics'] as const,
-  summary: (params: Record<string, any>) => [...analyticsKeys.all, 'summary', params] as const,
-  revenueSeries: (params: Record<string, any>) =>
+  summary: (params: Record<string, unknown>) => [...analyticsKeys.all, 'summary', params] as const,
+  revenueSeries: (params: Record<string, unknown>) =>
     [...analyticsKeys.all, 'revenue', params] as const,
   categoryRevenue: () => [...analyticsKeys.all, 'category'] as const,
-  topProducts: (params: Record<string, any>) =>
+  topProducts: (params: Record<string, unknown>) =>
     [...analyticsKeys.all, 'top-products', params] as const,
   costRecovery: () => [...analyticsKeys.all, 'cost-recovery'] as const,
 };
@@ -26,14 +26,19 @@ export function useRevenueSeries(params: { from?: string; to?: string; groupBy?:
   });
 }
 
-export function useCategoryRevenue() {
+export function useCategoryRevenue(params: { from?: string; to?: string } = {}) {
   return useQuery({
-    queryKey: analyticsKeys.categoryRevenue(),
-    queryFn: () => analyticsApi.getCategoryRevenue(),
+    queryKey: [...analyticsKeys.categoryRevenue(), params],
+    queryFn: () => analyticsApi.getCategoryRevenue(params),
   });
 }
 
-export function useTopProducts(params: { sortBy?: 'bookings' | 'revenue'; limit?: number } = {}) {
+export function useTopProducts(params: {
+  sortBy?: 'bookings' | 'revenue';
+  limit?: number;
+  from?: string;
+  to?: string;
+} = {}) {
   return useQuery({
     queryKey: analyticsKeys.topProducts(params),
     queryFn: () => analyticsApi.getTopProducts(params),

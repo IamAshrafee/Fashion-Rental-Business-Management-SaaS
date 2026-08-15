@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
   BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -47,6 +48,7 @@ export class TenantService {
         id: true,
         subdomain: true,
         customDomain: true,
+        customDomainVerifiedAt: true,
         status: true,
       },
     });
@@ -59,12 +61,13 @@ export class TenantService {
    * Resolve a tenant by custom domain.
    */
   async resolveByCustomDomain(domain: string): Promise<TenantContext | null> {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { customDomain: domain },
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { customDomain: domain, customDomainVerifiedAt: { not: null } },
       select: {
         id: true,
         subdomain: true,
         customDomain: true,
+        customDomainVerifiedAt: true,
         status: true,
       },
     });
@@ -179,6 +182,7 @@ export class TenantService {
         businessName: true,
         subdomain: true,
         customDomain: true,
+        customDomainVerifiedAt: true,
         logoUrl: true,
         faviconUrl: true,
         storeSettings: {
@@ -257,6 +261,7 @@ export class TenantService {
         businessName: true,
         subdomain: true,
         customDomain: true,
+        customDomainVerifiedAt: true,
         logoUrl: true,
         faviconUrl: true,
         storeSettings: {
@@ -302,7 +307,7 @@ export class TenantService {
       id: tenant.id,
       businessName: tenant.businessName,
       subdomain: tenant.subdomain,
-      customDomain: tenant.customDomain,
+      customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
       logoUrl: tenant.logoUrl,
       faviconUrl: tenant.faviconUrl,
       primaryColor: settings?.primaryColor ?? '#6366F1',
@@ -506,6 +511,20 @@ export class TenantService {
     // Normalize domain (lowercase, no trailing dots)
     const normalizedDomain = domain.toLowerCase().replace(/\.$/, '');
 
+    const tenantPlan = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        plan: { select: { customDomain: true } },
+        subscription: { select: { plan: { select: { customDomain: true } } } },
+      },
+    });
+    if (!tenantPlan) throw new NotFoundException('Tenant not found');
+    const customDomainAllowed =
+      tenantPlan.subscription?.plan.customDomain ?? tenantPlan.plan?.customDomain ?? false;
+    if (!customDomainAllowed) {
+      throw new ForbiddenException('Your current subscription plan does not include custom domains');
+    }
+
     // Check if domain is already used by another tenant
     const existing = await this.prisma.tenant.findUnique({
       where: { customDomain: normalizedDomain },
@@ -520,7 +539,7 @@ export class TenantService {
 
     await this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { customDomain: normalizedDomain },
+      data: { customDomain: normalizedDomain, customDomainVerifiedAt: null },
     });
 
     this.eventEmitter.emit('settings.customDomainSet', {
@@ -540,7 +559,7 @@ export class TenantService {
         cnameRecord: {
           type: 'CNAME',
           host: '@',
-          value: process.env.BASE_DOMAIN || 'closetrent.com',
+          value: (process.env.BASE_DOMAIN || 'closetrent.com').split(':')[0],
         },
       },
     };
@@ -561,7 +580,7 @@ export class TenantService {
 
     const domain = tenant.customDomain;
     const serverIp = process.env.SERVER_IP || '0.0.0.0';
-    const baseDomain = process.env.BASE_DOMAIN || 'closetrent.com';
+    const baseDomain = (process.env.BASE_DOMAIN || 'closetrent.com').split(':')[0];
 
     let verified = false;
     let method = '';
@@ -581,7 +600,10 @@ export class TenantService {
     if (!verified) {
       try {
         const cnames = await dnsResolveCname(domain);
-        if (cnames.some((cname) => cname.endsWith(baseDomain))) {
+        if (cnames.some((value) => {
+          const cname = value.toLowerCase().replace(/\.$/, '');
+          return cname === baseDomain || cname.endsWith(`.${baseDomain}`);
+        })) {
           verified = true;
           method = 'CNAME record';
         }
@@ -601,6 +623,15 @@ export class TenantService {
       `Custom domain ${domain} verified for tenant ${tenantId} via ${method}`,
     );
 
+    const verifiedAt = new Date();
+    const verificationUpdate = await this.prisma.tenant.updateMany({
+      where: { id: tenantId, customDomain: domain },
+      data: { customDomainVerifiedAt: verifiedAt },
+    });
+    if (verificationUpdate.count !== 1) {
+      throw new ConflictException('The custom domain changed during verification. Please try again.');
+    }
+
     this.eventEmitter.emit('settings.customDomainVerified', {
       tenantId,
       domain,
@@ -610,6 +641,7 @@ export class TenantService {
     return {
       domain,
       verified: true,
+      verifiedAt,
       sslStatus: 'provisioning',
     };
   }
@@ -631,7 +663,7 @@ export class TenantService {
 
     await this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { customDomain: null },
+      data: { customDomain: null, customDomainVerifiedAt: null },
     });
 
     this.eventEmitter.emit('settings.customDomainRemoved', {

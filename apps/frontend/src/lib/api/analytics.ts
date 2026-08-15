@@ -41,14 +41,20 @@ export const analyticsApi = {
     return data;
   },
 
-  getCategoryRevenue: async () => {
+  getCategoryRevenue: async (params?: { from?: string; to?: string }) => {
     const { data } = await apiClient.get<ApiResponse<CategoryRevenue[]>>(
       '/owner/analytics/revenue-by-category',
+      { params },
     );
     return data;
   },
 
-  getTopProducts: async (params?: { sortBy?: 'bookings' | 'revenue'; limit?: number }) => {
+  getTopProducts: async (params?: {
+    sortBy?: 'bookings' | 'revenue';
+    limit?: number;
+    from?: string;
+    to?: string;
+  }) => {
     const { data } = await apiClient.get<ApiResponse<TopProduct[]>>(
       '/owner/analytics/top-products',
       { params },

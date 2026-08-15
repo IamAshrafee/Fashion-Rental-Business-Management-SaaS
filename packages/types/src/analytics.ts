@@ -94,7 +94,7 @@ export interface StorefrontEventPayload {
   eventType: StorefrontEventType;
   productId?: string;
   variantId?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   // Intentionally omitting IP and UserAgent as those are derived from req headers
 }
 

@@ -3,17 +3,13 @@
 import { useTopProducts } from '../hooks/use-analytics';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Trophy, TrendingUp } from 'lucide-react';
+import { formatMinorMoney } from '@/lib/money';
 
-export function TopProducts({ sortBy = 'revenue' }: { sortBy?: 'bookings' | 'revenue' }) {
-  const { data: response, isLoading } = useTopProducts({ sortBy, limit: 5 });
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+export function TopProducts({ sortBy = 'revenue', dateRange }: {
+  sortBy?: 'bookings' | 'revenue';
+  dateRange: { from?: string; to?: string };
+}) {
+  const { data: response, isLoading } = useTopProducts({ sortBy, limit: 5, ...dateRange });
 
   if (isLoading) {
     return (
@@ -56,7 +52,7 @@ export function TopProducts({ sortBy = 'revenue' }: { sortBy?: 'bookings' | 'rev
           </div>
         ) : (
           <div className="space-y-5">
-            {products.map((product: any, index: number) => (
+            {products.map((product, index) => (
               <div key={product.productId} className="flex items-center gap-4 p-2 rounded-lg hover:bg-muted/50 transition-colors -ml-2">
                 <div className="relative flex shrink-0 items-center justify-center font-bold text-gray-400 w-6">
                   {index + 1}.
@@ -85,7 +81,7 @@ export function TopProducts({ sortBy = 'revenue' }: { sortBy?: 'bookings' | 'rev
                 
                 <div className="text-right whitespace-nowrap">
                   <div className="font-semibold text-sm text-emerald-600">
-                    {formatCurrency(product.totalRevenue)}
+                    {formatMinorMoney(product.totalRevenue)}
                   </div>
                 </div>
               </div>

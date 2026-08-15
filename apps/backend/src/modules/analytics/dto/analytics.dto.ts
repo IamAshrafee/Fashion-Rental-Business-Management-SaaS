@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsDateString, IsIn } from 'class-validator';
+import { IsOptional, IsString, IsDateString, IsIn, IsInt, Max, Min } from 'class-validator';
 
 export class AnalyticsQueryDto {
   @IsOptional()
@@ -21,13 +21,16 @@ export class RevenueChartQueryDto extends AnalyticsQueryDto {
   groupBy?: 'day' | 'week' | 'month';
 }
 
-export class TopProductsQueryDto {
+export class TopProductsQueryDto extends AnalyticsQueryDto {
   @IsOptional()
   @IsString()
   @IsIn(['bookings', 'revenue'])
   sortBy?: 'bookings' | 'revenue';
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit?: number;
 }
 

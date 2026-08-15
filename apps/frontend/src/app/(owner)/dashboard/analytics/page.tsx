@@ -32,10 +32,10 @@ export default function AnalyticsPage() {
       case 'today':
         return { from: format(today, 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
       case '7d':
-        return { from: format(subDays(today, 7), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
+        return { from: format(subDays(today, 6), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
       case '30d':
       default:
-        return { from: format(subDays(today, 30), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
+        return { from: format(subDays(today, 29), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
       case 'thisMonth':
         return { from: format(startOfMonth(today), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
       case 'lastMonth': {
@@ -110,16 +110,16 @@ export default function AnalyticsPage() {
 
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
           <RevenueChart dateRange={currentRange} />
-          <CategoryDistribution />
+          <CategoryDistribution dateRange={currentRange} />
         </div>
 
         <CostRecovery />
 
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-3 pt-2">
           <div className="col-span-1 lg:col-span-2">
-            <TopProducts sortBy="bookings" />
+            <TopProducts sortBy="bookings" dateRange={currentRange} />
           </div>
-          <TopProducts sortBy="revenue" />
+          <TopProducts sortBy="revenue" dateRange={currentRange} />
         </div>
       </div>
     </div>

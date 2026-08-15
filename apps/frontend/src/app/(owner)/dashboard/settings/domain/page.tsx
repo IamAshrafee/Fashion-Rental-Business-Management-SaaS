@@ -16,7 +16,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useManageCustomDomain, useStoreSettings } from '../hooks/use-settings';
-import { useTenant } from '@/hooks/use-tenant';
 import { Separator } from '@/components/ui/separator';
 import { Globe, ShieldCheck, ShieldAlert, FileWarning } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -32,7 +31,6 @@ const domainSchema = z.object({
 type DomainValues = z.infer<typeof domainSchema>;
 
 export default function DomainSettingsPage() {
-  const { tenant } = useTenant();
   const { data: response, isLoading } = useStoreSettings();
   const { setDomain, verifyDomain, removeDomain } = useManageCustomDomain();
 
@@ -61,8 +59,12 @@ export default function DomainSettingsPage() {
     return <div className="animate-pulse h-64 bg-muted rounded-md" />;
   }
 
-  const currentCustomDomain = tenant?.customDomain ?? null;
-  const subdomainUrl = `${tenant?.subdomain}.closetrent.com`;
+  const settings = response?.data;
+  const currentCustomDomain = settings?.customDomain ?? null;
+  const customDomainVerified = Boolean(settings?.customDomainVerifiedAt);
+  const platformDomain = (process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com').split(':')[0];
+  const dnsTarget = platformDomain;
+  const subdomainUrl = settings?.subdomain ? `${settings.subdomain}.${platformDomain}` : '—';
 
   return (
     <div className="space-y-6">
@@ -93,9 +95,15 @@ export default function DomainSettingsPage() {
               <div className="space-y-1">
                 <h4 className="text-base font-semibold text-indigo-900 flex items-center gap-2">
                   {currentCustomDomain}
-                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  {customDomainVerified
+                    ? <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                    : <ShieldAlert className="w-4 h-4 text-amber-500" />}
                 </h4>
-                <p className="text-sm text-indigo-700/80">Primary custom domain is active.</p>
+                <p className="text-sm text-indigo-700/80">
+                  {customDomainVerified
+                    ? 'DNS verified. The custom domain is active.'
+                    : 'Pending DNS verification. Store traffic continues on your ClosetRent subdomain.'}
+                </p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={handleVerify} disabled={verifyDomain.isPending}>
@@ -114,8 +122,8 @@ export default function DomainSettingsPage() {
                 <p>Ensure your registrar (Namecheap, GoDaddy, etc.) has the following record:</p>
                 <div className="bg-indigo-50 p-2 rounded border border-indigo-100 font-mono text-xs flex justify-between items-center">
                   <span><strong className="mr-2 border-r pr-2 border-indigo-200">Type</strong> CNAME</span>
-                  <span><strong className="mr-2 border-r pr-2 border-indigo-200">Name</strong> @ or www</span>
-                  <span><strong className="mr-2 border-r pr-2 border-indigo-200">Target</strong> cname.closetrent.com</span>
+                  <span><strong className="mr-2 border-r pr-2 border-indigo-200">Name</strong> Your domain host</span>
+                  <span><strong className="mr-2 border-r pr-2 border-indigo-200">Target</strong> {dnsTarget}</span>
                 </div>
               </AlertDescription>
             </Alert>
@@ -147,7 +155,7 @@ export default function DomainSettingsPage() {
                   <FileWarning className="h-4 w-4 text-amber-600" />
                   <AlertTitle>Before you save</AlertTitle>
                   <AlertDescription className="text-amber-800">
-                    Make sure you add a CNAME record pointing to <strong>cname.closetrent.com</strong> in your DNS provider before adding it here, otherwise verification will fail.
+                    Add a CNAME record pointing to <strong>{dnsTarget}</strong> in your DNS provider. The host is usually <strong>@</strong> for an apex domain or the subdomain label (for example, <strong>shop</strong>).
                   </AlertDescription>
                 </Alert>
 

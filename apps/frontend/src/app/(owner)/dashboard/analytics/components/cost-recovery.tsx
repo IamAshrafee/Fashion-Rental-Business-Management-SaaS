@@ -8,16 +8,10 @@ import { Button } from '@/components/ui/button';
 import { analyticsApi } from '@/lib/api/analytics';
 import { toast } from 'sonner';
 import { FieldTip } from '@/components/shared/field-tip';
+import { formatMinorMoney } from '@/lib/money';
 
 export function CostRecovery() {
   const { data: response, isLoading } = useCostRecovery();
-
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      maximumFractionDigits: 0,
-    }).format(amount);
 
   const handleExport = async () => {
     try {
@@ -78,7 +72,7 @@ export function CostRecovery() {
                   Attributed rental revenue <FieldTip helpKey="analytics.attributedRevenue" />
                 </span>
                 <div className="font-mono text-3xl font-bold tracking-tight text-indigo-900">
-                  {formatCurrency(data.totalAttributedRevenue)}
+                  {formatMinorMoney(data.totalAttributedRevenue)}
                 </div>
               </div>
               <div className="flex flex-col gap-1 text-right">
@@ -86,7 +80,7 @@ export function CostRecovery() {
                   Acquisition cost <FieldTip helpKey="analytics.costRecovery" />
                 </span>
                 <div className="font-mono text-xl font-medium text-muted-foreground">
-                  {formatCurrency(data.totalAcquisitionCost)}
+                  {formatMinorMoney(data.totalAcquisitionCost)}
                 </div>
               </div>
             </div>

@@ -4,30 +4,16 @@ import { useRevenueSeries } from '../hooks/use-analytics';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
-import { Button } from '@/components/ui/button';
-import { DownloadIcon } from 'lucide-react';
+import { formatMinorMoney } from '@/lib/money';
 
 export function RevenueChart({ dateRange }: { dateRange: { from?: string; to?: string } }) {
   const { data: response, isLoading } = useRevenueSeries(dateRange);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const handleExport = () => {
-    const url = `/api/v1/owner/analytics/export/revenue?from=${dateRange.from || ''}&to=${dateRange.to || ''}`;
-    window.location.href = url;
-  };
 
   if (isLoading) {
     return (
       <Card className="col-span-1 lg:col-span-2">
         <CardHeader>
-          <CardTitle>Revenue Trend</CardTitle>
+          <CardTitle>Booked Rental Value</CardTitle>
           <CardDescription>Loading chart data...</CardDescription>
         </CardHeader>
         <CardContent className="h-[300px] flex items-center justify-center animate-pulse bg-muted/20">
@@ -39,7 +25,7 @@ export function RevenueChart({ dateRange }: { dateRange: { from?: string; to?: s
 
   const data = response?.data;
   
-  const chartData = data?.series?.map((item: any) => ({
+  const chartData = data?.series?.map((item) => ({
     ...item,
     formattedDate: format(new Date(item.date), 'MMM d'),
   })) || [];
@@ -48,14 +34,11 @@ export function RevenueChart({ dateRange }: { dateRange: { from?: string; to?: s
     <Card className="col-span-1 lg:col-span-2 shadow-sm border">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div className="space-y-1">
-          <CardTitle>Revenue Trend</CardTitle>
+          <CardTitle>Booked Rental Value Trend</CardTitle>
           <CardDescription>
-            {data?.total ? formatCurrency(data.total) : '৳0'} total revenue for this period
+            {formatMinorMoney(data?.total)} across non-pending, non-cancelled bookings in this period
           </CardDescription>
         </div>
-        <Button variant="outline" size="sm" onClick={handleExport} className="h-8">
-          <DownloadIcon className="mr-2 h-4 w-4" /> Export
-        </Button>
       </CardHeader>
       <CardContent className="h-[350px] w-full mt-4">
         {chartData.length === 0 ? (
@@ -80,11 +63,11 @@ export function RevenueChart({ dateRange }: { dateRange: { from?: string; to?: s
                 axisLine={false}
                 tickLine={false}
                 tickMargin={10}
-                tickFormatter={(value) => `৳${value / 1000}k`}
+                tickFormatter={(value) => formatMinorMoney(Number(value))}
                 style={{ fontSize: '12px', fill: '#6B7280' }}
               />
               <Tooltip 
-                formatter={(value: any) => [formatCurrency(Number(value)), 'Revenue']}
+                formatter={(value) => [formatMinorMoney(Number(value)), 'Booked rental value']}
                 labelStyle={{ color: '#374151', fontWeight: 600, marginBottom: '4px' }}
                 contentStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
               />

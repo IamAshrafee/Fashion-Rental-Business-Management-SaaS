@@ -14,6 +14,8 @@ import {
   SubscriptionView,
   ResourceUsageView,
   SubscriptionPaymentView,
+  CustomDomainConfiguration,
+  CustomDomainVerification,
 } from '@closetrent/types';
 
 export const settingsApi = {
@@ -65,17 +67,17 @@ export const settingsApi = {
 
   // Custom Domain
   setCustomDomain: async (payload: SetCustomDomainDto) => {
-    const { data } = await apiClient.post<ApiResponse<void>>('/tenant/custom-domain', payload);
+    const { data } = await apiClient.post<ApiResponse<CustomDomainConfiguration>>('/tenant/custom-domain', payload);
     return data;
   },
 
   verifyCustomDomain: async () => {
-    const { data } = await apiClient.post<ApiResponse<unknown>>('/tenant/custom-domain/verify');
+    const { data } = await apiClient.post<ApiResponse<CustomDomainVerification>>('/tenant/custom-domain/verify');
     return data;
   },
 
   removeCustomDomain: async () => {
-    const { data } = await apiClient.delete<ApiResponse<void>>('/tenant/custom-domain');
+    const { data } = await apiClient.delete<ApiResponse<{ message: string }>>('/tenant/custom-domain');
     return data;
   },
   

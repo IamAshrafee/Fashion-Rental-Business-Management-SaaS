@@ -741,20 +741,21 @@ model StarterTemplate {
 // ============================================================================
 
 model Tenant {
-  id             String       @id @default(uuid())
-  businessName   String       @map("business_name")
-  subdomain      String       @unique
-  customDomain   String?      @unique @map("custom_domain")
-  ownerUserId    String       @map("owner_user_id")
-  status         TenantStatus @default(active)
-  statusReason   String?      @map("status_reason")
-  planId         String?      @map("plan_id")
-  logoUrl        String?      @map("logo_url")
-  faviconUrl     String?      @map("favicon_url")
-  referralSource String?      @map("referral_source") // Marketing channel tracking
-  promoCodeId    String?      @map("promo_code_id") // Promo used at registration
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  id                     String       @id @default(uuid())
+  businessName           String       @map("business_name")
+  subdomain              String       @unique
+  customDomain           String?      @unique @map("custom_domain")
+  customDomainVerifiedAt DateTime?    @map("custom_domain_verified_at")
+  ownerUserId            String       @map("owner_user_id")
+  status                 TenantStatus @default(active)
+  statusReason           String?      @map("status_reason")
+  planId                 String?      @map("plan_id")
+  logoUrl                String?      @map("logo_url")
+  faviconUrl             String?      @map("favicon_url")
+  referralSource         String?      @map("referral_source") // Marketing channel tracking
+  promoCodeId            String?      @map("promo_code_id") // Promo used at registration
+  createdAt              DateTime     @default(now()) @map("created_at")
+  updatedAt              DateTime     @updatedAt @map("updated_at")
 
   owner                          User                            @relation(fields: [ownerUserId], references: [id])
   plan                           SubscriptionPlan?               @relation(fields: [planId], references: [id])

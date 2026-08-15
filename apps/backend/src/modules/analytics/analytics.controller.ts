@@ -73,8 +73,11 @@ export class AnalyticsController {
   }
 
   @Get('revenue-by-category')
-  async getRevenueByCategory(@CurrentTenant() tenant: TenantContext) {
-    return this.analyticsService.getRevenueByCategory(tenant.id);
+  async getRevenueByCategory(
+    @CurrentTenant() tenant: TenantContext,
+    @Query() query: AnalyticsQueryDto,
+  ) {
+    return this.analyticsService.getRevenueByCategory(tenant.id, query);
   }
 
   @Get('top-products')

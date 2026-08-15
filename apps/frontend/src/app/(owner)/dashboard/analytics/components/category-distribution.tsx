@@ -3,19 +3,13 @@
 import { useCategoryRevenue } from '../hooks/use-analytics';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { formatMinorMoney } from '@/lib/money';
+import type { CategoryRevenue } from '@closetrent/types';
 
-export function CategoryDistribution() {
-  const { data: response, isLoading } = useCategoryRevenue();
+export function CategoryDistribution({ dateRange }: { dateRange: { from?: string; to?: string } }) {
+  const { data: response, isLoading } = useCategoryRevenue(dateRange);
   
   const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   if (isLoading) {
     return (
@@ -58,12 +52,12 @@ export function CategoryDistribution() {
                 nameKey="category"
                 stroke="none"
               >
-                {data.map((entry: any, index: number) => (
+                {data.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip 
-                formatter={(value: any) => [formatCurrency(Number(value)), 'Revenue']}
+                formatter={(value) => [formatMinorMoney(Number(value)), 'Booked rental value']}
                 contentStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
               />
               <Legend 
@@ -71,11 +65,16 @@ export function CategoryDistribution() {
                 verticalAlign="bottom"
                 align="center"
                 wrapperStyle={{ paddingTop: '20px' }}
-                formatter={(value, entry: any) => (
-                  <span className="text-sm font-medium text-gray-700">
-                    {value} <span className="text-gray-400 text-xs ml-1">({entry.payload.percentage}%)</span>
-                  </span>
-                )}
+                formatter={(value, entry) => {
+                  const percentage = (entry.payload as CategoryRevenue | undefined)?.percentage;
+                  return (
+                    <span className="text-sm font-medium text-gray-700">
+                      {value}{percentage !== undefined && (
+                        <span className="text-gray-400 text-xs ml-1">({percentage}%)</span>
+                      )}
+                    </span>
+                  );
+                }}
               />
             </PieChart>
           </ResponsiveContainer>

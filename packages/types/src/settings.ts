@@ -88,6 +88,22 @@ export interface SetCustomDomainDto {
   domain: string;
 }
 
+export interface CustomDomainConfiguration {
+  domain: string;
+  status: 'pending_verification';
+  dnsInstructions: {
+    aRecord: { type: 'A'; host: string; value: string };
+    cnameRecord: { type: 'CNAME'; host: string; value: string };
+  };
+}
+
+export interface CustomDomainVerification {
+  domain: string;
+  verified: true;
+  verifiedAt: string;
+  sslStatus: 'provisioning';
+}
+
 // Full combined settings view
 export interface StoreSettings {
   id: string;
@@ -95,6 +111,9 @@ export interface StoreSettings {
 
   // General & Contact
   businessName: string;
+  subdomain: string;
+  customDomain: string | null;
+  customDomainVerifiedAt: string | null;
   tagline: string | null;
   about: string | null;
   phone: string | null;

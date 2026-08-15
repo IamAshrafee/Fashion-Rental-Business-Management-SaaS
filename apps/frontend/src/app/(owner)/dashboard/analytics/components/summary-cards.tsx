@@ -3,6 +3,7 @@
 import { useAnalyticsSummary } from '../hooks/use-analytics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BadgeDollarSign, ShoppingBag, Users, TrendingUp } from 'lucide-react';
+import { formatMinorMoney } from '@/lib/money';
 
 export function SummaryCards({ dateRange }: { dateRange: { from?: string; to?: string } }) {
   const { data: response, isLoading } = useAnalyticsSummary(dateRange);
@@ -28,24 +29,15 @@ export function SummaryCards({ dateRange }: { dateRange: { from?: string; to?: s
   const data = response?.data;
   if (!data) return null;
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+          <CardTitle className="text-sm font-medium">Booked Rental Value</CardTitle>
           <BadgeDollarSign className="h-4 w-4 text-emerald-600" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{formatCurrency(data.revenue.total)}</div>
+          <div className="text-2xl font-bold">{formatMinorMoney(data.revenue.total)}</div>
           <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
             <span className={data.revenue.growthPercentage >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
               {data.revenue.growthPercentage >= 0 ? '+' : ''}{data.revenue.growthPercentage}%
@@ -74,9 +66,9 @@ export function SummaryCards({ dateRange }: { dateRange: { from?: string; to?: s
           <TrendingUp className="h-4 w-4 text-amber-600" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{formatCurrency(data.revenue.averageOrderValue)}</div>
+          <div className="text-2xl font-bold">{formatMinorMoney(data.revenue.averageOrderValue)}</div>
           <p className="text-xs text-muted-foreground mt-1">
-            Per completed booking
+            Per booked rental
           </p>
         </CardContent>
       </Card>
