@@ -45,6 +45,10 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { ProductTrafficCard } from './components/product-traffic-card';
+import {
+  getProductReadinessFixHref,
+  getProductReadinessGuidance,
+} from '../components/product-readiness-guidance';
 
 const REQUIRED_PUBLISH_SECTIONS = ['BASICS', 'SKUS', 'CONTENT', 'PRICING'] as const;
 
@@ -693,28 +697,35 @@ export default function ProductDetailPage() {
         <motion.div variants={fadeUp} custom={1}>
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="font-medium text-foreground">Complete the catalog before publishing</p>
-                <ul className="mt-2 list-disc space-y-1 pl-4 text-sm">
-                  {product.readiness.blockers.map((blocker, index) => (
-                    <li key={`${blocker.code}-${blocker.entityId ?? blocker.field ?? index}`}>
-                      {blocker.message}
+            <AlertDescription>
+              <p className="font-medium text-foreground">A few catalog details still need attention</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {product.status === 'published'
+                  ? 'Your product and physical items are saved, and the listing remains published. Resolve these specific catalog requirements before its next publication change.'
+                  : 'Your product and physical items are saved. Complete these specific steps before the listing can be published.'}
+              </p>
+              <ol className="mt-4 space-y-3">
+                {product.readiness.blockers.map((blocker, index) => {
+                  const guidance = getProductReadinessGuidance(blocker);
+                  return (
+                    <li key={`${blocker.code}-${blocker.entityId ?? blocker.field ?? index}`} className="flex flex-col gap-2 rounded-md border bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex gap-3">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">{index + 1}</span>
+                        <div>
+                          <p className="font-medium text-foreground">{guidance.title}</p>
+                          <p className="mt-0.5 text-sm text-muted-foreground">{guidance.description}</p>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" className="shrink-0" asChild>
+                        <Link href={getProductReadinessFixHref({ productId: id, blocker, needsSetup })}>
+                          Fix this
+                          <ChevronRight data-icon="inline-end" />
+                        </Link>
+                      </Button>
                     </li>
-                  ))}
-                </ul>
-              </div>
-              <Button variant="outline" size="sm" asChild>
-                <Link
-                  href={
-                    product.readiness.blockers.some((blocker) => blocker.section === 'composition')
-                      ? `/dashboard/products/${id}/composition`
-                      : editHref
-                  }
-                >
-                  Resolve blockers
-                </Link>
-              </Button>
+                  );
+                })}
+              </ol>
             </AlertDescription>
           </Alert>
         </motion.div>

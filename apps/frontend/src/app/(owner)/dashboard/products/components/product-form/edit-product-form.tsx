@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormProvider } from 'react-hook-form';
 import type { FieldPath } from 'react-hook-form';
 import { useEditProduct } from '../../hooks/use-edit-product';
@@ -32,6 +32,8 @@ import { PricingServicesStep } from './steps/pricing-services';
 import { SizeDetailsStep } from './steps/size-details';
 import type { ProductFormValues } from './schema';
 import type { UploadedProductImage } from '@/lib/api/products';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { getProductReadinessGuidance } from '../product-readiness-guidance';
 
 const REQUIRED_PUBLISH_SECTIONS = ['BASICS', 'SKUS', 'CONTENT', 'PRICING'] as const;
 
@@ -119,6 +121,9 @@ export function EditProductForm({ productId }: Props) {
   );
   const statusMutation = useUpdateProductStatus();
   const publishMutation = usePublishProduct();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedIssue = searchParams.get('issue');
 
   const [activeTab, setActiveTab] = useState<EditTabId>('basic');
   const [tabErrors, setTabErrors] = useState<Record<EditTabId, boolean>>({
@@ -128,6 +133,13 @@ export function EditProductForm({ productId }: Props) {
     size_details: false,
     publication: false,
   });
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('focus');
+    if (requestedTab === 'basic' || requestedTab === 'media' || requestedTab === 'pricing' || requestedTab === 'size_details') {
+      setActiveTab(requestedTab);
+    }
+  }, [searchParams]);
 
   const handleSave = async () => {
     // 1. Manually check if variants have images (since it's a cross-field logic requirement)
@@ -242,19 +254,28 @@ export function EditProductForm({ productId }: Props) {
                     </AlertDescription>
                   </Alert>
                 ) : (
-                  <Alert variant="destructive">
+                  <Alert>
                     <AlertCircle className="size-4" />
                     <AlertDescription>
-                      <p className="font-medium">
-                        Resolve these catalog blockers before publishing:
-                      </p>
-                      <ul className="mt-2 list-disc pl-5">
-                        {rawProduct.readiness.blockers.map((blocker, index) => (
-                          <li key={`${blocker.section}-${blocker.field}-${index}`}>
-                            {blocker.message}
-                          </li>
-                        ))}
-                      </ul>
+                      <p className="font-medium text-foreground">Finish these steps before publishing</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Your saved product is safe. Select a step below to go directly to the place that needs attention.</p>
+                      <div className="mt-3 space-y-2">
+                        {rawProduct.readiness.blockers.map((blocker, index) => {
+                          const guidance = getProductReadinessGuidance(blocker);
+                          const canFixHere = Boolean(guidance.editTab);
+                          return (
+                            <div key={`${blocker.code}-${blocker.entityId ?? blocker.field ?? index}`} className="flex flex-col gap-2 rounded-md border bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="font-medium text-foreground">{guidance.title}</p>
+                                <p className="text-xs text-muted-foreground">{guidance.description}</p>
+                              </div>
+                              <Button type="button" variant="outline" size="sm" onClick={() => canFixHere ? setActiveTab(guidance.editTab!) : router.push(`/dashboard/products/${productId}/composition`)}>
+                                {canFixHere ? 'Take me there' : 'Open bundle rules'}
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </AlertDescription>
                   </Alert>
                 )}
@@ -377,9 +398,25 @@ export function EditProductForm({ productId }: Props) {
     );
   }
 
+  const focusedBlocker = rawProduct.readiness.blockers.find(
+    (blocker) => blocker.code === requestedIssue,
+  );
+  const focusedGuidance = focusedBlocker
+    ? getProductReadinessGuidance(focusedBlocker)
+    : null;
+
   return (
     <FormProvider {...form}>
       <form onSubmit={(e) => e.preventDefault()} className="relative">
+        {focusedGuidance && (
+          <Alert className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              <p className="font-medium text-foreground">You&apos;re here to fix: {focusedGuidance.title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{focusedGuidance.description}</p>
+            </AlertDescription>
+          </Alert>
+        )}
         {rawProduct.status !== 'draft' && (
           <Alert className="mb-4">
             <AlertCircle className="h-4 w-4" />

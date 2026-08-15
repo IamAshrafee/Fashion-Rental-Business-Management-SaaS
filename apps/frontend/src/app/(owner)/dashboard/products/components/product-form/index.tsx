@@ -60,6 +60,8 @@ export function ProductFormWizard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const requestedProductId = searchParams.get('productId');
+  const requestedStepParam = searchParams.get('step');
+  const requestedStep = requestedStepParam === null ? null : Number(requestedStepParam);
   const activeProductId = requestedProductId ?? productId;
   const [onboarding, setOnboarding] = useState<ProductOnboarding | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
@@ -68,6 +70,7 @@ export function ProductFormWizard() {
   const commandKeys = useRef<Record<number, string>>({});
   const hydratedProductId = useRef<string | null>(null);
   const hasRestoredLocalStep = useRef(false);
+  const hasAppliedRequestedStep = useRef(false);
 
   const onboardingQuery = useQuery({
     queryKey: ['product-onboarding', activeProductId],
@@ -120,6 +123,20 @@ export function ProductFormWizard() {
     requestedProductId,
     synchronizeServerIdentity,
   ]);
+
+  useEffect(() => {
+    if (
+      !hasAppliedRequestedStep.current
+      && requestedStep !== null
+      && Number.isInteger(requestedStep)
+      && requestedStep >= 0
+      && requestedStep < WIZARD_STEPS.length
+      && (!activeProductId || onboardingQuery.isSuccess)
+    ) {
+      setCurrentStep(requestedStep);
+      hasAppliedRequestedStep.current = true;
+    }
+  }, [activeProductId, onboardingQuery.isSuccess, requestedStep]);
 
   useEffect(() => {
     if (
