@@ -31,6 +31,7 @@ import { VariantsMediaStep } from './steps/variants';
 import { PricingServicesStep } from './steps/pricing-services';
 import { SizeDetailsStep } from './steps/size-details';
 import type { ProductFormValues } from './schema';
+import type { UploadedProductImage } from '@/lib/api/products';
 
 /* ─── Validation mapping for error badges ────────────────────────────── */
 const TAB_FIELDS: Record<EditTabId, string[]> = {
@@ -93,7 +94,27 @@ function findErrorMessage(error: unknown): string | undefined {
 
 export function EditProductForm({ productId }: Props) {
   const { form, rawProduct, isLoading, isError, error } = useEditProduct(productId);
-  const { mutate: updateProduct, isPending: isSaving } = useUpdateProduct(productId, rawProduct);
+  const checkpointImage = (
+    variantIndex: number,
+    imageIndex: number,
+    uploaded: UploadedProductImage,
+  ) => {
+    form.setValue(`variants.${variantIndex}.images.${imageIndex}.id`, uploaded.id);
+    form.setValue(
+      `variants.${variantIndex}.images.${imageIndex}.url`,
+      uploaded.thumbnailUrl || uploaded.url,
+    );
+    form.setValue(`variants.${variantIndex}.images.${imageIndex}.file`, undefined);
+  };
+  const { mutate: updateProduct, isPending: isSaving } = useUpdateProduct(
+    productId,
+    rawProduct,
+    {
+      onVariantCreated: (variantIndex, variantId) =>
+        form.setValue(`variants.${variantIndex}.id`, variantId),
+      onImageUploaded: checkpointImage,
+    },
+  );
   const statusMutation = useUpdateProductStatus();
 
   const [activeTab, setActiveTab] = useState<EditTabId>('basic');

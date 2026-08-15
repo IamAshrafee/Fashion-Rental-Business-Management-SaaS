@@ -7,8 +7,10 @@ describe('UploadService product media safety', () => {
     productVariant: { findFirst: jest.fn() },
     productImage: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       count: jest.fn(),
       update: jest.fn(),
+      deleteMany: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -41,33 +43,27 @@ describe('UploadService product media safety', () => {
     );
   });
 
-  it('rejects image IDs from another tenant or variant during reorder', async () => {
-    prisma.productVariant.findFirst.mockResolvedValue({ id: 'variant-1' });
-    prisma.productImage.count
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(2);
-
-    await expect(service.reorderImages(
-      'tenant-1',
-      'variant-1',
-      [
-        '11111111-1111-4111-8111-111111111111',
-        '22222222-2222-4222-8222-222222222222',
-      ],
-      '11111111-1111-4111-8111-111111111111',
-    )).rejects.toThrow('The reorder request must contain every image from this variant exactly once');
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('persists image order and exactly one featured image together', async () => {
+  it('synchronizes removal, order, and featured selection in one transaction', async () => {
     const firstId = '11111111-1111-4111-8111-111111111111';
     const secondId = '22222222-2222-4222-8222-222222222222';
+    const removedId = '33333333-3333-4333-8333-333333333333';
     prisma.productVariant.findFirst.mockResolvedValue({ id: 'variant-1' });
-    prisma.productImage.count.mockResolvedValueOnce(2).mockResolvedValueOnce(2);
+    prisma.productImage.findMany.mockResolvedValue([
+      { id: firstId, url: '', thumbnailUrl: '' },
+      { id: secondId, url: '', thumbnailUrl: '' },
+      { id: removedId, url: '', thumbnailUrl: '' },
+    ]);
     prisma.$transaction.mockResolvedValue([]);
 
-    await service.reorderImages('tenant-1', 'variant-1', [secondId, firstId], firstId);
+    await service.syncImages('tenant-1', 'variant-1', [secondId, firstId], firstId);
 
+    expect(prisma.productImage.deleteMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        variantId: 'variant-1',
+        id: { notIn: [secondId, firstId] },
+      },
+    });
     expect(prisma.productImage.update).toHaveBeenNthCalledWith(1, {
       where: { id: secondId },
       data: { sequence: 0, isFeatured: false },
@@ -78,21 +74,19 @@ describe('UploadService product media safety', () => {
     });
   });
 
-  it('protects the final image of a published variant', async () => {
-    prisma.productImage.findFirst.mockResolvedValue({
-      id: 'image-1',
-      tenantId: 'tenant-1',
-      variantId: 'variant-1',
-      isFeatured: true,
-      url: 'http://localhost/full.webp',
-      thumbnailUrl: 'http://localhost/thumb.webp',
-      variant: { product: { status: 'published' } },
-    });
-    prisma.productImage.count.mockResolvedValue(1);
+  it('rejects a synchronized image list containing an image from outside the variant', async () => {
+    const ownedId = '11111111-1111-4111-8111-111111111111';
+    const foreignId = '22222222-2222-4222-8222-222222222222';
+    prisma.productVariant.findFirst.mockResolvedValue({ id: 'variant-1' });
+    prisma.productImage.findMany.mockResolvedValue([
+      { id: ownedId, url: '', thumbnailUrl: '' },
+    ]);
 
-    await expect(service.deleteProductImage('tenant-1', 'image-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED' }),
-    });
+    await expect(
+      service.syncImages('tenant-1', 'variant-1', [ownedId, foreignId], ownedId),
+    ).rejects.toThrow('Every image must belong to this product variant');
+
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+
 });

@@ -581,17 +581,12 @@ export const productApi = {
   /**
    * DELETE /api/v1/owner/upload/product-image/:imageId
    */
-  deleteImage: async (imageId: string): Promise<void> => {
-    await apiClient.delete(`/owner/upload/product-image/${imageId}`);
-  },
-
-  reorderImages: async (
+  syncImages: async (
     variantId: string,
     imageIds: string[],
     featuredImageId: string,
   ): Promise<void> => {
-    await apiClient.patch('/owner/upload/product-images/reorder', {
-      variantId,
+    await apiClient.put(`/owner/upload/product-images/${variantId}`, {
       ids: imageIds,
       featuredImageId,
     });

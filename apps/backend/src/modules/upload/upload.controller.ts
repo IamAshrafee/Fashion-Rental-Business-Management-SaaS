@@ -1,8 +1,7 @@
 import {
   Controller,
   Post,
-  Delete,
-  Patch,
+  Put,
   Body,
   Param,
   UseGuards,
@@ -23,7 +22,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
-import { ReorderProductImagesDto } from '../product/dto/product.dto';
+import { SyncProductImagesDto } from '../product/dto/product.dto';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 
 @Controller('owner/upload')
@@ -63,27 +62,17 @@ export class UploadController {
     return this.uploadService.uploadProductImages(tenant.id, variantId, files);
   }
 
-  @Delete('product-image/:imageId')
+  @Put('product-images/:variantId')
   @Roles('owner', 'manager')
   @RequirePermission('manage_products')
-  @HttpCode(HttpStatus.OK)
-  async deleteProductImage(
+  async syncImages(
     @CurrentTenant() tenant: TenantContext,
-    @Param('imageId', new ParseUUIDPipe({ version: '4' })) imageId: string,
+    @Param('variantId', new ParseUUIDPipe({ version: '4' })) variantId: string,
+    @Body() dto: SyncProductImagesDto,
   ) {
-    return this.uploadService.deleteProductImage(tenant.id, imageId);
-  }
-
-  @Patch('product-images/reorder')
-  @Roles('owner', 'manager')
-  @RequirePermission('manage_products')
-  async reorderImages(
-    @CurrentTenant() tenant: TenantContext,
-    @Body() dto: ReorderProductImagesDto,
-  ) {
-    return this.uploadService.reorderImages(
+    return this.uploadService.syncImages(
       tenant.id,
-      dto.variantId,
+      variantId,
       dto.ids,
       dto.featuredImageId,
     );

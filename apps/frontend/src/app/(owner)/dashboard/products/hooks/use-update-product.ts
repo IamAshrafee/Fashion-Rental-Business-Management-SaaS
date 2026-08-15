@@ -2,12 +2,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   productApi,
   type ProductDetail,
+  type UploadedProductImage,
   type UpdateProductInput,
 } from '@/lib/api/products';
 import { ProductFormValues } from '../components/product-form/schema';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { getApiErrorMessage } from '@/lib/api-error';
+import {
+  isPersistedProductId,
+  syncVariantImages,
+} from './sync-variant-images';
 
 /**
  * Builds the flat Update DTO from form values (excluding pricing)
@@ -42,18 +47,17 @@ function buildUpdatePayload(data: ProductFormValues): UpdateProductInput {
   };
 }
 
-/**
- * Checks if a variant ID looks like a real DB UUID vs a temp client-side ID.
- * UUIDs are 36 chars with dashes; temp IDs from Math.random are shorter.
- */
-function isRealId(id?: string): boolean {
-  if (!id) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-}
-
 export function useUpdateProduct(
   productId: string,
   originalProduct: Pick<ProductDetail, 'variants' | 'status'> | null | undefined,
+  checkpoints?: {
+    onVariantCreated?: (variantIndex: number, variantId: string) => void;
+    onImageUploaded?: (
+      variantIndex: number,
+      imageIndex: number,
+      image: UploadedProductImage,
+    ) => void;
+  },
 ) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -122,10 +126,9 @@ export function useUpdateProduct(
 
       // ── 2. Variant diffing ────────────────────────────────────
       const originalVariants = originalProduct?.variants ?? [];
-      const originalVariantIds = new Set(originalVariants.map((v) => v.id));
       const formVariants = data.variants;
       const formVariantIds = new Set(
-        formVariants.filter((v) => v.id && isRealId(v.id)).map((v) => v.id!),
+        formVariants.filter((v) => isPersistedProductId(v.id)).map((v) => v.id),
       );
 
       // 2a. Delete removed variants
@@ -141,7 +144,7 @@ export function useUpdateProduct(
         const fv = formVariants[i];
         let variantId: string;
 
-        if (fv.id && isRealId(fv.id) && originalVariantIds.has(fv.id)) {
+        if (isPersistedProductId(fv.id)) {
           // Existing variant — update
           toast.loading(`Updating variant ${i + 1}/${formVariants.length}...`, { id: 'update-product' });
           await productApi.updateVariant(productId, fv.id, {
@@ -165,59 +168,22 @@ export function useUpdateProduct(
             identicalColorIds: fv.identicalColorIds,
           });
           variantId = created.id;
+          checkpoints?.onVariantCreated?.(i, variantId);
         }
 
         // ── 3. Image diffing for this variant ─────────────────────
-        const originalImages = fv.id && isRealId(fv.id)
-          ? originalVariants.find((ov) => ov.id === fv.id)?.images ?? []
-          : [];
         const formImages = fv.images ?? [];
-        const formImageIds = new Set(
-          formImages.filter((img) => img.id && isRealId(img.id)).map((img) => img.id),
-        );
-
-        // 3a. Delete removed images
-        for (const oImg of originalImages) {
-          if (!formImageIds.has(oImg.id)) {
-            toast.loading(`Removing image...`, { id: 'update-product' });
-            await productApi.deleteImage(oImg.id);
-          }
-        }
-
-        // 3b. Upload new images and build the final persisted order.
-        const newImages = formImages.filter((img) => img.file);
-        const finalImageIds: string[] = [];
-        let featuredImageId: string | undefined;
-        let uploadIndex = 0;
-        for (const image of formImages) {
-          let persistedImageId: string;
-          if (image.file) {
-            uploadIndex += 1;
+        await syncVariantImages({
+          variantId,
+          images: formImages,
+          onUploadStart: (uploadedCount, totalUploads) =>
             toast.loading(
-              `Uploading image ${uploadIndex}/${newImages.length} for variant ${i + 1}...`,
+              `Uploading image ${uploadedCount}/${totalUploads} for variant ${i + 1}...`,
               { id: 'update-product' },
-            );
-            const uploaded = await productApi.uploadImage(
-              variantId,
-              image.file,
-              image.isFeatured,
-            );
-            persistedImageId = uploaded.id;
-          } else if (isRealId(image.id)) {
-            persistedImageId = image.id;
-          } else {
-            continue;
-          }
-          finalImageIds.push(persistedImageId);
-          if (image.isFeatured) featuredImageId = persistedImageId;
-        }
-        if (finalImageIds.length > 0) {
-          await productApi.reorderImages(
-            variantId,
-            finalImageIds,
-            featuredImageId ?? finalImageIds[0],
-          );
-        }
+            ),
+          onUploaded: (imageIndex, image) =>
+            checkpoints?.onImageUploaded?.(i, imageIndex, image),
+        });
       }
 
       if (data.status !== originalProduct?.status) {

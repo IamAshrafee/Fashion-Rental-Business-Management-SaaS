@@ -21,7 +21,8 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { getApiErrorMessage } from '@/lib/api-error';
-import { productApi, productOnboardingApi, type ProductOnboarding } from '@/lib/api/products';
+import { productOnboardingApi, type ProductOnboarding } from '@/lib/api/products';
+import { syncVariantImages } from '../../hooks/sync-variant-images';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -191,21 +192,18 @@ export function ProductFormWizard() {
     return valid;
   }, [computeStepErrors, currentStep, form, toast]);
 
-  const uploadPendingImages = useCallback(async () => {
+  const syncProductImages = useCallback(async () => {
     const variants = form.getValues('variants');
     for (const [variantIndex, variant] of variants.entries()) {
       if (!variant.id || !UUID_PATTERN.test(variant.id)) {
         throw new Error('Save the SKU section before uploading variant images.');
       }
-      for (const [imageIndex, image] of variant.images.entries()) {
-        if (!image.file) continue;
-        const uploaded = await productApi.uploadImage(
-          variant.id,
-          image.file,
-          Boolean(image.isFeatured),
-        );
-        checkpointImage(variantIndex, imageIndex, uploaded);
-      }
+      await syncVariantImages({
+        variantId: variant.id,
+        images: variant.images,
+        onUploaded: (imageIndex, uploaded) =>
+          checkpointImage(variantIndex, imageIndex, uploaded),
+      });
     }
   }, [checkpointImage, form]);
 
@@ -257,7 +255,7 @@ export function ProductFormWizard() {
           key,
         );
         synchronizeServerIdentity(saved);
-        await uploadPendingImages();
+        await syncProductImages();
       } else if (currentStep === 2) {
         saved = await productOnboardingApi.saveContent(
           onboarding.productId,
@@ -297,7 +295,7 @@ export function ProductFormWizard() {
     onboarding,
     queryClient,
     synchronizeServerIdentity,
-    uploadPendingImages,
+    syncProductImages,
   ]);
 
   const handleNext = useCallback(async () => {

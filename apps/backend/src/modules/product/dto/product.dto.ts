@@ -104,10 +104,7 @@ export class ReorderDto {
   ids!: string[];
 }
 
-export class ReorderProductImagesDto extends ReorderDto {
-  @IsUUID('4')
-  variantId!: string;
-
+export class SyncProductImagesDto extends ReorderDto {
   @IsUUID('4')
   featuredImageId!: string;
 }

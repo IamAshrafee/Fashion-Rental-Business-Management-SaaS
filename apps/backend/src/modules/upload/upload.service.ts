@@ -5,7 +5,6 @@ import {
   NotFoundException,
   BadRequestException,
   ServiceUnavailableException,
-  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -195,62 +194,11 @@ export class UploadService {
   }
 
   /**
-   * Delete a product image from MinIO and DB.
+   * Make a variant's persisted media match the complete client-side list.
+   * Database deletion, sequence, and featured selection change together so
+   * resumed onboarding and the product editor share identical semantics.
    */
-  async deleteProductImage(tenantId: string, imageId: string) {
-    const image = await this.prisma.productImage.findFirst({
-      where: { id: imageId, tenantId },
-      include: {
-        variant: { select: { product: { select: { status: true } } } },
-      },
-    });
-    if (!image) throw new NotFoundException('Image not found');
-
-    const imageCount = await this.prisma.productImage.count({
-      where: { tenantId, variantId: image.variantId },
-    });
-    if (image.variant.product.status === 'published' && imageCount <= 1) {
-      throw new ConflictException({
-        code: 'PUBLISHED_CATALOG_STRUCTURE_LOCKED',
-        section: 'variants',
-        message: 'Unpublish this product before removing the final image from a variant.',
-      });
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.productImage.delete({ where: { id: imageId } });
-      if (image.isFeatured) {
-        const next = await tx.productImage.findFirst({
-          where: { variantId: image.variantId, tenantId },
-          orderBy: { sequence: 'asc' },
-        });
-        if (next) {
-          await tx.productImage.update({
-            where: { id: next.id },
-            data: { isFeatured: true },
-          });
-        }
-      }
-    });
-
-    // Database state is authoritative. Failed object cleanup leaves an
-    // unreachable object, never a product row pointing at a missing image.
-    try {
-      const fullKey = this.extractKey(image.url);
-      const thumbKey = this.extractKey(image.thumbnailUrl);
-      if (fullKey) await this.minioClient.removeObject(this.bucket, fullKey);
-      if (thumbKey) await this.minioClient.removeObject(this.bucket, thumbKey);
-    } catch (err) {
-      this.logger.warn(`Failed to delete MinIO object: ${err}`);
-    }
-
-    return { message: 'Image deleted' };
-  }
-
-  /**
-   * Reorder images within a variant.
-   */
-  async reorderImages(
+  async syncImages(
     tenantId: string,
     variantId: string,
     imageIds: string[],
@@ -258,35 +206,54 @@ export class UploadService {
   ) {
     const uniqueIds = [...new Set(imageIds)];
     if (uniqueIds.length !== imageIds.length) {
-      throw new BadRequestException('An image can only appear once in the reorder request');
+      throw new BadRequestException('An image can only appear once in the media list');
     }
     if (!uniqueIds.includes(featuredImageId)) {
-      throw new BadRequestException('The featured image must belong to the reordered image set');
+      throw new BadRequestException('The featured image must belong to the media list');
     }
+
     const variant = await this.prisma.productVariant.findFirst({
       where: { id: variantId, tenantId },
       select: { id: true },
     });
     if (!variant) throw new NotFoundException('Variant not found');
-    const [ownedImages, totalImages] = await Promise.all([
-      this.prisma.productImage.count({
-        where: { tenantId, variantId, id: { in: uniqueIds } },
-      }),
-      this.prisma.productImage.count({ where: { tenantId, variantId } }),
-    ]);
-    if (ownedImages !== uniqueIds.length || totalImages !== uniqueIds.length) {
-      throw new BadRequestException('The reorder request must contain every image from this variant exactly once');
+
+    const ownedImages = await this.prisma.productImage.findMany({
+      where: { tenantId, variantId },
+      select: { id: true, url: true, thumbnailUrl: true },
+    });
+    const ownedIds = new Set(ownedImages.map((image) => image.id));
+    if (uniqueIds.some((id) => !ownedIds.has(id))) {
+      throw new BadRequestException('Every image must belong to this product variant');
     }
 
-    await this.prisma.$transaction(
-      uniqueIds.map((id, sequence) =>
+    const desiredIds = new Set(uniqueIds);
+    const removedImages = ownedImages.filter((image) => !desiredIds.has(image.id));
+    await this.prisma.$transaction([
+      this.prisma.productImage.deleteMany({
+        where: { tenantId, variantId, id: { notIn: uniqueIds } },
+      }),
+      ...uniqueIds.map((id, sequence) =>
         this.prisma.productImage.update({
           where: { id },
           data: { sequence, isFeatured: id === featuredImageId },
         }),
       ),
-    );
-    return { message: 'Images reordered' };
+    ]);
+
+    try {
+      await Promise.allSettled(
+        removedImages.flatMap((image) =>
+          [this.extractKey(image.url), this.extractKey(image.thumbnailUrl)]
+            .filter((key): key is string => Boolean(key))
+            .map((key) => this.minioClient.removeObject(this.bucket, key)),
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to clean up synchronized product image objects: ${error}`);
+    }
+
+    return { message: 'Product images synchronized' };
   }
 
   /**
