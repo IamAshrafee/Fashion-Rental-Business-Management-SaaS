@@ -1106,7 +1106,7 @@ export class ProductService {
       onboarding: {
         select: { currentSection: true, completedSections: true, revision: true, updatedAt: true },
       },
-      category: { select: { id: true, name: true, slug: true } },
+      category: { select: { id: true, name: true, slug: true, isActive: true } },
       subcategory: { select: { id: true, name: true, slug: true } },
       events: {
         include: { event: { select: { id: true, name: true, slug: true } } },
