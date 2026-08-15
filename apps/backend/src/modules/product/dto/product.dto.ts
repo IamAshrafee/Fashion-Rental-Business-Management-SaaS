@@ -169,23 +169,23 @@ export class OwnerProductQueryDto extends ProductQueryDto {
 
 export class UpdateProductDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(300) name?: string;
-  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() description?: string | null;
   @IsOptional() @IsString() categoryId?: string;
-  @IsOptional() @IsString() subcategoryId?: string;
+  @IsOptional() @IsString() subcategoryId?: string | null;
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   eventIds?: string[];
 
-  @IsOptional() @IsString() @MaxLength(100) countryOfOrigin?: string;
+  @IsOptional() @IsString() @MaxLength(100) countryOfOrigin?: string | null;
   @IsOptional() @IsBoolean() countryOfOriginPublic?: boolean;
-  @IsOptional() @IsInt() @Min(0) referenceRetailValue?: number;
+  @IsOptional() @IsInt() @Min(0) referenceRetailValue?: number | null;
   @IsOptional() @IsBoolean() referenceRetailValuePublic?: boolean;
   @IsOptional() @IsEnum(StorefrontItemVisibilityMode) storefrontItemMode?: StorefrontItemVisibilityMode;
 
   @IsOptional() @IsString() productTypeId?: string;
-  @IsOptional() @IsString() sizeSchemaOverrideId?: string;
+  @IsOptional() @IsString() sizeSchemaOverrideId?: string | null;
 
   @IsOptional()
   @IsArray()

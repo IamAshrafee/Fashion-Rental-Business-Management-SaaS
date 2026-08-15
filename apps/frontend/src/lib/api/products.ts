@@ -324,6 +324,26 @@ export interface ProductListQuery {
   order?: 'asc' | 'desc';
 }
 
+export interface UpdateProductInput {
+  name?: string;
+  description?: string | null;
+  categoryId?: string;
+  subcategoryId?: string | null;
+  eventIds?: string[];
+  countryOfOrigin?: string | null;
+  countryOfOriginPublic?: boolean;
+  referenceRetailValue?: number | null;
+  referenceRetailValuePublic?: boolean;
+  productTypeId?: string;
+  sizeSchemaOverrideId?: string | null;
+  faqs?: Array<{ question: string; answer: string }>;
+  details?: Array<{
+    headerName: string;
+    sequence?: number;
+    entries?: Array<{ key: string; value: string }>;
+  }>;
+}
+
 export interface ProductOnboardingVariantInput {
   id?: string;
   clientKey: string;
@@ -531,7 +551,7 @@ export const productApi = {
   /**
    * PATCH /api/v1/owner/products/:id  (update product)
    */
-  updateProduct: async (id: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  updateProduct: async (id: string, payload: UpdateProductInput): Promise<Record<string, unknown>> => {
     const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(`/owner/products/${id}`, payload);
     return data.data;
   },

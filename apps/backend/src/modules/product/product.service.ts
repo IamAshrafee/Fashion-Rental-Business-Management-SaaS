@@ -161,10 +161,10 @@ export class ProductService {
       data.name = dto.name;
       data.slug = await this.generateUniqueSlug(tenantId, dto.name, productId);
     }
-    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.description !== undefined) data.description = dto.description?.trim() || null;
     if (dto.categoryId !== undefined) data.categoryId = dto.categoryId;
     if (dto.subcategoryId !== undefined) data.subcategoryId = dto.subcategoryId || null;
-    if (dto.countryOfOrigin !== undefined) data.countryOfOrigin = dto.countryOfOrigin.trim() || null;
+    if (dto.countryOfOrigin !== undefined) data.countryOfOrigin = dto.countryOfOrigin?.trim() || null;
     if (dto.countryOfOriginPublic !== undefined) data.countryOfOriginPublic = dto.countryOfOriginPublic;
     if (dto.referenceRetailValue !== undefined) data.referenceRetailValue = dto.referenceRetailValue;
     if (dto.referenceRetailValuePublic !== undefined) data.referenceRetailValuePublic = dto.referenceRetailValuePublic;

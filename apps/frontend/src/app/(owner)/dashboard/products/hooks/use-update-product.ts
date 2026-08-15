@@ -1,5 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { productApi, type ProductDetail } from '@/lib/api/products';
+import {
+  productApi,
+  type ProductDetail,
+  type UpdateProductInput,
+} from '@/lib/api/products';
 import { ProductFormValues } from '../components/product-form/schema';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -8,19 +12,19 @@ import { getApiErrorMessage } from '@/lib/api-error';
 /**
  * Builds the flat Update DTO from form values (excluding pricing)
  */
-function buildUpdatePayload(data: ProductFormValues) {
+function buildUpdatePayload(data: ProductFormValues): UpdateProductInput {
   return {
     name: data.name,
-    description: data.description,
+    description: data.description?.trim() || null,
     categoryId: data.categoryId,
-    subcategoryId: data.subcategoryId,
+    subcategoryId: data.subcategoryId || null,
     eventIds: data.events,
-    countryOfOrigin: data.countryOfOrigin,
+    countryOfOrigin: data.countryOfOrigin?.trim() || null,
     countryOfOriginPublic: data.countryOfOriginPublic,
-    referenceRetailValue: data.referenceRetailValue,
+    referenceRetailValue: data.referenceRetailValue ?? null,
     referenceRetailValuePublic: data.referenceRetailValuePublic,
     productTypeId: data.productTypeId,
-    sizeSchemaOverrideId: data.sizeSchemaOverrideId,
+    sizeSchemaOverrideId: data.sizeSchemaOverrideId || null,
 
     faqs: data.faqs?.map((faq) => ({
       question: faq.question,

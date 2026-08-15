@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react';
 import { useFormContext } from 'react-hook-form';
 import { ProductFormValues } from '../schema';
 import {
@@ -25,15 +26,31 @@ import { Loader2 } from 'lucide-react';
 import { useCategories, useEvents } from '../../../hooks/use-product-apis';
 import { FieldTip } from '@/components/shared/field-tip';
 
+const NO_SUBCATEGORY = '__none__';
+
 export function BasicInfoStep() {
-  const { control, watch } = useFormContext<ProductFormValues>();
+  const { control, watch, setValue } = useFormContext<ProductFormValues>();
   const categoryId = watch('categoryId');
+  const subcategoryId = watch('subcategoryId');
 
   const { data: categories, isLoading: isLoadingCats } = useCategories();
   const { data: events, isLoading: isLoadingEvents } = useEvents();
 
   const currentCategory = categories?.find((c) => c.id === categoryId);
-  const subcategories = currentCategory?.subcategories || [];
+  const subcategories = useMemo(
+    () => currentCategory?.subcategories ?? [],
+    [currentCategory],
+  );
+
+  useEffect(() => {
+    if (
+      !isLoadingCats &&
+      subcategoryId &&
+      !subcategories.some((subcategory) => subcategory.id === subcategoryId)
+    ) {
+      setValue('subcategoryId', undefined, { shouldDirty: true, shouldValidate: true });
+    }
+  }, [isLoadingCats, setValue, subcategories, subcategoryId]);
 
   return (
     <div className="space-y-6">
@@ -69,6 +86,7 @@ export function BasicInfoStep() {
                   placeholder="Tell customers about this product..."
                   className="min-h-[120px]"
                   {...field}
+                  value={field.value ?? ''}
                 />
               </FormControl>
               <FormMessage />
@@ -85,7 +103,12 @@ export function BasicInfoStep() {
                 Category *{' '}
                 <FieldTip tip="The main product category (e.g., Saree, Lehenga, Sherwani). Determines how the product is organized on your storefront." />
               </FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+              <Select
+                onValueChange={(value) =>
+                  field.onChange(value === NO_SUBCATEGORY ? undefined : value)
+                }
+                value={field.value || NO_SUBCATEGORY}
+              >
                 <FormControl>
                   <SelectTrigger disabled={isLoadingCats}>
                     <SelectValue placeholder={isLoadingCats ? 'Loading...' : 'Select a category'} />
@@ -120,6 +143,7 @@ export function BasicInfoStep() {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
+                  <SelectItem value={NO_SUBCATEGORY}>No subcategory</SelectItem>
                   {subcategories.map((sub) => (
                     <SelectItem key={sub.id} value={sub.id}>
                       {sub.name}
@@ -209,7 +233,7 @@ export function BasicInfoStep() {
                       Country of origin <FieldTip helpKey="catalog.countryOfOrigin" />
                     </FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Bangladesh" {...field} />
+                      <Input placeholder="e.g. Bangladesh" {...field} value={field.value ?? ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

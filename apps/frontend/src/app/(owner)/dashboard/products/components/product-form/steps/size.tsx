@@ -47,12 +47,23 @@ export function SizeStep() {
     enabled: !!activeSchemaId,
   });
 
-  // Auto-clear override when toggling off
+  // Existing products can already use an override. Reveal it instead of
+  // silently clearing a server value when the edit form mounts.
   useEffect(() => {
-    if (!showOverride) {
-      setValue('sizeSchemaOverrideId', undefined);
+    if (sizeSchemaOverrideId) setShowOverride(true);
+  }, [sizeSchemaOverrideId]);
+
+  const toggleOverride = () => {
+    if (showOverride) {
+      setValue('sizeSchemaOverrideId', undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      setShowOverride(false);
+      return;
     }
-  }, [showOverride, setValue]);
+    setShowOverride(true);
+  };
 
   const instances = activeSchema?.instances || [];
   const sizeCharts = activeSchema?.sizeCharts || [];
@@ -109,7 +120,7 @@ export function SizeStep() {
         <div>
           <button
             type="button"
-            onClick={() => setShowOverride(!showOverride)}
+            onClick={toggleOverride}
             className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-black transition-colors"
           >
             <ChevronRight className={cn('h-3 w-3 transition-transform', showOverride && 'rotate-90')} />
@@ -126,7 +137,12 @@ export function SizeStep() {
                     <button
                       key={schema.id}
                       type="button"
-                      onClick={() => setValue('sizeSchemaOverrideId', schema.id)}
+                      onClick={() =>
+                        setValue('sizeSchemaOverrideId', schema.id, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
                       className={cn(
                         'rounded-lg border px-3 py-2 text-sm transition-all',
                         sizeSchemaOverrideId === schema.id
