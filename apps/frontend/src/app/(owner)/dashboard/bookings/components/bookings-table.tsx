@@ -86,6 +86,44 @@ const shortDate = (value: string | null) =>
       )
     : '—';
 
+function BookingOperationalProgress({ booking }: { booking: BookingListItem }) {
+  if (booking.status === 'pending') {
+    return (
+      <div className="space-y-1 text-sm">
+        <Badge variant="secondary">Awaiting your review</Badge>
+        <p className="max-w-xs text-xs text-muted-foreground">
+          Review the request before assigning or preparing physical items.
+        </p>
+      </div>
+    );
+  }
+
+  if (booking.operations.blockers.length) {
+    return (
+      <div className="space-y-1 text-sm">
+        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
+          Needs attention
+        </Badge>
+        <p className="max-w-xs text-xs text-muted-foreground">
+          {booking.operations.blockers[0]}
+        </p>
+      </div>
+    );
+  }
+
+  if (booking.operations.unresolvedReturnQuantity > 0) {
+    return <p className="text-sm">{booking.operations.unresolvedReturnQuantity} pieces still out</p>;
+  }
+  if (booking.operations.handedOutQuantity > 0) {
+    return (
+      <p className="text-sm">
+        {booking.operations.returnedQuantity}/{booking.operations.handedOutQuantity} returned
+      </p>
+    );
+  }
+  return <p className="text-sm">Ready for the next step</p>;
+}
+
 interface BookingsDataTableProps {
   data: BookingListItem[];
   meta: PaginationMeta;
@@ -306,28 +344,7 @@ export function BookingsDataTable({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1 text-sm">
-                          {booking.operations.blockers.length ? (
-                            <>
-                              <Badge variant="destructive">
-                                {booking.operations.blockers.length} blocker
-                                {booking.operations.blockers.length === 1 ? '' : 's'}
-                              </Badge>
-                              <p className="max-w-xs text-xs text-muted-foreground">
-                                {booking.operations.blockers[0]}
-                              </p>
-                            </>
-                          ) : booking.operations.unresolvedReturnQuantity > 0 ? (
-                            <p>{booking.operations.unresolvedReturnQuantity} pieces still out</p>
-                          ) : booking.operations.handedOutQuantity > 0 ? (
-                            <p>
-                              {booking.operations.returnedQuantity}/
-                              {booking.operations.handedOutQuantity} returned
-                            </p>
-                          ) : (
-                            <p>Inventory ready</p>
-                          )}
-                        </div>
+                        <BookingOperationalProgress booking={booking} />
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatMinorMoney(booking.grandTotal)}
@@ -370,18 +387,9 @@ export function BookingsDataTable({
                     {booking.operations.handoverMethod?.replace('_', ' ').toLowerCase() ??
                       'handover unset'}
                   </p>
-                  {booking.operations.blockers[0] && (
-                    <p className="rounded bg-amber-50 p-2 text-xs text-amber-900">
-                      {booking.operations.blockers[0]}
-                    </p>
-                  )}
+                  <BookingOperationalProgress booking={booking} />
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{formatMinorMoney(booking.grandTotal)}</span>
-                    {booking.operations.blockers.length ? (
-                      <Badge variant="destructive">
-                        {booking.operations.blockers.length} blockers
-                      </Badge>
-                    ) : null}
                   </div>
                   <Button className="w-full" variant="outline" asChild>
                     <Link href={`/dashboard/bookings/${booking.id}`}>

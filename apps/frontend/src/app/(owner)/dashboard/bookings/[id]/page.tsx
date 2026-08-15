@@ -24,6 +24,58 @@ import { toast } from 'sonner';
 import type { BookingStatus, BookingTimelineEvent, BookingItem, Payment, Booking, DamageLevel } from '../types';
 import { formatMinorMoney } from '@/lib/money';
 
+const bookingWorkflowGuidance: Record<BookingStatus, {
+  title: string;
+  description: string;
+  actionLabel?: string;
+  actionHref?: string;
+}> = {
+  pending: {
+    title: 'New request — review it first',
+    description: 'This customer has submitted a rental request. Item assignment, preparation, and payment collection begin only after you approve it, so they are not blockers yet.',
+    actionLabel: 'Review and confirm booking',
+    actionHref: '#booking-actions',
+  },
+  confirmed: {
+    title: 'Prepare the rental for handoff',
+    description: 'Assign the exact physical items, mark each requirement ready, then record the handout before starting the rental.',
+    actionLabel: 'Open fulfillment workspace',
+    actionHref: '#fulfillment-workspace',
+  },
+  delivered: {
+    title: 'Rental is active',
+    description: 'When the items come back, record each physical item as returned or lost before finalizing the return.',
+    actionLabel: 'Open fulfillment workspace',
+    actionHref: '#fulfillment-workspace',
+  },
+  overdue: {
+    title: 'Return is overdue',
+    description: 'Arrange the return with the customer, then record each physical item as returned or lost.',
+    actionLabel: 'Open fulfillment workspace',
+    actionHref: '#fulfillment-workspace',
+  },
+  returned: {
+    title: 'Inspect the returned physical items',
+    description: 'Complete the return inspection for every item before closing this stage.',
+    actionLabel: 'Open fulfillment workspace',
+    actionHref: '#fulfillment-workspace',
+  },
+  inspected: {
+    title: 'Finish the commercial closeout',
+    description: 'Resolve any return issues, settle deposits, collect any remaining balance, then complete the booking.',
+    actionLabel: 'Open booking actions',
+    actionHref: '#booking-actions',
+  },
+  completed: {
+    title: 'Booking completed',
+    description: 'All rental operations and commercial closeout steps are complete.',
+  },
+  cancelled: {
+    title: 'Booking cancelled',
+    description: 'This request is closed. Its history remains available for reference.',
+  },
+};
+
 // ── Copy-to-clipboard hook ───────────────────────────────────────────────────
 function useCopyToClipboard() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -222,6 +274,7 @@ export default function BookingDetailPage() {
       }, new Date(0))
     : null;
   const daysUntilReturn = latestEndDate ? differenceInDays(latestEndDate, new Date()) : null;
+  const workflowGuidance = bookingWorkflowGuidance[booking.status as BookingStatus];
 
 
   return (
@@ -285,6 +338,20 @@ export default function BookingDetailPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      <Card className="border-primary/20 bg-primary/5 shadow-none">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">{workflowGuidance.title}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 pt-0 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-3xl text-sm text-muted-foreground">{workflowGuidance.description}</p>
+          {workflowGuidance.actionHref && workflowGuidance.actionLabel && (
+            <Button variant="outline" size="sm" className="shrink-0" asChild>
+              <Link href={workflowGuidance.actionHref}>{workflowGuidance.actionLabel}</Link>
+            </Button>
+          )}
+        </CardContent>
+      </Card>
 
       <OrderActions bookingId={booking.id} status={booking.status as BookingStatus} returnMethod={booking.returnMethod} />
 

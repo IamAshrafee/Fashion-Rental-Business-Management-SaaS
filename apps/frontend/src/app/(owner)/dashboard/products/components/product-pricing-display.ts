@@ -5,6 +5,15 @@ export interface PricingConfigDisplayEntry {
   isMoney: boolean;
 }
 
+type PrimitivePricingValue = string | number | boolean;
+
+function isPrimitivePricingEntry(
+  entry: [string, unknown],
+): entry is [string, PrimitivePricingValue] {
+  const [, value] = entry;
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
 const PRICING_LABELS: Record<string, string> = {
   unitPriceMinor: 'Daily rental price',
   flatPriceMinor: 'Rental package price',
@@ -22,7 +31,7 @@ export function getPricingConfigDisplayEntries(
   config: Record<string, unknown>,
 ): PricingConfigDisplayEntry[] {
   return Object.entries(config)
-    .filter(([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    .filter(isPrimitivePricingEntry)
     .map(([key, value]) => ({
       key,
       label: PRICING_LABELS[key] ?? key.replace(/Minor$/, '').replace(/([A-Z])/g, ' $1'),

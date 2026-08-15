@@ -160,7 +160,7 @@ export function OrderActions({ bookingId, status, returnMethod }: OrderActionsPr
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
+      <div id="booking-actions" className="scroll-mt-6 flex flex-wrap items-center gap-2">
         {status === 'pending' && (
           <>
             <ActionButton

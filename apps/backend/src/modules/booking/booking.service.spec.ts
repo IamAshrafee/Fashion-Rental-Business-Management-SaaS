@@ -221,6 +221,57 @@ describe('BookingService', () => {
     });
   });
 
+  it('keeps a new storefront request in review instead of flagging future operational work as blockers', async () => {
+    const booking = {
+      id: 'booking-1',
+      status: 'pending',
+      createdAt: new Date('2026-08-03T10:00:00.000Z'),
+      grandTotal: 48_000,
+      totalPaid: 0,
+      handoverMethod: 'DELIVERY',
+      returnMethod: 'CUSTOMER_RETURN',
+      sourceLocation: null,
+      customer: {
+        id: 'customer-1',
+        fullName: 'Nadia Rahman',
+        identities: [{ kind: 'phone', value: '01700000000', isPrimary: true }],
+      },
+      items: [{
+        id: 'item-1',
+        quantity: 1,
+        startDate: new Date('2026-08-10T00:00:00.000Z'),
+        endDate: new Date('2026-08-12T00:00:00.000Z'),
+        depositAmount: 0,
+        depositSettlement: null,
+        stockUnitInspections: [],
+        stockUnitIssues: [],
+        fulfillmentRequirements: [{
+          status: 'RESERVED',
+          quantity: 1,
+          assignedQuantity: 1,
+          handedOutQuantity: 0,
+          returnedQuantity: 0,
+          lostQuantity: 0,
+          preparationStatus: 'NOT_STARTED',
+        }],
+      }],
+      _count: { items: 1 },
+    };
+    const prisma = {
+      booking: {
+        findMany: jest.fn().mockResolvedValue([booking]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    };
+
+    const result = await serviceWith(prisma).getBookingList('tenant-1', { page: 1, limit: 20 });
+
+    expect(result.data[0].operations).toMatchObject({
+      nextAction: 'REVIEW',
+      blockers: [],
+    });
+  });
+
   it('uses the validated 250-row maximum as a defensive service bound', async () => {
     const prisma = {
       booking: {

@@ -1885,38 +1885,38 @@ export class BookingService {
                           : 'COMPLETE'
                     : 'NONE';
         const blockers = [
-          ...(inventoryShortages > 0
+          ...(booking.status === 'confirmed' && inventoryShortages > 0
             ? [
                 `${inventoryShortages} inventory requirement${inventoryShortages === 1 ? '' : 's'} have no capacity`,
               ]
             : []),
-          ...(needsAssignment
+          ...(booking.status === 'confirmed' && needsAssignment
             ? [
                 `${physicalItemRequired - physicalItemAssigned} physical-item assignment${physicalItemRequired - physicalItemAssigned === 1 ? '' : 's'} missing`,
               ]
             : []),
-          ...(unpreparedRequirementCount > 0
+          ...(booking.status === 'confirmed' && unpreparedRequirementCount > 0
             ? [
                 `${unpreparedRequirementCount} requirement${unpreparedRequirementCount === 1 ? '' : 's'} not prepared`,
               ]
             : []),
-          ...(unresolvedReturnQuantity > 0
+          ...((booking.status === 'delivered' || booking.status === 'overdue') && unresolvedReturnQuantity > 0
             ? [
                 `${unresolvedReturnQuantity} handed-out piece${unresolvedReturnQuantity === 1 ? '' : 's'} not returned or lost`,
               ]
             : []),
-          ...(inspectionOutstanding > 0
+          ...(booking.status === 'returned' && inspectionOutstanding > 0
             ? [
                 `${inspectionOutstanding} returned physical item${inspectionOutstanding === 1 ? '' : 's'} awaiting inspection`,
               ]
             : []),
-          ...(unsettledDepositCount > 0
+          ...(booking.status === 'inspected' && unsettledDepositCount > 0
             ? [
                 `${unsettledDepositCount} deposit settlement${unsettledDepositCount === 1 ? '' : 's'} pending`,
               ]
             : []),
-          ...(balanceDue > 0 ? [`Booking balance due: ${balanceDue} minor BDT`] : []),
-          ...(unresolvedIssueCount > 0
+          ...(booking.status === 'inspected' && balanceDue > 0 ? ['Booking payment is still outstanding'] : []),
+          ...(booking.status === 'inspected' && unresolvedIssueCount > 0
             ? [
                 `${unresolvedIssueCount} return issue${unresolvedIssueCount === 1 ? '' : 's'} unresolved`,
               ]
