@@ -8,6 +8,11 @@ export interface ContextHelpContent {
 }
 
 export type ContextHelpKey =
+  | 'catalog.productName'
+  | 'catalog.description'
+  | 'catalog.category'
+  | 'catalog.subcategory'
+  | 'catalog.events'
   | 'catalog.countryOfOrigin'
   | 'catalog.referenceRetailValue'
   | 'catalog.referenceRetailValuePublic'
@@ -15,6 +20,13 @@ export type ContextHelpKey =
   | 'catalog.media'
   | 'catalog.featuredImage'
   | 'catalog.altText'
+  | 'catalog.productType'
+  | 'catalog.sizeSchemaOverride'
+  | 'catalog.variantName'
+  | 'catalog.mainColor'
+  | 'catalog.identicalColors'
+  | 'catalog.details'
+  | 'catalog.faq'
   | 'pricing.rentalRate'
   | 'pricing.deposit'
   | 'pricing.latePolicy'

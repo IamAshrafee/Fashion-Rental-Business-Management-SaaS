@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Plus, Trash2 } from 'lucide-react';
+import { FieldTip } from '@/components/shared/field-tip';
 
 export function DetailsFAQStep() {
   const { control } = useFormContext<ProductFormValues>();
@@ -45,7 +46,7 @@ export function DetailsFAQStep() {
 
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium">Product Details (Key-Value Builder)</h3>
+          <h3 className="text-lg font-medium">Product Details <FieldTip helpKey="catalog.details" /></h3>
           <Button
             type="button"
             variant="outline"
@@ -72,6 +73,7 @@ export function DetailsFAQStep() {
                 size="icon"
                 className="absolute right-4 top-4 text-destructive hover:bg-destructive/10"
                 onClick={() => removeDetailGroup(groupIndex)}
+                aria-label={`Remove detail section ${groupIndex + 1}`}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -81,6 +83,7 @@ export function DetailsFAQStep() {
                   name={`details.${groupIndex}.header`}
                   render={({ field }) => (
                     <FormItem className="mr-8">
+                      <FormLabel>Section name <FieldTip helpKey="catalog.details" /></FormLabel>
                       <FormControl>
                         <Input placeholder="Section Header (e.g. Materials & Care)" className="font-semibold text-base" {...field} />
                       </FormControl>
@@ -100,7 +103,7 @@ export function DetailsFAQStep() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-medium">Frequently Asked Questions</h3>
+            <h3 className="text-lg font-medium">Frequently Asked Questions <FieldTip helpKey="catalog.faq" /></h3>
             <p className="text-sm text-muted-foreground mt-1">
               Add specific FAQs for this product that aren&apos;t covered by your global store FAQs.
             </p>
@@ -116,6 +119,7 @@ export function DetailsFAQStep() {
                 size="icon"
                 className="absolute right-4 top-4 text-destructive hover:bg-destructive/10 z-10"
                 onClick={() => removeFaq(index)}
+                aria-label={`Remove FAQ ${index + 1}`}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -125,7 +129,7 @@ export function DetailsFAQStep() {
                   name={`faqs.${index}.question`}
                   render={({ field }) => (
                     <FormItem className="mr-8">
-                      <FormLabel>Question</FormLabel>
+                      <FormLabel>Question <FieldTip helpKey="catalog.faq" /></FormLabel>
                       <FormControl>
                         <Input placeholder="e.g. Can I wear this if I am taller than 5'8?" {...field} />
                       </FormControl>
@@ -138,7 +142,7 @@ export function DetailsFAQStep() {
                   name={`faqs.${index}.answer`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Answer</FormLabel>
+                      <FormLabel>Answer <FieldTip helpKey="catalog.faq" /></FormLabel>
                       <FormControl>
                         <Textarea placeholder="e.g. Yes! The length works perfectly for heights up to 5'10..." {...field} />
                       </FormControl>
@@ -180,6 +184,7 @@ function DetailItemsArray({ control, groupIndex }: { control: import('react-hook
             name={`details.${groupIndex}.items.${itemIndex}.key`}
             render={({ field }) => (
               <FormItem className="flex-1">
+                <FormLabel>Detail name <FieldTip helpKey="catalog.details" /></FormLabel>
                 <FormControl>
                   <Input placeholder="Key (e.g. Fabric)" {...field} />
                 </FormControl>
@@ -192,6 +197,7 @@ function DetailItemsArray({ control, groupIndex }: { control: import('react-hook
             name={`details.${groupIndex}.items.${itemIndex}.value`}
             render={({ field }) => (
               <FormItem className="flex-[2]">
+                <FormLabel>Detail value <FieldTip helpKey="catalog.details" /></FormLabel>
                 <FormControl>
                   <Input placeholder="Value (e.g. 100% Pure Silk)" {...field} />
                 </FormControl>
@@ -205,6 +211,7 @@ function DetailItemsArray({ control, groupIndex }: { control: import('react-hook
             size="icon"
             className="text-destructive hover:bg-destructive/10 shrink-0"
             onClick={() => remove(itemIndex)}
+            aria-label={`Remove detail row ${itemIndex + 1}`}
           >
             <Trash2 className="h-4 w-4" />
           </Button>

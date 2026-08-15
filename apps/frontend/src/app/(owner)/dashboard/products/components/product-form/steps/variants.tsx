@@ -125,7 +125,7 @@ export function VariantsMediaStep({
                     name={`variants.${index}.name`}
                     render={({ field }) => (
                       <FormItem className="sm:col-span-2">
-                        <FormLabel>Variant Name (Optional) <FieldTip tip="Custom name like 'Ivory Gold'. If blank, the color name is used." /></FormLabel>
+                        <FormLabel>Variant Name (Optional) <FieldTip helpKey="catalog.variantName" /></FormLabel>
                         <FormControl>
                           <Input placeholder="e.g. Ivory Gold" {...field} className="h-11" />
                         </FormControl>
@@ -139,7 +139,7 @@ export function VariantsMediaStep({
                     name={`variants.${index}.mainColorId`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Main Color * <FieldTip tip="The dominant color shown as the swatch." /></FormLabel>
+                        <FormLabel>Main Color * <FieldTip helpKey="catalog.mainColor" /></FormLabel>
                         <Select
                           onValueChange={(val) => {
                             field.onChange(val);
@@ -176,7 +176,7 @@ export function VariantsMediaStep({
                       name={`variants.${index}.sizeInstanceIds`}
                       render={({ field }) => (
                         <FormItem className="sm:col-span-2">
-                          <FormLabel>Sizes <FieldTip tip="Select all sizes available for this color variant." /></FormLabel>
+                          <FormLabel>Rentable sizes <FieldTip helpKey="catalog.sku" /></FormLabel>
                           <div className="flex flex-wrap gap-2">
                             {sizeInstances.map((inst) => {
                               const isSelected = field.value?.includes(inst.id);
@@ -218,7 +218,7 @@ export function VariantsMediaStep({
                     name={`variants.${index}.identicalColorIds`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Identical Colors * <FieldTip tip="All visible colors for search matching." /></FormLabel>
+                        <FormLabel>Additional visible colors <FieldTip helpKey="catalog.identicalColors" /></FormLabel>
                         <Select
                           key={`identical-${index}-${field.value.length}`}
                           onValueChange={(val) => {
@@ -304,7 +304,9 @@ export function VariantsMediaStep({
                   {isImagesOpen && (
                     <div className="px-3 pb-3">
                       <p className="text-xs text-muted-foreground mb-3">
-                        Drag to reorder. First image marked ★ is the featured thumbnail.
+                        Upload customer-facing photos, then drag to reorder.{' '}
+                        <FieldTip helpKey="catalog.media" /> The image marked ★ is the featured
+                        thumbnail. <FieldTip helpKey="catalog.featuredImage" />
                       </p>
                       <FormField
                         control={control}

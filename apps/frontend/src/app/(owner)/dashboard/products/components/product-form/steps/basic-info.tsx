@@ -62,7 +62,7 @@ export function BasicInfoStep() {
             <FormItem className="col-span-2">
               <FormLabel>
                 Product Name *{' '}
-                <FieldTip tip="The name customers will see on your storefront. Use a descriptive name like 'Royal Banarasi Saree - Ivory Gold'." />
+                <FieldTip helpKey="catalog.productName" />
               </FormLabel>
               <FormControl>
                 <Input placeholder="e.g. Royal Banarasi Saree" {...field} />
@@ -79,7 +79,7 @@ export function BasicInfoStep() {
             <FormItem className="col-span-2">
               <FormLabel>
                 Description{' '}
-                <FieldTip tip="A detailed description helps customers understand the product. Mention fabric, occasion, styling tips, and any special features." />
+                <FieldTip helpKey="catalog.description" />
               </FormLabel>
               <FormControl>
                 <Textarea
@@ -101,7 +101,7 @@ export function BasicInfoStep() {
             <FormItem>
               <FormLabel>
                 Category *{' '}
-                <FieldTip tip="The main product category (e.g., Saree, Lehenga, Sherwani). Determines how the product is organized on your storefront." />
+                <FieldTip helpKey="catalog.category" />
               </FormLabel>
               <Select
                 onValueChange={(value) =>
@@ -134,7 +134,7 @@ export function BasicInfoStep() {
             <FormItem>
               <FormLabel>
                 Subcategory{' '}
-                <FieldTip tip="A more specific classification within the category. Helps customers find exactly what they're looking for." />
+                <FieldTip helpKey="catalog.subcategory" />
               </FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                 <FormControl>
@@ -164,7 +164,7 @@ export function BasicInfoStep() {
               <div className="mb-4">
                 <FormLabel className="text-base">
                   Suitable Events{' '}
-                  <FieldTip tip="Select events where this product would be appropriate (e.g., Wedding, Engagement, Eid). Customers can filter by event." />
+                  <FieldTip helpKey="catalog.events" />
                 </FormLabel>
                 <FormDescription>Select all events this product is suitable for.</FormDescription>
               </div>

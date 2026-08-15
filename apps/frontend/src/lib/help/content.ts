@@ -1,6 +1,40 @@
 import type { ContextHelpContent, ContextHelpKey } from './types';
 
 export const HELP_CONTENT: Record<ContextHelpKey, ContextHelpContent> = {
+  'catalog.productName': {
+    title: 'Customer-facing product name',
+    meaning: 'The stable catalog name customers and staff use to recognize this rental style.',
+    why: 'A product describes a style; color and size belong to its variants and SKUs, while exact asset identities belong in Inventory.',
+    example: 'Example: “Royal Banarasi Saree” here, “Ivory Gold” as the variant, and SAREE-014 as a physical item asset code.',
+    effect: 'Changing the name also updates the storefront URL slug, but it does not change existing booking or inventory history.',
+  },
+  'catalog.description': {
+    title: 'Product description',
+    meaning: 'Customer-facing guidance about the style, material, fit, occasion, and included presentation.',
+    why: 'It helps a renter decide whether the style suits the event without exposing private purchasing or asset data.',
+    example: 'Example: mention silk, embroidery, drape, matching pieces, and styling advice. Record stains or repairs on the exact physical item instead.',
+    effect: 'The description appears on the storefront after publication and can be changed without rewriting prior bookings.',
+  },
+  'catalog.category': {
+    title: 'Product category',
+    meaning: 'The main storefront and reporting group for this rental style.',
+    why: 'Categories drive navigation and filtering; they do not define inventory quantity or physical-item identity.',
+    example: 'Examples: Sarees, Lehengas, Dresses, Sherwanis, Accessories.',
+    effect: 'Changing it moves the listing to a different storefront group. Any selected subcategory must belong to the new category.',
+  },
+  'catalog.subcategory': {
+    title: 'Optional subcategory',
+    meaning: 'A narrower classification inside the selected main category.',
+    example: 'Example: “Banarasi” inside “Sarees”, or “Tuxedo” inside “Suits”.',
+    effect: 'Choose “No subcategory” when the broader category is sufficient. Changing the category clears an incompatible subcategory.',
+  },
+  'catalog.events': {
+    title: 'Suitable events',
+    meaning: 'Occasions for which customers may discover this product through filters and collections.',
+    why: 'These are merchandising associations, not booking restrictions.',
+    example: 'A formal lehenga may be associated with Wedding, Reception, and Engagement.',
+    effect: 'Selecting or clearing events changes discovery only; availability still comes from eligible physical items and dates.',
+  },
   'catalog.countryOfOrigin': {
     title: 'Country of origin',
     meaning:
@@ -52,6 +86,54 @@ export const HELP_CONTENT: Record<ContextHelpKey, ContextHelpContent> = {
       'A concise description for customers who cannot see the image and for cases where it cannot load.',
     example: 'Example: “Red jamdani saree with gold border, front view.”',
     effect: 'Describe what matters; do not repeat “image of” or add internal stock identities.',
+  },
+  'catalog.productType': {
+    title: 'Product type and default sizing',
+    meaning: 'The operational type that supplies the product’s default size schema.',
+    why: 'Every rentable SKU must use a size instance from the product’s active schema.',
+    example: 'Example: “Women’s Dress” may default to UK 6–18, while “Saree” may use Free Size.',
+    effect: 'Changing type is blocked when existing SKUs would no longer belong to the resolved schema.',
+    relatedLink: { label: 'Manage product types', href: '/dashboard/products/product-types' },
+  },
+  'catalog.sizeSchemaOverride': {
+    title: 'Size-schema override',
+    meaning: 'An exception that makes this product use a different active size system from its product type default.',
+    why: 'Use it only when this style genuinely follows another sizing system; routine differences belong in measurements or fit details.',
+    example: 'A specific imported dress may use EU sizes even though the product type normally uses UK sizes.',
+    effect: 'Removing the override returns to the type default. A change is rejected if current SKUs are outside the resulting schema.',
+    relatedLink: { label: 'Manage sizing schemas', href: '/dashboard/products/sizing-schemas' },
+  },
+  'catalog.variantName': {
+    title: 'Variant name',
+    meaning: 'An optional customer-friendly name for one visual edition of the product.',
+    example: 'Examples: “Ivory Gold”, “Midnight Blue”, or “Floral Edition”. Leave it blank when the main color name is enough.',
+    effect: 'It labels the variant; it does not identify a physical item or create stock.',
+  },
+  'catalog.mainColor': {
+    title: 'Main variant color',
+    meaning: 'The dominant color used for the variant’s primary swatch and identity.',
+    why: 'A product can have several visual variants, each with its own media and rentable size SKUs.',
+    example: 'For a red-and-gold saree whose dominant appearance is red, choose Red as the main color and Gold as an identical/search color.',
+    effect: 'Changing it updates variant presentation and search matching, not physical-item condition or location.',
+  },
+  'catalog.identicalColors': {
+    title: 'Additional visible colors',
+    meaning: 'Other colors visibly present in the same variant for accurate storefront filtering.',
+    why: 'This prevents customers from missing a multicolor style when filtering by a secondary color.',
+    example: 'An ivory dress with gold embroidery can match both Ivory and Gold while retaining Ivory as its main color.',
+    effect: 'These values affect discovery only; they do not create separate variants or inventory.',
+  },
+  'catalog.details': {
+    title: 'Structured product details',
+    meaning: 'Customer-facing groups of reusable facts, stored as a section name with key–value rows.',
+    example: 'Section “Materials & Care”: Fabric = Pure silk; Embellishment = Hand embroidery; Care = Dry clean only.',
+    effect: 'The ordered sections appear on the product page. Physical-item-specific defects and service notes belong in Inventory.',
+  },
+  'catalog.faq': {
+    title: 'Product-specific FAQ',
+    meaning: 'A question and answer that applies to this rental style rather than the whole store.',
+    example: 'Question: “Is a matching blouse included?” Answer: “Yes, the listed set includes the blouse shown in the photos.”',
+    effect: 'FAQs reduce customer uncertainty but do not override booking terms, pricing, deposits, or availability rules.',
   },
   'pricing.rentalRate': {
     title: 'Rental rate',

@@ -7,6 +7,7 @@ import type { ProductFormValues } from '../schema';
 import { cn } from '@/lib/utils';
 import { sizingApi } from '@/lib/api/products';
 import { Loader2, ChevronRight, Info, Layers, Grid3X3 } from 'lucide-react';
+import { FieldTip } from '@/components/shared/field-tip';
 
 /**
  * SizeStep — Schema-driven product sizing.
@@ -72,9 +73,9 @@ export function SizeStep() {
     <div className="space-y-8">
       {/* ── Product Type Selector ───────────────────────────────────── */}
       <div>
-        <label className="mb-3 block text-sm font-semibold text-gray-700">
-          Product Type
-        </label>
+        <div className="mb-3 block text-sm font-semibold text-gray-700">
+          Product Type <FieldTip helpKey="catalog.productType" />
+        </div>
         <p className="mb-4 text-xs text-gray-500">
           Select the type of product — this determines the default sizing system.
         </p>
@@ -118,14 +119,17 @@ export function SizeStep() {
       {/* ── Schema Override Toggle ──────────────────────────────────── */}
       {productTypeId && (
         <div>
-          <button
-            type="button"
-            onClick={toggleOverride}
-            className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-black transition-colors"
-          >
-            <ChevronRight className={cn('h-3 w-3 transition-transform', showOverride && 'rotate-90')} />
-            Override Size Schema
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleOverride}
+              className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-black transition-colors"
+            >
+              <ChevronRight className={cn('h-3 w-3 transition-transform', showOverride && 'rotate-90')} />
+              Override Size Schema
+            </button>
+            <FieldTip helpKey="catalog.sizeSchemaOverride" />
+          </div>
 
           {showOverride && (
             <div className="mt-3">
@@ -166,7 +170,7 @@ export function SizeStep() {
           <div className="mb-3 flex items-center gap-2">
             <Grid3X3 className="h-4 w-4 text-gray-400" />
             <h3 className="text-sm font-semibold text-gray-700">
-              Available Sizes
+              Available Sizes <FieldTip helpKey="catalog.sku" />
               {activeSchema && <span className="ml-2 text-xs font-normal text-gray-400">({activeSchema.name})</span>}
             </h3>
           </div>
