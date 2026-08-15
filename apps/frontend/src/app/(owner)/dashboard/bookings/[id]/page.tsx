@@ -286,7 +286,10 @@ export default function BookingDetailPage() {
         </Alert>
       )}
 
-      <BookingWorkflowCard status={booking.status as BookingStatus} />
+      <BookingWorkflowCard
+        status={booking.status as BookingStatus}
+        blockers={booking.operations.blockers}
+      />
 
       <OrderActions bookingId={booking.id} status={booking.status as BookingStatus} returnMethod={booking.returnMethod} />
 

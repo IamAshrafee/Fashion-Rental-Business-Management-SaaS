@@ -38,6 +38,7 @@ import {
   CancelBookingDto,
   BOOKING_LIST_MAX_LIMIT,
 } from './dto/booking.dto';
+import { buildBookingOperations } from './booking-operations';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -1779,7 +1780,7 @@ export class BookingService {
               },
               stockUnitIssues: {
                 where: { status: { in: ['OPEN', 'IN_SERVICE'] } },
-                select: { id: true },
+                select: { id: true, status: true },
               },
               fulfillmentRequirements: {
                 where: { status: { notIn: ['CANCELLED', 'SUPERSEDED'] } },
@@ -1804,124 +1805,7 @@ export class BookingService {
 
     return {
       data: bookings.map((booking) => {
-        const requirements = booking.items.flatMap((item) => item.fulfillmentRequirements);
-        const physicalItemRequired = requirements.reduce((sum, item) => sum + item.quantity, 0);
-        const physicalItemAssigned = requirements.reduce(
-          (sum, item) => sum + item.assignedQuantity,
-          0,
-        );
-        const inventoryShortages = requirements.filter((item) => item.status === 'PLANNED').length;
-        const handedOutQuantity = requirements.reduce(
-          (sum, item) => sum + item.handedOutQuantity,
-          0,
-        );
-        const returnedQuantity = requirements.reduce((sum, item) => sum + item.returnedQuantity, 0);
-        const lostQuantity = requirements.reduce((sum, item) => sum + item.lostQuantity, 0);
-        const unresolvedReturnQuantity = Math.max(
-          0,
-          handedOutQuantity - returnedQuantity - lostQuantity,
-        );
-        const completedReturnInspections = booking.items.reduce(
-          (sum, item) => sum + item.stockUnitInspections.length,
-          0,
-        );
-        const physicalItemsReturned = requirements.reduce(
-          (sum, item) => sum + item.returnedQuantity,
-          0,
-        );
-        const inspectionOutstanding = Math.max(
-          0,
-          physicalItemsReturned - completedReturnInspections,
-        );
-        const unresolvedIssueCount = booking.items.reduce(
-          (sum, item) => sum + item.stockUnitIssues.length,
-          0,
-        );
-        const unsettledDepositCount = booking.items.filter(
-          (item) => item.depositAmount > 0 && !item.depositSettlement,
-        ).length;
-        const balanceDue = Math.max(0, booking.grandTotal - booking.totalPaid);
-        const rentalStartDate = booking.items.reduce<Date | null>(
-          (minimum, item) => (!minimum || item.startDate < minimum ? item.startDate : minimum),
-          null,
-        );
-        const rentalEndDate = booking.items.reduce<Date | null>(
-          (maximum, item) => (!maximum || item.endDate > maximum ? item.endDate : maximum),
-          null,
-        );
-        const needsAssignment =
-          booking.status === 'confirmed' && physicalItemAssigned < physicalItemRequired;
-        const unpreparedRequirementCount = requirements.filter(
-          (item) => item.preparationStatus !== 'READY',
-        ).length;
-        const preparationReady =
-          inventoryShortages === 0 &&
-          physicalItemAssigned >= physicalItemRequired &&
-          unpreparedRequirementCount === 0;
-        const nextAction =
-          booking.status === 'pending'
-            ? 'REVIEW'
-            : booking.status === 'confirmed'
-              ? needsAssignment || inventoryShortages > 0
-                ? 'ASSIGN_ITEMS'
-                : !preparationReady
-                  ? 'PREPARE'
-                  : handedOutQuantity < requirements.reduce((sum, item) => sum + item.quantity, 0)
-                    ? 'HAND_OUT'
-                    : 'START_RENTAL'
-              : booking.status === 'delivered' || booking.status === 'overdue'
-                ? 'RECEIVE_RETURN'
-                : booking.status === 'returned'
-                  ? inspectionOutstanding > 0
-                    ? 'INSPECT'
-                    : 'REVIEW_RETURN'
-                  : booking.status === 'inspected'
-                    ? unsettledDepositCount > 0
-                      ? 'SETTLE_DEPOSIT'
-                      : balanceDue > 0
-                        ? 'COLLECT_BALANCE'
-                        : unresolvedIssueCount > 0
-                          ? 'RESOLVE_RETURN_WORK'
-                          : 'COMPLETE'
-                    : 'NONE';
-        const blockers = [
-          ...(booking.status === 'confirmed' && inventoryShortages > 0
-            ? [
-                `${inventoryShortages} inventory requirement${inventoryShortages === 1 ? '' : 's'} have no capacity`,
-              ]
-            : []),
-          ...(booking.status === 'confirmed' && needsAssignment
-            ? [
-                `${physicalItemRequired - physicalItemAssigned} physical-item assignment${physicalItemRequired - physicalItemAssigned === 1 ? '' : 's'} missing`,
-              ]
-            : []),
-          ...(booking.status === 'confirmed' && unpreparedRequirementCount > 0
-            ? [
-                `${unpreparedRequirementCount} requirement${unpreparedRequirementCount === 1 ? '' : 's'} not prepared`,
-              ]
-            : []),
-          ...((booking.status === 'delivered' || booking.status === 'overdue') && unresolvedReturnQuantity > 0
-            ? [
-                `${unresolvedReturnQuantity} handed-out piece${unresolvedReturnQuantity === 1 ? '' : 's'} not returned or lost`,
-              ]
-            : []),
-          ...(booking.status === 'returned' && inspectionOutstanding > 0
-            ? [
-                `${inspectionOutstanding} returned physical item${inspectionOutstanding === 1 ? '' : 's'} awaiting inspection`,
-              ]
-            : []),
-          ...(booking.status === 'inspected' && unsettledDepositCount > 0
-            ? [
-                `${unsettledDepositCount} deposit settlement${unsettledDepositCount === 1 ? '' : 's'} pending`,
-              ]
-            : []),
-          ...(booking.status === 'inspected' && balanceDue > 0 ? ['Booking payment is still outstanding'] : []),
-          ...(booking.status === 'inspected' && unresolvedIssueCount > 0
-            ? [
-                `${unresolvedIssueCount} return issue${unresolvedIssueCount === 1 ? '' : 's'} unresolved`,
-              ]
-            : []),
-        ];
+        const operations = buildBookingOperations(booking);
         return {
           ...booking,
           customer: {
@@ -1940,30 +1824,7 @@ export class BookingService {
               booking.customer.identities.find((identity) => identity.kind === 'email')?.value ??
               null,
           },
-          operations: {
-            rentalStartDate,
-            rentalEndDate,
-            totalQuantity: booking.items.reduce((sum, item) => sum + item.quantity, 0),
-            requirementCount: requirements.length,
-            inventoryShortages,
-            physicalItemRequired,
-            physicalItemAssigned,
-            needsAssignment,
-            preparationReady,
-            handedOutQuantity,
-            returnedQuantity,
-            lostQuantity,
-            unresolvedReturnQuantity,
-            inspectionOutstanding,
-            unsettledDepositCount,
-            unresolvedIssueCount,
-            balanceDue,
-            sourceLocation: booking.sourceLocation,
-            handoverMethod: booking.handoverMethod,
-            returnMethod: booking.returnMethod,
-            blockers,
-            nextAction,
-          },
+          operations,
         };
       }),
       meta: {
@@ -2072,6 +1933,10 @@ export class BookingService {
               },
               orderBy: { createdAt: 'desc' },
             },
+            stockUnitInspections: {
+              where: { inspectionType: 'RETURN', status: 'COMPLETED' },
+              select: { id: true },
+            },
             variantSize: { include: { sizeInstance: true } },
             fulfillmentRequirements: {
               include: {
@@ -2120,6 +1985,15 @@ export class BookingService {
         (identity) => identity.kind === 'email' && identity.isPrimary,
       ) ?? booking.customer.identities.find((identity) => identity.kind === 'email');
     const shipment = booking.shipments[0] ?? null;
+    const operations = buildBookingOperations({
+      status: booking.status,
+      grandTotal: booking.grandTotal,
+      totalPaid: booking.totalPaid,
+      sourceLocation: booking.sourceLocation,
+      handoverMethod: booking.handoverMethod,
+      returnMethod: booking.returnMethod,
+      items: booking.items,
+    });
     return {
       ...booking,
       shipments: undefined,
@@ -2144,6 +2018,7 @@ export class BookingService {
         tags: booking.customer.tagAssignments.map((assignment) => assignment.tag),
         tagAssignments: undefined,
       },
+      operations,
       operationalTimeline,
     };
   }

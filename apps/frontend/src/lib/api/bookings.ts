@@ -400,6 +400,7 @@ export interface BookingDetailResponse {
     totalSpent: number;
     tags: Array<{ id: string; name: string; color: string | null }>;
   };
+  operations: BookingListItem['operations'];
   items: BookingDetailItem[];
   payments: BookingDetailPayment[];
   fulfillmentExtensions: Array<{

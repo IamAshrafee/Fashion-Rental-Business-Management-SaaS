@@ -9,7 +9,13 @@ import {
   getBookingWorkflowState,
 } from '../../components/booking-workflow';
 
-export function BookingWorkflowCard({ status }: { status: BookingStatus }) {
+export function BookingWorkflowCard({
+  status,
+  blockers = [],
+}: {
+  status: BookingStatus;
+  blockers?: string[];
+}) {
   const state = getBookingWorkflowState(status);
 
   return (
@@ -50,6 +56,14 @@ export function BookingWorkflowCard({ status }: { status: BookingStatus }) {
                 <ChevronRight data-icon="inline-end" />
               </Link>
             </Button>
+          )}
+          {blockers.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50/70 p-3 text-sm text-amber-950">
+              <p className="font-medium">Before moving on</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
+                {blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+              </ul>
+            </div>
           )}
         </CardContent>
       )}
