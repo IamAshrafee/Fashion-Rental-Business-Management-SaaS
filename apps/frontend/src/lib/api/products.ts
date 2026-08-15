@@ -527,11 +527,6 @@ export const productApi = {
     return data.data;
   },
 
-  addVariant: async (productId: string, payload: { variantName?: string; mainColorId: string; sizes?: VariantSizeInventoryInput[]; identicalColorIds?: string[] }): Promise<{ id: string }> => {
-    const { data } = await apiClient.post<ApiResponse<{ id: string }>>(`/owner/products/${productId}/variants`, payload);
-    return data.data;
-  },
-
   uploadImage: async (variantId: string, file: File, isFeatured: boolean = false): Promise<UploadedProductImage> => {
     const formData = new FormData();
     formData.append('variantId', variantId);
@@ -557,29 +552,7 @@ export const productApi = {
   },
 
   /**
-   * PATCH /api/v1/owner/products/:productId/variants/:variantId
-   */
-  updateVariant: async (
-    productId: string,
-    variantId: string,
-    payload: { variantName?: string; mainColorId?: string; identicalColorIds?: string[]; sizes?: VariantSizeInventoryInput[] },
-  ): Promise<Record<string, unknown>> => {
-    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
-      `/owner/products/${productId}/variants/${variantId}`,
-      payload,
-    );
-    return data.data;
-  },
-
-  /**
-   * DELETE /api/v1/owner/products/:productId/variants/:variantId
-   */
-  deleteVariant: async (productId: string, variantId: string): Promise<void> => {
-    await apiClient.delete(`/owner/products/${productId}/variants/${variantId}`);
-  },
-
-  /**
-   * DELETE /api/v1/owner/upload/product-image/:imageId
+   * PUT /api/v1/owner/upload/product-images/:variantId
    */
   syncImages: async (
     variantId: string,

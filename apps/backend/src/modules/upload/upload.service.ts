@@ -178,22 +178,6 @@ export class UploadService {
   }
 
   /**
-   * Bulk upload images.
-   */
-  async uploadProductImages(
-    tenantId: string,
-    variantId: string,
-    files: Express.Multer.File[],
-  ) {
-    const results = [];
-    for (const file of files) {
-      const result = await this.uploadProductImage(tenantId, variantId, file, false);
-      results.push(result);
-    }
-    return results;
-  }
-
-  /**
    * Make a variant's persisted media match the complete client-side list.
    * Database deletion, sequence, and featured selection change together so
    * resumed onboarding and the product editor share identical semantics.

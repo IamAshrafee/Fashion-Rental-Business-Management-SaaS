@@ -185,16 +185,17 @@ POST /api/v1/categories → creates category
 GET /api/v1/categories → returns tenant's categories with subcategories
 
 # Product lifecycle
-POST /api/v1/products → creates draft product
-PATCH /api/v1/products/:id → updates product
-PATCH /api/v1/products/:id/status → publish/archive product
-DELETE /api/v1/products/:id → soft delete (to trash)
-POST /api/v1/products/:id/restore → restore from trash
+POST /api/v1/owner/product-onboardings → creates a resumable draft
+PATCH /api/v1/owner/products/:id → updates catalog content
+PATCH /api/v1/owner/products/:id/status → publish/archive product
+DELETE /api/v1/owner/products/:id → soft delete (to trash)
+POST /api/v1/owner/products/:id/restore → restore from trash
 
 # Variants & Images
-POST /api/v1/products/:id/variants → add variant
-POST /api/v1/products/:id/variants/:vid/images → upload image
-# Image appears in MinIO in 3 sizes
+PUT /api/v1/owner/product-onboardings/:id/skus → atomically synchronize variants and SKUs
+POST /api/v1/owner/upload/product-image → upload one new variant image
+PUT /api/v1/owner/upload/product-images/:variantId → synchronize removal, order, and featured image
+# Image appears in MinIO as optimized full and thumbnail versions
 
 # Search
 GET /api/v1/products?search=wedding+saree → full-text results

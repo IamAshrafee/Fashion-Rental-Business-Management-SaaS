@@ -49,19 +49,6 @@ export class UploadController {
     );
   }
 
-  @Post('product-images')
-  @Roles('owner', 'manager')
-  @RequirePermission('manage_products')
-  @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FilesInterceptor('files', 10))
-  async uploadProductImages(
-    @CurrentTenant() tenant: TenantContext,
-    @UploadedFiles() files: Express.Multer.File[],
-    @Body('variantId', new ParseUUIDPipe({ version: '4' })) variantId: string,
-  ) {
-    return this.uploadService.uploadProductImages(tenant.id, variantId, files);
-  }
-
   @Put('product-images/:variantId')
   @Roles('owner', 'manager')
   @RequirePermission('manage_products')

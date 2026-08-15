@@ -74,7 +74,8 @@ After publishing or finishing setup, the completion page offers:
 1. `POST /owner/product-onboardings` — create or replay the server draft.
 2. `PUT /owner/product-onboardings/:productId/basics`
 3. `PUT /owner/product-onboardings/:productId/skus`
-4. Upload variant images through the product-image upload API.
+4. Upload new variant files, then `PUT /owner/upload/product-images/:variantId` with the
+   authoritative order and featured image.
 5. `PUT /owner/product-onboardings/:productId/content`
 6. `PUT /owner/product-onboardings/:productId/pricing`
 7. `POST /owner/product-onboardings/:productId/publish`

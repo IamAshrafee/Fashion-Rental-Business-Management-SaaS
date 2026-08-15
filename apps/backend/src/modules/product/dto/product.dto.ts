@@ -53,48 +53,6 @@ export class UpdateDetailHeaderDto {
   @IsOptional() @IsInt() @Min(0) sequence?: number;
 }
 
-// --- Variant DTOs ---
-export class VariantSizeInventoryDto {
-  @IsString()
-  sizeInstanceId!: string;
-}
-
-export class CreateVariantDto {
-  @IsOptional() @IsString() variantName?: string;
-  @IsString() mainColorId!: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => VariantSizeInventoryDto)
-  sizes?: VariantSizeInventoryDto[];
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  identicalColorIds?: string[];
-
-  @IsOptional() @IsInt() @Min(0) sequence?: number;
-}
-
-export class UpdateVariantDto {
-  @IsOptional() @IsString() variantName?: string;
-  @IsOptional() @IsString() mainColorId?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => VariantSizeInventoryDto)
-  sizes?: VariantSizeInventoryDto[];
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  identicalColorIds?: string[];
-
-  @IsOptional() @IsInt() @Min(0) sequence?: number;
-}
-
 // --- Reorder DTO ---
 export class ReorderDto {
   @IsArray()

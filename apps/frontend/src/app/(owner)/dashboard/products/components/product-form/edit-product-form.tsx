@@ -110,7 +110,7 @@ export function EditProductForm({ productId }: Props) {
     productId,
     rawProduct,
     {
-      onVariantCreated: (variantIndex, variantId) =>
+      onVariantSaved: (variantIndex, variantId) =>
         form.setValue(`variants.${variantIndex}.id`, variantId),
       onImageUploaded: checkpointImage,
     },

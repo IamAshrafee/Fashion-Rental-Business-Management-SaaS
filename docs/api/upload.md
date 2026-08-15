@@ -48,43 +48,24 @@ Upload product variant images.
 
 ---
 
-### POST `/api/v1/owner/upload/product-images`
+### PUT `/api/v1/owner/upload/product-images/:variantId`
 
-Bulk upload (up to 10 images at once).
-
-**Auth**: Bearer token — Owner, Manager
-
-**Request**: `multipart/form-data` with multiple `files[]`
-
-**Response** `201`: Array of created image objects
-
----
-
-### DELETE `/api/v1/owner/upload/product-image/:imageId`
-
-Delete a product image.
-
-**Auth**: Bearer token — Owner, Manager
-
-Deletes from MinIO and database. If deleted image was featured, the next image in sequence becomes featured.
-
----
-
-### PATCH `/api/v1/owner/upload/product-images/reorder`
-
-Reorder images within a variant.
+Synchronize the complete media state for one variant after uploading any new files. This is the
+single command for removal, order, and featured-image selection in both product creation and edit.
 
 **Auth**: Bearer token — Owner, Manager
 
 **Request Body**:
 ```json
 {
-  "variantId": "...",
-  "imageIds": ["id-3", "id-1", "id-2"]
+  "ids": ["id-3", "id-1", "id-2"],
+  "featuredImageId": "id-1"
 }
 ```
 
-Sets sequence based on array position.
+The array is authoritative: omitted images are removed, sequence follows array position, and
+exactly the selected image is featured. Every ID must belong to the tenant and variant, and at
+least one image is required.
 
 ---
 

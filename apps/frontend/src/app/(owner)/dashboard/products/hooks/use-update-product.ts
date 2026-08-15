@@ -1,6 +1,8 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   productApi,
+  productOnboardingApi,
   type ProductDetail,
   type UploadedProductImage,
   type UpdateProductInput,
@@ -9,10 +11,7 @@ import { ProductFormValues } from '../components/product-form/schema';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { getApiErrorMessage } from '@/lib/api-error';
-import {
-  isPersistedProductId,
-  syncVariantImages,
-} from './sync-variant-images';
+import { isPersistedProductId, syncVariantImages } from './sync-variant-images';
 
 /**
  * Builds the flat Update DTO from form values (excluding pricing)
@@ -49,9 +48,9 @@ function buildUpdatePayload(data: ProductFormValues): UpdateProductInput {
 
 export function useUpdateProduct(
   productId: string,
-  originalProduct: Pick<ProductDetail, 'variants' | 'status'> | null | undefined,
+  originalProduct: Pick<ProductDetail, 'onboarding' | 'status'> | null | undefined,
   checkpoints?: {
-    onVariantCreated?: (variantIndex: number, variantId: string) => void;
+    onVariantSaved?: (variantIndex: number, variantId: string) => void;
     onImageUploaded?: (
       variantIndex: number,
       imageIndex: number,
@@ -61,9 +60,23 @@ export function useUpdateProduct(
 ) {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const onboardingRevision = useRef<number | null>(
+    originalProduct?.onboarding?.revision ?? null,
+  );
+
+  useEffect(() => {
+    onboardingRevision.current = originalProduct?.onboarding?.revision ?? null;
+  }, [originalProduct?.onboarding?.revision, productId]);
 
   return useMutation({
     mutationFn: async (data: ProductFormValues) => {
+      const expectedRevision = onboardingRevision.current;
+      if (expectedRevision === null) {
+        throw new Error(
+          'This product is missing its edit workflow record. Restore the product workflow before saving.',
+        );
+      }
+
       // ── 1. Update core product fields ─────────────────────────
       toast.loading('Updating product info...', { id: 'update-product' });
       const payload = buildUpdatePayload(data);
@@ -124,54 +137,39 @@ export function useUpdateProduct(
         });
       }
 
-      // ── 2. Variant diffing ────────────────────────────────────
-      const originalVariants = originalProduct?.variants ?? [];
+      // ── 2. Reconcile variants and rentable SKUs atomically ───
       const formVariants = data.variants;
-      const formVariantIds = new Set(
-        formVariants.filter((v) => isPersistedProductId(v.id)).map((v) => v.id),
+      toast.loading('Synchronizing variants and rentable SKUs...', { id: 'update-product' });
+      const synchronized = await productOnboardingApi.saveSkus(
+        productId,
+        {
+          expectedRevision,
+          variants: formVariants.map((variant) => ({
+            ...(isPersistedProductId(variant.id) ? { id: variant.id } : {}),
+            clientKey: variant.clientKey,
+            variantName: variant.name || undefined,
+            mainColorId: variant.mainColorId,
+            identicalColorIds: variant.identicalColorIds,
+            sizes: variant.sizeInstanceIds.map((sizeInstanceId) => ({ sizeInstanceId })),
+          })),
+        },
+        globalThis.crypto?.randomUUID?.() ??
+          `edit-product-skus-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       );
+      onboardingRevision.current = synchronized.revision;
 
-      // 2a. Delete removed variants
-      for (const ov of originalVariants) {
-        if (!formVariantIds.has(ov.id)) {
-          toast.loading(`Removing variant...`, { id: 'update-product' });
-          await productApi.deleteVariant(productId, ov.id);
-        }
-      }
-
-      // 2b. Update existing + create new variants, and handle images
+      // ── 3. Synchronize media against the saved variant identities ──
       for (let i = 0; i < formVariants.length; i++) {
         const fv = formVariants[i];
-        let variantId: string;
-
-        if (isPersistedProductId(fv.id)) {
-          // Existing variant — update
-          toast.loading(`Updating variant ${i + 1}/${formVariants.length}...`, { id: 'update-product' });
-          await productApi.updateVariant(productId, fv.id, {
-            variantName: fv.name,
-            mainColorId: fv.mainColorId,
-            sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
-              sizeInstanceId,
-            })),
-            identicalColorIds: fv.identicalColorIds,
-          });
-          variantId = fv.id;
-        } else {
-          // New variant — create
-          toast.loading(`Creating variant ${i + 1}/${formVariants.length}...`, { id: 'update-product' });
-          const created = await productApi.addVariant(productId, {
-            variantName: fv.name,
-            mainColorId: fv.mainColorId,
-            sizes: (fv.sizeInstanceIds || []).map((sizeInstanceId) => ({
-              sizeInstanceId,
-            })),
-            identicalColorIds: fv.identicalColorIds,
-          });
-          variantId = created.id;
-          checkpoints?.onVariantCreated?.(i, variantId);
+        const savedVariant = synchronized.product.variants.find(
+          (variant) => variant.id === fv.id || variant.onboardingKey === fv.clientKey,
+        );
+        if (!savedVariant) {
+          throw new Error(`Variant ${i + 1} was not returned after SKU synchronization.`);
         }
+        const variantId = savedVariant.id;
+        checkpoints?.onVariantSaved?.(i, variantId);
 
-        // ── 3. Image diffing for this variant ─────────────────────
         const formImages = fv.images ?? [];
         await syncVariantImages({
           variantId,

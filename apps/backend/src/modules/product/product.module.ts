@@ -6,7 +6,6 @@ import { PricingEngineModule } from '../pricing-engine/pricing-engine.module';
 import { CategoryService } from './category.service';
 import { ColorService } from './color.service';
 import { ProductService } from './product.service';
-import { VariantService } from './variant.service';
 import { SearchService } from './search.service';
 import { ProductOnboardingService } from './product-onboarding.service';
 
@@ -54,7 +53,6 @@ import { ProductOnboardingController } from './product-onboarding.controller';
     CategoryService,
     ColorService,
     ProductService,
-    VariantService,
     SearchService,
     ProductOnboardingService,
   ],

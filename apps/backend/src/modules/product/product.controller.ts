@@ -12,7 +12,6 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ProductService } from './product.service';
-import { VariantService } from './variant.service';
 import { SearchService } from './search.service';
 import {
   UpdateProductDto,
@@ -20,8 +19,6 @@ import {
   ProductQueryDto,
   OwnerProductQueryDto,
   StorefrontShowcaseQueryDto,
-  CreateVariantDto,
-  UpdateVariantDto,
   ReorderDto,
   CreateFaqDto,
   UpdateFaqDto,
@@ -144,10 +141,7 @@ export class ProductGuestController {
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @RequirePermission('manage_products')
 export class ProductOwnerController {
-  constructor(
-    private readonly productService: ProductService,
-    private readonly variantService: VariantService,
-  ) {}
+  constructor(private readonly productService: ProductService) {}
 
   // --- Product CRUD ---
 
@@ -218,52 +212,6 @@ export class ProductOwnerController {
   @HttpCode(HttpStatus.OK)
   async permanentDeleteProduct(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
     return this.productService.permanentDelete(tenant.id, id);
-  }
-
-  // --- Variants ---
-
-  @Post(':id/variants')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.CREATED)
-  async addVariant(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') productId: string,
-    @Body() dto: CreateVariantDto,
-  ) {
-    return this.variantService.addVariant(tenant.id, productId, dto);
-  }
-
-  @Patch(':productId/variants/:variantId')
-  @Roles('owner', 'manager')
-  async updateVariant(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('variantId') variantId: string,
-    @Body() dto: UpdateVariantDto,
-  ) {
-    return this.variantService.updateVariant(tenant.id, productId, variantId, dto);
-  }
-
-  @Delete(':productId/variants/:variantId')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async deleteVariant(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('productId') productId: string,
-    @Param('variantId') variantId: string,
-  ) {
-    return this.variantService.deleteVariant(tenant.id, productId, variantId);
-  }
-
-  @Post(':id/variants/reorder')
-  @Roles('owner', 'manager')
-  @HttpCode(HttpStatus.OK)
-  async reorderVariants(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id') productId: string,
-    @Body() dto: ReorderDto,
-  ) {
-    return this.variantService.reorderVariants(tenant.id, productId, dto);
   }
 
   // --- FAQs ---

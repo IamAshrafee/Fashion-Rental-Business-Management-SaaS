@@ -262,11 +262,14 @@ Quick status update.
 
 ---
 
-## Variant Endpoints
+## Variant and Rentable SKU Command
 
-### POST `/api/v1/owner/products/:id/variants`
+### PUT `/api/v1/owner/product-onboardings/:productId/skus`
 
-Add a variant to a product.
+Synchronize the product's complete ordered variant and rentable-SKU definition. This is the
+single write path used by both product creation and editing. The command creates, updates,
+reorders, and removes variants in one serializable transaction. It rejects stale revisions,
+cross-tenant references, and removal of SKUs or variants with inventory or rental history.
 
 **Auth**: Bearer token — Owner, Manager
 
@@ -274,19 +277,21 @@ Add a variant to a product.
 
 ```json
 {
-  "variantName": "Ivory Gold",
-  "mainColorId": "...",
-  "identicalColorIds": ["...", "..."],
-  "sequence": 0
+  "expectedRevision": 4,
+  "variants": [
+    {
+      "id": "existing-variant-uuid-if-any",
+      "clientKey": "stable-client-row-key",
+      "variantName": "Ivory Gold",
+      "mainColorId": "color-uuid",
+      "identicalColorIds": ["color-uuid"],
+      "sizes": [{ "sizeInstanceId": "size-instance-uuid" }]
+    }
+  ]
 }
 ```
 
-**Response** `201`: Created variant
+Send a unique `Idempotency-Key` header for every new save attempt. Retrying an interrupted
+request with the same key and body safely replays the result.
 
-### PATCH `/api/v1/owner/products/:productId/variants/:variantId`
-
-Update a variant.
-
-### DELETE `/api/v1/owner/products/:productId/variants/:variantId`
-
-Delete a variant and its images.
+**Response** `200`: Updated product onboarding state, revision, product, and readiness.
