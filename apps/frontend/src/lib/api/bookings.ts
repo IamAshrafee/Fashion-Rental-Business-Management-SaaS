@@ -215,6 +215,10 @@ export interface BookingListItem {
     unresolvedIssueCount: number;
     balanceDue: number;
     sourceLocation: { id: string; code: string; name: string } | null;
+    fulfillmentLocations: {
+      state: 'SINGLE' | 'MULTIPLE' | 'UNRESOLVED';
+      locations: Array<{ id: string; code: string; name: string }>;
+    };
     handoverMethod: 'DELIVERY' | 'CUSTOMER_PICKUP' | null;
     returnMethod: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN' | null;
     blockers: string[];

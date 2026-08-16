@@ -1772,6 +1772,7 @@ export class BookingService {
                 select: {
                   status: true,
                   sourceLocationId: true,
+                  sourceLocation: { select: { id: true, code: true, name: true } },
                   quantity: true,
                   assignedQuantity: true,
                   handedOutQuantity: true,
@@ -1926,6 +1927,7 @@ export class BookingService {
             fulfillmentRequirements: {
               include: {
                 compositionRule: true,
+                sourceLocation: { select: { id: true, code: true, name: true } },
                 reservation: {
                   include: {
                     assignments: {

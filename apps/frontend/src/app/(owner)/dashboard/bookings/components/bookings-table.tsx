@@ -85,6 +85,13 @@ const shortDate = (value: string | null) =>
       )
     : '—';
 
+function fulfillmentLocationLabel(booking: BookingListItem) {
+  const summary = booking.operations.fulfillmentLocations;
+  if (summary.state === 'SINGLE') return summary.locations[0]?.name ?? 'Needs fulfillment review';
+  if (summary.state === 'MULTIPLE') return 'Multiple fulfillment locations';
+  return 'Needs fulfillment review';
+}
+
 function BookingOperationalProgress({ booking }: { booking: BookingListItem }) {
   if (booking.status === 'pending') {
     return (
@@ -329,7 +336,7 @@ export function BookingsDataTable({
                           to {shortDate(booking.operations.rentalEndDate)}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {booking.operations.sourceLocation?.name ?? 'Location not set'}
+                          {fulfillmentLocationLabel(booking)}
                         </p>
                       </TableCell>
                       <TableCell>
@@ -382,7 +389,7 @@ export function BookingsDataTable({
                     {shortDate(booking.operations.rentalEndDate)}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {booking.operations.sourceLocation?.name ?? 'Location not set'} ·{' '}
+                    {fulfillmentLocationLabel(booking)} ·{' '}
                     {booking.operations.handoverMethod?.replace('_', ' ').toLowerCase() ??
                       'handover unset'}
                   </p>

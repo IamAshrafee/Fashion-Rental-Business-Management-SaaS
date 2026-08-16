@@ -17,6 +17,8 @@ export type BookingNextAction =
 
 type Requirement = {
   status: string;
+  sourceLocationId?: string | null;
+  sourceLocation?: { id: string; code: string; name: string } | null;
   quantity: number;
   assignedQuantity: number;
   handedOutQuantity: number;
@@ -44,12 +46,33 @@ export interface BookingOperationsInput {
   }>;
 }
 
+export type FulfillmentLocationState = 'SINGLE' | 'MULTIPLE' | 'UNRESOLVED';
+
+function summarizeFulfillmentLocations(
+  requirements: Requirement[],
+  bookingLocation: BookingOperationsInput['sourceLocation'],
+) {
+  const locations = new Map<string, { id: string; code: string; name: string }>();
+  for (const requirement of requirements) {
+    if (requirement.sourceLocation) locations.set(requirement.sourceLocation.id, requirement.sourceLocation);
+  }
+  if (locations.size === 0 && bookingLocation) locations.set(bookingLocation.id, bookingLocation);
+  const resolved = [...locations.values()].sort((left, right) => left.name.localeCompare(right.name));
+  const state: FulfillmentLocationState = resolved.length === 0
+    ? 'UNRESOLVED'
+    : resolved.length === 1
+      ? 'SINGLE'
+      : 'MULTIPLE';
+  return { state, locations: resolved };
+}
+
 export function buildBookingOperations(booking: BookingOperationsInput) {
   const requirements = booking.items.flatMap((item) =>
     item.fulfillmentRequirements.filter((requirement) =>
       !['CANCELLED', 'SUPERSEDED'].includes(requirement.status),
     ),
   );
+  const fulfillmentLocations = summarizeFulfillmentLocations(requirements, booking.sourceLocation);
   const physicalItemRequired = requirements.reduce((sum, item) => sum + item.quantity, 0);
   const physicalItemAssigned = requirements.reduce((sum, item) => sum + item.assignedQuantity, 0);
   const inventoryShortages = requirements.filter((item) => item.status === 'PLANNED').length;
@@ -154,7 +177,10 @@ export function buildBookingOperations(booking: BookingOperationsInput) {
     unsettledDepositCount,
     unresolvedIssueCount,
     balanceDue,
-    sourceLocation: booking.sourceLocation,
+    sourceLocation: fulfillmentLocations.state === 'SINGLE'
+      ? fulfillmentLocations.locations[0]
+      : booking.sourceLocation,
+    fulfillmentLocations,
     handoverMethod: booking.handoverMethod,
     returnMethod: booking.returnMethod,
     blockers,

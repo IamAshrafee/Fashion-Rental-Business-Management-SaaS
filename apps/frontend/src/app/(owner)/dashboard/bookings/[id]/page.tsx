@@ -316,8 +316,21 @@ export default function BookingDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Fulfillment location</p>
-                  <p className="text-sm font-medium">{booking.sourceLocation?.name ?? 'Not resolved'}</p>
-                  {booking.sourceLocation?.code && <p className="text-xs text-muted-foreground">{booking.sourceLocation.code}</p>}
+                  {booking.operations.fulfillmentLocations.state === 'SINGLE' ? (
+                    <>
+                      <p className="text-sm font-medium">{booking.operations.fulfillmentLocations.locations[0]?.name}</p>
+                      <p className="text-xs text-muted-foreground">{booking.operations.fulfillmentLocations.locations[0]?.code}</p>
+                    </>
+                  ) : booking.operations.fulfillmentLocations.state === 'MULTIPLE' ? (
+                    <>
+                      <p className="text-sm font-medium">Multiple fulfillment locations</p>
+                      <p className="text-xs text-muted-foreground">
+                        {booking.operations.fulfillmentLocations.locations.map((location) => location.name).join(', ')}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm font-medium text-amber-700">Needs fulfillment review</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Handover</p>
