@@ -26,7 +26,6 @@ import {
   Archive,
   Boxes,
   ArrowLeftRight,
-  CalendarRange,
   ClipboardList,
   MapPin,
   Wrench,
@@ -66,7 +65,6 @@ const NAV_GROUPS: Array<{ label?: string; items: PermissionNavItem[] }> = [
     label: 'Rentals',
     items: [
       { title: 'Bookings', href: '/dashboard/bookings', icon: CalendarCheck, permission: 'manage_bookings' },
-      { title: 'Rental calendar', href: '/dashboard/bookings/calendar', icon: CalendarRange, permission: 'manage_bookings' },
       { title: 'Deliveries', href: '/dashboard/deliveries', icon: Truck, permission: 'manage_fulfillment' },
     ],
   },
