@@ -15,7 +15,6 @@ const ENV_EXAMPLE_FILE = path.join(REPOSITORY_ROOT, '.env.example');
 const COMPOSE_FILE = path.join(REPOSITORY_ROOT, 'docker-compose.yml');
 const RUNTIME_DIRECTORY = path.join(REPOSITORY_ROOT, '.artifacts', 'dev');
 const SUPERVISOR_FILE = path.join(RUNTIME_DIRECTORY, 'supervisor.json');
-const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 const REQUIRED_KEYS = [
   'NODE_ENV',
@@ -210,6 +209,26 @@ function execute(command, args, { environment, quiet = false, allowFailure = fal
   });
 }
 
+export function npmInvocation(
+  args,
+  { platform = process.platform, nodeExecutable = process.execPath } = {},
+) {
+  if (platform !== 'win32') return { command: 'npm', args: [...args] };
+  const npmCli = path.join(
+    path.dirname(nodeExecutable),
+    'node_modules',
+    'npm',
+    'bin',
+    'npm-cli.js',
+  );
+  return { command: nodeExecutable, args: [npmCli, ...args] };
+}
+
+function executeNpm(args, options) {
+  const invocation = npmInvocation(args);
+  return execute(invocation.command, invocation.args, options);
+}
+
 function composeArgs(...args) {
   return ['compose', '--project-directory', REPOSITORY_ROOT, '-f', COMPOSE_FILE, ...args];
 }
@@ -221,7 +240,7 @@ function compose(environment, args, options = {}) {
 async function ensurePrerequisites(environment) {
   await execute('docker', ['--version'], { environment, quiet: true });
   await execute('docker', ['compose', 'version'], { environment, quiet: true });
-  await execute(NPM, ['--version'], { environment, quiet: true });
+  await executeNpm(['--version'], { environment, quiet: true });
 }
 
 async function dependenciesAreReady() {
@@ -243,7 +262,7 @@ async function dependenciesAreReady() {
 async function ensureDependencies(environment) {
   if (await dependenciesAreReady()) return;
   console.log('\nInstalling workspace dependencies...');
-  await execute(NPM, ['install'], { environment });
+  await executeNpm(['install'], { environment });
 }
 
 async function assertDependenciesReady() {
@@ -556,15 +575,17 @@ async function startApplications(environment) {
     'Press Ctrl+C to stop both application processes. Infrastructure will remain available.\n',
   );
 
+  const backend = npmInvocation(['run', 'dev:backend']);
+  const frontend = npmInvocation(['run', 'dev:frontend']);
   const children = [
-    spawn(NPM, ['run', 'dev:backend'], {
+    spawn(backend.command, backend.args, {
       cwd: REPOSITORY_ROOT,
       env: environment,
       stdio: 'inherit',
       detached: process.platform !== 'win32',
       shell: false,
     }),
-    spawn(NPM, ['run', 'dev:frontend'], {
+    spawn(frontend.command, frontend.args, {
       cwd: REPOSITORY_ROOT,
       env: { ...environment, PORT: environment.FRONTEND_PORT },
       stdio: 'inherit',

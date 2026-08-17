@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   isSupervisorIdentityValid,
   isVerifiedRepositoryApplicationGroup,
+  npmInvocation,
   parseDotEnv,
   processMatchesSupervisor,
   runCommand,
@@ -47,6 +48,26 @@ const validEnvironment = () => ({
   CREDENTIALS_ENCRYPTION_KEY: 'development-provider-key-at-least-32-characters',
   SEED_ADMIN_EMAIL: 'admin@closetrent.local',
   SEED_ADMIN_PASSWORD: 'ClosetRent-Local-Admin-2026',
+});
+
+test('npmInvocation bypasses npm.cmd on Windows', () => {
+  assert.deepEqual(
+    npmInvocation(['--version'], {
+      platform: 'win32',
+      nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+    }),
+    {
+      command: 'C:\\Program Files\\nodejs\\node.exe',
+      args: ['C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js', '--version'],
+    },
+  );
+});
+
+test('npmInvocation keeps the native npm executable on non-Windows platforms', () => {
+  assert.deepEqual(npmInvocation(['run', 'dev:backend'], { platform: 'darwin' }), {
+    command: 'npm',
+    args: ['run', 'dev:backend'],
+  });
 });
 
 test('parseDotEnv supports comments, empty values, quotes, and export syntax', () => {
