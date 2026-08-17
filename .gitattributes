@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep platform launchers native and executable after checkout
+*.cmd text eol=crlf
+*.command text eol=lf

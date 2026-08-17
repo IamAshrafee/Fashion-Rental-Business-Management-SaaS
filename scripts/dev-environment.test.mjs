@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   isSupervisorIdentityValid,
@@ -10,6 +13,8 @@ import {
   validateConfiguration,
   validateResetTarget,
 } from './dev-environment.mjs';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const validEnvironment = () => ({
   NODE_ENV: 'development',
@@ -164,7 +169,10 @@ test('supervisor validation requires this repository and orchestrator identity',
 
   assert.equal(isSupervisorIdentityValid(identity, repositoryRoot), true);
   assert.equal(isSupervisorIdentityValid({ ...identity, pid: -1 }, repositoryRoot), false);
-  assert.equal(isSupervisorIdentityValid({ ...identity, repositoryRoot: '/other' }, repositoryRoot), false);
+  assert.equal(
+    isSupervisorIdentityValid({ ...identity, repositoryRoot: '/other' }, repositoryRoot),
+    false,
+  );
   assert.equal(
     processMatchesSupervisor(identity, {
       command: 'node scripts/dev-environment.mjs start',
@@ -182,13 +190,13 @@ test('supervisor validation requires this repository and orchestrator identity',
 });
 
 test('stale application cleanup accepts only the expected repository process group', () => {
-  const repositoryRoot = '/workspace/closetrent';
+  const repositoryRoot = path.join(path.parse(process.cwd()).root, 'workspace', 'closetrent');
   const frontendListener = {
     pid: 104,
     parentPid: 103,
     processGroupId: 101,
     command: 'next-server (v14.2.35)',
-    workingDirectory: `${repositoryRoot}/apps/frontend`,
+    workingDirectory: path.join(repositoryRoot, 'apps', 'frontend'),
   };
   const frontendLeader = {
     pid: 101,
@@ -243,4 +251,45 @@ test('unknown development workflow commands are rejected', async () => {
     runCommand('surprise', validEnvironment(), operations),
     /Unknown command "surprise"/,
   );
+});
+
+test('Windows launchers delegate to the intended orchestrator workflows', async () => {
+  const launchers = {
+    'start-dev.cmd': 'start',
+    'prepare-dev.cmd': 'prepare-start',
+    'reset-dev.cmd': 'reset-start',
+    'stop-dev.cmd': 'stop',
+    'status-dev.cmd': 'status',
+  };
+
+  for (const [filename, command] of Object.entries(launchers)) {
+    const source = await readFile(path.join(repositoryRoot, filename), 'utf8');
+
+    assert.match(source, /cd \/d "%~dp0"/i, `${filename} must use its own directory`);
+    assert.match(
+      source,
+      new RegExp(`node scripts\\\\dev-environment\\.mjs ${command} %\\*`, 'i'),
+      `${filename} must delegate to ${command} and forward arguments`,
+    );
+    assert.match(source, /exit \/b /i, `${filename} must propagate an exit code`);
+  }
+});
+
+test('only short-running Windows launchers pause, with an automation escape hatch', async () => {
+  for (const filename of ['start-dev.cmd', 'prepare-dev.cmd', 'reset-dev.cmd']) {
+    const source = await readFile(path.join(repositoryRoot, filename), 'utf8');
+    assert.doesNotMatch(source, /\bpause\b/i, `${filename} must remain attached without pausing`);
+  }
+
+  for (const filename of ['stop-dev.cmd', 'status-dev.cmd']) {
+    const source = await readFile(path.join(repositoryRoot, filename), 'utf8');
+    assert.match(
+      source,
+      /set "result=%errorlevel%"/i,
+      `${filename} must preserve the Node exit code`,
+    );
+    assert.match(source, /CLOSERENT_NO_PAUSE/i, `${filename} must support non-interactive use`);
+    assert.match(source, /\bpause\b/i, `${filename} must keep double-click output visible`);
+    assert.match(source, /exit \/b %result%/i, `${filename} must return the preserved exit code`);
+  }
 });

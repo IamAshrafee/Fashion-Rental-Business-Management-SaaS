@@ -14,7 +14,7 @@ This guide explains how to test the full multi-tenant subdomain system locally o
 npm run dev
 ```
 
-The macOS `start-dev.command` launcher runs this same validated workflow.
+The Windows `start-dev.cmd` and macOS `start-dev.command` launchers run this same validated workflow.
 
 ### 2. Create a test tenant
 
