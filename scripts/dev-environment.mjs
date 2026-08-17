@@ -45,7 +45,6 @@ const REQUIRED_KEYS = [
   'STORAGE_PUBLIC_URL',
   'JWT_SECRET',
   'JWT_REFRESH_SECRET',
-  'COURIER_CREDENTIALS_ENCRYPTION_KEY',
   'SEED_ADMIN_EMAIL',
   'SEED_ADMIN_PASSWORD',
 ];
@@ -94,6 +93,10 @@ function asUrl(value, key) {
 
 export function validateConfiguration(environment) {
   const missing = REQUIRED_KEYS.filter((key) => !String(environment[key] ?? '').trim());
+  const credentialsEncryptionKey = String(
+    environment.CREDENTIALS_ENCRYPTION_KEY ?? environment.COURIER_CREDENTIALS_ENCRYPTION_KEY ?? '',
+  ).trim();
+  if (!credentialsEncryptionKey) missing.push('CREDENTIALS_ENCRYPTION_KEY');
   if (missing.length)
     throw new Error(`Missing required local environment variables: ${missing.join(', ')}`);
 
@@ -133,9 +136,12 @@ export function validateConfiguration(environment) {
   asUrl(environment.STORAGE_ENDPOINT, 'STORAGE_ENDPOINT');
   asUrl(environment.STORAGE_PUBLIC_URL, 'STORAGE_PUBLIC_URL');
 
-  for (const key of ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'COURIER_CREDENTIALS_ENCRYPTION_KEY']) {
+  for (const key of ['JWT_SECRET', 'JWT_REFRESH_SECRET']) {
     if (String(environment[key]).length < 32)
       throw new Error(`${key} must contain at least 32 characters`);
+  }
+  if (credentialsEncryptionKey.length < 32) {
+    throw new Error('CREDENTIALS_ENCRYPTION_KEY must contain at least 32 characters');
   }
 
   return { appPort, frontendPort, database };

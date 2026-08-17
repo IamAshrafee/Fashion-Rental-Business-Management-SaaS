@@ -14,6 +14,8 @@ You do not need to type development commands. Open the repository in Windows Fil
 
 Whenever this guide says to use a launcher, choose its `.cmd` filename on Windows or its `.command` filename on macOS.
 
+On Windows, the start, prepare, and reset launchers keep the Command Prompt window open when a workflow fails so you can read the error. Press any key after reviewing it.
+
 ## Everyday work
 
 Double-click `start-dev.cmd` on Windows or `start-dev.command` on macOS.

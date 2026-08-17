@@ -44,7 +44,7 @@ const validEnvironment = () => ({
   STORAGE_PUBLIC_URL: 'http://localhost:9000/closetrent-dev',
   JWT_SECRET: 'development-jwt-secret-at-least-32-characters',
   JWT_REFRESH_SECRET: 'development-refresh-secret-at-least-32-characters',
-  COURIER_CREDENTIALS_ENCRYPTION_KEY: 'development-courier-key-at-least-32-characters',
+  CREDENTIALS_ENCRYPTION_KEY: 'development-provider-key-at-least-32-characters',
   SEED_ADMIN_EMAIL: 'admin@closetrent.local',
   SEED_ADMIN_PASSWORD: 'ClosetRent-Local-Admin-2026',
 });
@@ -72,6 +72,14 @@ test('validateConfiguration rejects the obsolete API prefix', () => {
   const environment = validEnvironment();
   environment.API_URL = 'http://localhost:4000/api';
   assert.throws(() => validateConfiguration(environment), /must target the \/api\/v1 prefix/);
+});
+
+test('validateConfiguration accepts the legacy courier credentials key alias', () => {
+  const environment = validEnvironment();
+  environment.COURIER_CREDENTIALS_ENCRYPTION_KEY = environment.CREDENTIALS_ENCRYPTION_KEY;
+  delete environment.CREDENTIALS_ENCRYPTION_KEY;
+
+  assert.doesNotThrow(() => validateConfiguration(environment));
 });
 
 test('validateResetTarget accepts only the dedicated local development database', () => {
@@ -275,12 +283,27 @@ test('Windows launchers delegate to the intended orchestrator workflows', async 
   }
 });
 
-test('only short-running Windows launchers pause, with an automation escape hatch', async () => {
+test('long-running Windows launchers pause only on failure and preserve the exit code', async () => {
   for (const filename of ['start-dev.cmd', 'prepare-dev.cmd', 'reset-dev.cmd']) {
     const source = await readFile(path.join(repositoryRoot, filename), 'utf8');
-    assert.doesNotMatch(source, /\bpause\b/i, `${filename} must remain attached without pausing`);
-  }
 
+    assert.match(
+      source,
+      /set "result=%errorlevel%"/i,
+      `${filename} must preserve the Node exit code`,
+    );
+    assert.match(source, /if "%result%"=="0" exit \/b 0/i, `${filename} must not pause on success`);
+    assert.match(source, /CLOSERENT_NO_PAUSE/i, `${filename} must support non-interactive use`);
+    assert.match(source, /\bpause\b/i, `${filename} must keep failures visible`);
+    assert.match(
+      source,
+      /exit \/b %result%/i,
+      `${filename} must return the preserved failure code`,
+    );
+  }
+});
+
+test('short-running Windows launchers always keep interactive output visible', async () => {
   for (const filename of ['stop-dev.cmd', 'status-dev.cmd']) {
     const source = await readFile(path.join(repositoryRoot, filename), 'utf8');
     assert.match(
