@@ -323,11 +323,11 @@ async function prepare(environment) {
   await compose(environment, ['--profile', 'tools', 'run', '--rm', '-T', 'minio-init']);
 
   console.log('Generating Prisma Client and applying committed migrations...');
-  await execute(NPM, ['run', 'db:generate'], { environment });
-  await execute(NPM, ['run', 'db:migrate'], { environment });
+  await executeNpm(['run', 'db:generate'], { environment });
+  await executeNpm(['run', 'db:migrate'], { environment });
 
   console.log('Applying idempotent platform seed data...');
-  await execute(NPM, ['run', 'db:seed'], { environment });
+  await executeNpm(['run', 'db:seed'], { environment });
   console.log('\nDevelopment infrastructure is ready.');
 }
 

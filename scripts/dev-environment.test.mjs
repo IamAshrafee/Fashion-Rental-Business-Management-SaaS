@@ -70,6 +70,16 @@ test('npmInvocation keeps the native npm executable on non-Windows platforms', (
   });
 });
 
+test('the orchestrator has no stale direct NPM execution references', async () => {
+  const source = await readFile(
+    path.join(repositoryRoot, 'scripts', 'dev-environment.mjs'),
+    'utf8',
+  );
+
+  assert.doesNotMatch(source, /\b(?:execute|spawn)\(NPM\b/);
+  assert.doesNotMatch(source, /\bconst NPM\s*=/);
+});
+
 test('parseDotEnv supports comments, empty values, quotes, and export syntax', () => {
   assert.deepEqual(
     parseDotEnv('A=one\nB="two words"\nC=three # note\nD=\nexport E=\'five\'\n# ignored'),
