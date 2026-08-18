@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { staffApi } from '@/lib/api/staff';
+import { PasswordInput } from '@/components/ui/password-input';
 
 function AcceptInvitationForm() {
   const searchParams = useSearchParams();
@@ -65,9 +66,8 @@ function AcceptInvitationForm() {
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-          <Input
+          <PasswordInput
             id="password"
-            type="password"
             autoComplete="new-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -75,9 +75,8 @@ function AcceptInvitationForm() {
         </div>
         <div className="space-y-2">
           <Label htmlFor="confirmation">Confirm password</Label>
-          <Input
+          <PasswordInput
             id="confirmation"
-            type="password"
             autoComplete="new-password"
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}

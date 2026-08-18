@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import apiClient from '@/lib/api-client';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { PasswordInput } from '@/components/ui/password-input';
 
 export default function ResetPasswordPage() {
   return (
@@ -108,24 +109,20 @@ function ResetPasswordForm() {
           )}
           <div className="space-y-2">
             <Label htmlFor="new-password">New password</Label>
-            <Input
+            <PasswordInput
               id="new-password"
-              type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="new-password"
               minLength={8}
               required
+              showStrengthIndicator
             />
-            <p className="text-xs text-muted-foreground">
-              Use at least 8 characters with one uppercase letter and one number.
-            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm-password">Confirm password</Label>
-            <Input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
               autoComplete="new-password"

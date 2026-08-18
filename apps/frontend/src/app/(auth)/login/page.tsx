@@ -12,6 +12,7 @@ import { Loader2 } from 'lucide-react';
 import { loginWithCredentials } from '@/lib/auth';
 import { extractSubdomain } from '@/lib/tenant';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { PasswordInput } from '@/components/ui/password-input';
 
 /**
  * Determine the post-login redirect URL.
@@ -163,9 +164,8 @@ export default function LoginPage() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="login-password">Password</Label>
-            <Input
+            <PasswordInput
               id="login-password"
-              type="password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

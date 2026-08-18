@@ -12,6 +12,7 @@ import { Loader2, Gift, Sparkles } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { registerWithCredentials } from '@/lib/auth';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { PasswordInput } from '@/components/ui/password-input';
 
 export default function RegisterPage() {
   return (
@@ -262,17 +263,14 @@ function RegisterPageContent() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password *</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               placeholder="••••••••"
               value={formData.password}
               onChange={(e) => update('password', e.target.value)}
               disabled={isLoading}
+              showStrengthIndicator
             />
-            <p className="text-[11px] text-muted-foreground">
-              At least 8 chars, 1 uppercase, 1 number
-            </p>
           </div>
 
           {/* Promo Code Field */}

@@ -16,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { PasswordInput } from '@/components/ui/password-input';
 import { useStoreSettings, useUpdatePaymentSettings } from '../hooks/use-settings';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -156,8 +157,7 @@ export default function PaymentSettingsPage() {
                   <FormItem>
                     <FormLabel>Store Password</FormLabel>
                     <FormControl>
-                      <Input
-                        type="password"
+                      <PasswordInput
                         autoComplete="new-password"
                         placeholder={settingsData?.sslcommerzConfigured
                           ? 'Leave blank to keep the current password'

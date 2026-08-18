@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
+import { PasswordInput } from '@/components/ui/password-input';
 import { DistrictLeadDaysEditor } from './district-lead-days-editor';
 import {
   useCourierConnections,
@@ -221,7 +222,7 @@ function ConnectionCard({
 }
 
 function SecretField({ label, value, saved, onChange }: { label: string; value?: string; saved?: boolean; onChange: (value: string) => void }) {
-  return <div className="space-y-2"><Label>{label}</Label><div className="relative"><Input type="password" value={value ?? ''} onChange={(event) => onChange(event.target.value)} placeholder={saved ? 'Saved — enter to replace' : 'Required'} /><KeyRound className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" /></div></div>;
+  return <div className="space-y-2"><Label>{label}</Label><PasswordInput value={value ?? ''} onChange={(event) => onChange(event.target.value)} placeholder={saved ? 'Saved — enter to replace' : 'Required'} /></div>;
 }
 
 function HealthBadge({ connection }: { connection?: CourierConnectionView }) {
