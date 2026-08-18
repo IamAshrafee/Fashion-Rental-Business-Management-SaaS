@@ -194,8 +194,9 @@ export class BookingOwnerController {
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateManualBookingDto,
     @Headers('idempotency-key') creationKey?: string,
+    @Req() req?: Request & { user?: { id: string } },
   ) {
-    return this.bookingService.createManualBooking(tenant.id, dto, creationKey);
+    return this.bookingService.createManualBooking(tenant.id, dto, creationKey, req?.user?.id);
   }
 
   /**

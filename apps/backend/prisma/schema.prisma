@@ -580,6 +580,256 @@ enum CodReconciliationStatus {
   NOT_APPLICABLE
 }
 
+enum BookingVersionDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum OperationsFulfillmentDirection {
+  OUTBOUND
+  RETURN
+  INTERNAL_TRANSFER
+}
+
+enum OperationsFulfillmentMethod {
+  COURIER
+  CUSTOMER_PICKUP
+  INSTANT_DELIVERY
+  STAFF_DELIVERY
+  CUSTOMER_DROPOFF
+  STAFF_PICKUP
+  OTHER
+}
+
+enum OperationsFulfillmentStatus {
+  PLANNED
+  PREPARING
+  READY
+  AWAITING_HANDOVER
+  IN_CUSTODY
+  IN_TRANSIT
+  ATTEMPTED
+  COMPLETED
+  FAILED
+  CANCELLED
+  RETURNED_TO_ORIGIN
+}
+
+enum FulfillmentAllocationStatus {
+  PLANNED
+  READY
+  HANDED_OVER
+  RECEIVED
+  CANCELLED
+  LOST
+}
+
+enum StockUnitCustodyType {
+  BUSINESS_LOCATION
+  INTERNAL_TRANSFER
+  OUTBOUND_CARRIER
+  CUSTOMER
+  RETURN_CARRIER
+  RECEIVING_AREA
+  SERVICE_PROVIDER
+  QUARANTINE
+  LOST
+  UNKNOWN
+}
+
+enum CustodyEventReason {
+  REGISTERED
+  INTERNAL_TRANSFER
+  OUTBOUND_HANDOVER
+  CUSTOMER_RECEIPT
+  RETURN_HANDOVER
+  RETURN_RECEIPT
+  SERVICE_HANDOVER
+  SERVICE_RETURN
+  QUARANTINED
+  MARKED_LOST
+  RECOVERED
+  MANUAL_CORRECTION
+}
+
+enum HandoverStatus {
+  PLANNED
+  COMPLETED
+  CANCELLED
+}
+
+enum HandoverVerificationMethod {
+  STAFF_CONFIRMATION
+  OTP
+  SIGNATURE
+  PROVIDER_EVIDENCE
+  MANAGER_OVERRIDE
+}
+
+enum RentalStatus {
+  PLANNED
+  ACTIVE
+  RETURN_IN_PROGRESS
+  ENDED
+  CANCELLED
+}
+
+enum RentalStartPolicy {
+  SCHEDULED
+  HANDOVER
+  LATER_OF_SCHEDULED_AND_HANDOVER
+  MANUAL
+}
+
+enum ReturnTimelinessPolicy {
+  CUSTOMER_HANDOVER
+  BUSINESS_RECEIPT
+}
+
+enum RentalItemStatus {
+  PLANNED
+  ACTIVE
+  RETURNING
+  RETURNED
+  LOST
+  CANCELLED
+}
+
+enum ReturnIntakeStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  SUPERSEDED
+}
+
+enum ReturnIntakeItemOutcome {
+  RECEIVED
+  MISSING
+  LOST
+  UNEXPECTED
+  WRONG_ITEM
+}
+
+enum FinancialEntryKind {
+  RENTAL_CHARGE
+  DELIVERY_CHARGE
+  EXTENSION_CHARGE
+  LATE_CHARGE
+  DAMAGE_CHARGE
+  MISSING_ITEM_CHARGE
+  OTHER_CHARGE
+  DISCOUNT
+  WAIVER
+  CUSTOMER_PAYMENT
+  PAYMENT_REVERSAL
+  DEPOSIT_REQUIREMENT
+  DEPOSIT_COLLECTION
+  DEPOSIT_APPLICATION
+  REFUND_OBLIGATION
+  REFUND_PAYMENT
+  CUSTOMER_CREDIT
+  COURIER_RECEIVABLE
+  COURIER_SETTLEMENT
+  ADJUSTMENT
+  WRITE_OFF
+}
+
+enum FinancialEntryDirection {
+  CUSTOMER_RECEIVABLE
+  CUSTOMER_LIABILITY
+  BUSINESS_CASH_IN
+  BUSINESS_CASH_OUT
+  COURIER_RECEIVABLE
+  NEUTRAL
+}
+
+enum FinancialEntryStatus {
+  PENDING
+  POSTED
+  PROCESSING
+  COMPLETED
+  FAILED
+  REVERSED
+  WAIVED
+}
+
+enum OperationalExceptionSeverity {
+  INFO
+  WARNING
+  ACTION_REQUIRED
+  CRITICAL
+}
+
+enum OperationalExceptionStatus {
+  OPEN
+  ACKNOWLEDGED
+  ON_HOLD
+  RESOLVED
+  WAIVED
+}
+
+enum OperationalTaskType {
+  REVIEW_BOOKING
+  READY_CHECK
+  PACK_FULFILLMENT
+  COMPLETE_HANDOVER
+  CONFIRM_PAYMENT
+  START_RETURN
+  RECEIVE_RETURN
+  INSPECT_RETURN
+  REVIEW_CHARGE
+  PROCESS_REFUND
+  RESOLVE_EXCEPTION
+  REASSIGN_ITEM
+  RECONCILE_COURIER
+  OTHER
+}
+
+enum OperationalTaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum OperationalTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  SUPERSEDED
+}
+
+enum BookingCloseCycleType {
+  STRICT_CLOSE
+  FORCE_CLOSE
+  REOPEN
+}
+
+enum BookingCloseCycleStatus {
+  OPEN
+  COMPLETED
+  SUPERSEDED
+}
+
+enum OperationalEventCategory {
+  BOOKING
+  INVENTORY
+  CUSTODY
+  FULFILLMENT
+  HANDOVER
+  RENTAL
+  RETURN
+  INSPECTION
+  FINANCIAL
+  EXCEPTION
+  TASK
+  OVERRIDE
+  SYSTEM
+}
+
 enum SubscriptionStatus {
   active
   past_due
@@ -625,50 +875,62 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  ownedTenants                 Tenant[]
-  tenantUsers                  TenantUser[]
-  auditLogs                    AuditLog[]
-  sessions                     Session[]
-  impersonatedSessions         Session[]                       @relation("SessionImpersonator")
-  loginHistory                 LoginHistory[]
-  passwordResetTokens          PasswordResetToken[]
-  damageReports                DamageReport[]
-  deletedProducts              Product[]                       @relation("ProductDeletedBy")
-  createdProductOnboardings    ProductOnboarding[]             @relation("ProductOnboardingCreator")
-  updatedProductOnboardings    ProductOnboarding[]             @relation("ProductOnboardingUpdater")
-  productOnboardingCommands    ProductOnboardingCommand[]
-  recordedPayments             SubscriptionPayment[]           @relation("PaymentsRecordedBy")
-  createdPromoCodes            PromoCode[]                     @relation("PromoCodesCreatedBy")
-  subscriptionActions          SubscriptionHistory[]           @relation("HistoryPerformedBy")
-  createdInventoryBlocks       InventoryBlock[]                @relation("InventoryBlockCreatedBy")
-  inventoryMovements           InventoryMovement[]             @relation("InventoryMovementActor")
-  createdInventoryCounts       InventoryCountSession[]         @relation("InventoryCountCreator")
-  completedInventoryCounts     InventoryCountSession[]         @relation("InventoryCountCompleter")
-  stockUnitAssignments         StockUnitAssignment[]           @relation("StockUnitAssignedBy")
-  stockUnitLifecycleEvents     StockUnitLifecycleEvent[]       @relation("StockUnitLifecycleActor")
-  stockUnitInspections         StockUnitInspection[]           @relation("StockUnitInspectionActor")
-  reportedStockUnitIssues      StockUnitIssue[]                @relation("StockUnitIssueReporter")
-  resolvedStockUnitIssues      StockUnitIssue[]                @relation("StockUnitIssueResolver")
-  requestedServiceOrders       InventoryServiceOrder[]         @relation("ServiceOrderRequester")
-  completedServiceOrders       InventoryServiceOrder[]         @relation("ServiceOrderCompleter")
-  createdSetComponents         SkuSetComponentDefinition[]     @relation("SetComponentCreator")
-  inventoryMediaUploads        InventoryMediaAttachment[]      @relation("InventoryMediaUploader")
-  createdCompositionRules      ProductCompositionRule[]        @relation("CompositionRuleCreator")
-  fulfillmentVersions          FulfillmentRequirementVersion[] @relation("FulfillmentVersionActor")
-  fulfillmentSubstitutions     FulfillmentSubstitution[]       @relation("FulfillmentSubstitutionActor")
-  fulfillmentExtensions        FulfillmentExtension[]          @relation("FulfillmentExtensionActor")
-  fulfillmentEvents            FulfillmentRequirementEvent[]   @relation("FulfillmentEventActor")
-  depositSettlements           DepositSettlement[]             @relation("DepositSettlementActor")
-  recordedBookingPayments      Payment[]                       @relation("BookingPaymentRecorder")
-  createdInventoryLocations    InventoryLocation[]             @relation("InventoryLocationCreator")
-  createdInventoryTransfers    InventoryTransfer[]             @relation("InventoryTransferCreator")
-  approvedInventoryTransfers   InventoryTransfer[]             @relation("InventoryTransferApprover")
-  dispatchedInventoryTransfers InventoryTransfer[]             @relation("InventoryTransferDispatcher")
-  receivedInventoryTransfers   InventoryTransfer[]             @relation("InventoryTransferReceiver")
-  inventoryTransferEvents      InventoryTransferEvent[]        @relation("InventoryTransferEventActor")
-  stockUnitRevenueAllocations  StockUnitRevenueAllocation[]    @relation("StockUnitRevenueAllocationActor")
-  reconciledCodRemittances     CodRemittance[]                 @relation("CodRemittanceReconciler")
-  createdStaffInvitations      StaffInvitation[]               @relation("StaffInvitationCreator")
+  ownedTenants                  Tenant[]
+  tenantUsers                   TenantUser[]
+  auditLogs                     AuditLog[]
+  sessions                      Session[]
+  impersonatedSessions          Session[]                       @relation("SessionImpersonator")
+  loginHistory                  LoginHistory[]
+  passwordResetTokens           PasswordResetToken[]
+  damageReports                 DamageReport[]
+  deletedProducts               Product[]                       @relation("ProductDeletedBy")
+  createdProductOnboardings     ProductOnboarding[]             @relation("ProductOnboardingCreator")
+  updatedProductOnboardings     ProductOnboarding[]             @relation("ProductOnboardingUpdater")
+  productOnboardingCommands     ProductOnboardingCommand[]
+  recordedPayments              SubscriptionPayment[]           @relation("PaymentsRecordedBy")
+  createdPromoCodes             PromoCode[]                     @relation("PromoCodesCreatedBy")
+  subscriptionActions           SubscriptionHistory[]           @relation("HistoryPerformedBy")
+  createdInventoryBlocks        InventoryBlock[]                @relation("InventoryBlockCreatedBy")
+  inventoryMovements            InventoryMovement[]             @relation("InventoryMovementActor")
+  createdInventoryCounts        InventoryCountSession[]         @relation("InventoryCountCreator")
+  completedInventoryCounts      InventoryCountSession[]         @relation("InventoryCountCompleter")
+  stockUnitAssignments          StockUnitAssignment[]           @relation("StockUnitAssignedBy")
+  stockUnitLifecycleEvents      StockUnitLifecycleEvent[]       @relation("StockUnitLifecycleActor")
+  stockUnitInspections          StockUnitInspection[]           @relation("StockUnitInspectionActor")
+  reportedStockUnitIssues       StockUnitIssue[]                @relation("StockUnitIssueReporter")
+  resolvedStockUnitIssues       StockUnitIssue[]                @relation("StockUnitIssueResolver")
+  requestedServiceOrders        InventoryServiceOrder[]         @relation("ServiceOrderRequester")
+  completedServiceOrders        InventoryServiceOrder[]         @relation("ServiceOrderCompleter")
+  createdSetComponents          SkuSetComponentDefinition[]     @relation("SetComponentCreator")
+  inventoryMediaUploads         InventoryMediaAttachment[]      @relation("InventoryMediaUploader")
+  createdCompositionRules       ProductCompositionRule[]        @relation("CompositionRuleCreator")
+  fulfillmentVersions           FulfillmentRequirementVersion[] @relation("FulfillmentVersionActor")
+  fulfillmentSubstitutions      FulfillmentSubstitution[]       @relation("FulfillmentSubstitutionActor")
+  fulfillmentExtensions         FulfillmentExtension[]          @relation("FulfillmentExtensionActor")
+  fulfillmentEvents             FulfillmentRequirementEvent[]   @relation("FulfillmentEventActor")
+  depositSettlements            DepositSettlement[]             @relation("DepositSettlementActor")
+  recordedBookingPayments       Payment[]                       @relation("BookingPaymentRecorder")
+  createdInventoryLocations     InventoryLocation[]             @relation("InventoryLocationCreator")
+  createdInventoryTransfers     InventoryTransfer[]             @relation("InventoryTransferCreator")
+  approvedInventoryTransfers    InventoryTransfer[]             @relation("InventoryTransferApprover")
+  dispatchedInventoryTransfers  InventoryTransfer[]             @relation("InventoryTransferDispatcher")
+  receivedInventoryTransfers    InventoryTransfer[]             @relation("InventoryTransferReceiver")
+  inventoryTransferEvents       InventoryTransferEvent[]        @relation("InventoryTransferEventActor")
+  stockUnitRevenueAllocations   StockUnitRevenueAllocation[]    @relation("StockUnitRevenueAllocationActor")
+  reconciledCodRemittances      CodRemittance[]                 @relation("CodRemittanceReconciler")
+  createdStaffInvitations       StaffInvitation[]               @relation("StaffInvitationCreator")
+  bookingVersions               BookingVersion[]                @relation("BookingVersionActor")
+  custodyEvents                 CustodyEvent[]                  @relation("CustodyEventActor")
+  completedHandovers            Handover[]                      @relation("HandoverActor")
+  returnIntakes                 ReturnIntake[]                  @relation("ReturnIntakeActor")
+  financialEntries              FinancialEntry[]                @relation("FinancialEntryActor")
+  createdOperationalExceptions  OperationalException[]          @relation("OperationalExceptionCreator")
+  assignedOperationalExceptions OperationalException[]          @relation("OperationalExceptionAssignee")
+  resolvedOperationalExceptions OperationalException[]          @relation("OperationalExceptionResolver")
+  assignedOperationalTasks      OperationalTask[]               @relation("OperationalTaskAssignee")
+  completedOperationalTasks     OperationalTask[]               @relation("OperationalTaskCompleter")
+  bookingCloseCycles            BookingCloseCycle[]             @relation("BookingCloseCycleActor")
+  operationalEvents             OperationalEvent[]              @relation("OperationalEventActor")
 
   @@map("users")
 }
@@ -832,6 +1094,24 @@ model Tenant {
   codRemittances                 CodRemittance[]
   staffInvitations               StaffInvitation[]
   notificationDeliveries         NotificationDelivery[]
+  bookingVersions                BookingVersion[]
+  fulfillmentGroups              FulfillmentGroup[]
+  operationsFulfillments         Fulfillment[]
+  fulfillmentAllocations         FulfillmentAllocation[]
+  operationsFulfillmentEvents    OperationsFulfillmentEvent[]
+  stockUnitCustodies             StockUnitCustody[]
+  custodyEvents                  CustodyEvent[]
+  handovers                      Handover[]
+  handoverItems                  HandoverItem[]
+  rentals                        Rental[]
+  rentalItems                    RentalItem[]
+  returnIntakes                  ReturnIntake[]
+  returnIntakeItems              ReturnIntakeItem[]
+  financialEntries               FinancialEntry[]
+  operationalExceptions          OperationalException[]
+  operationalTasks               OperationalTask[]
+  bookingCloseCycles             BookingCloseCycle[]
+  operationalEvents              OperationalEvent[]
 
   @@index([ownerUserId])
   @@index([promoCodeId])
@@ -2024,6 +2304,16 @@ model Booking {
   fulfillmentExtensions       FulfillmentExtension[]
   stockUnitRevenueAllocations StockUnitRevenueAllocation[]
   shipments                   Shipment[]
+  versions                    BookingVersion[]
+  fulfillmentGroups           FulfillmentGroup[]
+  handovers                   Handover[]
+  rentals                     Rental[]
+  returnIntakes               ReturnIntake[]
+  financialEntries            FinancialEntry[]
+  operationalExceptions       OperationalException[]
+  operationalTasks            OperationalTask[]
+  closeCycles                 BookingCloseCycle[]
+  operationalEvents           OperationalEvent[]
 
   @@unique([tenantId, bookingNumber])
   @@unique([tenantId, creationKey])
@@ -2193,6 +2483,560 @@ model CourierWebhookReceipt {
   @@map("courier_webhook_receipts")
 }
 
+model BookingVersion {
+  id          String                 @id @default(uuid())
+  tenantId    String                 @map("tenant_id")
+  bookingId   String                 @map("booking_id")
+  version     Int
+  decision    BookingVersionDecision @default(PENDING)
+  snapshot    Json                   @db.JsonB
+  reason      String
+  actorUserId String?                @map("actor_user_id")
+  approvedAt  DateTime?              @map("approved_at")
+  rejectedAt  DateTime?              @map("rejected_at")
+  createdAt   DateTime               @default(now()) @map("created_at")
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking           Booking            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  actor             User?              @relation("BookingVersionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  fulfillmentGroups FulfillmentGroup[]
+  rentals           Rental[]
+
+  @@unique([bookingId, version])
+  @@index([tenantId, bookingId, createdAt(sort: Desc)])
+  @@index([actorUserId])
+  @@map("booking_versions")
+}
+
+model FulfillmentGroup {
+  id                    String                         @id @default(uuid())
+  tenantId              String                         @map("tenant_id")
+  bookingId             String                         @map("booking_id")
+  bookingVersionId      String                         @map("booking_version_id")
+  direction             OperationsFulfillmentDirection
+  method                OperationsFulfillmentMethod
+  status                OperationsFulfillmentStatus    @default(PLANNED)
+  originLocationId      String?                        @map("origin_location_id")
+  destinationLocationId String?                        @map("destination_location_id")
+  originSnapshot        Json?                          @map("origin_snapshot") @db.JsonB
+  destinationSnapshot   Json?                          @map("destination_snapshot") @db.JsonB
+  policySnapshot        Json                           @map("policy_snapshot") @db.JsonB
+  scheduledHandoverAt   DateTime?                      @map("scheduled_handover_at")
+  version               Int                            @default(0)
+  createdAt             DateTime                       @default(now()) @map("created_at")
+  updatedAt             DateTime                       @updatedAt @map("updated_at")
+
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking             Booking            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingVersion      BookingVersion     @relation(fields: [bookingVersionId], references: [id], onDelete: Restrict)
+  originLocation      InventoryLocation? @relation("OperationsFulfillmentOrigin", fields: [originLocationId], references: [id], onDelete: Restrict)
+  destinationLocation InventoryLocation? @relation("OperationsFulfillmentDestination", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+  fulfillments        Fulfillment[]
+
+  @@index([tenantId, bookingId, direction, status])
+  @@index([bookingVersionId])
+  @@index([originLocationId])
+  @@index([destinationLocationId])
+  @@map("fulfillment_groups")
+}
+
+model Fulfillment {
+  id                  String                      @id @default(uuid())
+  tenantId            String                      @map("tenant_id")
+  groupId             String                      @map("group_id")
+  status              OperationsFulfillmentStatus @default(PLANNED)
+  provider            String?
+  integrationMode     String?                     @map("integration_mode")
+  providerReference   String?                     @map("provider_reference")
+  trackingNumber      String?                     @map("tracking_number")
+  idempotencyKey      String                      @map("idempotency_key")
+  requestHash         String                      @map("request_hash")
+  quotedFee           Int?                        @map("quoted_fee")
+  chargedFee          Int?                        @map("charged_fee")
+  scheduledAt         DateTime?                   @map("scheduled_at")
+  handoverRequestedAt DateTime?                   @map("handover_requested_at")
+  carrierCollectedAt  DateTime?                   @map("carrier_collected_at")
+  completedAt         DateTime?                   @map("completed_at")
+  lastProviderEventAt DateTime?                   @map("last_provider_event_at")
+  lastSyncedAt        DateTime?                   @map("last_synced_at")
+  failureReason       String?                     @map("failure_reason")
+  providerSnapshot    Json?                       @map("provider_snapshot") @db.JsonB
+  version             Int                         @default(0)
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
+
+  tenant                Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  group                 FulfillmentGroup             @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  allocations           FulfillmentAllocation[]
+  events                OperationsFulfillmentEvent[]
+  custodyEvents         CustodyEvent[]
+  handovers             Handover[]
+  returnIntakes         ReturnIntake[]
+  financialEntries      FinancialEntry[]
+  operationalExceptions OperationalException[]
+  operationalTasks      OperationalTask[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, scheduledAt])
+  @@index([groupId, createdAt(sort: Desc)])
+  @@index([provider, providerReference])
+  @@index([provider, trackingNumber])
+  @@map("fulfillments")
+}
+
+model FulfillmentAllocation {
+  id            String                      @id @default(uuid())
+  tenantId      String                      @map("tenant_id")
+  fulfillmentId String                      @map("fulfillment_id")
+  assignmentId  String                      @map("assignment_id")
+  stockUnitId   String                      @map("stock_unit_id")
+  status        FulfillmentAllocationStatus @default(PLANNED)
+  handedOverAt  DateTime?                   @map("handed_over_at")
+  receivedAt    DateTime?                   @map("received_at")
+  cancelledAt   DateTime?                   @map("cancelled_at")
+  createdAt     DateTime                    @default(now()) @map("created_at")
+  updatedAt     DateTime                    @updatedAt @map("updated_at")
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  fulfillment Fulfillment         @relation(fields: [fulfillmentId], references: [id], onDelete: Restrict)
+  assignment  StockUnitAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  stockUnit   StockUnit           @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([fulfillmentId, assignmentId])
+  @@unique([fulfillmentId, stockUnitId])
+  @@index([tenantId, stockUnitId, status])
+  @@index([assignmentId])
+  @@map("fulfillment_allocations")
+}
+
+model OperationsFulfillmentEvent {
+  id               String                      @id @default(uuid())
+  tenantId         String                      @map("tenant_id")
+  fulfillmentId    String                      @map("fulfillment_id")
+  normalizedStatus OperationsFulfillmentStatus @map("normalized_status")
+  originalStatus   String?                     @map("original_status")
+  source           String
+  providerEventId  String?                     @map("provider_event_id")
+  dedupeKey        String                      @map("dedupe_key")
+  label            String
+  evidence         Json?                       @db.JsonB
+  occurredAt       DateTime                    @map("occurred_at")
+  receivedAt       DateTime                    @default(now()) @map("received_at")
+  applied          Boolean                     @default(true)
+  ignoredReason    String?                     @map("ignored_reason")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  fulfillment Fulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Cascade)
+
+  @@unique([fulfillmentId, dedupeKey])
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([fulfillmentId, occurredAt(sort: Desc)])
+  @@map("fulfillment_events_v2")
+}
+
+model StockUnitCustody {
+  id              String               @id @default(uuid())
+  tenantId        String               @map("tenant_id")
+  stockUnitId     String               @unique @map("stock_unit_id")
+  custodyType     StockUnitCustodyType @map("custody_type")
+  locationId      String?              @map("location_id")
+  custodianRef    String?              @map("custodian_ref")
+  evidence        Json?                @db.JsonB
+  lastConfirmedAt DateTime             @default(now()) @map("last_confirmed_at")
+  version         Int                  @default(0)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  stockUnit StockUnit          @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  location  InventoryLocation? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, custodyType, updatedAt])
+  @@index([tenantId, locationId, custodyType])
+  @@map("stock_unit_custodies")
+}
+
+model CustodyEvent {
+  id               String               @id @default(uuid())
+  tenantId         String               @map("tenant_id")
+  stockUnitId      String               @map("stock_unit_id")
+  fulfillmentId    String?              @map("fulfillment_id")
+  handoverId       String?              @map("handover_id")
+  fromCustodyType  StockUnitCustodyType @map("from_custody_type")
+  toCustodyType    StockUnitCustodyType @map("to_custody_type")
+  fromLocationId   String?              @map("from_location_id")
+  toLocationId     String?              @map("to_location_id")
+  fromCustodianRef String?              @map("from_custodian_ref")
+  toCustodianRef   String?              @map("to_custodian_ref")
+  reason           CustodyEventReason
+  actorUserId      String?              @map("actor_user_id")
+  idempotencyKey   String               @map("idempotency_key")
+  evidence         Json?                @db.JsonB
+  occurredAt       DateTime             @map("occurred_at")
+  receivedAt       DateTime             @default(now()) @map("received_at")
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  stockUnit    StockUnit          @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  fulfillment  Fulfillment?       @relation(fields: [fulfillmentId], references: [id], onDelete: SetNull)
+  handover     Handover?          @relation(fields: [handoverId], references: [id], onDelete: SetNull)
+  fromLocation InventoryLocation? @relation("CustodyEventOrigin", fields: [fromLocationId], references: [id], onDelete: Restrict)
+  toLocation   InventoryLocation? @relation("CustodyEventDestination", fields: [toLocationId], references: [id], onDelete: Restrict)
+  actor        User?              @relation("CustodyEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, stockUnitId, occurredAt(sort: Desc)])
+  @@index([fulfillmentId])
+  @@index([handoverId])
+  @@index([actorUserId])
+  @@map("custody_events")
+}
+
+model Handover {
+  id                 String                     @id @default(uuid())
+  tenantId           String                     @map("tenant_id")
+  bookingId          String                     @map("booking_id")
+  fulfillmentId      String?                    @map("fulfillment_id")
+  status             HandoverStatus             @default(PLANNED)
+  fromCustodyType    StockUnitCustodyType       @map("from_custody_type")
+  toCustodyType      StockUnitCustodyType       @map("to_custody_type")
+  verificationMethod HandoverVerificationMethod @map("verification_method")
+  verificationRef    String?                    @map("verification_ref")
+  evidence           Json?                      @db.JsonB
+  reason             String
+  actorUserId        String?                    @map("actor_user_id")
+  idempotencyKey     String                     @map("idempotency_key")
+  requestHash        String                     @map("request_hash")
+  actualAt           DateTime?                  @map("actual_at")
+  cancelledAt        DateTime?                  @map("cancelled_at")
+  version            Int                        @default(0)
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking       Booking        @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  fulfillment   Fulfillment?   @relation(fields: [fulfillmentId], references: [id], onDelete: SetNull)
+  actor         User?          @relation("HandoverActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  items         HandoverItem[]
+  custodyEvents CustodyEvent[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, bookingId, status, createdAt(sort: Desc)])
+  @@index([fulfillmentId])
+  @@index([actorUserId])
+  @@map("handovers")
+}
+
+model HandoverItem {
+  id              String               @id @default(uuid())
+  tenantId        String               @map("tenant_id")
+  handoverId      String               @map("handover_id")
+  assignmentId    String               @map("assignment_id")
+  stockUnitId     String               @map("stock_unit_id")
+  fromCustodyType StockUnitCustodyType @map("from_custody_type")
+  toCustodyType   StockUnitCustodyType @map("to_custody_type")
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  handover   Handover            @relation(fields: [handoverId], references: [id], onDelete: Restrict)
+  assignment StockUnitAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  stockUnit  StockUnit           @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([handoverId, assignmentId])
+  @@unique([handoverId, stockUnitId])
+  @@index([tenantId, stockUnitId, createdAt(sort: Desc)])
+  @@index([assignmentId])
+  @@map("handover_items")
+}
+
+model Rental {
+  id                     String                 @id @default(uuid())
+  tenantId               String                 @map("tenant_id")
+  bookingId              String                 @map("booking_id")
+  bookingVersionId       String                 @map("booking_version_id")
+  status                 RentalStatus           @default(PLANNED)
+  startPolicy            RentalStartPolicy      @map("start_policy")
+  returnTimelinessPolicy ReturnTimelinessPolicy @map("return_timeliness_policy")
+  policySnapshot         Json                   @map("policy_snapshot") @db.JsonB
+  scheduledStartAt       DateTime               @map("scheduled_start_at")
+  scheduledEndAt         DateTime               @map("scheduled_end_at")
+  actualStartAt          DateTime?              @map("actual_start_at")
+  customerReturnAt       DateTime?              @map("customer_return_at")
+  businessReceivedAt     DateTime?              @map("business_received_at")
+  actualEndAt            DateTime?              @map("actual_end_at")
+  version                Int                    @default(0)
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking        Booking        @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingVersion BookingVersion @relation(fields: [bookingVersionId], references: [id], onDelete: Restrict)
+  items          RentalItem[]
+
+  @@index([tenantId, bookingId, status])
+  @@index([bookingVersionId])
+  @@index([tenantId, scheduledEndAt, status])
+  @@map("rentals")
+}
+
+model RentalItem {
+  id              String           @id @default(uuid())
+  tenantId        String           @map("tenant_id")
+  rentalId        String           @map("rental_id")
+  assignmentId    String           @map("assignment_id")
+  stockUnitId     String           @map("stock_unit_id")
+  status          RentalItemStatus @default(PLANNED)
+  actualStartAt   DateTime?        @map("actual_start_at")
+  returnStartedAt DateTime?        @map("return_started_at")
+  actualEndAt     DateTime?        @map("actual_end_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  rental     Rental              @relation(fields: [rentalId], references: [id], onDelete: Restrict)
+  assignment StockUnitAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  stockUnit  StockUnit           @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([rentalId, assignmentId])
+  @@index([tenantId, stockUnitId, status])
+  @@index([assignmentId])
+  @@map("rental_items")
+}
+
+model ReturnIntake {
+  id                   String             @id @default(uuid())
+  tenantId             String             @map("tenant_id")
+  bookingId            String             @map("booking_id")
+  fulfillmentId        String?            @map("fulfillment_id")
+  status               ReturnIntakeStatus @default(DRAFT)
+  amendsReturnIntakeId String?            @map("amends_return_intake_id")
+  actorUserId          String             @map("actor_user_id")
+  idempotencyKey       String             @map("idempotency_key")
+  requestHash          String             @map("request_hash")
+  notes                String?
+  receivedAt           DateTime           @map("received_at")
+  completedAt          DateTime?          @map("completed_at")
+  version              Int                @default(0)
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking            Booking            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  fulfillment        Fulfillment?       @relation(fields: [fulfillmentId], references: [id], onDelete: SetNull)
+  actor              User               @relation("ReturnIntakeActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  amendsReturnIntake ReturnIntake?      @relation("ReturnIntakeAmendments", fields: [amendsReturnIntakeId], references: [id], onDelete: SetNull)
+  amendments         ReturnIntake[]     @relation("ReturnIntakeAmendments")
+  items              ReturnIntakeItem[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, bookingId, status, createdAt(sort: Desc)])
+  @@index([fulfillmentId])
+  @@index([actorUserId])
+  @@index([amendsReturnIntakeId])
+  @@map("return_intakes")
+}
+
+model ReturnIntakeItem {
+  id                   String                  @id @default(uuid())
+  tenantId             String                  @map("tenant_id")
+  returnIntakeId       String                  @map("return_intake_id")
+  expectedAssignmentId String?                 @map("expected_assignment_id")
+  receivedStockUnitId  String?                 @map("received_stock_unit_id")
+  outcome              ReturnIntakeItemOutcome
+  scannedIdentity      String?                 @map("scanned_identity")
+  notes                String?
+  createdAt            DateTime                @default(now()) @map("created_at")
+
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  returnIntake       ReturnIntake         @relation(fields: [returnIntakeId], references: [id], onDelete: Restrict)
+  expectedAssignment StockUnitAssignment? @relation("ReturnIntakeExpectedAssignment", fields: [expectedAssignmentId], references: [id], onDelete: Restrict)
+  receivedStockUnit  StockUnit?           @relation("ReturnIntakeReceivedStockUnit", fields: [receivedStockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([returnIntakeId, expectedAssignmentId])
+  @@index([tenantId, receivedStockUnitId])
+  @@index([expectedAssignmentId])
+  @@map("return_intake_items")
+}
+
+model FinancialEntry {
+  id              String                  @id @default(uuid())
+  tenantId        String                  @map("tenant_id")
+  bookingId       String                  @map("booking_id")
+  bookingItemId   String?                 @map("booking_item_id")
+  inspectionId    String?                 @map("inspection_id")
+  fulfillmentId   String?                 @map("fulfillment_id")
+  kind            FinancialEntryKind
+  direction       FinancialEntryDirection
+  status          FinancialEntryStatus    @default(POSTED)
+  amount          Int
+  currency        String                  @default("BDT")
+  source          String
+  reason          String
+  evidence        Json?                   @db.JsonB
+  actorUserId     String?                 @map("actor_user_id")
+  idempotencyKey  String                  @map("idempotency_key")
+  reversesEntryId String?                 @unique @map("reverses_entry_id")
+  effectiveAt     DateTime                @map("effective_at")
+  processedAt     DateTime?               @map("processed_at")
+  failedAt        DateTime?               @map("failed_at")
+  failureReason   String?                 @map("failure_reason")
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking               Booking                @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingItem           BookingItem?           @relation(fields: [bookingItemId], references: [id], onDelete: Restrict)
+  inspection            StockUnitInspection?   @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+  fulfillment           Fulfillment?           @relation(fields: [fulfillmentId], references: [id], onDelete: Restrict)
+  actor                 User?                  @relation("FinancialEntryActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  reversesEntry         FinancialEntry?        @relation("FinancialEntryReversals", fields: [reversesEntryId], references: [id], onDelete: Restrict)
+  reversedBy            FinancialEntry?        @relation("FinancialEntryReversals")
+  operationalExceptions OperationalException[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, bookingId, effectiveAt(sort: Desc)])
+  @@index([bookingItemId])
+  @@index([inspectionId])
+  @@index([fulfillmentId])
+  @@index([actorUserId])
+  @@index([tenantId, kind, status, effectiveAt])
+  @@map("financial_entries")
+}
+
+model OperationalException {
+  id               String                       @id @default(uuid())
+  tenantId         String                       @map("tenant_id")
+  bookingId        String                       @map("booking_id")
+  stockUnitId      String?                      @map("stock_unit_id")
+  fulfillmentId    String?                      @map("fulfillment_id")
+  financialEntryId String?                      @map("financial_entry_id")
+  category         String
+  severity         OperationalExceptionSeverity
+  status           OperationalExceptionStatus   @default(OPEN)
+  isBlocking       Boolean                      @default(false) @map("is_blocking")
+  title            String
+  description      String
+  evidence         Json?                        @db.JsonB
+  sourceKey        String                       @map("source_key")
+  createdByUserId  String?                      @map("created_by_user_id")
+  assigneeUserId   String?                      @map("assignee_user_id")
+  resolvedByUserId String?                      @map("resolved_by_user_id")
+  dueAt            DateTime?                    @map("due_at")
+  acknowledgedAt   DateTime?                    @map("acknowledged_at")
+  resolvedAt       DateTime?                    @map("resolved_at")
+  resolution       String?
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  updatedAt        DateTime                     @updatedAt @map("updated_at")
+
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking        Booking           @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  stockUnit      StockUnit?        @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  fulfillment    Fulfillment?      @relation(fields: [fulfillmentId], references: [id], onDelete: Restrict)
+  financialEntry FinancialEntry?   @relation(fields: [financialEntryId], references: [id], onDelete: Restrict)
+  createdBy      User?             @relation("OperationalExceptionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assignee       User?             @relation("OperationalExceptionAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  resolvedBy     User?             @relation("OperationalExceptionResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  tasks          OperationalTask[]
+
+  @@unique([tenantId, sourceKey])
+  @@index([tenantId, status, severity, dueAt])
+  @@index([tenantId, bookingId, status])
+  @@index([stockUnitId])
+  @@index([fulfillmentId])
+  @@index([financialEntryId])
+  @@index([assigneeUserId, status, dueAt])
+  @@map("operational_exceptions")
+}
+
+model OperationalTask {
+  id                 String                  @id @default(uuid())
+  tenantId           String                  @map("tenant_id")
+  bookingId          String                  @map("booking_id")
+  exceptionId        String?                 @map("exception_id")
+  fulfillmentId      String?                 @map("fulfillment_id")
+  stockUnitId        String?                 @map("stock_unit_id")
+  taskType           OperationalTaskType     @map("task_type")
+  priority           OperationalTaskPriority @default(NORMAL)
+  status             OperationalTaskStatus   @default(OPEN)
+  title              String
+  description        String?
+  sourceKey          String                  @map("source_key")
+  team               String?
+  assigneeUserId     String?                 @map("assignee_user_id")
+  completedByUserId  String?                 @map("completed_by_user_id")
+  dueAt              DateTime?               @map("due_at")
+  startedAt          DateTime?               @map("started_at")
+  completedAt        DateTime?               @map("completed_at")
+  completionEvidence Json?                   @map("completion_evidence") @db.JsonB
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking     Booking               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  exception   OperationalException? @relation(fields: [exceptionId], references: [id], onDelete: SetNull)
+  fulfillment Fulfillment?          @relation(fields: [fulfillmentId], references: [id], onDelete: SetNull)
+  stockUnit   StockUnit?            @relation(fields: [stockUnitId], references: [id], onDelete: SetNull)
+  assignee    User?                 @relation("OperationalTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  completedBy User?                 @relation("OperationalTaskCompleter", fields: [completedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, sourceKey])
+  @@index([tenantId, status, priority, dueAt])
+  @@index([tenantId, bookingId, status])
+  @@index([exceptionId])
+  @@index([fulfillmentId])
+  @@index([stockUnitId])
+  @@index([assigneeUserId, status, dueAt])
+  @@map("operational_tasks")
+}
+
+model BookingCloseCycle {
+  id           String                  @id @default(uuid())
+  tenantId     String                  @map("tenant_id")
+  bookingId    String                  @map("booking_id")
+  cycleNumber  Int                     @map("cycle_number")
+  closeType    BookingCloseCycleType   @map("close_type")
+  status       BookingCloseCycleStatus @default(OPEN)
+  reason       String
+  gateSnapshot Json                    @map("gate_snapshot") @db.JsonB
+  actorUserId  String                  @map("actor_user_id")
+  closedAt     DateTime?               @map("closed_at")
+  createdAt    DateTime                @default(now()) @map("created_at")
+  updatedAt    DateTime                @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  actor   User    @relation("BookingCloseCycleActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([bookingId, cycleNumber])
+  @@index([tenantId, bookingId, status])
+  @@index([actorUserId])
+  @@map("booking_close_cycles")
+}
+
+model OperationalEvent {
+  id             String                   @id @default(uuid())
+  tenantId       String                   @map("tenant_id")
+  bookingId      String                   @map("booking_id")
+  category       OperationalEventCategory
+  eventType      String                   @map("event_type")
+  aggregateType  String                   @map("aggregate_type")
+  aggregateId    String                   @map("aggregate_id")
+  actorUserId    String?                  @map("actor_user_id")
+  reason         String?
+  metadata       Json?                    @db.JsonB
+  idempotencyKey String                   @map("idempotency_key")
+  occurredAt     DateTime                 @map("occurred_at")
+  receivedAt     DateTime                 @default(now()) @map("received_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  actor   User?   @relation("OperationalEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, bookingId, occurredAt(sort: Desc)])
+  @@index([tenantId, aggregateType, aggregateId, occurredAt(sort: Desc)])
+  @@index([actorUserId])
+  @@map("operational_events")
+}
+
 model BookingItem {
   id                    String        @id @default(uuid())
   tenantId              String        @map("tenant_id")
@@ -2244,6 +3088,7 @@ model BookingItem {
   depositSettlement             DepositSettlement?
   shipmentItems                 ShipmentItem[]
   stockUnitRevenueAllocations   StockUnitRevenueAllocation[]
+  financialEntries              FinancialEntry[]
 
   @@index([bookingId])
   @@index([productId])
@@ -2335,22 +3180,27 @@ model InventoryLocation {
   createdAt         DateTime              @default(now()) @map("created_at")
   updatedAt         DateTime              @updatedAt @map("updated_at")
 
-  tenant               Tenant                   @relation(fields: [tenantId], references: [id])
-  createdBy            User?                    @relation("InventoryLocationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  stockUnits           StockUnit[]
-  availabilityPolicies AvailabilityPolicy[]
-  fulfillmentSources   FulfillmentRequirement[]
-  reservations         InventoryReservation[]
-  inventoryBlocks      InventoryBlock[]
-  serviceOrders        InventoryServiceOrder[]
-  outgoingTransfers    InventoryTransfer[]      @relation("TransferOrigin")
-  incomingTransfers    InventoryTransfer[]      @relation("TransferDestination")
-  originMovements      InventoryMovement[]      @relation("InventoryMovementOrigin")
-  destinationMovements InventoryMovement[]      @relation("InventoryMovementDestination")
-  countSessions        InventoryCountSession[]
-  countItemSnapshots   InventoryCountItem[]     @relation("InventoryCountRecordedLocation")
-  bookings             Booking[]
-  bookingQuotes        BookingQuote[]
+  tenant                       Tenant                   @relation(fields: [tenantId], references: [id])
+  createdBy                    User?                    @relation("InventoryLocationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  stockUnits                   StockUnit[]
+  availabilityPolicies         AvailabilityPolicy[]
+  fulfillmentSources           FulfillmentRequirement[]
+  reservations                 InventoryReservation[]
+  inventoryBlocks              InventoryBlock[]
+  serviceOrders                InventoryServiceOrder[]
+  outgoingTransfers            InventoryTransfer[]      @relation("TransferOrigin")
+  incomingTransfers            InventoryTransfer[]      @relation("TransferDestination")
+  originMovements              InventoryMovement[]      @relation("InventoryMovementOrigin")
+  destinationMovements         InventoryMovement[]      @relation("InventoryMovementDestination")
+  countSessions                InventoryCountSession[]
+  countItemSnapshots           InventoryCountItem[]     @relation("InventoryCountRecordedLocation")
+  bookings                     Booking[]
+  bookingQuotes                BookingQuote[]
+  fulfillmentGroupOrigins      FulfillmentGroup[]       @relation("OperationsFulfillmentOrigin")
+  fulfillmentGroupDestinations FulfillmentGroup[]       @relation("OperationsFulfillmentDestination")
+  stockUnitCustodies           StockUnitCustody[]
+  custodyEventOrigins          CustodyEvent[]           @relation("CustodyEventOrigin")
+  custodyEventDestinations     CustodyEvent[]           @relation("CustodyEventDestination")
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive, locationType])
@@ -2542,22 +3392,30 @@ model StockUnit {
   createdAt             DateTime                  @default(now()) @map("created_at")
   updatedAt             DateTime                  @updatedAt @map("updated_at")
 
-  tenant             Tenant                       @relation(fields: [tenantId], references: [id])
-  variantSize        VariantSize                  @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
-  location           InventoryLocation            @relation(fields: [locationId], references: [id], onDelete: Restrict)
-  assignments        StockUnitAssignment[]
-  movements          InventoryMovement[]
-  blocks             InventoryBlock[]
-  lifecycleEvents    StockUnitLifecycleEvent[]
-  inspections        StockUnitInspection[]
-  issues             StockUnitIssue[]
-  serviceOrders      InventoryServiceOrder[]
-  componentStates    StockUnitComponentState[]
-  mediaAttachments   InventoryMediaAttachment[]
-  transferUnits      InventoryTransferUnit[]
-  revenueAllocations StockUnitRevenueAllocation[]
-  countObservations  InventoryCountObservation[]
-  countItems         InventoryCountItem[]
+  tenant                    Tenant                       @relation(fields: [tenantId], references: [id])
+  variantSize               VariantSize                  @relation(fields: [variantSizeId], references: [id], onDelete: Restrict)
+  location                  InventoryLocation            @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  assignments               StockUnitAssignment[]
+  movements                 InventoryMovement[]
+  blocks                    InventoryBlock[]
+  lifecycleEvents           StockUnitLifecycleEvent[]
+  inspections               StockUnitInspection[]
+  issues                    StockUnitIssue[]
+  serviceOrders             InventoryServiceOrder[]
+  componentStates           StockUnitComponentState[]
+  mediaAttachments          InventoryMediaAttachment[]
+  transferUnits             InventoryTransferUnit[]
+  revenueAllocations        StockUnitRevenueAllocation[]
+  countObservations         InventoryCountObservation[]
+  countItems                InventoryCountItem[]
+  custody                   StockUnitCustody?
+  custodyEvents             CustodyEvent[]
+  fulfillmentAllocations    FulfillmentAllocation[]
+  handoverItems             HandoverItem[]
+  rentalItems               RentalItem[]
+  receivedReturnIntakeItems ReturnIntakeItem[]           @relation("ReturnIntakeReceivedStockUnit")
+  operationalExceptions     OperationalException[]
+  operationalTasks          OperationalTask[]
 
   @@unique([tenantId, assetCode])
   @@unique([tenantId, barcode])
@@ -2898,15 +3756,19 @@ model StockUnitAssignment {
   releasedAt       DateTime? @map("released_at")
   releaseReason    String?   @map("release_reason")
 
-  tenant             Tenant                        @relation(fields: [tenantId], references: [id])
-  reservation        InventoryReservation          @relation(fields: [reservationId], references: [id], onDelete: Restrict)
-  stockUnit          StockUnit                     @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
-  assignedByUser     User?                         @relation("StockUnitAssignedBy", fields: [assignedByUserId], references: [id])
-  lifecycleEvents    StockUnitLifecycleEvent[]
-  inspections        StockUnitInspection[]
-  issues             StockUnitIssue[]
-  fulfillmentEvents  FulfillmentRequirementEvent[]
-  revenueAllocations StockUnitRevenueAllocation[]
+  tenant                    Tenant                        @relation(fields: [tenantId], references: [id])
+  reservation               InventoryReservation          @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  stockUnit                 StockUnit                     @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  assignedByUser            User?                         @relation("StockUnitAssignedBy", fields: [assignedByUserId], references: [id])
+  lifecycleEvents           StockUnitLifecycleEvent[]
+  inspections               StockUnitInspection[]
+  issues                    StockUnitIssue[]
+  fulfillmentEvents         FulfillmentRequirementEvent[]
+  revenueAllocations        StockUnitRevenueAllocation[]
+  fulfillmentAllocations    FulfillmentAllocation[]
+  handoverItems             HandoverItem[]
+  rentalItems               RentalItem[]
+  expectedReturnIntakeItems ReturnIntakeItem[]            @relation("ReturnIntakeExpectedAssignment")
 
   @@index([reservationId, releasedAt])
   @@index([tenantId, stockUnitId, blockedStartDate, blockedEndDate])
@@ -3187,6 +4049,7 @@ model StockUnitInspection {
   sourceServiceOrders InventoryServiceOrder[]    @relation("ServiceOrderSourceInspection")
   lifecycleEvents     StockUnitLifecycleEvent[]
   mediaAttachments    InventoryMediaAttachment[]
+  financialEntries    FinancialEntry[]
 
   @@unique([tenantId, createIdempotencyKey])
   @@unique([tenantId, completionIdempotencyKey])

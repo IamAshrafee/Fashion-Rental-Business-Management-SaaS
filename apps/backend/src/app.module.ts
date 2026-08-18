@@ -39,6 +39,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { HealthModule } from './modules/health/health.module';
 import { SecurityModule } from './common/security/security.module';
 import { ImpersonationAuditInterceptor } from './common/interceptors/impersonation-audit.interceptor';
+import { OperationsModule } from './modules/operations/operations.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { ImpersonationAuditInterceptor } from './common/interceptors/impersonati
     TenantModule,
     ProductModule,
     InventoryModule,
+    OperationsModule,
     BookingModule,
     CustomerModule,
     PaymentModule,

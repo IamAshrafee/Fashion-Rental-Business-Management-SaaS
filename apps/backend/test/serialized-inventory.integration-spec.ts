@@ -4,12 +4,19 @@ import { InventoryCountService } from '../src/modules/inventory/inventory-count.
 import { InventoryLocationService } from '../src/modules/inventory/inventory-location.service';
 import { InventoryManagementService } from '../src/modules/inventory/inventory-management.service';
 import { StockUnitLifecycleService } from '../src/modules/inventory/stock-unit-lifecycle.service';
+import { StockUnitCustodyService } from '../src/modules/operations/stock-unit-custody.service';
 
 describe('serialized inventory PostgreSQL contracts', () => {
   const prisma = new PrismaClient();
   const locations = new InventoryLocationService(prisma as never);
   const lifecycle = new StockUnitLifecycleService(prisma as never);
-  const inventory = new InventoryManagementService(prisma as never, lifecycle, locations);
+  const custodies = new StockUnitCustodyService(prisma as never);
+  const inventory = new InventoryManagementService(
+    prisma as never,
+    lifecycle,
+    locations,
+    custodies,
+  );
   const counts = new InventoryCountService(prisma as never);
 
   afterAll(async () => prisma.$disconnect());
@@ -112,15 +119,38 @@ describe('serialized inventory PostgreSQL contracts', () => {
     );
     expect(registration.units).toHaveLength(2);
     expect(registration.units.every((unit) => unit.acquisitionCost === 18000)).toBe(true);
+    await expect(
+      prisma.stockUnitCustody.findMany({
+        where: {
+          tenantId: tenant.id,
+          stockUnitId: { in: registration.units.map((unit) => unit.id) },
+        },
+        orderBy: { stockUnitId: 'asc' },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ custodyType: 'BUSINESS_LOCATION', locationId: mainLocation.id }),
+      expect.objectContaining({ custodyType: 'BUSINESS_LOCATION', locationId: mainLocation.id }),
+    ]);
+    await expect(
+      prisma.custodyEvent.count({
+        where: {
+          tenantId: tenant.id,
+          stockUnitId: { in: registration.units.map((unit) => unit.id) },
+        },
+      }),
+    ).resolves.toBe(2);
 
-    const wrongLocationItem = await prisma.stockUnit.create({
-      data: {
-        tenantId: tenant.id,
-        variantSizeId: sku.id,
+    const wrongLocationRegistration = await inventory.createStockUnitBatch(
+      tenant.id,
+      sku.id,
+      {
         locationId: otherLocation.id,
-        assetCode: `DRS-${suffix}-003`,
+        rows: [{ assetCode: `DRS-${suffix}-003` }],
+        idempotencyKey: randomUUID(),
       },
-    });
+      owner.id,
+    );
+    const wrongLocationItem = wrongLocationRegistration.units[0];
     const result = await counts.reconcile(
       tenant.id,
       {

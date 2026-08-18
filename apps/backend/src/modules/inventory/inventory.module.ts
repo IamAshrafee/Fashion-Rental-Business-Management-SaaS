@@ -23,9 +23,10 @@ import { InventoryLedgerService } from './inventory-ledger.service';
 import { InventoryBlockService } from './inventory-block.service';
 import { InventoryCountService } from './inventory-count.service';
 import { StockUnitRevenueService } from './stock-unit-revenue.service';
+import { OperationsModule } from '../operations/operations.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, OperationsModule],
   controllers: [
     InventoryGuestController,
     InventoryOwnerController,

@@ -39,6 +39,7 @@ import {
   BOOKING_LIST_MAX_LIMIT,
 } from './dto/booking.dto';
 import { buildBookingOperations } from './booking-operations';
+import { BookingVersionService } from '../operations/booking-version.service';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -210,6 +211,7 @@ export class BookingService {
     private readonly inventoryAvailability: InventoryAvailabilityService,
     private readonly inventoryReservations: InventoryReservationService,
     private readonly fulfillment: FulfillmentService,
+    private readonly bookingVersions: BookingVersionService,
   ) {
     this.storefrontCarts = new StorefrontCartService(prisma);
     this.subscriptions = new SubscriptionService(prisma);
@@ -814,10 +816,15 @@ export class BookingService {
     return this.createBooking(tenantId, dto, creationKey, cart.id);
   }
 
-  async createManualBooking(tenantId: string, dto: CreateManualBookingDto, creationKey?: string) {
+  async createManualBooking(
+    tenantId: string,
+    dto: CreateManualBookingDto,
+    creationKey?: string,
+    actorUserId?: string,
+  ) {
     if (!creationKey?.trim())
       throw new BadRequestException('Idempotency-Key is required for manual booking creation');
-    return this.createBooking(tenantId, dto, creationKey);
+    return this.createBooking(tenantId, dto, creationKey, undefined, actorUserId);
   }
 
   /**
@@ -836,6 +843,7 @@ export class BookingService {
     dto: CreateBookingDto,
     rawCreationKey?: string,
     storefrontCartId?: string,
+    actorUserId?: string,
   ) {
     const manualDto = 'quoteId' in dto ? (dto as CreateManualBookingDto) : null;
     const storefrontQuoteId = manualDto ? null : (dto.checkoutQuoteId ?? null);
@@ -1328,6 +1336,78 @@ export class BookingService {
           });
         }
 
+        await this.bookingVersions.createInitial(tx, {
+          tenantId,
+          bookingId: newBooking.id,
+          snapshot: this.toInputJson({
+            channel: newBooking.channel,
+            customerId: newBooking.customerId,
+            bookingNumber: newBooking.bookingNumber,
+            rentalStartDate: newBooking.rentalStartDate,
+            rentalEndDate: newBooking.rentalEndDate,
+            sourceLocationId: newBooking.sourceLocationId,
+            handoverMethod: newBooking.handoverMethod,
+            returnMethod: newBooking.returnMethod,
+            paymentMethod: newBooking.paymentMethod,
+            delivery: {
+              name: newBooking.deliveryName,
+              phone: newBooking.deliveryPhone,
+              alternatePhone: newBooking.deliveryAltPhone,
+              addressLine1: newBooking.deliveryAddressLine1,
+              addressLine2: newBooking.deliveryAddressLine2,
+              city: newBooking.deliveryCity,
+              state: newBooking.deliveryState,
+              postalCode: newBooking.deliveryPostalCode,
+              country: newBooking.deliveryCountry,
+              extra: deliveryExtra,
+            },
+            pricing: {
+              subtotal: newBooking.subtotal,
+              totalFees: newBooking.totalFees,
+              shippingFee: newBooking.shippingFee,
+              totalDeposit: newBooking.totalDeposit,
+              discountAmount: newBooking.discountAmount,
+              discountType: newBooking.discountType,
+              discountReason: newBooking.discountReason,
+              grandTotal: newBooking.grandTotal,
+            },
+            items: validatedItems.map((item, index) => ({
+              productId: item.productId,
+              variantId: item.variantId,
+              variantSizeId: item.variantSizeId,
+              quantity: item.quantity,
+              productName: item.productName,
+              variantName: item.variantName,
+              colorName: item.colorName,
+              startDate: dto.items[index].startDate,
+              endDate: dto.items[index].endDate,
+              rentalDays: item.rentalDays,
+              baseRental: item.baseRental,
+              extendedDays: item.extendedDays,
+              extendedCost: item.extendedCost,
+              depositAmount: item.depositAmount,
+              cleaningFee: item.cleaningFee,
+              backupSizeFee: item.backupSizeFee,
+              tryOnFee: item.tryOnFee,
+              shippingFee: item.shippingFee,
+              itemTotal: item.itemTotal,
+              policyVersionId: item.policyVersionId,
+              fulfillmentProposal: fulfillmentProposals[index],
+            })),
+            policy: {
+              temporaryHoldExpiresAt: pendingReservationExpiresAt,
+              rentalStartPolicy: 'SCHEDULED',
+              returnTimelinessPolicy: 'CUSTOMER_HANDOVER',
+              depositCollectionTiming: 'HANDOVER',
+            },
+          }),
+          reason: manualDto
+            ? 'Owner created booking request'
+            : 'Customer submitted storefront booking request',
+          actorUserId: actorUserId ?? null,
+          occurredAt: now,
+        });
+
         const submittedTransactionId =
           dto.paymentMethod === 'bkash'
             ? dto.bkashTransactionId?.trim()
@@ -1568,6 +1648,10 @@ export class BookingService {
     return createHash('sha256')
       .update(JSON.stringify(canonicalize(value)))
       .digest('hex');
+  }
+
+  private toInputJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   private parseLateFeePolicy(value: Prisma.JsonValue | undefined): LateFeePolicy | null {
@@ -2458,9 +2542,8 @@ export class BookingService {
       today.getMonth() - 1,
       today.getDate() + 1,
     );
-    const previousPeriodEnd = previousPeriodEndCandidate > firstDayOfMonth
-      ? firstDayOfMonth
-      : previousPeriodEndCandidate;
+    const previousPeriodEnd =
+      previousPeriodEndCandidate > firstDayOfMonth ? firstDayOfMonth : previousPeriodEndCandidate;
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
 
@@ -2696,15 +2779,16 @@ export class BookingService {
     );
     const previousBookedRentalValue = Math.max(
       0,
-      (previousBookedValueAgg._sum.grandTotal || 0)
-        - (previousBookedValueAgg._sum.totalDeposit || 0),
+      (previousBookedValueAgg._sum.grandTotal || 0) -
+        (previousBookedValueAgg._sum.totalDeposit || 0),
     );
-    const bookedValueChangePercent = previousBookedRentalValue > 0
-      ? Math.round(
-        ((bookedRentalValueThisMonth - previousBookedRentalValue)
-          / previousBookedRentalValue) * 100,
-      )
-      : null;
+    const bookedValueChangePercent =
+      previousBookedRentalValue > 0
+        ? Math.round(
+            ((bookedRentalValueThisMonth - previousBookedRentalValue) / previousBookedRentalValue) *
+              100,
+          )
+        : null;
     const setupSettings = setupTenant?.storeSettings;
 
     return {
@@ -2727,9 +2811,9 @@ export class BookingService {
         publishedProduct: setupPublishedProductCount > 0,
         physicalInventory: setupStockUnitCount > 0,
         payment: Boolean(
-          setupSettings?.bkashNumber
-          || setupSettings?.nagadNumber
-          || (setupSettings?.sslcommerzStoreId && setupSettings.sslcommerzStorePass),
+          setupSettings?.bkashNumber ||
+          setupSettings?.nagadNumber ||
+          (setupSettings?.sslcommerzStoreId && setupSettings.sslcommerzStorePass),
         ),
         delivery: Boolean(setupSettings?.pickupAddress && setupSettings.pickupCity),
       },

@@ -4,13 +4,11 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { CustomerModule } from '../customer/customer.module';
 import { BookingService } from './booking.service';
 import { InventoryHoldSchedulerService } from './inventory-hold-scheduler.service';
-import {
-  BookingGuestController,
-  BookingOwnerController,
-} from './booking.controller';
+import { BookingGuestController, BookingOwnerController } from './booking.controller';
 import { PricingEngineModule } from '../pricing-engine/pricing-engine.module'; // Added PricingEngineModule
 import { InventoryModule } from '../inventory/inventory.module';
 import { StorefrontCartService } from './storefront-cart.service';
+import { OperationsModule } from '../operations/operations.module';
 
 /**
  * Booking Module — P07 Booking & Availability Engine.
@@ -31,6 +29,7 @@ import { StorefrontCartService } from './storefront-cart.service';
     CustomerModule,
     PricingEngineModule,
     InventoryModule,
+    OperationsModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [BookingGuestController, BookingOwnerController],

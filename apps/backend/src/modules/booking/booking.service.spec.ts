@@ -32,7 +32,9 @@ function requestHash(value: unknown): string {
     }
     return child;
   };
-  return createHash('sha256').update(JSON.stringify(canonicalize(value))).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalize(value)))
+    .digest('hex');
 }
 
 const existingBooking = {
@@ -77,30 +79,33 @@ function serviceWith(prisma: object, customerService: object = {}) {
     {} as never,
     {} as never,
     {} as never,
+    { createInitial: jest.fn() } as never,
     {} as never,
   );
 }
 
 describe('BookingService', () => {
   it('preserves bundle adjustments when aggregating authoritative item totals', () => {
-    expect(computeCartSummary([
-      {
-        itemTotal: 175_000,
-        cleaningFee: 10_000,
-        backupSizeFee: 5_000,
-        tryOnFee: 0,
-        shippingFee: 12_000,
-        depositAmount: 50_000,
-      },
-      {
-        itemTotal: 90_000,
-        cleaningFee: 0,
-        backupSizeFee: 0,
-        tryOnFee: 0,
-        shippingFee: 12_000,
-        depositAmount: 20_000,
-      },
-    ])).toEqual({
+    expect(
+      computeCartSummary([
+        {
+          itemTotal: 175_000,
+          cleaningFee: 10_000,
+          backupSizeFee: 5_000,
+          tryOnFee: 0,
+          shippingFee: 12_000,
+          depositAmount: 50_000,
+        },
+        {
+          itemTotal: 90_000,
+          cleaningFee: 0,
+          backupSizeFee: 0,
+          tryOnFee: 0,
+          shippingFee: 12_000,
+          depositAmount: 20_000,
+        },
+      ]),
+    ).toEqual({
       subtotal: 250_000,
       totalFees: 15_000,
       totalDeposit: 70_000,
@@ -131,19 +136,21 @@ describe('BookingService', () => {
     } as CreateBookingDto;
 
     await expect(
-      serviceWith(prisma).createBooking(
-        'tenant-1',
-        conflictingRequest,
-        'manual-booking-draft-1',
-      ),
+      serviceWith(prisma).createBooking('tenant-1', conflictingRequest, 'manual-booking-draft-1'),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejects owner-only pricing controls at the public booking boundary', async () => {
-    await expect(serviceWith({}).createGuestBooking('tenant-1', {
-      ...request,
-      discount: { type: 'flat', value: 1_000, reason: 'Attempted public override' },
-    }, 'guest-key')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      serviceWith({}).createGuestBooking(
+        'tenant-1',
+        {
+          ...request,
+          discount: { type: 'flat', value: 1_000, reason: 'Attempted public override' },
+        },
+        'guest-key',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('builds the assignment queue and operational projection on the server', async () => {
@@ -236,25 +243,29 @@ describe('BookingService', () => {
         fullName: 'Nadia Rahman',
         identities: [{ kind: 'phone', value: '01700000000', isPrimary: true }],
       },
-      items: [{
-        id: 'item-1',
-        quantity: 1,
-        startDate: new Date('2026-08-10T00:00:00.000Z'),
-        endDate: new Date('2026-08-12T00:00:00.000Z'),
-        depositAmount: 0,
-        depositSettlement: null,
-        stockUnitInspections: [],
-        stockUnitIssues: [],
-        fulfillmentRequirements: [{
-          status: 'RESERVED',
+      items: [
+        {
+          id: 'item-1',
           quantity: 1,
-          assignedQuantity: 1,
-          handedOutQuantity: 0,
-          returnedQuantity: 0,
-          lostQuantity: 0,
-          preparationStatus: 'NOT_STARTED',
-        }],
-      }],
+          startDate: new Date('2026-08-10T00:00:00.000Z'),
+          endDate: new Date('2026-08-12T00:00:00.000Z'),
+          depositAmount: 0,
+          depositSettlement: null,
+          stockUnitInspections: [],
+          stockUnitIssues: [],
+          fulfillmentRequirements: [
+            {
+              status: 'RESERVED',
+              quantity: 1,
+              assignedQuantity: 1,
+              handedOutQuantity: 0,
+              returnedQuantity: 0,
+              lostQuantity: 0,
+              preparationStatus: 'NOT_STARTED',
+            },
+          ],
+        },
+      ],
       _count: { items: 1 },
     };
     const prisma = {
@@ -300,20 +311,30 @@ describe('BookingService', () => {
           grandTotal: 200000,
           totalFees: 10000,
           totalPaid: 200000,
-          items: [{
-            id: 'item-1',
-            endDate: new Date('2020-01-01T00:00:00.000Z'),
-            baseRental: 150000,
-            itemTotal: 200000,
-            lateDays: 0,
-            lateFee: 0,
-            product: { pricingProfile: { policyVersions: [{ lateFeePolicy: {
-              enabled: true,
-              graceHours: 0,
-              mode: 'FLAT',
-              amountMinor: 5000,
-            } }] } },
-          }],
+          items: [
+            {
+              id: 'item-1',
+              endDate: new Date('2020-01-01T00:00:00.000Z'),
+              baseRental: 150000,
+              itemTotal: 200000,
+              lateDays: 0,
+              lateFee: 0,
+              product: {
+                pricingProfile: {
+                  policyVersions: [
+                    {
+                      lateFeePolicy: {
+                        enabled: true,
+                        graceHours: 0,
+                        mode: 'FLAT',
+                        amountMinor: 5000,
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
         }),
         update: jest.fn().mockResolvedValue({}),
       },
@@ -329,6 +350,7 @@ describe('BookingService', () => {
       {} as never,
       {} as never,
       {} as never,
+      { createInitial: jest.fn() } as never,
     );
 
     const result = await service.calculateLateFees('tenant-1', 'booking-1');

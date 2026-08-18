@@ -18,10 +18,17 @@ function makeService(tx: Record<string, unknown>) {
     $transaction: jest.fn((callback) => callback(tx)),
   };
   const locations = { getActiveOrThrow: jest.fn().mockResolvedValue({ id: locationId }) };
+  const custodies = { initializeBusinessLocation: jest.fn() };
   return {
-    service: new InventoryManagementService(prisma as never, {} as never, locations as never),
+    service: new InventoryManagementService(
+      prisma as never,
+      {} as never,
+      locations as never,
+      custodies as never,
+    ),
     prisma,
     locations,
+    custodies,
   };
 }
 
@@ -37,18 +44,20 @@ describe('InventoryManagementService serialized registration and correction', ()
       },
       stockUnit: {
         findMany: jest.fn().mockResolvedValue([]),
-        create: jest
-          .fn()
-          .mockImplementation(({ data }) =>
-            Promise.resolve({ id: `unit-${data.registrationRow + 1}`, ...data }),
-          ),
+        create: jest.fn().mockImplementation(({ data }) =>
+          Promise.resolve({
+            id: `unit-${data.registrationRow + 1}`,
+            createdAt: new Date('2026-08-18T00:00:00.000Z'),
+            ...data,
+          }),
+        ),
       },
       skuSetComponentDefinition: {
         findMany: jest.fn().mockResolvedValue([{ id: 'component-1', requiredQuantity: 1 }]),
       },
       inventoryMovement: { create: jest.fn() },
     };
-    const { service } = makeService(tx);
+    const { service, custodies } = makeService(tx);
 
     const result = await service.createStockUnitBatch(
       tenantId,
@@ -97,6 +106,16 @@ describe('InventoryManagementService serialized registration and correction', ()
       }),
     );
     expect(tx.inventoryMovement.create).toHaveBeenCalledTimes(2);
+    expect(custodies.initializeBusinessLocation).toHaveBeenCalledTimes(2);
+    expect(custodies.initializeBusinessLocation).toHaveBeenNthCalledWith(
+      1,
+      tx,
+      expect.objectContaining({
+        stockUnitId: 'unit-1',
+        locationId,
+        idempotencyKey: `registration:${idempotencyKey}:0`,
+      }),
+    );
   });
 
   it('rejects duplicate identities before any physical item is created', async () => {
