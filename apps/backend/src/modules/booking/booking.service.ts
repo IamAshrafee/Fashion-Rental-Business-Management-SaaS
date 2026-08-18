@@ -40,6 +40,7 @@ import {
 } from './dto/booking.dto';
 import { buildBookingOperations } from './booking-operations';
 import { BookingVersionService } from '../operations/booking-version.service';
+import { BookingOperationsProjectionQueryService } from '../operations/booking-operations-projection-query.service';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -212,6 +213,7 @@ export class BookingService {
     private readonly inventoryReservations: InventoryReservationService,
     private readonly fulfillment: FulfillmentService,
     private readonly bookingVersions: BookingVersionService,
+    private readonly operationsProjection: BookingOperationsProjectionQueryService,
   ) {
     this.storefrontCarts = new StorefrontCartService(prisma);
     this.subscriptions = new SubscriptionService(prisma);
@@ -2046,7 +2048,10 @@ export class BookingService {
     });
 
     if (!booking) throw new NotFoundException('Booking not found');
-    const operationalTimeline = await this.getOperationalTimeline(tenantId, booking);
+    const [operationalTimeline, operationsV2] = await Promise.all([
+      this.getOperationalTimeline(tenantId, booking),
+      this.operationsProjection.project(tenantId, booking.id),
+    ]);
     const primaryPhone =
       booking.customer.identities.find(
         (identity) => identity.kind === 'phone' && identity.isPrimary,
@@ -2090,6 +2095,7 @@ export class BookingService {
         tagAssignments: undefined,
       },
       operations,
+      operationsV2,
       operationalTimeline,
     };
   }
@@ -2111,6 +2117,7 @@ export class BookingService {
   ) {
     const sourceLimit = 201;
     const [
+      operationalEvents,
       events,
       versions,
       substitutions,
@@ -2120,6 +2127,12 @@ export class BookingService {
       damageReports,
       shipmentEvents,
     ] = await Promise.all([
+      this.prisma.operationalEvent.findMany({
+        where: { tenantId, bookingId: booking.id },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+        take: sourceLimit,
+        include: { actor: { select: { id: true, fullName: true } } },
+      }),
       this.prisma.fulfillmentRequirementEvent.findMany({
         where: { tenantId, requirement: { bookingId: booking.id } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -2208,6 +2221,41 @@ export class BookingService {
           'BOOKING_OVERDUE',
           'Rental overdue',
           booking.updatedAt,
+        ),
+      );
+    }
+
+    for (const event of operationalEvents) {
+      const category: BookingOperationalTimelineEvent['category'] =
+        event.category === 'FINANCIAL'
+          ? 'COMMERCIAL'
+          : ['RETURN', 'INSPECTION'].includes(event.category)
+            ? 'RETURN'
+            : event.category === 'BOOKING'
+              ? 'BOOKING'
+              : 'FULFILLMENT';
+      timeline.push(
+        this.timelineEvent(
+          `operational-event-${event.id}`,
+          category,
+          event.eventType,
+          event.eventType
+            .toLowerCase()
+            .replaceAll('_', ' ')
+            .replace(/^./, (letter) => letter.toUpperCase()),
+          event.occurredAt,
+          event.actor,
+          event.reason,
+          null,
+          {
+            aggregateType: event.aggregateType,
+            aggregateId: event.aggregateId,
+            ...(event.metadata &&
+            typeof event.metadata === 'object' &&
+            !Array.isArray(event.metadata)
+              ? (event.metadata as Record<string, unknown>)
+              : {}),
+          },
         ),
       );
     }

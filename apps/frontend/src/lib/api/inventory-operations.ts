@@ -15,17 +15,51 @@ export type StockUnitOperationalState =
   | 'IN_TRANSFER';
 export type StockUnitInspectionType = 'PRE_RENTAL' | 'RETURN' | 'PERIODIC' | 'SERVICE_COMPLETION';
 export type StockUnitInspectionStatus = 'DRAFT' | 'COMPLETED' | 'SUPERSEDED';
-export type StockUnitInspectionDecision = 'AVAILABLE' | 'CLEANING' | 'WASHING' | 'REPAIR' | 'QUARANTINE' | 'LOST' | 'RETIRE';
+export type StockUnitInspectionDecision =
+  | 'AVAILABLE'
+  | 'CLEANING'
+  | 'WASHING'
+  | 'REPAIR'
+  | 'QUARANTINE'
+  | 'LOST'
+  | 'RETIRE';
 export type InspectionCheckResult = 'PASS' | 'FAIL' | 'NOT_APPLICABLE';
 export type StockUnitIssueSeverity = 'INFO' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CRITICAL';
 export type StockUnitIssueStatus = 'OPEN' | 'IN_SERVICE' | 'RESOLVED' | 'WAIVED';
-export type StockUnitIssueResponsibility = 'CUSTOMER' | 'BUSINESS' | 'NORMAL_WEAR' | 'THIRD_PARTY' | 'UNKNOWN';
-export type InventoryServiceOrderType = 'PREPARATION' | 'CLEANING' | 'WASHING' | 'REPAIR' | 'ALTERATION' | 'MAINTENANCE';
-export type InventoryServiceOrderStatus = 'REQUESTED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+export type StockUnitIssueResponsibility =
+  | 'CUSTOMER'
+  | 'BUSINESS'
+  | 'NORMAL_WEAR'
+  | 'THIRD_PARTY'
+  | 'UNKNOWN';
+export type InventoryServiceOrderType =
+  | 'PREPARATION'
+  | 'CLEANING'
+  | 'WASHING'
+  | 'REPAIR'
+  | 'ALTERATION'
+  | 'MAINTENANCE';
+export type InventoryServiceOrderStatus =
+  | 'REQUESTED'
+  | 'SCHEDULED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'FAILED';
 export type StockUnitComponentPresence = 'PRESENT' | 'MISSING' | 'DAMAGED' | 'NOT_APPLICABLE';
-export type InventoryMediaPurpose = 'UNIT_REFERENCE' | 'PRE_RENTAL' | 'POST_RETURN' | 'DAMAGE' | 'SERVICE' | 'CHECKLIST' | 'OTHER';
+export type InventoryMediaPurpose =
+  | 'UNIT_REFERENCE'
+  | 'PRE_RENTAL'
+  | 'POST_RETURN'
+  | 'DAMAGE'
+  | 'SERVICE'
+  | 'CHECKLIST'
+  | 'OTHER';
 
-interface PersonSummary { id: string; fullName: string }
+interface PersonSummary {
+  id: string;
+  fullName: string;
+}
 
 export interface SetComponentDefinition {
   id: string;
@@ -104,10 +138,15 @@ export interface StockUnitInspection {
   completedAt: string | null;
   createdAt: string;
   assignmentId: string | null;
+  bookingVersionId: string | null;
   serviceOrderId: string | null;
   inspectedBy: PersonSummary;
   bookingItem?: { id: string; bookingId: string; productName: string } | null;
-  serviceOrder?: { id: string; serviceType: InventoryServiceOrderType; status: InventoryServiceOrderStatus } | null;
+  serviceOrder?: {
+    id: string;
+    serviceType: InventoryServiceOrderType;
+    status: InventoryServiceOrderStatus;
+  } | null;
   checks: InspectionCheck[];
   issues: StockUnitIssue[];
   mediaAttachments: InventoryMediaAttachment[];
@@ -181,7 +220,11 @@ export interface InspectionQueueRecord {
 
 export interface IssueQueueRecord extends StockUnitIssue {
   stockUnit: InventoryQueueUnit;
-  inspection: { id: string; inspectionType: StockUnitInspectionType; status: StockUnitInspectionStatus } | null;
+  inspection: {
+    id: string;
+    inspectionType: StockUnitInspectionType;
+    status: StockUnitInspectionStatus;
+  } | null;
   bookingItem: { booking: { id: string; bookingNumber: string } } | null;
 }
 
@@ -271,7 +314,13 @@ export interface StockUnitOperations {
         status: string;
       };
     }>;
-    blocks: Array<{ id: string; startDate: string; endDate: string; blockType: string; reason: string | null }>;
+    blocks: Array<{
+      id: string;
+      startDate: string;
+      endDate: string;
+      blockType: string;
+      reason: string | null;
+    }>;
     mediaAttachments: InventoryMediaAttachment[];
     movements: Array<{
       id: string;
@@ -329,10 +378,9 @@ export const inventoryOperationsApi = {
   listAttention: async (
     params: InventoryAttentionQuery,
   ): Promise<PaginatedResponse<InspectionQueueRecord | IssueQueueRecord>> => {
-    const { data } = await apiClient.get<PaginatedResponse<InspectionQueueRecord | IssueQueueRecord>>(
-      '/owner/inventory/inspections',
-      { params },
-    );
+    const { data } = await apiClient.get<
+      PaginatedResponse<InspectionQueueRecord | IssueQueueRecord>
+    >('/owner/inventory/inspections', { params });
     return data;
   },
 
@@ -347,56 +395,216 @@ export const inventoryOperationsApi = {
   },
 
   getUnit: async (stockUnitId: string): Promise<StockUnitOperations> =>
-    unwrap(await apiClient.get<ApiResponse<StockUnitOperations>>(`/owner/inventory/stock-units/${stockUnitId}/operations`)),
+    unwrap(
+      await apiClient.get<ApiResponse<StockUnitOperations>>(
+        `/owner/inventory/stock-units/${stockUnitId}/operations`,
+      ),
+    ),
 
-  transition: async (stockUnitId: string, payload: { targetState: StockUnitOperationalState; reason: string; assignmentId?: string; serviceOrderId?: string; idempotencyKey?: string }) =>
-    unwrap(await apiClient.post<ApiResponse<unknown>>(`/owner/inventory/stock-units/${stockUnitId}/transitions`, payload)),
+  transition: async (
+    stockUnitId: string,
+    payload: {
+      targetState: StockUnitOperationalState;
+      reason: string;
+      assignmentId?: string;
+      serviceOrderId?: string;
+      idempotencyKey?: string;
+    },
+  ) =>
+    unwrap(
+      await apiClient.post<ApiResponse<unknown>>(
+        `/owner/inventory/stock-units/${stockUnitId}/transitions`,
+        payload,
+      ),
+    ),
 
-  changeDisposition: async (stockUnitId: string, payload: { targetDisposition: StockUnitDisposition; reason: string; idempotencyKey?: string }) =>
-    unwrap(await apiClient.post<ApiResponse<unknown>>(`/owner/inventory/stock-units/${stockUnitId}/disposition`, payload)),
+  changeDisposition: async (
+    stockUnitId: string,
+    payload: { targetDisposition: StockUnitDisposition; reason: string; idempotencyKey?: string },
+  ) =>
+    unwrap(
+      await apiClient.post<ApiResponse<unknown>>(
+        `/owner/inventory/stock-units/${stockUnitId}/disposition`,
+        payload,
+      ),
+    ),
 
-  createInspection: async (stockUnitId: string, payload: { inspectionType: StockUnitInspectionType; bookingItemId?: string; assignmentId?: string; serviceOrderId?: string; amendsInspectionId?: string; notes?: string; idempotencyKey?: string }): Promise<StockUnitInspection> =>
-    unwrap(await apiClient.post<ApiResponse<StockUnitInspection>>(`/owner/inventory/stock-units/${stockUnitId}/inspections`, payload)),
+  createInspection: async (
+    stockUnitId: string,
+    payload: {
+      inspectionType: StockUnitInspectionType;
+      bookingItemId?: string;
+      bookingVersionId?: string;
+      assignmentId?: string;
+      serviceOrderId?: string;
+      amendsInspectionId?: string;
+      notes?: string;
+      idempotencyKey?: string;
+    },
+  ): Promise<StockUnitInspection> =>
+    unwrap(
+      await apiClient.post<ApiResponse<StockUnitInspection>>(
+        `/owner/inventory/stock-units/${stockUnitId}/inspections`,
+        payload,
+      ),
+    ),
 
-  completeInspection: async (inspectionId: string, payload: CompleteInspectionInput): Promise<StockUnitInspection> =>
-    unwrap(await apiClient.post<ApiResponse<StockUnitInspection>>(`/owner/inventory/inspections/${inspectionId}/complete`, payload)),
+  completeInspection: async (
+    inspectionId: string,
+    payload: CompleteInspectionInput,
+  ): Promise<StockUnitInspection> =>
+    unwrap(
+      await apiClient.post<ApiResponse<StockUnitInspection>>(
+        `/owner/inventory/inspections/${inspectionId}/complete`,
+        payload,
+      ),
+    ),
 
-  resolveIssue: async (issueId: string, payload: { resolutionNotes: string; waive?: boolean; idempotencyKey: string }): Promise<StockUnitIssue> =>
-    unwrap(await apiClient.post<ApiResponse<StockUnitIssue>>(`/owner/inventory/issues/${issueId}/resolve`, payload)),
+  resolveIssue: async (
+    issueId: string,
+    payload: { resolutionNotes: string; waive?: boolean; idempotencyKey: string },
+  ): Promise<StockUnitIssue> =>
+    unwrap(
+      await apiClient.post<ApiResponse<StockUnitIssue>>(
+        `/owner/inventory/issues/${issueId}/resolve`,
+        payload,
+      ),
+    ),
 
-  createServiceOrder: async (stockUnitId: string, payload: { serviceType: InventoryServiceOrderType; issueId?: string; sourceInspectionId?: string; isAvailabilityBlocking?: boolean; providerName?: string; serviceLocationId?: string; scheduledStartAt?: string; expectedCompletionAt?: string; cost?: number; notes?: string; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>
-    unwrap(await apiClient.post<ApiResponse<InventoryServiceOrder>>(`/owner/inventory/stock-units/${stockUnitId}/service-orders`, payload)),
+  createServiceOrder: async (
+    stockUnitId: string,
+    payload: {
+      serviceType: InventoryServiceOrderType;
+      issueId?: string;
+      sourceInspectionId?: string;
+      isAvailabilityBlocking?: boolean;
+      providerName?: string;
+      serviceLocationId?: string;
+      scheduledStartAt?: string;
+      expectedCompletionAt?: string;
+      cost?: number;
+      notes?: string;
+      idempotencyKey?: string;
+    },
+  ): Promise<InventoryServiceOrder> =>
+    unwrap(
+      await apiClient.post<ApiResponse<InventoryServiceOrder>>(
+        `/owner/inventory/stock-units/${stockUnitId}/service-orders`,
+        payload,
+      ),
+    ),
 
-  startServiceOrder: async (serviceOrderId: string, payload: { note?: string; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>
-    unwrap(await apiClient.post<ApiResponse<InventoryServiceOrder>>(`/owner/inventory/service-orders/${serviceOrderId}/start`, payload)),
+  startServiceOrder: async (
+    serviceOrderId: string,
+    payload: { note?: string; idempotencyKey?: string },
+  ): Promise<InventoryServiceOrder> =>
+    unwrap(
+      await apiClient.post<ApiResponse<InventoryServiceOrder>>(
+        `/owner/inventory/service-orders/${serviceOrderId}/start`,
+        payload,
+      ),
+    ),
 
-  completeServiceOrder: async (serviceOrderId: string, payload: { completionOutcome: string; cost?: number; conditionAfter?: StockConditionGrade; requiresInspection?: boolean; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>
-    unwrap(await apiClient.post<ApiResponse<InventoryServiceOrder>>(`/owner/inventory/service-orders/${serviceOrderId}/complete`, payload)),
+  completeServiceOrder: async (
+    serviceOrderId: string,
+    payload: {
+      completionOutcome: string;
+      cost?: number;
+      conditionAfter?: StockConditionGrade;
+      requiresInspection?: boolean;
+      idempotencyKey?: string;
+    },
+  ): Promise<InventoryServiceOrder> =>
+    unwrap(
+      await apiClient.post<ApiResponse<InventoryServiceOrder>>(
+        `/owner/inventory/service-orders/${serviceOrderId}/complete`,
+        payload,
+      ),
+    ),
 
-  cancelServiceOrder: async (serviceOrderId: string, payload: { reason: string; idempotencyKey?: string }): Promise<InventoryServiceOrder> =>
-    unwrap(await apiClient.post<ApiResponse<InventoryServiceOrder>>(`/owner/inventory/service-orders/${serviceOrderId}/cancel`, payload)),
+  cancelServiceOrder: async (
+    serviceOrderId: string,
+    payload: { reason: string; idempotencyKey?: string },
+  ): Promise<InventoryServiceOrder> =>
+    unwrap(
+      await apiClient.post<ApiResponse<InventoryServiceOrder>>(
+        `/owner/inventory/service-orders/${serviceOrderId}/cancel`,
+        payload,
+      ),
+    ),
 
-  createSetComponent: async (variantSizeId: string, payload: { name: string; requiredQuantity: number; inspectionGuidance?: string; absenceBlocksRental: boolean; displayOrder?: number }): Promise<SetComponentDefinition> =>
-    unwrap(await apiClient.post<ApiResponse<SetComponentDefinition>>(`/owner/inventory/variant-sizes/${variantSizeId}/set-components`, payload)),
+  createSetComponent: async (
+    variantSizeId: string,
+    payload: {
+      name: string;
+      requiredQuantity: number;
+      inspectionGuidance?: string;
+      absenceBlocksRental: boolean;
+      displayOrder?: number;
+    },
+  ): Promise<SetComponentDefinition> =>
+    unwrap(
+      await apiClient.post<ApiResponse<SetComponentDefinition>>(
+        `/owner/inventory/variant-sizes/${variantSizeId}/set-components`,
+        payload,
+      ),
+    ),
 
   listSetComponents: async (variantSizeId: string): Promise<SetComponentDefinition[]> =>
-    unwrap(await apiClient.get<ApiResponse<SetComponentDefinition[]>>(`/owner/inventory/variant-sizes/${variantSizeId}/set-components`)),
+    unwrap(
+      await apiClient.get<ApiResponse<SetComponentDefinition[]>>(
+        `/owner/inventory/variant-sizes/${variantSizeId}/set-components`,
+      ),
+    ),
 
   deactivateSetComponent: async (definitionId: string): Promise<void> => {
     await apiClient.delete(`/owner/inventory/set-components/${definitionId}`);
   },
 
-  updateComponentState: async (stockUnitId: string, definitionId: string, payload: { presence: StockUnitComponentPresence; presentQuantity: number; condition?: StockConditionGrade; notes?: string }): Promise<StockUnitComponentState> =>
-    unwrap(await apiClient.patch<ApiResponse<StockUnitComponentState>>(`/owner/inventory/stock-units/${stockUnitId}/set-components/${definitionId}`, payload)),
+  updateComponentState: async (
+    stockUnitId: string,
+    definitionId: string,
+    payload: {
+      presence: StockUnitComponentPresence;
+      presentQuantity: number;
+      condition?: StockConditionGrade;
+      notes?: string;
+    },
+  ): Promise<StockUnitComponentState> =>
+    unwrap(
+      await apiClient.patch<ApiResponse<StockUnitComponentState>>(
+        `/owner/inventory/stock-units/${stockUnitId}/set-components/${definitionId}`,
+        payload,
+      ),
+    ),
 
-  replaceReferenceMedia: async (stockUnitId: string, media: Array<{ url: string; objectKey?: string; mimeType?: string; purpose: 'UNIT_REFERENCE'; caption?: string }>): Promise<InventoryMediaAttachment[]> =>
-    unwrap(await apiClient.patch<ApiResponse<InventoryMediaAttachment[]>>(`/owner/inventory/stock-units/${stockUnitId}/reference-media`, { media })),
+  replaceReferenceMedia: async (
+    stockUnitId: string,
+    media: Array<{
+      url: string;
+      objectKey?: string;
+      mimeType?: string;
+      purpose: 'UNIT_REFERENCE';
+      caption?: string;
+    }>,
+  ): Promise<InventoryMediaAttachment[]> =>
+    unwrap(
+      await apiClient.patch<ApiResponse<InventoryMediaAttachment[]>>(
+        `/owner/inventory/stock-units/${stockUnitId}/reference-media`,
+        { media },
+      ),
+    ),
 
-  uploadInspectionMedia: async (stockUnitId: string, files: File[]): Promise<Array<{ url: string; objectKey: string; mimeType: string }>> => {
+  uploadInspectionMedia: async (
+    stockUnitId: string,
+    files: File[],
+  ): Promise<Array<{ url: string; objectKey: string; mimeType: string }>> => {
     const body = new FormData();
     body.append('stockUnitId', stockUnitId);
     files.forEach((file) => body.append('files', file));
-    const response = await apiClient.post<ApiResponse<{ files: Array<{ url: string; objectKey: string; mimeType: string }> }>>('/owner/upload/inventory-photos', body, {
+    const response = await apiClient.post<
+      ApiResponse<{ files: Array<{ url: string; objectKey: string; mimeType: string }> }>
+    >('/owner/upload/inventory-photos', body, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data.data.files;

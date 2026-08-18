@@ -183,7 +183,12 @@ export interface BookingListItem {
   grandTotal: number;
   deliveryName: string;
   createdAt: string;
-  customer: { id: string; fullName: string; primaryPhone: string | null; primaryEmail: string | null };
+  customer: {
+    id: string;
+    fullName: string;
+    primaryPhone: string | null;
+    primaryEmail: string | null;
+  };
   items: Array<{
     id: string;
     productName: string;
@@ -222,7 +227,20 @@ export interface BookingListItem {
     handoverMethod: 'DELIVERY' | 'CUSTOMER_PICKUP' | null;
     returnMethod: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN' | null;
     blockers: string[];
-    nextAction: 'REVIEW' | 'ASSIGN_ITEMS' | 'PREPARE' | 'HAND_OUT' | 'START_RENTAL' | 'RECEIVE_RETURN' | 'INSPECT' | 'REVIEW_RETURN' | 'SETTLE_DEPOSIT' | 'COLLECT_BALANCE' | 'RESOLVE_RETURN_WORK' | 'COMPLETE' | 'NONE';
+    nextAction:
+      | 'REVIEW'
+      | 'ASSIGN_ITEMS'
+      | 'PREPARE'
+      | 'HAND_OUT'
+      | 'START_RENTAL'
+      | 'RECEIVE_RETURN'
+      | 'INSPECT'
+      | 'REVIEW_RETURN'
+      | 'SETTLE_DEPOSIT'
+      | 'COLLECT_BALANCE'
+      | 'RESOLVE_RETURN_WORK'
+      | 'COMPLETE'
+      | 'NONE';
   };
 }
 
@@ -333,6 +351,114 @@ export interface BookingDetailPayment {
   createdAt: string;
 }
 
+export type BookingOperationStage =
+  | 'REVIEW_RESERVE'
+  | 'READY_CHECK'
+  | 'PREPARING'
+  | 'READY_HANDOVER'
+  | 'HANDOVER_PROGRESS'
+  | 'ACTIVE_RENTAL'
+  | 'RETURN_PROGRESS'
+  | 'RETURN_INSPECTION'
+  | 'FINAL_SETTLEMENT'
+  | 'CLOSED'
+  | 'REJECTED'
+  | 'CANCELLED';
+
+export interface BookingStageAction {
+  code: string;
+  label: string;
+  href: string;
+  intent: 'PRIMARY' | 'RECOVERY' | 'SECONDARY';
+}
+
+export interface BookingStageBlocker {
+  code: string;
+  message: string;
+  count?: number;
+  amountMinor?: number;
+  recoveryAction?: BookingStageAction;
+}
+
+export interface BookingOperationsV2 {
+  currentVersion: {
+    id: string;
+    version: number;
+    decision: 'PENDING' | 'APPROVED' | 'REJECTED';
+    approvedAt: string | null;
+    rejectedAt: string | null;
+    reason: string | null;
+  } | null;
+  review: {
+    holdExpiresAt: string | null;
+    holdExpired: boolean;
+    exactAssignmentComplete: boolean;
+    originLocations: Array<{ id: string; code: string; name: string }>;
+  };
+  stage: BookingOperationStage;
+  modifier: 'PARTIAL' | 'ON_HOLD' | 'REOPENED' | null;
+  title: string;
+  description: string;
+  dominantAction: BookingStageAction | null;
+  recoveryActions: BookingStageAction[];
+  blockers: BookingStageBlocker[];
+  closeBlockers: BookingStageBlocker[];
+  canClose: boolean;
+  itemProgress: {
+    total: number;
+    assigned: number;
+    readyChecked: number;
+    packed: number;
+    withCustomer: number;
+    outbound: number;
+    returning: number;
+    received: number;
+    inspected: number;
+    lost: number;
+    unknownCustody: number;
+    unresolvedReturns: number;
+  };
+  financial: {
+    customerReceivable: number;
+    customerCredit: number;
+    depositRequired: number;
+    depositHeld: number;
+    depositUnresolved: number;
+    refundDue: number;
+    courierReceivable: number;
+    failedRefundCount: number;
+  };
+  attention: {
+    paymentDue: boolean;
+    refundDue: boolean;
+    depositDue: boolean;
+    returnDueToday: boolean;
+    overdue: boolean;
+    courierIssue: boolean;
+    needsAttention: boolean;
+  };
+  exceptions: { blockingCount: number; openCount: number; criticalCount: number; onHold: boolean };
+  tasks: { openCount: number; overdueCount: number };
+  fulfillmentGroups: Array<{
+    id: string;
+    version: number;
+    direction: string;
+    method: string;
+    status: string;
+    originLocation: { id: string; code: string; name: string };
+    fulfillments: Array<{
+      id: string;
+      status: string;
+      allocations: Array<{
+        id: string;
+        status: string;
+        stockUnit: { id: string; assetCode: string };
+        assignment: { id: string; reservation: { bookingItemId: string } };
+      }>;
+    }>;
+  }>;
+}
+
 export interface BookingDetailResponse {
   id: string;
   tenantId: string;
@@ -403,6 +529,7 @@ export interface BookingDetailResponse {
     tags: Array<{ id: string; name: string; color: string | null }>;
   };
   operations: BookingListItem['operations'];
+  operationsV2: BookingOperationsV2;
   items: BookingDetailItem[];
   payments: BookingDetailPayment[];
   fulfillmentExtensions: Array<{
@@ -520,7 +647,20 @@ export interface BookingStats {
   todayReturns: number;
   todayDeliveries: number;
   totalActive: number;
-  queueCounts: Record<'ALL' | 'REQUEST' | 'ASSIGNMENT' | 'PREPARATION' | 'HANDOFF' | 'ACTIVE' | 'RETURN_DUE' | 'RETURN_INTAKE' | 'INSPECTION' | 'EXCEPTION' | 'CLOSED', number>;
+  queueCounts: Record<
+    | 'ALL'
+    | 'REQUEST'
+    | 'ASSIGNMENT'
+    | 'PREPARATION'
+    | 'HANDOFF'
+    | 'ACTIVE'
+    | 'RETURN_DUE'
+    | 'RETURN_INTAKE'
+    | 'INSPECTION'
+    | 'EXCEPTION'
+    | 'CLOSED',
+    number
+  >;
   recentBookings: Array<{
     id: string;
     bookingNumber: string;
@@ -535,7 +675,17 @@ export interface BookingListQuery {
   page?: number;
   limit?: number;
   status?: string;
-  queue?: 'REQUEST' | 'ASSIGNMENT' | 'PREPARATION' | 'HANDOFF' | 'ACTIVE' | 'RETURN_DUE' | 'RETURN_INTAKE' | 'INSPECTION' | 'EXCEPTION' | 'CLOSED';
+  queue?:
+    | 'REQUEST'
+    | 'ASSIGNMENT'
+    | 'PREPARATION'
+    | 'HANDOFF'
+    | 'ACTIVE'
+    | 'RETURN_DUE'
+    | 'RETURN_INTAKE'
+    | 'INSPECTION'
+    | 'EXCEPTION'
+    | 'CLOSED';
   search?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -553,7 +703,10 @@ export interface BookingListQuery {
 
 export const bookingApi = {
   /** Creates a staff booking from an unexpired authoritative owner quote. */
-  createManual: async (payload: CreateManualBookingPayload, creationKey?: string): Promise<BookingCreatedResponse> => {
+  createManual: async (
+    payload: CreateManualBookingPayload,
+    creationKey?: string,
+  ): Promise<BookingCreatedResponse> => {
     const { data } = await apiClient.post<ApiResponse<BookingCreatedResponse>>(
       '/owner/bookings',
       payload,
@@ -571,7 +724,10 @@ export const bookingApi = {
     items: ManualBookingItemInput[];
     discount?: ManualBookingDiscount;
   }): Promise<ManualBookingQuoteResponse> => {
-    const { data } = await apiClient.post<ApiResponse<ManualBookingQuoteResponse>>('/owner/bookings/quote', payload);
+    const { data } = await apiClient.post<ApiResponse<ManualBookingQuoteResponse>>(
+      '/owner/bookings/quote',
+      payload,
+    );
     if (!data.success) throw new Error(data.message || 'Failed to quote booking');
     return data.data;
   },
@@ -620,9 +776,12 @@ export const bookingApi = {
   },
 
   calendar: async (startDate: string, endDate: string): Promise<BookingCalendarItem[]> => {
-    const { data } = await apiClient.get<ApiResponse<BookingCalendarItem[]>>('/owner/bookings/calendar', {
-      params: { startDate, endDate },
-    });
+    const { data } = await apiClient.get<ApiResponse<BookingCalendarItem[]>>(
+      '/owner/bookings/calendar',
+      {
+        params: { startDate, endDate },
+      },
+    );
     if (!data.success) throw new Error(data.message || 'Failed to load rental calendar');
     return data.data;
   },
@@ -631,10 +790,9 @@ export const bookingApi = {
    * GET /api/v1/owner/bookings
    */
   list: async (query?: BookingListQuery): Promise<PaginatedResponse<BookingListItem>> => {
-    const { data } = await apiClient.get<PaginatedResponse<BookingListItem>>(
-      '/owner/bookings',
-      { params: query },
-    );
+    const { data } = await apiClient.get<PaginatedResponse<BookingListItem>>('/owner/bookings', {
+      params: query,
+    });
     return data;
   },
 
@@ -643,16 +801,81 @@ export const bookingApi = {
    * Returns full booking detail with items, customer, payments.
    */
   getById: async (id: string): Promise<BookingDetailResponse> => {
-    const { data } = await apiClient.get<ApiResponse<BookingDetailResponse>>(`/owner/bookings/${id}`);
+    const { data } = await apiClient.get<ApiResponse<BookingDetailResponse>>(
+      `/owner/bookings/${id}`,
+    );
     if (!data.success) throw new Error(data.message || 'Booking not found');
     return data.data;
   },
 
-  /**
-   * PATCH /api/v1/owner/bookings/:id/confirm
-   */
-  confirm: async (id: string): Promise<void> => {
-    await apiClient.patch(`/owner/bookings/${id}/confirm`);
+  approveAndReserve: async (
+    id: string,
+    payload: {
+      expectedVersion: number;
+      reason?: string;
+      outboundMethod?:
+        | 'COURIER'
+        | 'CUSTOMER_PICKUP'
+        | 'INSTANT_DELIVERY'
+        | 'STAFF_DELIVERY'
+        | 'OTHER';
+      scheduledHandoverAt?: string;
+      rentalStartPolicy?: 'SCHEDULED' | 'VERIFIED_HANDOVER';
+      returnTimelinessPolicy?: 'SCHEDULED_END' | 'CUSTOMER_HANDOVER';
+      depositCollectionTiming?: 'APPROVAL' | 'HANDOVER' | 'WAIVED';
+    },
+    idempotencyKey: string,
+  ): Promise<unknown> => {
+    const { data } = await apiClient.post<ApiResponse<unknown>>(
+      `/owner/bookings/${id}/review/approve-and-reserve`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+    if (!data.success) throw new Error(data.message || 'Booking approval failed');
+    return data.data;
+  },
+
+  rejectRequest: async (
+    id: string,
+    payload: { expectedVersion: number; reason: string },
+    idempotencyKey: string,
+  ): Promise<unknown> => {
+    const { data } = await apiClient.post<ApiResponse<unknown>>(
+      `/owner/bookings/${id}/review/reject`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+    if (!data.success) throw new Error(data.message || 'Booking rejection failed');
+    return data.data;
+  },
+
+  renewHold: async (
+    id: string,
+    payload: { expectedVersion: number; expiresAt: string; reason: string },
+    idempotencyKey: string,
+  ): Promise<unknown> => {
+    const { data } = await apiClient.post<ApiResponse<unknown>>(
+      `/owner/bookings/${id}/review/renew-hold`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+    if (!data.success) throw new Error(data.message || 'Inventory hold renewal failed');
+    return data.data;
+  },
+
+  completePacking: async (
+    bookingId: string,
+    groupId: string,
+    payload: { expectedGroupVersion: number; reason?: string },
+    idempotencyKey: string,
+  ): Promise<unknown> => {
+    const { data } = await apiClient.post<ApiResponse<unknown>>(
+      `/owner/bookings/${bookingId}/fulfillment-groups/${groupId}/packing/complete`,
+      payload,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+    if (!data.success) throw new Error(data.message || 'Packing completion failed');
+    return data.data;
   },
 
   /**
@@ -700,28 +923,36 @@ export const bookingApi = {
   /**
    * POST /api/v1/owner/bookings/:id/items/:itemId/damage
    */
-  reportDamage: async (id: string, itemId: string, payload: {
-    stockUnitIssueId?: string;
-    damageLevel: string;
-    description: string;
-    estimatedRepairCost?: number;
-    deductionAmount: number;
-    additionalCharge: number;
-    photos?: string[];
-  }): Promise<void> => {
+  reportDamage: async (
+    id: string,
+    itemId: string,
+    payload: {
+      stockUnitIssueId?: string;
+      damageLevel: string;
+      description: string;
+      estimatedRepairCost?: number;
+      deductionAmount: number;
+      additionalCharge: number;
+      photos?: string[];
+    },
+  ): Promise<void> => {
     await apiClient.post(`/owner/bookings/${id}/items/${itemId}/damage`, payload);
   },
 
   /**
    * POST /api/v1/owner/bookings/:id/payments
    */
-  recordPayment: async (id: string, payload: {
-    amount: number;
-    depositAmount?: number;
-    method: string;
-    transactionId?: string;
-    notes?: string;
-  }, idempotencyKey: string): Promise<void> => {
+  recordPayment: async (
+    id: string,
+    payload: {
+      amount: number;
+      depositAmount?: number;
+      method: string;
+      transactionId?: string;
+      notes?: string;
+    },
+    idempotencyKey: string,
+  ): Promise<void> => {
     await apiClient.post(`/owner/bookings/${id}/payments`, payload, {
       headers: { 'Idempotency-Key': idempotencyKey },
     });
@@ -738,18 +969,10 @@ export const bookingApi = {
   /**
    * GET /api/v1/owner/bookings/:id/payments
    */
-  getPayments: async (id: string): Promise<Array<{
-    id: string;
-    amount: number;
-    rentalAmount: number;
-    depositAmount: number;
-    method: string;
-    status: string;
-    transactionId?: string;
-    notes?: string;
-    createdAt: string;
-  }>> => {
-    const { data } = await apiClient.get<ApiResponse<Array<{
+  getPayments: async (
+    id: string,
+  ): Promise<
+    Array<{
       id: string;
       amount: number;
       rentalAmount: number;
@@ -759,7 +982,23 @@ export const bookingApi = {
       transactionId?: string;
       notes?: string;
       createdAt: string;
-    }>>>(`/owner/bookings/${id}/payments`);
+    }>
+  > => {
+    const { data } = await apiClient.get<
+      ApiResponse<
+        Array<{
+          id: string;
+          amount: number;
+          rentalAmount: number;
+          depositAmount: number;
+          method: string;
+          status: string;
+          transactionId?: string;
+          notes?: string;
+          createdAt: string;
+        }>
+      >
+    >(`/owner/bookings/${id}/payments`);
     if (!data.success) throw new Error(data.message || 'Failed to load payments');
     return data.data;
   },
@@ -767,15 +1006,19 @@ export const bookingApi = {
   // ── Deposit Management ──────────────────────────────────────────────────
 
   /** Atomically closes one item's held security deposit. */
-  settleDeposit: async (itemId: string, payload: {
-    forfeit: boolean;
-    refundAmount: number;
-    deductionAmount: number;
-    additionalCharge?: number;
-    refundMethod?: string;
-    reason: string;
-    damageReportId?: string;
-  }, idempotencyKey: string): Promise<void> => {
+  settleDeposit: async (
+    itemId: string,
+    payload: {
+      forfeit: boolean;
+      refundAmount: number;
+      deductionAmount: number;
+      additionalCharge?: number;
+      refundMethod?: string;
+      reason: string;
+      damageReportId?: string;
+    },
+    idempotencyKey: string,
+  ): Promise<void> => {
     await apiClient.patch(`/owner/booking-items/${itemId}/deposit/settle`, payload, {
       headers: { 'Idempotency-Key': idempotencyKey },
     });
@@ -803,10 +1046,12 @@ export const bookingApi = {
    * POST /api/v1/owner/bookings/:id/late-fees
    * Calculates and updates late fees for all items in a booking.
    */
-  calculateLateFees: async (id: string): Promise<{ bookingId: string; lateItemsUpdated: number }> => {
-    const { data } = await apiClient.post<ApiResponse<{ bookingId: string; lateItemsUpdated: number }>>(
-      `/owner/bookings/${id}/late-fees`,
-    );
+  calculateLateFees: async (
+    id: string,
+  ): Promise<{ bookingId: string; lateItemsUpdated: number }> => {
+    const { data } = await apiClient.post<
+      ApiResponse<{ bookingId: string; lateItemsUpdated: number }>
+    >(`/owner/bookings/${id}/late-fees`);
     if (!data.success) throw new Error(data.message || 'Failed to calculate late fees');
     return data.data;
   },

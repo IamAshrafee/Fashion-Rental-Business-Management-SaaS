@@ -15,6 +15,7 @@ import {
   Max,
   Min,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import {
   InspectionCheckResult,
@@ -34,90 +35,130 @@ import {
 } from '@prisma/client';
 
 export class InventoryAttentionQueryDto {
-  @IsOptional() @IsIn(['INSPECTION', 'ISSUE'])
+  @IsOptional()
+  @IsIn(['INSPECTION', 'ISSUE'])
   kind: 'INSPECTION' | 'ISSUE' = 'INSPECTION';
 
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page = 1;
 
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit = 25;
 
-  @IsOptional() @IsEnum(StockUnitInspectionType)
+  @IsOptional()
+  @IsEnum(StockUnitInspectionType)
   inspectionType?: StockUnitInspectionType;
 
-  @IsOptional() @IsEnum(StockUnitInspectionStatus)
+  @IsOptional()
+  @IsEnum(StockUnitInspectionStatus)
   inspectionStatus?: StockUnitInspectionStatus;
 
-  @IsOptional() @IsEnum(StockUnitInspectionDecision)
+  @IsOptional()
+  @IsEnum(StockUnitInspectionDecision)
   decision?: StockUnitInspectionDecision;
 
-  @IsOptional() @IsEnum(StockUnitIssueStatus)
+  @IsOptional()
+  @IsEnum(StockUnitIssueStatus)
   issueStatus?: StockUnitIssueStatus;
 
-  @IsOptional() @IsEnum(StockUnitIssueSeverity)
+  @IsOptional()
+  @IsEnum(StockUnitIssueSeverity)
   severity?: StockUnitIssueSeverity;
 
-  @IsOptional() @IsEnum(StockUnitIssueResponsibility)
+  @IsOptional()
+  @IsEnum(StockUnitIssueResponsibility)
   responsibility?: StockUnitIssueResponsibility;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   locationId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   productId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   variantSizeId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   stockUnitId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   bookingId?: string;
 
-  @IsOptional() @IsDateString()
+  @IsOptional()
+  @IsDateString()
   dateFrom?: string;
 
-  @IsOptional() @IsDateString()
+  @IsOptional()
+  @IsDateString()
   dateTo?: string;
 }
 
 export class InventoryServiceQueueQueryDto {
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page = 1;
 
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit = 25;
 
-  @IsOptional() @IsEnum(InventoryServiceOrderType)
+  @IsOptional()
+  @IsEnum(InventoryServiceOrderType)
   serviceType?: InventoryServiceOrderType;
 
-  @IsOptional() @IsEnum(InventoryServiceOrderStatus)
+  @IsOptional()
+  @IsEnum(InventoryServiceOrderStatus)
   status?: InventoryServiceOrderStatus;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   locationId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   productId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   variantSizeId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   stockUnitId?: string;
 
-  @IsOptional() @IsUUID()
+  @IsOptional()
+  @IsUUID()
   issueId?: string;
 
-  @IsOptional() @IsString() @MaxLength(200)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   provider?: string;
 
-  @IsOptional() @IsDateString()
+  @IsOptional()
+  @IsDateString()
   dueBefore?: string;
 
-  @IsOptional() @IsString() @MaxLength(5)
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
   overdue?: 'true' | 'false';
 }
 
@@ -207,6 +248,13 @@ export class CreateStockUnitInspectionDto {
   @IsOptional()
   @IsUUID()
   assignmentId?: string;
+
+  @ValidateIf(
+    (dto: CreateStockUnitInspectionDto) =>
+      dto.inspectionType === StockUnitInspectionType.PRE_RENTAL,
+  )
+  @IsUUID()
+  bookingVersionId?: string;
 
   @IsOptional()
   @IsUUID()

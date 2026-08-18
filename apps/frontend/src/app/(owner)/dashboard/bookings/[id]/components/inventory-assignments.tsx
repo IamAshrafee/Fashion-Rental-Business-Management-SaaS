@@ -61,10 +61,12 @@ function assignmentIdsFrom(requirement: FulfillmentRequirement, eventType: strin
 
 function AssignmentPanel({
   bookingId,
+  bookingVersionId,
   requirement,
   refresh,
 }: {
   bookingId: string;
+  bookingVersionId?: string;
   requirement: FulfillmentRequirement;
   refresh: () => Promise<void>;
 }) {
@@ -135,7 +137,7 @@ function AssignmentPanel({
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" asChild>
                   <Link
-                    href={`/dashboard/products/${requirement.productId}/inventory/${assignment.stockUnit.id}`}
+                    href={`/dashboard/products/${requirement.productId}/inventory/${assignment.stockUnit.id}${bookingVersionId ? `?inspectionType=PRE_RENTAL&assignmentId=${assignment.id}&bookingVersionId=${bookingVersionId}` : ''}`}
                   >
                     <ClipboardCheck className="mr-1 h-3.5 w-3.5" />
                     Prepare / inspect
@@ -144,7 +146,12 @@ function AssignmentPanel({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={release.isPending || requirement.handedOutQuantity > 0 || requirement.preparationStatus === 'READY'}
+                  disabled={
+                    release.isPending ||
+                    Boolean(bookingVersionId) ||
+                    requirement.handedOutQuantity > 0 ||
+                    requirement.preparationStatus === 'READY'
+                  }
                   onClick={() => release.mutate(assignment.id)}
                 >
                   <Undo2 className="mr-1 h-3.5 w-3.5" />
@@ -161,14 +168,22 @@ function AssignmentPanel({
             Returned assets awaiting inspection
           </p>
           {returnedAssets.map((assignment) => (
-            <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-orange-200 bg-orange-50/40 p-3">
+            <div
+              key={assignment.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-orange-200 bg-orange-50/40 p-3"
+            >
               <div>
                 <p className="font-mono text-sm font-medium">{assignment.stockUnit.assetCode}</p>
-                <p className="text-xs text-muted-foreground">Return inspection required before booking settlement</p>
+                <p className="text-xs text-muted-foreground">
+                  Return inspection required before booking settlement
+                </p>
               </div>
               <Button size="sm" asChild>
-                <Link href={`/dashboard/products/${requirement.productId}/inventory/${assignment.stockUnit.id}`}>
-                  <ClipboardCheck className="mr-1 size-3.5" />Inspect item
+                <Link
+                  href={`/dashboard/products/${requirement.productId}/inventory/${assignment.stockUnit.id}`}
+                >
+                  <ClipboardCheck className="mr-1 size-3.5" />
+                  Inspect item
                 </Link>
               </Button>
             </div>
@@ -270,7 +285,8 @@ function EventDialog({
       await refresh();
       toast.success(`${humanize(eventType)} recorded`);
     },
-    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not record fulfillment event')),
+    onError: (error) =>
+      toast.error(getApiErrorMessage(error, 'Could not record fulfillment event')),
   });
   const validQuantity = selected.length > 0 && selected.length <= max;
   const config =
@@ -294,24 +310,24 @@ function EventDialog({
             {config.label} · {requirement.productNameSnapshot}
           </DialogTitle>
           <DialogDescription>
-            This posts an auditable movement for each selected physical item. Returned items move
-            to awaiting inspection.
+            This posts an auditable movement for each selected physical item. Returned items move to
+            awaiting inspection.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-              <Label>
-                Select exact physical items{' '}
-                <FieldTip
-                  helpKey={
-                    eventType === 'HANDED_OUT'
-                      ? 'fulfillment.handout'
-                      : eventType === 'RETURNED'
-                        ? 'fulfillment.return'
-                        : 'fulfillment.loss'
-                  }
-                />
-              </Label>
+            <Label>
+              Select exact physical items{' '}
+              <FieldTip
+                helpKey={
+                  eventType === 'HANDED_OUT'
+                    ? 'fulfillment.handout'
+                    : eventType === 'RETURNED'
+                      ? 'fulfillment.return'
+                      : 'fulfillment.loss'
+                }
+              />
+            </Label>
             {eligibleAssignments.map((assignment) => (
               <label
                 key={assignment.id}
@@ -351,71 +367,6 @@ function EventDialog({
           >
             {record.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {config.label}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function PreparationDialog({
-  requirement,
-  targetStatus,
-  refresh,
-}: {
-  requirement: FulfillmentRequirement;
-  targetStatus: 'IN_PROGRESS' | 'READY';
-  refresh: () => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState('');
-  const prepare = useMutation({
-    mutationFn: () => fulfillmentApi.prepareRequirement(requirement.id, {
-      preparationStatus: targetStatus,
-      reason,
-      idempotencyKey: `${requirement.id}:preparation:${targetStatus}:${crypto.randomUUID()}`,
-    }),
-    onSuccess: async () => {
-      setOpen(false);
-      setReason('');
-      await refresh();
-      toast.success(targetStatus === 'READY' ? 'Item preparation completed' : 'Preparation started');
-    },
-    onError: (error) => toast.error(getApiErrorMessage(error, 'Could not update preparation')),
-  });
-  const ready = targetStatus === 'READY';
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant={ready ? 'default' : 'outline'}>
-          <ClipboardCheck className="mr-1 h-3.5 w-3.5" />
-          {ready ? 'Mark ready' : requirement.preparationStatus === 'READY' ? 'Reopen preparation' : 'Start preparation'}
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {ready ? 'Confirm preparation is complete' : requirement.preparationStatus === 'READY' ? 'Reopen item preparation' : 'Start item preparation'}
-          </DialogTitle>
-          <DialogDescription>
-            {ready
-              ? 'Confirm the complete requirement is checked, assembled, cleaned, and ready for handout.'
-              : 'Record that the team has started preparing this requirement.'}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-2 py-2">
-          <Label>Preparation note <FieldTip helpKey="fulfillment.preparation" /></Label>
-          <Textarea
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder={ready ? 'Checks completed, accessories included, packed by…' : 'Assigned to, preparation instructions…'}
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!reason.trim() || prepare.isPending} onClick={() => prepare.mutate()}>
-            {prepare.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {ready ? 'Confirm ready' : requirement.preparationStatus === 'READY' ? 'Reopen preparation' : 'Start preparation'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -477,9 +428,9 @@ function SubstituteDialog({
             ? { compatible: equivalentConfirmed }
             : undefined,
         approvalStatus:
-          requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL'
-          || requirement.compositionRule?.substitutionPolicy === 'STAFF_APPROVAL'
-          || requirement.compositionRule?.customerApprovalRequired
+          requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL' ||
+          requirement.compositionRule?.substitutionPolicy === 'STAFF_APPROVAL' ||
+          requirement.compositionRule?.customerApprovalRequired
             ? 'APPROVED'
             : 'NOT_REQUIRED',
         approvalEvidence: approvalEvidence.trim() || undefined,
@@ -567,16 +518,23 @@ function SubstituteDialog({
               value={priceImpact}
               onChange={(event) => setPriceImpact(event.target.value)}
             />
-            <p className="text-xs text-muted-foreground">Use a negative amount for an approved reduction. Booking totals update atomically.</p>
+            <p className="text-xs text-muted-foreground">
+              Use a negative amount for an approved reduction. Booking totals update atomically.
+            </p>
           </div>
           {requirement.compositionRule?.substitutionPolicy === 'EQUIVALENT_ONLY' && (
             <label className="flex items-start gap-2 rounded-md border p-3 text-xs">
-              <Checkbox checked={equivalentConfirmed} onCheckedChange={(checked) => setEquivalentConfirmed(checked === true)} />
-              <span>I checked the configured size, style, component, and condition compatibility rules.</span>
+              <Checkbox
+                checked={equivalentConfirmed}
+                onCheckedChange={(checked) => setEquivalentConfirmed(checked === true)}
+              />
+              <span>
+                I checked the configured size, style, component, and condition compatibility rules.
+              </span>
             </label>
           )}
-          {(requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL'
-            || requirement.compositionRule?.customerApprovalRequired) && (
+          {(requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL' ||
+            requirement.compositionRule?.customerApprovalRequired) && (
             <div className="grid gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-900">
               <Label>Customer approval evidence</Label>
               <Textarea
@@ -593,13 +551,15 @@ function SubstituteDialog({
           </Button>
           <Button
             disabled={
-              !productId
-              || !variantSizeId
-              || !reason.trim()
-              || (requirement.compositionRule?.substitutionPolicy === 'EQUIVALENT_ONLY' && !equivalentConfirmed)
-              || ((requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL'
-                || requirement.compositionRule?.customerApprovalRequired) && !approvalEvidence.trim())
-              || substitute.isPending
+              !productId ||
+              !variantSizeId ||
+              !reason.trim() ||
+              (requirement.compositionRule?.substitutionPolicy === 'EQUIVALENT_ONLY' &&
+                !equivalentConfirmed) ||
+              ((requirement.compositionRule?.substitutionPolicy === 'CUSTOMER_APPROVAL' ||
+                requirement.compositionRule?.customerApprovalRequired) &&
+                !approvalEvidence.trim()) ||
+              substitute.isPending
             }
             onClick={() => substitute.mutate()}
           >
@@ -614,12 +574,14 @@ function SubstituteDialog({
 
 function RequirementCard({
   bookingId,
+  bookingVersionId,
   bookingStatus,
   requirement,
   products,
   refresh,
 }: {
   bookingId: string;
+  bookingVersionId?: string;
   bookingStatus: string;
   requirement: FulfillmentRequirement;
   products: ProductListItem[];
@@ -628,7 +590,7 @@ function RequirementCard({
   const unresolved =
     requirement.handedOutQuantity - requirement.returnedQuantity - requirement.lostQuantity;
   const canSubstitute =
-    ['pending', 'confirmed'].includes(bookingStatus) &&
+    bookingStatus === 'pending' &&
     requirement.handedOutQuantity === 0 &&
     !['RETURNED', 'LOST', 'CANCELLED', 'SUPERSEDED'].includes(requirement.status);
   return (
@@ -670,34 +632,25 @@ function RequirementCard({
             <strong className="block text-base">{requirement.lostQuantity}</strong>Lost
           </div>
         </div>
-        <AssignmentPanel bookingId={bookingId} requirement={requirement} refresh={refresh} />
+        <AssignmentPanel
+          bookingId={bookingId}
+          bookingVersionId={bookingVersionId}
+          requirement={requirement}
+          refresh={refresh}
+        />
         <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
           <div>
-            <p className="text-xs font-medium">Preparation: {humanize(requirement.preparationStatus)}</p>
-            {requirement.preparedAt && (
-              <p className="text-xs text-muted-foreground">
-                Ready since {new Date(requirement.preparedAt).toLocaleString()}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {bookingStatus === 'confirmed' && requirement.preparationStatus === 'NOT_STARTED' && requirement.handedOutQuantity === 0 && (
-              <PreparationDialog requirement={requirement} targetStatus="IN_PROGRESS" refresh={refresh} />
-            )}
-            {bookingStatus === 'confirmed' && requirement.preparationStatus === 'READY' && requirement.handedOutQuantity === 0 && (
-              <PreparationDialog requirement={requirement} targetStatus="IN_PROGRESS" refresh={refresh} />
-            )}
-            {bookingStatus === 'confirmed' && requirement.preparationStatus !== 'READY' && requirement.handedOutQuantity === 0 && (
-              <PreparationDialog requirement={requirement} targetStatus="READY" refresh={refresh} />
-            )}
+            <p className="text-xs font-medium">Physical preparation</p>
+            <p className="text-xs text-muted-foreground">
+              {bookingVersionId
+                ? 'Use each exact item’s Ready Check, then complete packing in the operations workspace.'
+                : 'Assign every exact item before approval; readiness starts after the plan is frozen.'}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {canSubstitute && (
             <SubstituteDialog requirement={requirement} products={products} refresh={refresh} />
-          )}
-          {bookingStatus === 'confirmed' && requirement.preparationStatus === 'READY' && (
-            <EventDialog requirement={requirement} eventType="HANDED_OUT" refresh={refresh} />
           )}
           {['delivered', 'overdue'].includes(bookingStatus) && unresolved > 0 && (
             <>
@@ -718,7 +671,8 @@ function RequirementCard({
                     {humanize(event.eventType)} · {event.quantity}
                   </p>
                   <p className="text-muted-foreground">
-                    {event.reason} · {event.actor?.fullName || 'System'} · {new Date(event.createdAt).toLocaleString()}
+                    {event.reason} · {event.actor?.fullName || 'System'} ·{' '}
+                    {new Date(event.createdAt).toLocaleString()}
                   </p>
                 </div>
               ))}
@@ -734,11 +688,18 @@ function RequirementCard({
               {requirement.substitutions.map((substitution) => (
                 <div key={substitution.id} className="border-l-2 pl-3 text-xs">
                   <p className="font-medium">
-                    {humanize(substitution.approvalStatus)} · price impact {formatMinorMoney(substitution.priceImpact)}
+                    {humanize(substitution.approvalStatus)} · price impact{' '}
+                    {formatMinorMoney(substitution.priceImpact)}
                   </p>
                   <p className="text-muted-foreground">{substitution.reason}</p>
-                  {substitution.approvalEvidence && <p className="text-muted-foreground">Approval: {substitution.approvalEvidence}</p>}
-                  <p className="text-muted-foreground">{new Date(substitution.createdAt).toLocaleString()}</p>
+                  {substitution.approvalEvidence && (
+                    <p className="text-muted-foreground">
+                      Approval: {substitution.approvalEvidence}
+                    </p>
+                  )}
+                  <p className="text-muted-foreground">
+                    {new Date(substitution.createdAt).toLocaleString()}
+                  </p>
                 </div>
               ))}
             </div>
@@ -749,7 +710,15 @@ function RequirementCard({
   );
 }
 
-export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: string; bookingStatus: string }) {
+export function InventoryAssignments({
+  bookingId,
+  bookingVersionId,
+  bookingStatus,
+}: {
+  bookingId: string;
+  bookingVersionId?: string;
+  bookingStatus: string;
+}) {
   const queryClient = useQueryClient();
   const [extendOpen, setExtendOpen] = useState(false);
   const [endDate, setEndDate] = useState('');
@@ -773,13 +742,14 @@ export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: 
     ]);
   };
   const extend = useMutation({
-    mutationFn: () => fulfillmentApi.extendBookingDates(bookingId, {
-      rentalEndDate: endDate,
-      reason: extendReason.trim(),
-      extensionCharge: majorInputToMinor(extensionCharge) ?? 0,
-      approvalEvidence: extensionEvidence.trim(),
-      idempotencyKey: extensionKey,
-    }),
+    mutationFn: () =>
+      fulfillmentApi.extendBookingDates(bookingId, {
+        rentalEndDate: endDate,
+        reason: extendReason.trim(),
+        extensionCharge: majorInputToMinor(extensionCharge) ?? 0,
+        approvalEvidence: extensionEvidence.trim(),
+        idempotencyKey: extensionKey,
+      }),
     onSuccess: async () => {
       setExtendOpen(false);
       setEndDate('');
@@ -827,60 +797,81 @@ export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: 
             Reserve, prepare, assign, hand out, return, and inspect every component independently.
           </p>
         </div>
-        {['pending', 'confirmed', 'delivered', 'overdue'].includes(bookingStatus) && <Dialog open={extendOpen} onOpenChange={setExtendOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              <CalendarClock className="mr-2 h-4 w-4" />
-              Extend rental
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Extend the full rental</DialogTitle>
-              <DialogDescription>
-                Availability, component reservations, booking dates, item totals, and payment balance
-                update together. If any component conflicts, nothing changes.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="grid gap-2">
-                <Label>New rental end date</Label>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(event) => setEndDate(event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Reason</Label>
-                <Textarea
-                  value={extendReason}
-                  onChange={(event) => setExtendReason(event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Extension charge (৳)</Label>
-                <Input type="number" min="0" step="0.01" value={extensionCharge} onChange={(event) => setExtensionCharge(event.target.value)} />
-                <p className="text-xs text-muted-foreground">Enter 0 only for an explicitly approved complimentary extension.</p>
-              </div>
-              <div className="grid gap-2">
-                <Label>Customer or manager approval evidence</Label>
-                <Textarea value={extensionEvidence} onChange={(event) => setExtensionEvidence(event.target.value)} placeholder="Message reference, call note, or manager approval" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setExtendOpen(false)}>
-                Cancel
+        {['pending', 'confirmed', 'delivered', 'overdue'].includes(bookingStatus) && (
+          <Dialog open={extendOpen} onOpenChange={setExtendOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Extend rental
               </Button>
-              <Button
-                disabled={!endDate || !extendReason.trim() || !extensionEvidence.trim() || majorInputToMinor(extensionCharge) === undefined || extend.isPending}
-                onClick={() => extend.mutate()}
-              >
-                {extend.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Extend atomically
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>}
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Extend the full rental</DialogTitle>
+                <DialogDescription>
+                  Availability, component reservations, booking dates, item totals, and payment
+                  balance update together. If any component conflicts, nothing changes.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="grid gap-2">
+                  <Label>New rental end date</Label>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(event) => setEndDate(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Reason</Label>
+                  <Textarea
+                    value={extendReason}
+                    onChange={(event) => setExtendReason(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Extension charge (৳)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={extensionCharge}
+                    onChange={(event) => setExtensionCharge(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter 0 only for an explicitly approved complimentary extension.
+                  </p>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Customer or manager approval evidence</Label>
+                  <Textarea
+                    value={extensionEvidence}
+                    onChange={(event) => setExtensionEvidence(event.target.value)}
+                    placeholder="Message reference, call note, or manager approval"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setExtendOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={
+                    !endDate ||
+                    !extendReason.trim() ||
+                    !extensionEvidence.trim() ||
+                    majorInputToMinor(extensionCharge) === undefined ||
+                    extend.isPending
+                  }
+                  onClick={() => extend.mutate()}
+                >
+                  {extend.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Extend
+                  atomically
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
       {grouped.map(([bookingItemId, requirements], index) => (
         <div key={bookingItemId} className="space-y-3">
@@ -893,6 +884,7 @@ export function InventoryAssignments({ bookingId, bookingStatus }: { bookingId: 
               <RequirementCard
                 key={requirement.id}
                 bookingId={bookingId}
+                bookingVersionId={bookingVersionId}
                 bookingStatus={bookingStatus}
                 requirement={requirement}
                 products={productsQuery.data?.data || []}

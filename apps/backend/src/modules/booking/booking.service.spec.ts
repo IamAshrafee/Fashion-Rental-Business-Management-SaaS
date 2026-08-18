@@ -79,8 +79,9 @@ function serviceWith(prisma: object, customerService: object = {}) {
     {} as never,
     {} as never,
     {} as never,
-    { createInitial: jest.fn() } as never,
     {} as never,
+    { createInitial: jest.fn() } as never,
+    { project: jest.fn() } as never,
   );
 }
 
@@ -351,6 +352,7 @@ describe('BookingService', () => {
       {} as never,
       {} as never,
       { createInitial: jest.fn() } as never,
+      { project: jest.fn() } as never,
     );
 
     const result = await service.calculateLateFees('tenant-1', 'booking-1');

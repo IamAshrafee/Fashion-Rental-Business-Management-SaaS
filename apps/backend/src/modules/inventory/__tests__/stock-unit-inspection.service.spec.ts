@@ -11,6 +11,7 @@ import { StockUnitInspectionService } from '../stock-unit-inspection.service';
 
 describe('StockUnitInspectionService', () => {
   const lifecycle = { transitionInTransaction: jest.fn() };
+  const operationalEvents = { append: jest.fn() };
 
   it('applies global issue-queue scope and inclusive date filters', async () => {
     const prisma = {
@@ -19,19 +20,32 @@ describe('StockUnitInspectionService', () => {
         count: jest.fn().mockResolvedValue(0),
       },
     };
-    const service = new StockUnitInspectionService(prisma as never, lifecycle as never);
+    const service = new StockUnitInspectionService(
+      prisma as never,
+      lifecycle as never,
+      operationalEvents as never,
+    );
 
     await service.listAttention('tenant-1', {
-      kind: 'ISSUE', page: 1, limit: 25,
-      issueStatus: 'OPEN', severity: 'SEVERE', responsibility: 'CUSTOMER',
-      productId: 'product-1', locationId: 'location-1',
-      dateFrom: '2026-08-01', dateTo: '2026-08-10',
+      kind: 'ISSUE',
+      page: 1,
+      limit: 25,
+      issueStatus: 'OPEN',
+      severity: 'SEVERE',
+      responsibility: 'CUSTOMER',
+      productId: 'product-1',
+      locationId: 'location-1',
+      dateFrom: '2026-08-01',
+      dateTo: '2026-08-10',
     } as never);
 
     expect(prisma.stockUnitIssue.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          tenantId: 'tenant-1', status: 'OPEN', severity: 'SEVERE', responsibility: 'CUSTOMER',
+          tenantId: 'tenant-1',
+          status: 'OPEN',
+          severity: 'SEVERE',
+          responsibility: 'CUSTOMER',
           createdAt: { gte: new Date('2026-08-01'), lt: new Date('2026-08-11') },
           stockUnit: expect.objectContaining({ locationId: 'location-1' }),
         }),
@@ -52,7 +66,11 @@ describe('StockUnitInspectionService', () => {
       },
     };
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
-    const service = new StockUnitInspectionService(prisma as never, lifecycle as never);
+    const service = new StockUnitInspectionService(
+      prisma as never,
+      lifecycle as never,
+      operationalEvents as never,
+    );
 
     await expect(
       service.create(
@@ -91,7 +109,11 @@ describe('StockUnitInspectionService', () => {
       },
     };
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
-    const service = new StockUnitInspectionService(prisma as never, lifecycle as never);
+    const service = new StockUnitInspectionService(
+      prisma as never,
+      lifecycle as never,
+      operationalEvents as never,
+    );
 
     await expect(
       service.complete(
@@ -115,7 +137,11 @@ describe('StockUnitInspectionService', () => {
       stockUnitLifecycleEvent: { findMany: jest.fn().mockResolvedValue([]) },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
-    const service = new StockUnitInspectionService(prisma as never, lifecycle as never);
+    const service = new StockUnitInspectionService(
+      prisma as never,
+      lifecycle as never,
+      operationalEvents as never,
+    );
 
     await service.listForUnit('tenant-1', 'unit-1');
 

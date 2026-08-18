@@ -422,6 +422,85 @@ export class UpdateBookingStatusDto {
   status!: (typeof BOOKING_STATUSES)[number];
 }
 
+export const OUTBOUND_FULFILLMENT_METHODS = [
+  'COURIER',
+  'CUSTOMER_PICKUP',
+  'INSTANT_DELIVERY',
+  'STAFF_DELIVERY',
+  'OTHER',
+] as const;
+
+export class ApproveAndReserveBookingDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+
+  @IsOptional()
+  @IsEnum(OUTBOUND_FULFILLMENT_METHODS)
+  outboundMethod?: (typeof OUTBOUND_FULFILLMENT_METHODS)[number];
+
+  @IsOptional()
+  @IsDateString()
+  scheduledHandoverAt?: string;
+
+  @IsOptional()
+  @IsIn(['SCHEDULED', 'VERIFIED_HANDOVER'])
+  rentalStartPolicy?: 'SCHEDULED' | 'VERIFIED_HANDOVER';
+
+  @IsOptional()
+  @IsIn(['SCHEDULED_END', 'CUSTOMER_HANDOVER'])
+  returnTimelinessPolicy?: 'SCHEDULED_END' | 'CUSTOMER_HANDOVER';
+
+  @IsOptional()
+  @IsIn(['APPROVAL', 'HANDOVER', 'WAIVED'])
+  depositCollectionTiming?: 'APPROVAL' | 'HANDOVER' | 'WAIVED';
+}
+
+export class RejectBookingRequestDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class RenewBookingHoldDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+
+  @IsDateString()
+  expiresAt!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class CompleteFulfillmentPackingDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  expectedGroupVersion!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
 export class CancelBookingDto {
   @IsString()
   @IsNotEmpty()
@@ -496,8 +575,29 @@ export class BookingQueryDto {
   status?: (typeof BOOKING_STATUSES)[number];
 
   @IsOptional()
-  @IsIn(['REQUEST', 'ASSIGNMENT', 'PREPARATION', 'HANDOFF', 'ACTIVE', 'RETURN_DUE', 'RETURN_INTAKE', 'INSPECTION', 'EXCEPTION', 'CLOSED'])
-  queue?: 'REQUEST' | 'ASSIGNMENT' | 'PREPARATION' | 'HANDOFF' | 'ACTIVE' | 'RETURN_DUE' | 'RETURN_INTAKE' | 'INSPECTION' | 'EXCEPTION' | 'CLOSED';
+  @IsIn([
+    'REQUEST',
+    'ASSIGNMENT',
+    'PREPARATION',
+    'HANDOFF',
+    'ACTIVE',
+    'RETURN_DUE',
+    'RETURN_INTAKE',
+    'INSPECTION',
+    'EXCEPTION',
+    'CLOSED',
+  ])
+  queue?:
+    | 'REQUEST'
+    | 'ASSIGNMENT'
+    | 'PREPARATION'
+    | 'HANDOFF'
+    | 'ACTIVE'
+    | 'RETURN_DUE'
+    | 'RETURN_INTAKE'
+    | 'INSPECTION'
+    | 'EXCEPTION'
+    | 'CLOSED';
 
   @IsOptional()
   @IsString()

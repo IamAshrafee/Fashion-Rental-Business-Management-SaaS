@@ -14,14 +14,21 @@ import { PaymentHistory } from './components/payment-history';
 import { StatusTimeline } from './components/status-timeline';
 import { DeliveryTrackingCard } from './components/delivery-tracking-card';
 import { InventoryAssignments } from './components/inventory-assignments';
-import { BookingWorkflowCard } from './components/booking-workflow-card';
+import { BookingOperationsWorkspace } from './components/booking-operations-workspace';
 import { bookingApi } from '@/lib/api/bookings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import type { BookingStatus, BookingTimelineEvent, BookingItem, Payment, Booking, DamageLevel } from '../types';
+import type {
+  BookingStatus,
+  BookingTimelineEvent,
+  BookingItem,
+  Payment,
+  Booking,
+  DamageLevel,
+} from '../types';
 import { formatMinorMoney } from '@/lib/money';
 
 // ── Copy-to-clipboard hook ───────────────────────────────────────────────────
@@ -51,7 +58,12 @@ export default function BookingDetailPage() {
   const [noteText, setNoteText] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
 
-  const { data: booking, isLoading, isError, error } = useQuery({
+  const {
+    data: booking,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['bookings', 'detail', bookingId],
     queryFn: () => bookingApi.getById(bookingId),
     enabled: !!bookingId,
@@ -91,25 +103,29 @@ export default function BookingDetailPage() {
   const customerName = booking.customer?.fullName || 'Unknown';
   const displayNumber = booking.bookingNumber || booking.id;
 
-  const timelineEvents: BookingTimelineEvent[] = booking.operationalTimeline.events.map((event) => ({
-    id: event.id,
-    status: event.code.toLowerCase(),
-    label: event.label,
-    timestamp: event.occurredAt,
-    user: event.actor?.fullName,
-    note: [event.reason, event.amountMinor !== null ? formatMinorMoney(event.amountMinor) : null]
-      .filter(Boolean)
-      .join(' · ') || undefined,
-    type: event.category === 'COURIER'
-      ? 'courier'
-      : event.category === 'COMMERCIAL'
-        ? 'payment'
-        : event.category === 'RETURN'
-          ? 'return'
-          : event.category === 'FULFILLMENT'
-            ? 'operation'
-            : 'business',
-  }));
+  const timelineEvents: BookingTimelineEvent[] = booking.operationalTimeline.events.map(
+    (event) => ({
+      id: event.id,
+      status: event.code.toLowerCase(),
+      label: event.label,
+      timestamp: event.occurredAt,
+      user: event.actor?.fullName,
+      note:
+        [event.reason, event.amountMinor !== null ? formatMinorMoney(event.amountMinor) : null]
+          .filter(Boolean)
+          .join(' · ') || undefined,
+      type:
+        event.category === 'COURIER'
+          ? 'courier'
+          : event.category === 'COMMERCIAL'
+            ? 'payment'
+            : event.category === 'RETURN'
+              ? 'return'
+              : event.category === 'FULFILLMENT'
+                ? 'operation'
+                : 'business',
+    }),
+  );
 
   // ── Map items — types are now aligned with backend, minimal mapping needed ──
   const mappedItems: BookingItem[] = booking.items.map((item) => ({
@@ -134,18 +150,20 @@ export default function BookingDetailPage() {
     requiresExactDamageIssue: (item.fulfillmentRequirements?.length ?? 0) > 0,
     stockUnitIssues: item.stockUnitIssues,
     depositStatus: (item.depositStatus || 'pending') as BookingItem['depositStatus'],
-    damageReport: item.damageReport ? {
-      id: item.damageReport.id,
-      bookingItemId: item.id,
-      damageLevel: item.damageReport.damageLevel as DamageLevel,
-      description: item.damageReport.description,
-      estimatedRepairCost: item.damageReport.estimatedRepairCost ?? null,
-      deductionAmount: item.damageReport.deductionAmount,
-      additionalCharge: item.damageReport.additionalCharge,
-      photos: item.damageReport.photos,
-      reportedBy: item.damageReport.reportedBy,
-      createdAt: item.damageReport.createdAt,
-    } : undefined,
+    damageReport: item.damageReport
+      ? {
+          id: item.damageReport.id,
+          bookingItemId: item.id,
+          damageLevel: item.damageReport.damageLevel as DamageLevel,
+          description: item.damageReport.description,
+          estimatedRepairCost: item.damageReport.estimatedRepairCost ?? null,
+          deductionAmount: item.damageReport.deductionAmount,
+          additionalCharge: item.damageReport.additionalCharge,
+          photos: item.damageReport.photos,
+          reportedBy: item.damageReport.reportedBy,
+          createdAt: item.damageReport.createdAt,
+        }
+      : undefined,
     depositSettlement: item.depositSettlement ?? undefined,
   }));
 
@@ -165,10 +183,7 @@ export default function BookingDetailPage() {
   }));
 
   // ── Build full delivery address string ─────────────────────────────────
-  const addressParts = [
-    booking.deliveryAddressLine1,
-    booking.deliveryAddressLine2,
-  ].filter(Boolean);
+  const addressParts = [booking.deliveryAddressLine1, booking.deliveryAddressLine2].filter(Boolean);
 
   const extraParts: string[] = [];
   if (booking.deliveryExtra) {
@@ -215,12 +230,13 @@ export default function BookingDetailPage() {
   // Fix #9: Compute urgency info
   const isOverdue = booking.status === 'overdue';
   const isDelivered = booking.status === 'delivered';
-  const latestEndDate = mappedItems.length > 0
-    ? mappedItems.reduce((latest, item) => {
-        const d = new Date(item.endDate);
-        return d > latest ? d : latest;
-      }, new Date(0))
-    : null;
+  const latestEndDate =
+    mappedItems.length > 0
+      ? mappedItems.reduce((latest, item) => {
+          const d = new Date(item.endDate);
+          return d > latest ? d : latest;
+        }, new Date(0))
+      : null;
   const daysUntilReturn = latestEndDate ? differenceInDays(latestEndDate, new Date()) : null;
   return (
     <div className="space-y-6">
@@ -258,7 +274,7 @@ export default function BookingDetailPage() {
             <span>Placed {format(parseISO(booking.createdAt), 'MMM d, yyyy h:mm a')}</span>
           </p>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* Invoice & Export will be added once PDF generation is implemented */}
         </div>
@@ -286,20 +302,19 @@ export default function BookingDetailPage() {
         </Alert>
       )}
 
-      <BookingWorkflowCard
-        status={booking.status as BookingStatus}
-        blockers={booking.operations.blockers}
+      <BookingOperationsWorkspace
+        bookingId={booking.id}
+        handoverMethod={booking.handoverMethod}
+        operations={booking.operationsV2}
       />
 
       <OrderActions
         bookingId={booking.id}
         status={booking.status as BookingStatus}
         returnMethod={booking.returnMethod}
-        blockers={booking.operations.blockers}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
         {/* Main Content: Left Column (Takes up 2/3) */}
         <div className="md:col-span-2 space-y-6">
           {booking.rentalStartDate && booking.rentalEndDate && (
@@ -312,20 +327,29 @@ export default function BookingDetailPage() {
               <CardContent className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <p className="text-xs text-muted-foreground">Rental dates</p>
-                  <p className="text-sm font-medium">{format(parseISO(booking.rentalStartDate), 'MMM d, yyyy')} → {format(parseISO(booking.rentalEndDate), 'MMM d, yyyy')}</p>
+                  <p className="text-sm font-medium">
+                    {format(parseISO(booking.rentalStartDate), 'MMM d, yyyy')} →{' '}
+                    {format(parseISO(booking.rentalEndDate), 'MMM d, yyyy')}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Fulfillment location</p>
                   {booking.operations.fulfillmentLocations.state === 'SINGLE' ? (
                     <>
-                      <p className="text-sm font-medium">{booking.operations.fulfillmentLocations.locations[0]?.name}</p>
-                      <p className="text-xs text-muted-foreground">{booking.operations.fulfillmentLocations.locations[0]?.code}</p>
+                      <p className="text-sm font-medium">
+                        {booking.operations.fulfillmentLocations.locations[0]?.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {booking.operations.fulfillmentLocations.locations[0]?.code}
+                      </p>
                     </>
                   ) : booking.operations.fulfillmentLocations.state === 'MULTIPLE' ? (
                     <>
                       <p className="text-sm font-medium">Multiple fulfillment locations</p>
                       <p className="text-xs text-muted-foreground">
-                        {booking.operations.fulfillmentLocations.locations.map((location) => location.name).join(', ')}
+                        {booking.operations.fulfillmentLocations.locations
+                          .map((location) => location.name)
+                          .join(', ')}
                       </p>
                     </>
                   ) : (
@@ -334,24 +358,37 @@ export default function BookingDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Handover</p>
-                  <p className="text-sm font-medium">{booking.handoverMethod === 'CUSTOMER_PICKUP' ? 'Customer pickup' : 'Delivery'}</p>
+                  <p className="text-sm font-medium">
+                    {booking.handoverMethod === 'CUSTOMER_PICKUP' ? 'Customer pickup' : 'Delivery'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Return</p>
-                  <p className="text-sm font-medium">{booking.returnMethod === 'CUSTOMER_RETURN' ? 'Customer return' : 'Business pickup'}</p>
+                  <p className="text-sm font-medium">
+                    {booking.returnMethod === 'CUSTOMER_RETURN'
+                      ? 'Customer return'
+                      : 'Business pickup'}
+                  </p>
                 </div>
               </CardContent>
               {!!booking.fulfillmentExtensions?.length && (
                 <CardContent className="border-t pt-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Extension history</p>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Extension history
+                  </p>
                   <div className="space-y-2">
                     {booking.fulfillmentExtensions.map((extension) => (
                       <div key={extension.id} className="rounded-md border p-3 text-sm">
                         <p className="font-medium">
-                          {format(parseISO(extension.previousEndDate), 'MMM d, yyyy')} → {format(parseISO(extension.rentalEndDate), 'MMM d, yyyy')} · {formatMinorMoney(extension.extensionCharge)}
+                          {format(parseISO(extension.previousEndDate), 'MMM d, yyyy')} →{' '}
+                          {format(parseISO(extension.rentalEndDate), 'MMM d, yyyy')} ·{' '}
+                          {formatMinorMoney(extension.extensionCharge)}
                         </p>
                         <p className="text-muted-foreground">{extension.reason}</p>
-                        <p className="text-xs text-muted-foreground">Approval: {extension.approvalEvidence} · {extension.actor.fullName} · {format(parseISO(extension.createdAt), 'MMM d, yyyy h:mm a')}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Approval: {extension.approvalEvidence} · {extension.actor.fullName} ·{' '}
+                          {format(parseISO(extension.createdAt), 'MMM d, yyyy h:mm a')}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -366,7 +403,11 @@ export default function BookingDetailPage() {
                 The exact products, dates, rental charges, and deposit position for this booking.
               </p>
             </div>
-            <BookingItems items={mappedItems} bookingId={booking.id} bookingStatus={booking.status} />
+            <BookingItems
+              items={mappedItems}
+              bookingId={booking.id}
+              bookingStatus={booking.status}
+            />
           </section>
 
           <Card id="customer-delivery" className="scroll-mt-6 shadow-none border">
@@ -384,19 +425,28 @@ export default function BookingDetailPage() {
                 >
                   {customerName}
                 </Link>
-                <div className="text-muted-foreground">{booking.customer.primaryPhone ?? 'No primary phone'}</div>
-                {booking.customer.primaryEmail && <div className="text-muted-foreground">{booking.customer.primaryEmail}</div>}
+                <div className="text-muted-foreground">
+                  {booking.customer.primaryPhone ?? 'No primary phone'}
+                </div>
+                {booking.customer.primaryEmail && (
+                  <div className="text-muted-foreground">{booking.customer.primaryEmail}</div>
+                )}
                 {booking.customer.tags?.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {booking.customer.tags.map((t) => (
-                      <span key={t.id} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-secondary text-secondary-foreground">
+                      <span
+                        key={t.id}
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-secondary text-secondary-foreground"
+                      >
                         {t.name}
                       </span>
                     ))}
                   </div>
                 )}
                 <div className="text-xs text-muted-foreground mt-2">
-                  {booking.customer.totalBookings} booking{booking.customer.totalBookings !== 1 ? 's' : ''} · {formatMinorMoney(booking.customer.totalSpent ?? 0)} spent
+                  {booking.customer.totalBookings} booking
+                  {booking.customer.totalBookings !== 1 ? 's' : ''} ·{' '}
+                  {formatMinorMoney(booking.customer.totalSpent ?? 0)} spent
                 </div>
               </div>
               <div>
@@ -407,11 +457,15 @@ export default function BookingDetailPage() {
                   <span className="text-muted-foreground"> · {booking.deliveryPhone}</span>
                 </div>
                 {booking.deliveryAltPhone && (
-                  <div className="text-muted-foreground text-sm">Alt: {booking.deliveryAltPhone}</div>
+                  <div className="text-muted-foreground text-sm">
+                    Alt: {booking.deliveryAltPhone}
+                  </div>
                 )}
 
                 <div className="font-medium mb-1 mt-3">Delivery Address</div>
-                <div className="text-muted-foreground text-sm whitespace-pre-line">{fullAddress || 'No address provided'}</div>
+                <div className="text-muted-foreground text-sm whitespace-pre-line">
+                  {fullAddress || 'No address provided'}
+                </div>
 
                 {/* Fix #6: Copy tracking number if exists */}
                 {booking.trackingNumber && (
@@ -436,7 +490,8 @@ export default function BookingDetailPage() {
                 )}
                 {booking.courierProvider && (
                   <div className="text-xs text-muted-foreground mt-1">
-                    Courier: <span className="capitalize">{booking.courierProvider.replace(/_/g, ' ')}</span>
+                    Courier:{' '}
+                    <span className="capitalize">{booking.courierProvider.replace(/_/g, ' ')}</span>
                   </div>
                 )}
               </div>
@@ -446,9 +501,17 @@ export default function BookingDetailPage() {
           <DeliveryTrackingCard booking={booking} />
 
           {booking.status !== 'cancelled' && (
-            <InventoryAssignments bookingId={booking.id} bookingStatus={booking.status} />
+            <InventoryAssignments
+              bookingId={booking.id}
+              bookingVersionId={
+                booking.operationsV2.currentVersion?.decision === 'APPROVED'
+                  ? booking.operationsV2.currentVersion.id
+                  : undefined
+              }
+              bookingStatus={booking.status}
+            />
           )}
-          
+
           <section id="financials" className="scroll-mt-6">
             <div className="mb-4">
               <h2 className="text-lg font-semibold tracking-tight">Payments and charges</h2>
@@ -456,15 +519,21 @@ export default function BookingDetailPage() {
                 Record, verify, and reconcile money separately from the physical rental workflow.
               </p>
             </div>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <PaymentHistory
-              payments={mappedPayments}
-              bookingId={booking.id}
-              balanceDue={booking.grandTotal - booking.totalPaid}
-              depositBalance={Math.max(0, booking.totalDeposit - mappedPayments.filter((payment) => payment.status === 'verified').reduce((sum, payment) => sum + payment.depositAmount, 0))}
-            />
-            <PriceBreakdown booking={bookingForBreakdown} />
-          </div>
+            <div className="grid gap-6 sm:grid-cols-2">
+              <PaymentHistory
+                payments={mappedPayments}
+                bookingId={booking.id}
+                balanceDue={booking.grandTotal - booking.totalPaid}
+                depositBalance={Math.max(
+                  0,
+                  booking.totalDeposit -
+                    mappedPayments
+                      .filter((payment) => payment.status === 'verified')
+                      .reduce((sum, payment) => sum + payment.depositAmount, 0),
+                )}
+              />
+              <PriceBreakdown booking={bookingForBreakdown} />
+            </div>
           </section>
 
           <Card id="booking-notes" className="scroll-mt-6 shadow-none border">
@@ -487,14 +556,20 @@ export default function BookingDetailPage() {
               {/* Existing notes */}
               {booking.customerNotes && (
                 <div>
-                  <div className="text-xs font-medium text-muted-foreground mb-1">Customer Notes</div>
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    Customer Notes
+                  </div>
                   <div className="text-sm bg-muted/40 p-3 rounded-md">{booking.customerNotes}</div>
                 </div>
               )}
               {booking.internalNotes && (
                 <div>
-                  <div className="text-xs font-medium text-muted-foreground mb-1">Internal Notes</div>
-                  <div className="text-sm bg-muted/40 p-3 rounded-md whitespace-pre-line">{booking.internalNotes}</div>
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    Internal Notes
+                  </div>
+                  <div className="text-sm bg-muted/40 p-3 rounded-md whitespace-pre-line">
+                    {booking.internalNotes}
+                  </div>
                 </div>
               )}
               {!booking.customerNotes && !booking.internalNotes && !showNoteInput && (
@@ -516,7 +591,10 @@ export default function BookingDetailPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => { setShowNoteInput(false); setNoteText(''); }}
+                      onClick={() => {
+                        setShowNoteInput(false);
+                        setNoteText('');
+                      }}
                       disabled={addNoteMutation.isPending}
                     >
                       Cancel
@@ -526,7 +604,9 @@ export default function BookingDetailPage() {
                       onClick={() => addNoteMutation.mutate()}
                       disabled={addNoteMutation.isPending || !noteText.trim()}
                     >
-                      {addNoteMutation.isPending && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
+                      {addNoteMutation.isPending && (
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                      )}
                       Save Note
                     </Button>
                   </div>
@@ -537,7 +617,10 @@ export default function BookingDetailPage() {
         </div>
 
         <aside id="booking-history" className="scroll-mt-6 md:col-span-1">
-          <StatusTimeline events={timelineEvents} truncated={booking.operationalTimeline.truncated} />
+          <StatusTimeline
+            events={timelineEvents}
+            truncated={booking.operationalTimeline.truncated}
+          />
         </aside>
       </div>
     </div>

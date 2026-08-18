@@ -5,6 +5,9 @@ import { OperationalEventService } from './operational-event.service';
 import { OperationsQueryService } from './operations-query.service';
 import { BookingVersionService } from './booking-version.service';
 import { StockUnitCustodyService } from './stock-unit-custody.service';
+import { BookingReviewService } from './booking-review.service';
+import { FulfillmentPreparationService } from './fulfillment-preparation.service';
+import { BookingOperationsProjectionQueryService } from './booking-operations-projection-query.service';
 
 @Module({
   imports: [PrismaModule],
@@ -14,6 +17,9 @@ import { StockUnitCustodyService } from './stock-unit-custody.service';
     OperationalEventService,
     OperationsQueryService,
     StockUnitCustodyService,
+    BookingReviewService,
+    FulfillmentPreparationService,
+    BookingOperationsProjectionQueryService,
   ],
   exports: [
     BookingStageProjectorService,
@@ -21,6 +27,9 @@ import { StockUnitCustodyService } from './stock-unit-custody.service';
     OperationalEventService,
     OperationsQueryService,
     StockUnitCustodyService,
+    BookingReviewService,
+    FulfillmentPreparationService,
+    BookingOperationsProjectionQueryService,
   ],
 })
 export class OperationsModule {}

@@ -13,6 +13,7 @@ import {
   Headers,
   Req,
   Res,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { BookingService } from './booking.service';
@@ -28,6 +29,10 @@ import {
   BookingCalendarQueryDto,
   CheckAvailabilityDto,
   ReplaceStorefrontCartDto,
+  ApproveAndReserveBookingDto,
+  RejectBookingRequestDto,
+  RenewBookingHoldDto,
+  CompleteFulfillmentPackingDto,
 } from './dto/booking.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -38,6 +43,8 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { TenantContext } from '@closetrent/types';
 import { StorefrontCartService } from './storefront-cart.service';
+import { BookingReviewService } from '../operations/booking-review.service';
+import { FulfillmentPreparationService } from '../operations/fulfillment-preparation.service';
 
 // ============================================================================
 // GUEST CONTROLLER — Public endpoints
@@ -174,7 +181,11 @@ export class BookingGuestController {
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @RequirePermission('manage_bookings')
 export class BookingOwnerController {
-  constructor(private readonly bookingService: BookingService) {}
+  constructor(
+    private readonly bookingService: BookingService,
+    private readonly bookingReview: BookingReviewService,
+    private readonly preparation: FulfillmentPreparationService,
+  ) {}
 
   @Post('quote')
   @Roles('owner', 'manager')
@@ -239,14 +250,68 @@ export class BookingOwnerController {
     return this.bookingService.getBookingById(tenant.id, id);
   }
 
-  /**
-   * PATCH /api/v1/owner/bookings/:id/confirm
-   * Confirm a pending booking.
-   */
-  @Patch(':id/confirm')
+  /** Atomically approves the current immutable version and reserves exact units. */
+  @Post(':id/review/approve-and-reserve')
   @Roles('owner', 'manager')
-  async confirmBooking(@CurrentTenant() tenant: TenantContext, @Param('id') id: string) {
-    return this.bookingService.updateStatus(tenant.id, id, 'confirmed');
+  @HttpCode(HttpStatus.OK)
+  async approveAndReserve(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+    @Body() dto: ApproveAndReserveBookingDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() req: Request & { user?: { id: string } },
+  ) {
+    return this.bookingReview.approveAndReserve(
+      this.reviewContext(tenant.id, id, req.user?.id, idempotencyKey),
+      dto,
+    );
+  }
+
+  @Post(':id/review/reject')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.OK)
+  async rejectRequest(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+    @Body() dto: RejectBookingRequestDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() req: Request & { user?: { id: string } },
+  ) {
+    return this.bookingReview.rejectRequest(
+      this.reviewContext(tenant.id, id, req.user?.id, idempotencyKey),
+      dto,
+    );
+  }
+
+  @Post(':id/review/renew-hold')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.OK)
+  async renewHold(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+    @Body() dto: RenewBookingHoldDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() req: Request & { user?: { id: string } },
+  ) {
+    return this.bookingReview.renewHold(
+      this.reviewContext(tenant.id, id, req.user?.id, idempotencyKey),
+      dto,
+    );
+  }
+
+  @Post(':id/fulfillment-groups/:groupId/packing/complete')
+  @Roles('owner', 'manager', 'staff')
+  @HttpCode(HttpStatus.OK)
+  async completePacking(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') bookingId: string,
+    @Param('groupId') groupId: string,
+    @Body() dto: CompleteFulfillmentPackingDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() req: Request & { user?: { id: string } },
+  ) {
+    const command = this.reviewContext(tenant.id, bookingId, req.user?.id, idempotencyKey);
+    return this.preparation.completePacking({ ...command, groupId }, dto);
   }
 
   /**
@@ -326,6 +391,24 @@ export class BookingOwnerController {
     @Body() dto: AddNoteDto,
   ) {
     return this.bookingService.addNote(tenant.id, id, dto.note);
+  }
+
+  private reviewContext(
+    tenantId: string,
+    bookingId: string,
+    actorUserId: string | undefined,
+    idempotencyKey: string | undefined,
+  ) {
+    if (!actorUserId) {
+      throw new BadRequestException('An authenticated review actor is required');
+    }
+    if (!idempotencyKey?.trim()) {
+      throw new BadRequestException({
+        code: 'IDEMPOTENCY_KEY_REQUIRED',
+        message: 'An Idempotency-Key header is required for booking review commands',
+      });
+    }
+    return { tenantId, bookingId, actorUserId, idempotencyKey: idempotencyKey.trim() };
   }
 
   /**

@@ -2496,11 +2496,12 @@ model BookingVersion {
   rejectedAt  DateTime?              @map("rejected_at")
   createdAt   DateTime               @default(now()) @map("created_at")
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  booking           Booking            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
-  actor             User?              @relation("BookingVersionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  booking           Booking               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  actor             User?                 @relation("BookingVersionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   fulfillmentGroups FulfillmentGroup[]
   rentals           Rental[]
+  inspections       StockUnitInspection[]
 
   @@unique([bookingId, version])
   @@index([tenantId, bookingId, createdAt(sort: Desc)])
@@ -4018,6 +4019,7 @@ model StockUnitInspection {
   stockUnitId              String                       @map("stock_unit_id")
   bookingItemId            String?                      @map("booking_item_id")
   assignmentId             String?                      @map("assignment_id")
+  bookingVersionId         String?                      @map("booking_version_id")
   serviceOrderId           String?                      @map("service_order_id")
   inventoryBlockId         String?                      @unique @map("inventory_block_id")
   inspectionType           StockUnitInspectionType      @map("inspection_type")
@@ -4039,6 +4041,7 @@ model StockUnitInspection {
   stockUnit           StockUnit                  @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
   bookingItem         BookingItem?               @relation(fields: [bookingItemId], references: [id], onDelete: SetNull)
   assignment          StockUnitAssignment?       @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  bookingVersion      BookingVersion?            @relation(fields: [bookingVersionId], references: [id], onDelete: Restrict)
   serviceOrder        InventoryServiceOrder?     @relation("ServiceCompletionInspection", fields: [serviceOrderId], references: [id], onDelete: SetNull)
   inventoryBlock      InventoryBlock?            @relation(fields: [inventoryBlockId], references: [id], onDelete: SetNull)
   inspectedBy         User                       @relation("StockUnitInspectionActor", fields: [inspectedByUserId], references: [id])
@@ -4056,6 +4059,7 @@ model StockUnitInspection {
   @@index([tenantId, stockUnitId, createdAt(sort: Desc)])
   @@index([bookingItemId])
   @@index([assignmentId])
+  @@index([bookingVersionId, inspectionType, status])
   @@index([serviceOrderId])
   @@index([inspectedByUserId])
   @@index([amendsInspectionId])

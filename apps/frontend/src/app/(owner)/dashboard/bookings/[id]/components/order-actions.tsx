@@ -6,16 +6,32 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { BookingStatus } from '../../types';
 import {
-  Truck, CheckCircle, RotateCcw, XCircle,
-  Search, ClipboardCheck, Loader2, AlertTriangle, DollarSign,
+  Truck,
+  RotateCcw,
+  Search,
+  ClipboardCheck,
+  Loader2,
+  AlertTriangle,
+  DollarSign,
 } from 'lucide-react';
 import {
-  AlertDialog, AlertDialogContent, AlertDialogHeader,
-  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { bookingApi } from '@/lib/api/bookings';
@@ -25,15 +41,18 @@ interface OrderActionsProps {
   bookingId: string;
   status: BookingStatus;
   returnMethod?: 'BUSINESS_PICKUP' | 'CUSTOMER_RETURN' | null;
-  blockers?: string[];
 }
 
-export function OrderActions({ bookingId, status, returnMethod, blockers = [] }: OrderActionsProps) {
+export function OrderActions({ bookingId, status, returnMethod }: OrderActionsProps) {
   const queryClient = useQueryClient();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [showReturnShipment, setShowReturnShipment] = useState(false);
-  const [returnShipment, setReturnShipment] = useState({ provider: 'manual' as 'manual' | 'pathao' | 'steadfast', trackingNumber: '', instruction: '' });
+  const [returnShipment, setReturnShipment] = useState({
+    provider: 'manual' as 'manual' | 'pathao' | 'steadfast',
+    trackingNumber: '',
+    instruction: '',
+  });
   const fulfillment = useQuery({
     queryKey: ['booking-fulfillment', bookingId],
     queryFn: () => fulfillmentApi.listBookingRequirements(bookingId),
@@ -63,30 +82,31 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
     queryClient.invalidateQueries({ queryKey: ['booking-fulfillment', bookingId] });
   };
 
-  const confirmMutation = useMutation({
-    mutationFn: () => bookingApi.confirm(bookingId),
-    onSuccess: () => { toast.success('Booking confirmed'); invalidate(); },
-    onError: (err: Error) => toast.error(err.message || 'Failed to confirm'),
-  });
-
   const deliverMutation = useMutation({
     mutationFn: () => bookingApi.deliver(bookingId),
-    onSuccess: () => { toast.success('Marked as delivered'); invalidate(); },
+    onSuccess: () => {
+      toast.success('Marked as delivered');
+      invalidate();
+    },
     onError: (err: Error) => toast.error(err.message || 'Failed to mark delivered'),
   });
 
   const returnMutation = useMutation({
     mutationFn: () => bookingApi.markReturned(bookingId),
-    onSuccess: () => { toast.success('Marked as returned'); invalidate(); },
+    onSuccess: () => {
+      toast.success('Marked as returned');
+      invalidate();
+    },
     onError: (err: Error) => toast.error(err.message || 'Failed to mark returned'),
   });
 
   const returnShipmentMutation = useMutation({
-    mutationFn: () => fulfillmentApi.createReturnShipment(bookingId, {
-      courierProvider: returnShipment.provider,
-      trackingNumber: returnShipment.trackingNumber.trim() || undefined,
-      specialInstruction: returnShipment.instruction.trim() || undefined,
-    }),
+    mutationFn: () =>
+      fulfillmentApi.createReturnShipment(bookingId, {
+        courierProvider: returnShipment.provider,
+        trackingNumber: returnShipment.trackingNumber.trim() || undefined,
+        specialInstruction: returnShipment.instruction.trim() || undefined,
+      }),
     onSuccess: () => {
       toast.success('Return pickup added to logistics');
       setShowReturnShipment(false);
@@ -97,13 +117,19 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
 
   const inspectMutation = useMutation({
     mutationFn: () => bookingApi.inspect(bookingId),
-    onSuccess: () => { toast.success('Inspection completed'); invalidate(); },
+    onSuccess: () => {
+      toast.success('Inspection completed');
+      invalidate();
+    },
     onError: (err: Error) => toast.error(err.message || 'Failed to inspect'),
   });
 
   const completeMutation = useMutation({
     mutationFn: () => bookingApi.complete(bookingId),
-    onSuccess: () => { toast.success('Order completed!'); invalidate(); },
+    onSuccess: () => {
+      toast.success('Order completed!');
+      invalidate();
+    },
     onError: (err: Error) => toast.error(err.message || 'Failed to complete'),
   });
 
@@ -133,11 +159,23 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
     onError: (err: Error) => toast.error(err.message || 'Failed to cancel'),
   });
 
-  const isAnyPending = confirmMutation.isPending || deliverMutation.isPending
-    || returnMutation.isPending || inspectMutation.isPending || lateFeeMutation.isPending
-    || completeMutation.isPending || cancelMutation.isPending || returnShipmentMutation.isPending;
+  const isAnyPending =
+    deliverMutation.isPending ||
+    returnMutation.isPending ||
+    inspectMutation.isPending ||
+    lateFeeMutation.isPending ||
+    completeMutation.isPending ||
+    cancelMutation.isPending ||
+    returnShipmentMutation.isPending;
 
-  const ActionButton = ({ onClick, isPending, icon: Icon, label, className, allowed = true }: {
+  const ActionButton = ({
+    onClick,
+    isPending,
+    icon: Icon,
+    label,
+    className,
+    allowed = true,
+  }: {
     onClick: () => void;
     isPending: boolean;
     icon: React.ElementType;
@@ -145,11 +183,7 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
     className?: string;
     allowed?: boolean;
   }) => (
-    <Button
-      onClick={onClick}
-      disabled={isAnyPending || !allowed}
-      className={className}
-    >
+    <Button onClick={onClick} disabled={isAnyPending || !allowed} className={className}>
       {isPending ? (
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
       ) : (
@@ -162,28 +196,6 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
   return (
     <>
       <div id="booking-actions" className="scroll-mt-6 flex flex-wrap items-center gap-2">
-        {status === 'pending' && (
-          <>
-            <ActionButton
-              onClick={() => confirmMutation.mutate()}
-              isPending={confirmMutation.isPending}
-              icon={CheckCircle}
-              label="Approve rental"
-              className="bg-blue-600 hover:bg-blue-700"
-              allowed={blockers.length === 0}
-            />
-            <Button
-              variant="outline"
-              className="text-destructive hover:bg-destructive/10"
-              disabled={isAnyPending}
-              onClick={() => setShowCancelDialog(true)}
-            >
-              <XCircle className="mr-2 h-4 w-4" />
-              Cancel Booking
-            </Button>
-          </>
-        )}
-
         {status === 'confirmed' && (
           <>
             <ActionButton
@@ -208,8 +220,13 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
         {(status === 'delivered' || status === 'overdue') && (
           <>
             {returnMethod === 'BUSINESS_PICKUP' && (
-              <Button variant="outline" disabled={isAnyPending} onClick={() => setShowReturnShipment(true)}>
-                <Truck className="mr-2 h-4 w-4" />Arrange Return Pickup
+              <Button
+                variant="outline"
+                disabled={isAnyPending}
+                onClick={() => setShowReturnShipment(true)}
+              >
+                <Truck className="mr-2 h-4 w-4" />
+                Arrange Return Pickup
               </Button>
             )}
             <ActionButton
@@ -255,16 +272,11 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
         )}
       </div>
 
-        {status === 'confirmed' && !handoffReady && (
+      {status === 'confirmed' && !handoffReady && (
         <p className="mt-2 text-xs text-muted-foreground">
           Record every component handout in the fulfillment workspace before finalizing delivery.
         </p>
-        )}
-        {status === 'pending' && blockers.length > 0 && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Reserve the exact physical items in the review workspace before approving this rental.
-          </p>
-        )}
+      )}
       {(status === 'delivered' || status === 'overdue') && !returnReady && (
         <p className="mt-2 text-xs text-muted-foreground">
           Record every component as returned or lost before finalizing the return.
@@ -277,10 +289,13 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
       )}
 
       {/* Fix #2: Custom Cancel Dialog with reason textarea */}
-      <AlertDialog open={showCancelDialog} onOpenChange={(open) => {
-        setShowCancelDialog(open);
-        if (!open) setCancelReason('');
-      }}>
+      <AlertDialog
+        open={showCancelDialog}
+        onOpenChange={(open) => {
+          setShowCancelDialog(open);
+          if (!open) setCancelReason('');
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -288,7 +303,8 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
               Cancel this booking?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. The customer will be notified and all date blocks will be released.
+              This action cannot be undone. The customer will be notified and all date blocks will
+              be released.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -308,9 +324,7 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
           </div>
 
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={cancelMutation.isPending}>
-              Keep Booking
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={cancelMutation.isPending}>Keep Booking</AlertDialogCancel>
             <Button
               variant="destructive"
               onClick={() => cancelMutation.mutate()}
@@ -327,12 +341,26 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Arrange rental return pickup</DialogTitle>
-            <DialogDescription>Create a reverse-logistics shipment from the customer back to your configured returns address.</DialogDescription>
+            <DialogDescription>
+              Create a reverse-logistics shipment from the customer back to your configured returns
+              address.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label htmlFor="return-provider">Return provider</Label>
-              <select id="return-provider" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={returnShipment.provider} onChange={(event) => setReturnShipment((value) => ({ ...value, provider: event.target.value as typeof value.provider, trackingNumber: '' }))}>
+              <select
+                id="return-provider"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={returnShipment.provider}
+                onChange={(event) =>
+                  setReturnShipment((value) => ({
+                    ...value,
+                    provider: event.target.value as typeof value.provider,
+                    trackingNumber: '',
+                  }))
+                }
+              >
                 <option value="manual">Own rider / manual</option>
                 <option value="pathao">Pathao reverse shipment</option>
                 <option value="steadfast">Steadfast reverse shipment</option>
@@ -341,20 +369,47 @@ export function OrderActions({ bookingId, status, returnMethod, blockers = [] }:
             {returnShipment.provider !== 'manual' && (
               <div className="space-y-2">
                 <Label htmlFor="return-tracking">Courier tracking number</Label>
-                <Input id="return-tracking" value={returnShipment.trackingNumber} onChange={(event) => setReturnShipment((value) => ({ ...value, trackingNumber: event.target.value }))} placeholder="Create the reverse shipment with the courier, then paste its tracking number" />
+                <Input
+                  id="return-tracking"
+                  value={returnShipment.trackingNumber}
+                  onChange={(event) =>
+                    setReturnShipment((value) => ({ ...value, trackingNumber: event.target.value }))
+                  }
+                  placeholder="Create the reverse shipment with the courier, then paste its tracking number"
+                />
               </div>
             )}
-            <div className="space-y-2"><Label htmlFor="return-instruction">Pickup instruction</Label><Textarea id="return-instruction" value={returnShipment.instruction} onChange={(event) => setReturnShipment((value) => ({ ...value, instruction: event.target.value }))} placeholder="Customer availability, landmark, packaging note…" /></div>
+            <div className="space-y-2">
+              <Label htmlFor="return-instruction">Pickup instruction</Label>
+              <Textarea
+                id="return-instruction"
+                value={returnShipment.instruction}
+                onChange={(event) =>
+                  setReturnShipment((value) => ({ ...value, instruction: event.target.value }))
+                }
+                placeholder="Customer availability, landmark, packaging note…"
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowReturnShipment(false)}>Cancel</Button>
-            <Button onClick={() => returnShipmentMutation.mutate()} disabled={returnShipmentMutation.isPending || (returnShipment.provider !== 'manual' && !returnShipment.trackingNumber.trim())}>
-              {returnShipmentMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Return Pickup
+            <Button variant="outline" onClick={() => setShowReturnShipment(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => returnShipmentMutation.mutate()}
+              disabled={
+                returnShipmentMutation.isPending ||
+                (returnShipment.provider !== 'manual' && !returnShipment.trackingNumber.trim())
+              }
+            >
+              {returnShipmentMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Create Return Pickup
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

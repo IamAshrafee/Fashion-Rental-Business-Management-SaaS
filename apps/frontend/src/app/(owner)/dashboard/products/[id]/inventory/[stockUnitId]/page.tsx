@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -306,13 +306,21 @@ function LifecyclePanel({
 function CreateInspectionDialog({
   data,
   refresh,
+  initialInspectionType,
+  initialAssignmentId,
+  bookingVersionId,
 }: {
   data: StockUnitOperations;
   refresh: () => Promise<void>;
+  initialInspectionType?: StockUnitInspectionType;
+  initialAssignmentId?: string;
+  bookingVersionId?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [inspectionType, setInspectionType] = useState<StockUnitInspectionType>('PERIODIC');
-  const [assignmentId, setAssignmentId] = useState('');
+  const [inspectionType, setInspectionType] = useState<StockUnitInspectionType>(
+    initialInspectionType ?? 'PERIODIC',
+  );
+  const [assignmentId, setAssignmentId] = useState(initialAssignmentId ?? '');
   const [serviceOrderId, setServiceOrderId] = useState('');
   const [notes, setNotes] = useState('');
   const requiresAssignment = inspectionType === 'PRE_RENTAL' || inspectionType === 'RETURN';
@@ -322,6 +330,7 @@ function CreateInspectionDialog({
       inventoryOperationsApi.createInspection(data.stockUnit.id, {
         inspectionType,
         assignmentId: requiresAssignment ? assignmentId : undefined,
+        bookingVersionId: inspectionType === 'PRE_RENTAL' ? bookingVersionId : undefined,
         serviceOrderId: inspectionType === 'SERVICE_COMPLETION' ? serviceOrderId : undefined,
         notes: notes.trim() || undefined,
         idempotencyKey: commandKey('inspection-create'),
@@ -337,6 +346,7 @@ function CreateInspectionDialog({
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not create inspection')),
   });
   const contextValid = !requiresAssignment || assignmentId;
+  const versionValid = inspectionType !== 'PRE_RENTAL' || bookingVersionId;
   const serviceValid = inspectionType !== 'SERVICE_COMPLETION' || serviceOrderId;
 
   return (
@@ -394,6 +404,12 @@ function CreateInspectionDialog({
                   No active assignment exists for this physical piece.
                 </p>
               )}
+              {inspectionType === 'PRE_RENTAL' && !bookingVersionId && (
+                <p className="text-xs text-destructive">
+                  Start this Ready Check from an approved booking workspace so it is attached to the
+                  correct immutable version.
+                </p>
+              )}
             </div>
           )}
           {inspectionType === 'SERVICE_COMPLETION' && (
@@ -432,7 +448,7 @@ function CreateInspectionDialog({
             Cancel
           </Button>
           <Button
-            disabled={!contextValid || !serviceValid || create.isPending}
+            disabled={!contextValid || !versionValid || !serviceValid || create.isPending}
             onClick={() => create.mutate()}
           >
             {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create draft
@@ -772,9 +788,15 @@ function CompleteInspectionDialog({
 function InspectionsPanel({
   data,
   refresh,
+  initialInspectionType,
+  initialAssignmentId,
+  bookingVersionId,
 }: {
   data: StockUnitOperations;
   refresh: () => Promise<void>;
+  initialInspectionType?: StockUnitInspectionType;
+  initialAssignmentId?: string;
+  bookingVersionId?: string;
 }) {
   return (
     <div className="space-y-4">
@@ -785,7 +807,13 @@ function InspectionsPanel({
             Immutable condition records; corrections are preserved as amendments.
           </p>
         </div>
-        <CreateInspectionDialog data={data} refresh={refresh} />
+        <CreateInspectionDialog
+          data={data}
+          refresh={refresh}
+          initialInspectionType={initialInspectionType}
+          initialAssignmentId={initialAssignmentId}
+          bookingVersionId={bookingVersionId}
+        />
       </div>
       {!data.inspections.length ? (
         <Card>
@@ -1497,33 +1525,44 @@ function ComponentsPanel({
   );
 }
 
-function MetadataCorrectionDialog({ data, refresh }: { data: StockUnitOperations; refresh: () => Promise<void> }) {
+function MetadataCorrectionDialog({
+  data,
+  refresh,
+}: {
+  data: StockUnitOperations;
+  refresh: () => Promise<void>;
+}) {
   const unit = data.stockUnit;
   const [open, setOpen] = useState(false);
   const [assetCode, setAssetCode] = useState(unit.assetCode);
   const [barcode, setBarcode] = useState(unit.barcode || '');
   const [condition, setCondition] = useState<StockConditionGrade>(unit.condition);
   const [acquisitionDate, setAcquisitionDate] = useState(unit.acquisitionDate?.slice(0, 10) || '');
-  const [acquisitionCost, setAcquisitionCost] = useState(String(minorToMajorInput(unit.acquisitionCost)));
+  const [acquisitionCost, setAcquisitionCost] = useState(
+    String(minorToMajorInput(unit.acquisitionCost)),
+  );
   const [acquisitionSource, setAcquisitionSource] = useState(unit.acquisitionSource || '');
   const [acquisitionReference, setAcquisitionReference] = useState(unit.acquisitionReference || '');
   const [notes, setNotes] = useState(unit.notes || '');
-  const [currentValue, setCurrentValue] = useState(String(minorToMajorInput(unit.estimatedCurrentValue)));
+  const [currentValue, setCurrentValue] = useState(
+    String(minorToMajorInput(unit.estimatedCurrentValue)),
+  );
   const [reason, setReason] = useState('');
   const correction = useMutation({
-    mutationFn: () => productApi.updateStockUnit(unit.id, {
-      expectedVersion: unit.version,
-      assetCode,
-      barcode,
-      condition,
-      acquisitionDate: acquisitionDate || null,
-      acquisitionCost: acquisitionCost.trim() ? majorInputToMinor(acquisitionCost) : null,
-      acquisitionSource,
-      acquisitionReference,
-      notes,
-      estimatedCurrentValue: currentValue.trim() ? majorInputToMinor(currentValue) : null,
-      reason,
-    }),
+    mutationFn: () =>
+      productApi.updateStockUnit(unit.id, {
+        expectedVersion: unit.version,
+        assetCode,
+        barcode,
+        condition,
+        acquisitionDate: acquisitionDate || null,
+        acquisitionCost: acquisitionCost.trim() ? majorInputToMinor(acquisitionCost) : null,
+        acquisitionSource,
+        acquisitionReference,
+        notes,
+        estimatedCurrentValue: currentValue.trim() ? majorInputToMinor(currentValue) : null,
+        reason,
+      }),
     onSuccess: async () => {
       setOpen(false);
       setReason('');
@@ -1538,7 +1577,12 @@ function MetadataCorrectionDialog({ data, refresh }: { data: StockUnitOperations
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button variant="outline"><Pencil className="mr-2 size-4" />Correct item metadata</Button></DialogTrigger>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <Pencil className="mr-2 size-4" />
+          Correct item metadata
+        </Button>
+      </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Correct physical-item metadata</DialogTitle>
@@ -1548,20 +1592,104 @@ function MetadataCorrectionDialog({ data, refresh }: { data: StockUnitOperations
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2 sm:grid-cols-2">
-          <div className="space-y-2"><Label>Asset code <FieldTip helpKey="inventory.assetCode" /></Label><Input value={assetCode} onChange={(event) => setAssetCode(event.target.value)} /></div>
-          <div className="space-y-2"><Label>Barcode</Label><Input value={barcode} onChange={(event) => setBarcode(event.target.value)} /></div>
-          <div className="space-y-2"><Label>Condition correction <FieldTip helpKey="inventory.condition" /></Label><Select value={condition} onValueChange={(value) => setCondition(value as StockConditionGrade)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONDITIONS.map((value) => <SelectItem key={value} value={value}>{label(value)}</SelectItem>)}</SelectContent></Select></div>
-          <div className="space-y-2"><Label>Acquisition date</Label><Input type="date" value={acquisitionDate} onChange={(event) => setAcquisitionDate(event.target.value)} /></div>
-          <div className="space-y-2"><Label>Acquisition cost (৳) <FieldTip helpKey="inventory.acquisitionCost" /></Label><Input inputMode="decimal" value={acquisitionCost} onChange={(event) => setAcquisitionCost(event.target.value)} /></div>
-          <div className="space-y-2"><Label>Estimated current value (৳) <FieldTip helpKey="inventory.currentValue" /></Label><Input inputMode="decimal" value={currentValue} onChange={(event) => setCurrentValue(event.target.value)} /></div>
-          <div className="space-y-2"><Label>Acquisition source</Label><Input value={acquisitionSource} onChange={(event) => setAcquisitionSource(event.target.value)} /></div>
-          <div className="space-y-2"><Label>Acquisition reference</Label><Input value={acquisitionReference} onChange={(event) => setAcquisitionReference(event.target.value)} /></div>
-          <div className="space-y-2 sm:col-span-2"><Label>Internal notes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
-          <div className="space-y-2 sm:col-span-2"><Label>Correction reason <FieldTip helpKey="inventory.metadataCorrection" /></Label><Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required audit explanation" /></div>
+          <div className="space-y-2">
+            <Label>
+              Asset code <FieldTip helpKey="inventory.assetCode" />
+            </Label>
+            <Input value={assetCode} onChange={(event) => setAssetCode(event.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Barcode</Label>
+            <Input value={barcode} onChange={(event) => setBarcode(event.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>
+              Condition correction <FieldTip helpKey="inventory.condition" />
+            </Label>
+            <Select
+              value={condition}
+              onValueChange={(value) => setCondition(value as StockConditionGrade)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONDITIONS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {label(value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Acquisition date</Label>
+            <Input
+              type="date"
+              value={acquisitionDate}
+              onChange={(event) => setAcquisitionDate(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>
+              Acquisition cost (৳) <FieldTip helpKey="inventory.acquisitionCost" />
+            </Label>
+            <Input
+              inputMode="decimal"
+              value={acquisitionCost}
+              onChange={(event) => setAcquisitionCost(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>
+              Estimated current value (৳) <FieldTip helpKey="inventory.currentValue" />
+            </Label>
+            <Input
+              inputMode="decimal"
+              value={currentValue}
+              onChange={(event) => setCurrentValue(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Acquisition source</Label>
+            <Input
+              value={acquisitionSource}
+              onChange={(event) => setAcquisitionSource(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Acquisition reference</Label>
+            <Input
+              value={acquisitionReference}
+              onChange={(event) => setAcquisitionReference(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Internal notes</Label>
+            <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>
+              Correction reason <FieldTip helpKey="inventory.metadataCorrection" />
+            </Label>
+            <Textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Required audit explanation"
+            />
+          </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!assetCode.trim() || !reason.trim() || invalidMoney || correction.isPending} onClick={() => correction.mutate()}>{correction.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}Apply audited correction</Button>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!assetCode.trim() || !reason.trim() || invalidMoney || correction.isPending}
+            onClick={() => correction.mutate()}
+          >
+            {correction.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}Apply audited
+            correction
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1572,7 +1700,9 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
   const unit = data.stockUnit;
   const [storefrontVisible, setStorefrontVisible] = useState(unit.storefrontVisible);
   const [conditionNote, setConditionNote] = useState(unit.publicConditionNote || '');
-  const [priceAdjustment, setPriceAdjustment] = useState(String(minorToMajorInput(unit.rentalPriceAdjustment)));
+  const [priceAdjustment, setPriceAdjustment] = useState(
+    String(minorToMajorInput(unit.rentalPriceAdjustment)),
+  );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [referenceCaption, setReferenceCaption] = useState('');
   const saveCommercial = useMutation({
@@ -1663,9 +1793,7 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Completed rentals</CardDescription>
-            <CardTitle className="text-lg">
-              {data.rentalMetrics.completedRentals}
-            </CardTitle>
+            <CardTitle className="text-lg">{data.rentalMetrics.completedRentals}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -1708,14 +1836,17 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
             <p className="text-muted-foreground">Notes</p>
             <p>{unit.notes || '—'}</p>
           </div>
-          <div className="sm:col-span-2 lg:col-span-3"><MetadataCorrectionDialog data={data} refresh={refresh} /></div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <MetadataCorrectionDialog data={data} refresh={refresh} />
+          </div>
         </CardContent>
       </Card>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Storefront transparency and valuation</CardTitle>
           <CardDescription>
-            Product-level visibility policy controls whether these approved item details appear publicly.
+            Product-level visibility policy controls whether these approved item details appear
+            publicly.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -1741,7 +1872,9 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
               value={priceAdjustment}
               onChange={(event) => setPriceAdjustment(event.target.value)}
             />
-            <p className="text-xs text-muted-foreground">Use a negative value for a condition discount.</p>
+            <p className="text-xs text-muted-foreground">
+              Use a negative value for a condition discount.
+            </p>
           </div>
           <Button
             className="sm:col-span-2 sm:w-fit"
@@ -1757,7 +1890,8 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
         <CardHeader>
           <CardTitle className="text-base">Approved storefront photos</CardTitle>
           <CardDescription>
-            These photos are public only when the product visibility policy and this item&apos;s visibility are enabled.
+            These photos are public only when the product visibility policy and this item&apos;s
+            visibility are enabled.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1766,8 +1900,14 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
               {unit.mediaAttachments.map((media) => (
                 <div key={media.id} className="overflow-hidden rounded-md border">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={media.url} alt={media.caption || 'Physical item reference'} className="aspect-square w-full object-cover" />
-                  {media.caption && <p className="p-2 text-xs text-muted-foreground">{media.caption}</p>}
+                  <img
+                    src={media.url}
+                    alt={media.caption || 'Physical item reference'}
+                    className="aspect-square w-full object-cover"
+                  />
+                  {media.caption && (
+                    <p className="p-2 text-xs text-muted-foreground">{media.caption}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -1780,12 +1920,17 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 multiple
-                onChange={(event) => setReferenceFiles(Array.from(event.target.files || []).slice(0, 10))}
+                onChange={(event) =>
+                  setReferenceFiles(Array.from(event.target.files || []).slice(0, 10))
+                }
               />
             </div>
             <div className="space-y-2">
               <Label>Public caption</Label>
-              <Input value={referenceCaption} onChange={(event) => setReferenceCaption(event.target.value)} />
+              <Input
+                value={referenceCaption}
+                onChange={(event) => setReferenceCaption(event.target.value)}
+              />
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1840,6 +1985,15 @@ function Overview({ data, refresh }: { data: StockUnitOperations; refresh: () =>
 
 export default function StockUnitOperationsPage() {
   const { id: productId, stockUnitId } = useParams<{ id: string; stockUnitId: string }>();
+  const searchParams = useSearchParams();
+  const inspectionTypeParam = searchParams.get('inspectionType');
+  const initialInspectionType = INSPECTION_TYPES.includes(
+    inspectionTypeParam as StockUnitInspectionType,
+  )
+    ? (inspectionTypeParam as StockUnitInspectionType)
+    : undefined;
+  const initialAssignmentId = searchParams.get('assignmentId') ?? undefined;
+  const bookingVersionId = searchParams.get('bookingVersionId') ?? undefined;
   const queryClient = useQueryClient();
   const unitQuery = useQuery({
     queryKey: ['stock-unit-operations', stockUnitId],
@@ -1920,7 +2074,7 @@ export default function StockUnitOperationsPage() {
         </div>
       </div>
       <LifecyclePanel data={data} refresh={refresh} />
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs defaultValue={initialInspectionType ? 'inspections' : 'overview'} className="space-y-4">
         <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="overview">
             <PackageCheck className="mr-2 h-4 w-4" />
@@ -1951,7 +2105,13 @@ export default function StockUnitOperationsPage() {
           <Overview data={data} refresh={refresh} />
         </TabsContent>
         <TabsContent value="inspections">
-          <InspectionsPanel data={data} refresh={refresh} />
+          <InspectionsPanel
+            data={data}
+            refresh={refresh}
+            initialInspectionType={initialInspectionType}
+            initialAssignmentId={initialAssignmentId}
+            bookingVersionId={bookingVersionId}
+          />
         </TabsContent>
         <TabsContent value="issues">
           <IssuesPanel data={data} refresh={refresh} />
@@ -2003,7 +2163,9 @@ export default function StockUnitOperationsPage() {
                     <p className="text-sm text-muted-foreground">{movement.reason}</p>
                     {movement.movementType === 'VALUATION_CHANGED' && (
                       <p className="text-xs text-muted-foreground">
-                        {formatMinorMoney(Number(movement.beforeState?.estimatedCurrentValue ?? 0))} → {formatMinorMoney(Number(movement.afterState?.estimatedCurrentValue ?? 0))}
+                        {formatMinorMoney(Number(movement.beforeState?.estimatedCurrentValue ?? 0))}{' '}
+                        →{' '}
+                        {formatMinorMoney(Number(movement.afterState?.estimatedCurrentValue ?? 0))}
                       </p>
                     )}
                   </div>
