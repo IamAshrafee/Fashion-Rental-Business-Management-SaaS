@@ -229,6 +229,45 @@ export async function loginWithCredentials(
   return { ...user, tenantId: primaryTenantId, subdomain: primarySubdomain, suspendedTenants };
 }
 
+export async function registerWithCredentials(
+  payload: Record<string, string>,
+): Promise<{ user: any; tenant: any }> {
+  const response = await apiClient.post<{
+    success: boolean;
+    data: {
+      user: any;
+      tenant: { id: string; subdomain: string; businessName: string };
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+    };
+  }>('/auth/register', payload);
+
+  const {
+    user,
+    tenant,
+    accessToken: token,
+    expiresIn = 900,
+  } = response.data.data;
+
+  setAccessToken(token, expiresIn, tenant.id);
+
+  // Write non-httpOnly marker cookies so middleware can do server-side routing
+  if (typeof document !== 'undefined') {
+    const REFRESH_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
+
+    // Allow cookies to span subdomains
+    const domainStr = window.location.hostname.includes('localhost')
+      ? '' // Chrome rejects domain=localhost when on a subdomain. Omit for dev.
+      : `; domain=.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com'}`;
+
+    document.cookie = `closetrent_session=1; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
+    document.cookie = `closetrent_role=owner; Max-Age=${REFRESH_MAX_AGE}; path=/; SameSite=Lax${domainStr}`;
+  }
+
+  return { user, tenant };
+}
+
 export async function logout(): Promise<void> {
   try {
     await apiClient.post('/auth/logout', {}, { withCredentials: true });

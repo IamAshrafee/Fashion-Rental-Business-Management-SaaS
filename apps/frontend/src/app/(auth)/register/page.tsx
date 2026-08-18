@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Loader2, Gift, Sparkles } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+import { registerWithCredentials } from '@/lib/auth';
 import { getApiErrorMessage } from '@/lib/api-error';
 
 export default function RegisterPage() {
@@ -100,6 +101,23 @@ function RegisterPageContent() {
       toast.error('Please fill in all required fields');
       return;
     }
+    if (formData.fullName.length < 2) {
+      toast.error('Full name must be at least 2 characters');
+      return;
+    }
+    if (!/^01[3-9]\d{8}$/.test(formData.phone.trim())) {
+      toast.error('Phone must be a valid BD number (01X-XXXX-XXXX)');
+      return;
+    }
+    if (formData.password.length < 8 || !/^(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
+      toast.error('Password must contain at least 8 chars, 1 uppercase, and 1 number');
+      return;
+    }
+    if (formData.subdomain.length < 3 || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(formData.subdomain)) {
+      toast.error('Subdomain must be lowercase letters, numbers, and hyphens only');
+      return;
+    }
+
     if (subdomainState === 'taken') {
       toast.error('Choose an available store URL');
       return;
@@ -109,32 +127,32 @@ function RegisterPageContent() {
     try {
       // Clean payload — omit empty optional fields
       const payload: Record<string, string> = {
-        fullName: formData.fullName,
+        fullName: formData.fullName.trim(),
+        phone: formData.phone.trim(),
         password: formData.password,
-        businessName: formData.businessName,
+        businessName: formData.businessName.trim(),
         subdomain: formData.subdomain,
       };
-      if (formData.email) payload.email = formData.email;
-      if (formData.phone) payload.phone = formData.phone;
-      if (formData.promoCode) payload.promoCode = formData.promoCode.toUpperCase();
-      if (formData.planSlug) payload.planSlug = formData.planSlug;
-      if (formData.referralSource) payload.referralSource = formData.referralSource;
+      if (formData.email) payload.email = formData.email.trim().toLowerCase();
+      if (formData.promoCode) payload.promoCode = formData.promoCode.trim().toUpperCase();
+      if (formData.planSlug) payload.planSlug = formData.planSlug.trim();
+      if (formData.referralSource) payload.referralSource = formData.referralSource.trim();
 
-      await apiClient.post('/auth/register', payload);
-      toast.success('Account created! Redirecting to your store...');
+      await registerWithCredentials(payload);
+      toast.success('Account created! Redirecting to your store dashboard...');
 
-      // Redirect to login on the new subdomain
+      // Redirect to dashboard on the new subdomain
       const subdomain = formData.subdomain;
       const hostname = window.location.hostname;
       const port = window.location.port ? `:${window.location.port}` : '';
 
       if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        // Development: redirect to subdomain.localhost:3000/login
-        window.location.href = `http://${subdomain}.localhost${port}/login`;
+        // Development: redirect to subdomain.localhost:3000/dashboard
+        window.location.href = `http://${subdomain}.localhost${port}/dashboard`;
       } else {
-        // Production: redirect to subdomain.closetrent.com/login
+        // Production: redirect to subdomain.closetrent.com/dashboard
         const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || 'closetrent.com';
-        window.location.href = `${window.location.protocol}//${subdomain}.${baseDomain}/login`;
+        window.location.href = `${window.location.protocol}//${subdomain}.${baseDomain}/dashboard`;
       }
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Registration failed'));
