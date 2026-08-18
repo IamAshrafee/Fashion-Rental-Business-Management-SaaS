@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, MailCheck } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +21,7 @@ export default function ForgotPasswordPage() {
     if (!normalized) return;
     setIsSubmitting(true);
     try {
-      await apiClient.post('/auth/forgot-password', { identifier: normalized });
+      await apiClient.post('/auth/forgot-password', { identifier: normalized.toLowerCase() });
       setSubmitted(true);
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'The reset request could not be submitted.'));
@@ -39,10 +39,9 @@ export default function ForgotPasswordPage() {
       <CardContent>
         {submitted ? (
           <div className="space-y-4 text-center">
-            <MailCheck className="mx-auto h-10 w-10 text-emerald-600" />
+            <Send className="mx-auto h-10 w-10 text-emerald-600" />
             <p className="text-sm text-muted-foreground">
-              If that account exists, reset instructions have been sent. The link expires in one
-              hour.
+              If that account exists, reset instructions have been sent via email or SMS. The link expires in one hour.
             </p>
             <Button asChild variant="outline" className="w-full">
               <a href="/login">Return to sign in</a>

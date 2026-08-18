@@ -35,10 +35,14 @@ function ResetPasswordForm() {
       toast.error('The password confirmation does not match.');
       return;
     }
+    if (password.length < 8 || !/^(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      toast.error('Password must contain at least 8 chars, 1 uppercase, and 1 number');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await apiClient.post('/auth/reset-password', {
-        identifier: identifier.trim(),
+        identifier: identifier.trim().toLowerCase(),
         token: token.trim(),
         newPassword: password,
       });
@@ -87,17 +91,21 @@ function ResetPasswordForm() {
               onChange={(event) => setIdentifier(event.target.value)}
               autoComplete="username"
               required
+              readOnly={!!search.get('identifier')}
+              className={search.get('identifier') ? 'bg-muted' : ''}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="reset-token">Reset token</Label>
-            <Input
-              id="reset-token"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              required
-            />
-          </div>
+          {!search.get('token') && (
+            <div className="space-y-2">
+              <Label htmlFor="reset-token">Reset token</Label>
+              <Input
+                id="reset-token"
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                required
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="new-password">New password</Label>
             <Input

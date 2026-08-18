@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { loginWithCredentials } from '@/lib/auth';
 import { extractSubdomain } from '@/lib/tenant';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 /**
  * Determine the post-login redirect URL.
@@ -95,7 +96,7 @@ export default function LoginPage() {
       // Call login directly so we get the user object back with their role
       const currentTenantSlug = extractSubdomain(window.location.host);
       const user = await loginWithCredentials(
-        emailOrPhone.trim(),
+        emailOrPhone.trim().toLowerCase(),
         password,
         currentTenantSlug ?? undefined,
       );
@@ -126,10 +127,7 @@ export default function LoginPage() {
         router.push(redirectUrl);
       }
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message ?? 'Invalid credentials';
-      toast.error(message);
+      toast.error(getApiErrorMessage(err, 'Invalid credentials'));
     } finally {
       setIsLoading(false);
     }
